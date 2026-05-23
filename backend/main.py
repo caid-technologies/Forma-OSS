@@ -61,15 +61,32 @@ def read_root():
 @app.post("/api/generate", response_model=Dict if not os.getenv("GEMINI_API_KEY") else Any)
 def generate_project_endpoint(request: GenerateProjectRequest):
     """
-    Submits a natural language hardware idea.
+    Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
     """
     if not request.prompt.strip():
         raise HTTPException(status_code=400, detail="Prompt cannot be empty.")
     
     try:
+        image_bytes = None
+        image_mime_type = None
+        if request.image_data:
+            try:
+                if "," in request.image_data:
+                    header, base64_data = request.image_data.split(",", 1)
+                    if "data:" in header and ";base64" in header:
+                        image_mime_type = header.split(";")[0].replace("data:", "")
+                else:
+                    base64_data = request.image_data
+                    image_mime_type = "image/png"
+                
+                import base64
+                image_bytes = base64.b64decode(base64_data)
+            except Exception as e:
+                print(f"Error decoding base64 image: {e}")
+
         orchestrator = HardwarePipelineOrchestrator()
-        ir = orchestrator.generate_project(request.prompt)
+        ir = orchestrator.generate_project(request.prompt, image_bytes=image_bytes, image_mime_type=image_mime_type)
         
         # Calculate diagrams
         mermaid_code = generate_mermaid_chart(ir)

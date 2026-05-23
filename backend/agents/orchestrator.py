@@ -119,15 +119,20 @@ class HardwarePipelineOrchestrator:
         self.use_simulation = use_simulation or (client is None)
         self.model_name = "gemini-2.5-flash"
 
-    def _call_gemini_structured(self, prompt: str, schema_class: Any) -> Any:
-        """Helper to invoke Gemini with structured JSON schemas."""
+    def _call_gemini_structured(self, prompt: str, schema_class: Any, image_bytes: Optional[bytes] = None, image_mime_type: Optional[str] = None) -> Any:
+        """Helper to invoke Gemini with structured JSON schemas, supporting optional multimodal image input."""
         if self.use_simulation:
             raise RuntimeError("Simulation mode is active; should use simulated generator instead.")
             
         try:
+            contents = []
+            if image_bytes and image_mime_type:
+                contents.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
+            contents.append(prompt)
+
             response = client.models.generate_content(
                 model=self.model_name,
-                contents=prompt,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     response_mime_type="application/json",
                     response_schema=schema_class,
@@ -139,7 +144,7 @@ class HardwarePipelineOrchestrator:
             logger.error(f"Gemini structured call failed: {e}")
             raise e
 
-    def generate_project(self, user_prompt: str) -> HardwareIR:
+    def generate_project(self, user_prompt: str, image_bytes: Optional[bytes] = None, image_mime_type: Optional[str] = None) -> HardwareIR:
         """Orchestrates the 7-agent hardware compilation pipeline with verification loop."""
         # 0. Safety Guardrail Pre-check
         safety_error = check_safety_violations(user_prompt)
@@ -198,11 +203,11 @@ class HardwarePipelineOrchestrator:
             # 1. Intent Parser Agent
             logger.info("Invoking Intent Parser Agent...")
             intent_prompt = f"""
-            You are an Intent Parser Agent. Convert the user's idea into a structured hardware project overview.
+            You are an Intent Parser Agent. Convert the user's idea and visual reference (if provided) into a structured hardware project overview.
             User Idea: "{user_prompt}"
             Generate the ProjectOverview schema containing title, description, difficulty, estimated cost (set to 0 for now), and category.
             """
-            overview: ProjectOverview = self._call_gemini_structured(intent_prompt, ProjectOverview)
+            overview: ProjectOverview = self._call_gemini_structured(intent_prompt, ProjectOverview, image_bytes, image_mime_type)
 
             # 2. Requirements Agent
             logger.info("Invoking Requirements Agent...")
@@ -213,7 +218,7 @@ class HardwarePipelineOrchestrator:
             Project Description: "{overview.description}"
             Generate the FunctionalRequirements schema. Make sure to identify appropriate operating voltage (usually 3.3V or 5V depending on common microcontrollers like ESP32 or Arduino).
             """
-            requirements: FunctionalRequirements = self._call_gemini_structured(req_prompt, FunctionalRequirements)
+            requirements: FunctionalRequirements = self._call_gemini_structured(req_prompt, FunctionalRequirements, image_bytes, image_mime_type)
 
             # 3. Component Selection Agent
             logger.info("Invoking Component Selection Agent...")
@@ -243,7 +248,7 @@ class HardwarePipelineOrchestrator:
             class ComponentListWrapper(BaseModel):
                 components: List[ComponentInstance]
                 
-            comp_wrapper: ComponentListWrapper = self._call_gemini_structured(comp_prompt, ComponentListWrapper)
+            comp_wrapper: ComponentListWrapper = self._call_gemini_structured(comp_prompt, ComponentListWrapper, image_bytes, image_mime_type)
             components = comp_wrapper.components
 
             # Compile intermediate IR for wiring
@@ -279,7 +284,7 @@ class HardwarePipelineOrchestrator:
                 nets: List[ConnectionNet]
                 pin_mappings: List[PinMappingEntry]
 
-            wiring_data: WiringWrapper = self._call_gemini_structured(wiring_prompt, WiringWrapper)
+            wiring_data: WiringWrapper = self._call_gemini_structured(wiring_prompt, WiringWrapper, image_bytes, image_mime_type)
             nets = wiring_data.nets
             pin_mappings = wiring_data.pin_mappings
 
@@ -312,7 +317,7 @@ class HardwarePipelineOrchestrator:
                 
                 Generate a corrected list of ConnectionNet and PinMappingEntry.
                 """
-                corrected_wiring: WiringWrapper = self._call_gemini_structured(healing_prompt, WiringWrapper)
+                corrected_wiring: WiringWrapper = self._call_gemini_structured(healing_prompt, WiringWrapper, image_bytes, image_mime_type)
                 nets = corrected_wiring.nets
                 pin_mappings = corrected_wiring.pin_mappings
                 
@@ -334,7 +339,7 @@ class HardwarePipelineOrchestrator:
             Components Selected: {components_json}
             Generate the MechanicalNotes schema.
             """
-            mechanical: MechanicalNotes = self._call_gemini_structured(mech_prompt, MechanicalNotes)
+            mechanical: MechanicalNotes = self._call_gemini_structured(mech_prompt, MechanicalNotes, image_bytes, image_mime_type)
 
             # 7. Assembly Instruction Agent
             logger.info("Invoking Assembly Instruction Agent...")
@@ -350,7 +355,7 @@ class HardwarePipelineOrchestrator:
             class AssemblyWrapper(BaseModel):
                 steps: List[AssemblyStep]
                 
-            assembly_wrapper: AssemblyWrapper = self._call_gemini_structured(assembly_prompt, AssemblyWrapper)
+            assembly_wrapper: AssemblyWrapper = self._call_gemini_structured(assembly_prompt, AssemblyWrapper, image_bytes, image_mime_type)
             assembly = assembly_wrapper.steps
 
             # Dynamic field extractions

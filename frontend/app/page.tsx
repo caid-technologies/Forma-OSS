@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -34,7 +34,9 @@ import {
   Sliders,
   Info,
   Layers,
-  Volume2
+  Volume2,
+  Paperclip,
+  X
 } from "lucide-react";
 
 export default function Home() {
@@ -48,6 +50,27 @@ export default function Home() {
   const [catalogComponents, setCatalogComponents] = useState<any[]>([]);
   const [serverStatus, setServerStatus] = useState<"connected" | "disconnected">("disconnected");
   
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const fileInputRefSidebar = useRef<HTMLInputElement>(null);
+  const fileInputRefCenter = useRef<HTMLInputElement>(null);
+
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setSelectedImage(reader.result as string);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeSelectedImage = () => {
+    setSelectedImage(null);
+    if (fileInputRefSidebar.current) fileInputRefSidebar.current.value = "";
+    if (fileInputRefCenter.current) fileInputRefCenter.current.value = "";
+  };
+
   // React Flow states
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
@@ -271,7 +294,10 @@ export default function Home() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify({ 
+          prompt,
+          image_data: selectedImage || null
+        }),
       });
 
       if (res.ok) {
@@ -281,6 +307,7 @@ export default function Home() {
         setSvgSchematic(data.svg_schematic);
         buildReactFlowGraph(data.project_ir);
         fetchProjectHistory();
+        setSelectedImage(null); // Clear image after successful generation
         setActiveTab("overview"); // Jump to overview to admire project specifications!
       } else {
         alert("Error from compilation server. Running with simulated fallback...");
@@ -292,6 +319,7 @@ export default function Home() {
       setMermaidCode(mockRes.mermaid_code);
       setSvgSchematic(mockRes.svg_schematic);
       buildReactFlowGraph(mockRes.project_ir);
+      setSelectedImage(null); // Clear image
       setActiveTab("overview");
     } finally {
       setIsLoading(false);
@@ -600,15 +628,50 @@ export default function Home() {
               <span>COMPILE DESIGN</span>
             </h3>
             <form onSubmit={handleGenerate} className="space-y-3">
-              <textarea
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="Describe a safe low-voltage electronics idea, such as an ESP32 sensor dashboard, Arduino motor controller, battery-powered LED wearable, or simple 3D-printable enclosure..."
-                className="w-full h-28 p-3 text-[11px] bg-[#070913] border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder:text-slate-600 text-slate-200 leading-normal"
-              />
+              <div className="relative">
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="Describe a safe low-voltage electronics idea, such as an ESP32 sensor dashboard, Arduino motor controller, battery-powered LED wearable, or simple 3D-printable enclosure..."
+                  className="w-full h-28 p-3 pb-9 text-[11px] bg-[#070913] border border-slate-800 rounded-xl focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all placeholder:text-slate-600 text-slate-200 leading-normal"
+                />
+                <div className="absolute bottom-2 left-2 flex items-center gap-1.5">
+                  <input
+                    type="file"
+                    ref={fileInputRefSidebar}
+                    accept="image/*"
+                    onChange={handleImageChange}
+                    className="hidden"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => fileInputRefSidebar.current?.click()}
+                    className={`p-1 rounded hover:bg-slate-800 transition-all ${
+                      selectedImage ? "text-blue-400" : "text-slate-500"
+                    }`}
+                    title="Attach reference sketch/image (multimodal)"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+
+              {selectedImage && (
+                <div className="relative w-16 h-16 rounded-lg border border-slate-800 bg-slate-950 overflow-hidden flex items-center justify-center group">
+                  <img src={selectedImage} alt="Reference sketch" className="object-cover w-full h-full" />
+                  <button
+                    type="button"
+                    onClick={removeSelectedImage}
+                    className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity"
+                  >
+                    <X className="w-4 h-4 text-red-400" />
+                  </button>
+                </div>
+              )}
+
               <button
                 type="submit"
-                disabled={isLoading}
+                disabled={isLoading || !prompt.trim()}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-4 rounded-xl shadow-lg shadow-blue-500/10 flex items-center justify-center space-x-2 transition-all disabled:opacity-50 text-xs tracking-wider"
               >
                 {isLoading ? (
@@ -1116,22 +1179,63 @@ export default function Home() {
                         assembly steps, and a typed JSON Hardware IR with validation checks.
                       </p>
                     </div>
-                    <form onSubmit={handleGenerate} className="max-w-2xl mx-auto">
-                      <div className="bg-[#070913] border border-slate-800 rounded-2xl p-2 flex items-end gap-2 shadow-2xl">
-                        <textarea
-                          value={prompt}
-                          onChange={(event) => setPrompt(event.target.value)}
-                          placeholder="Ask Blueprint to architect an ESP32 greenhouse monitor..."
-                          className="min-h-[76px] flex-1 resize-none bg-transparent p-3 text-xs text-slate-200 placeholder:text-slate-600 outline-none leading-relaxed"
-                        />
-                        <button
-                          type="submit"
-                          disabled={isLoading || !prompt.trim()}
-                          className="h-11 w-11 rounded-xl bg-blue-600 text-white flex items-center justify-center disabled:opacity-40 hover:bg-blue-500 transition-all"
-                          aria-label="Generate hardware design"
-                        >
-                          {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                        </button>
+                    <form onSubmit={handleGenerate} className="max-w-2xl mx-auto w-full">
+                      <div className="bg-[#070913] border border-slate-800 rounded-2xl p-2 flex flex-col gap-2 shadow-2xl">
+                        <div className="flex items-end gap-2">
+                          <textarea
+                            value={prompt}
+                            onChange={(event) => setPrompt(event.target.value)}
+                            placeholder="Ask Blueprint to architect an ESP32 greenhouse monitor..."
+                            className="min-h-[76px] flex-1 resize-none bg-transparent p-3 text-xs text-slate-200 placeholder:text-slate-600 outline-none leading-relaxed"
+                          />
+                          <div className="flex items-center gap-2 pb-1.5 pr-1.5">
+                            <input
+                              type="file"
+                              ref={fileInputRefCenter}
+                              accept="image/*"
+                              onChange={handleImageChange}
+                              className="hidden"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => fileInputRefCenter.current?.click()}
+                              className={`p-2.5 rounded-xl hover:bg-slate-800 border border-slate-800 transition-all ${
+                                selectedImage ? "text-blue-400 border-blue-500/30" : "text-slate-500"
+                              }`}
+                              title="Attach reference sketch/image (multimodal)"
+                            >
+                              <Paperclip className="w-4 h-4" />
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isLoading || !prompt.trim()}
+                              className="h-11 w-11 rounded-xl bg-blue-600 text-white flex items-center justify-center disabled:opacity-40 hover:bg-blue-500 transition-all"
+                              aria-label="Generate hardware design"
+                            >
+                              {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            </button>
+                          </div>
+                        </div>
+
+                        {selectedImage && (
+                          <div className="px-3 pb-2 flex items-center">
+                            <div className="relative w-20 h-20 rounded-xl border border-slate-800 bg-slate-950 overflow-hidden flex items-center justify-center group shadow-md">
+                              <img src={selectedImage} alt="Reference sketch" className="object-cover w-full h-full" />
+                              <button
+                                type="button"
+                                onClick={removeSelectedImage}
+                                className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity"
+                                title="Remove image"
+                              >
+                                <X className="w-5 h-5 text-red-400" />
+                              </button>
+                            </div>
+                            <div className="ml-3 text-left">
+                              <span className="block text-[10px] text-slate-400 font-bold uppercase tracking-wider">multimodal input loaded</span>
+                              <span className="text-[9px] text-slate-500">Google Nano Banana will extract visual context.</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </form>
                     <div className="grid md:grid-cols-3 gap-3 text-left">

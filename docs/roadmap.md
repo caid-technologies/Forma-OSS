@@ -4,11 +4,13 @@ Blueprint OSS is an MVP and research prototype. This roadmap separates **current
 
 ## Current MVP
 - Prompt-to-IR pipeline with sequential agents
+- Optional image-assisted generation (when Gemini is configured)
 - Seed component database (MCUs, sensors, actuators, displays, power)
 - Rule-based validation and repair loop
 - React Flow schematic visualization
 - SVG and Mermaid diagram generation
 - BOM, assembly steps, and mechanical notes
+- 3D mechanical placement viewer (React Three Fiber)
 
 ## Near-term (next iterations)
 - Expand component library and pin metadata

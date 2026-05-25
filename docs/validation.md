@@ -31,4 +31,8 @@ Blueprint is intentionally constrained to **low-voltage maker electronics**. The
 - Weapons or hazardous systems
 - High-power battery packs
 
-These checks are enforced before the agent pipeline runs to keep the MVP safe and focused.
+These checks are enforced **before** the agent pipeline runs (`check_safety_violations`) to keep the MVP safe and focused.
+
+## Standalone validation endpoint
+You can validate arbitrary parts + nets without running the full pipeline:
+- `POST /api/validate`

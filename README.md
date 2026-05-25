@@ -1,33 +1,30 @@
 # Blueprint OSS
 
-Blueprint OSS is an open-source, AI-native hardware design generator. It turns a natural-language idea into a structured, validated hardware project package (Hardware IR) plus schematics, BOM, and build steps.
+Blueprint OSS is an open-source, AI-native hardware design generator. It turns a prompt (and optionally an image) into a structured, validated **Hardware IR** package plus wiring diagrams, BOM, and build steps.
 
 This repository is an **MVP and research prototype** focused on **low-voltage maker electronics** (3.3V–5V) and safe, educational projects.
 
-## What you can build (MVP)
-- IoT sensor nodes and dashboards
-- Simple automation controllers (relays, servos, pumps)
-- Environmental monitors and data loggers
-- Small wearable or tabletop devices
-- Learning projects that map pins, nets, and BOMs
+## What you can do
+- Compile a hardware idea into typed **Hardware IR** (Pydantic)
+- Run **rule-based electrical validation** (shorts, voltage mismatch, unpowered ICs, pin conflicts, overcurrent risk)
+- Visualize wiring in:
+  - Interactive **React Flow** schematic
+  - Generated **SVG** schematic
+  - Generated **Mermaid** topology diagram
+- View a lightweight **3D mechanical layout** (Three.js / React Three Fiber)
+- Persist generated projects to **Postgres** (default) with an automatic **SQLite fallback**
 
 ## How it works
-Prompt → agents → Hardware IR → validation → outputs.
+Prompt (+ optional image) → sequential agents → Hardware IR → validation/repair → UI outputs.
 
 ```mermaid
 flowchart LR
-  A[Prompt + optional image] --> B[Multi-agent workflow\nGoogle ADK + Gemini Flash]
-  B --> C[Typed Hardware IR (Pydantic JSON)]
+  A[Prompt + optional image] --> B[ADK-style sequential agents\n(Gemini structured JSON)]
+  B --> C[Typed Hardware IR (Pydantic)]
   C --> D[Rule-based validation + repair loop]
-  D --> E[Outputs: React Flow schematic, SVG/Mermaid, BOM, assembly steps]
+  D --> E[UI: React Flow + SVG + Mermaid + 3D mech]
   C --> F[(Project database)]
 ```
-
-- **Prompts** describe what you want to build.
-- **Agents** interpret the intent, choose components, and draft wiring.
-- **Hardware IR** is the structured, typed source of truth for everything else.
-- **Validation** checks for electrical and safety issues and can trigger repair.
-- **Outputs** render in the UI and export as JSON packages.
 
 ## MVP scope & safety boundaries
 Blueprint intentionally limits scope to low-voltage maker electronics:
@@ -35,69 +32,59 @@ Blueprint intentionally limits scope to low-voltage maker electronics:
 - Breadboard-friendly microcontrollers, sensors, displays, and actuators
 - Educational and hobbyist prototypes
 
-It blocks or warns on high-risk domains (mains AC, medical, automotive, weapons, high-power battery systems). See [docs/validation.md](docs/validation.md) for details.
+It blocks or warns on high-risk domains (mains AC, medical, automotive control, weapons, high-power battery packs). See [docs/validation.md](docs/validation.md).
 
 ## Local setup (quick)
-Detailed instructions live in [docs/setup.md](docs/setup.md).
+Detailed instructions live in [docs/setup.md](docs/setup.md). The short version:
 
-### Backend
+### Backend (FastAPI)
+From the repo root:
+
 ```bash
-cd backend
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r backend/requirements.txt
 
-# Optional: set DATABASE_URL and GEMINI_API_KEY in backend/.env
-python3 seed_db.py
-uvicorn main:app --reload --port 8000
+# optional: seed parts library (the server also auto-seeds if empty)
+python3 backend/seed_db.py
+
+uvicorn backend.main:app --reload --port 8000
 ```
 
-### Frontend
+Environment variables (recommended via a repo-root `.env`; see `.env.example`):
+- `DATABASE_URL` (defaults to `postgresql://postgres:postgres@localhost:5432/blueprint`, falls back to `sqlite:///./blueprint.db` if Postgres isn’t reachable)
+- `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) to enable live generation
+- `GEMINI_MODEL` (default `gemini-3.5-flash`)
+- `STRICT_GEMINI` (default `true`; fail fast if `GEMINI_MODEL` is unavailable)
+- `GEMINI_FALLBACK_MODEL` (default `gemini-2.5-flash`; used when `STRICT_GEMINI=false`)
+
+If no Gemini key is configured (or generation fails), the backend returns a deterministic **simulation** based on the built-in example projects.
+
+### Frontend (Next.js)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-Then open http://localhost:3000 (frontend) and http://localhost:8000/docs (API docs).
+Open:
+- http://localhost:3000 (UI)
+- http://localhost:8000/docs (API docs)
 
-## Screenshots (placeholders)
-![Blueprint UI placeholder](docs/assets/ui-placeholder.svg)
-
-## Project structure (high level)
-```
-backend/   FastAPI + agent orchestration + validation
-frontend/  Next.js + React Flow UI
-docs/      Architecture and contributor docs
-examples/  Sample Hardware IR projects
-```
+Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_player (or any JSON under `frontend/public/examples/`).
 
 ## Documentation
 - [Architecture](docs/architecture.md)
-- [Hardware IR](docs/hardware-ir.md)
 - [Agents](docs/agents.md)
+- [Hardware IR](docs/hardware-ir.md)
 - [Validation](docs/validation.md)
 - [Database](docs/database.md)
-- [Frontend](docs/frontend.md)
 - [Backend](docs/backend.md)
+- [Frontend](docs/frontend.md)
 - [Setup](docs/setup.md)
 - [Development](docs/development.md)
-- [Roadmap](docs/roadmap.md)
 - [Examples](docs/examples.md)
+- [Roadmap](docs/roadmap.md)
 
-## Roadmap (summary)
-- Expand the component library and validation rules
-- Improve explainability, repair feedback, and UI tooling
-- Add richer exports (PCB-ready netlists, mechanical assets)
-
-Full roadmap: [docs/roadmap.md](docs/roadmap.md).
-
-## Contributing
-Blueprint OSS is research-oriented and welcomes contributors. Start with:
-1. Read [docs/development.md](docs/development.md)
-2. Open an issue or proposal
-3. Send a focused PR with tests or repro steps when applicable
-
----
-
-If you're new to hardware, this project aims to be a gentle path from idea to buildable prototype.
+## Screenshots (placeholder)
+![Blueprint UI placeholder](docs/assets/ui-placeholder.svg)

@@ -1,11 +1,16 @@
 # Agents
 
-Blueprint uses a sequential multi-agent workflow orchestrated by **Google ADK**. Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
+Blueprint uses an **ADK-style** sequential multi-agent workflow (implemented in `backend/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
 
 ## Pipeline overview
-1. Intent Parser → 2. Requirements → 3. Component Selection → 4. Wiring/Netlist → 5. BOM → 6. Mechanical/Fabrication → 7. Assembly Instructions
+0. Safety guardrails → 1. Intent Parser → 2. Requirements → 3. Component Selection → 4. Wiring/Netlist (+ repair loop) → 5. BOM → 6. Mechanical/Fabrication → 7. Assembly Instructions → 8. Mechanical render enrichment
 
 ## Agent responsibilities
+
+### Safety Guardrail (pre-check)
+**Input:** Prompt
+**Output:** Either a normal pipeline run, or a safety-blocked Hardware IR
+**Goal:** Block high-risk categories early (weapons, medical, mains AC, automotive control, high-power battery packs).
 
 ### Intent Parser Agent
 **Input:** Prompt (+ optional image)  
@@ -27,6 +32,8 @@ Blueprint uses a sequential multi-agent workflow orchestrated by **Google ADK**.
 **Output:** `ConnectionNet[]` + `PinMappingEntry[]`  
 **Goal:** Wire pins into power, ground, and signal nets.
 
+If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-correction** prompt and re-validates.
+
 ### BOM Agent
 **Input:** Component list  
 **Output:** Updated `ProjectOverview.estimated_cost`  
@@ -36,6 +43,8 @@ Blueprint uses a sequential multi-agent workflow orchestrated by **Google ADK**.
 **Input:** Overview + components  
 **Output:** `MechanicalNotes`  
 **Goal:** Suggest enclosure type, mounting, and fabrication details.
+
+The agent may also emit `render_dimensions`, `component_placements`, and `spatial_relationships` for the 3D viewer.
 
 ### Assembly Instruction Agent
 **Input:** Overview + components + nets + mechanical notes  
@@ -58,4 +67,5 @@ flowchart LR
 ## Notes
 - Agents run **sequentially** for determinism and traceability.
 - Validation can trigger a **repair loop** that re-invokes the wiring agent.
+- If Gemini isn’t configured (or generation fails), the backend uses a deterministic **simulation fallback** backed by the example projects.
 - The pipeline is designed to swap models or add agents without rewriting the core IR schema.

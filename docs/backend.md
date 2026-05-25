@@ -18,9 +18,28 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/projects` – list generated projects
 - `GET /api/projects/{project_id}` – fetch a stored project
 - `POST /api/seed` – re-seed the component database
+- `GET /debug/config` – inspect Gemini model resolution (no secrets)
 
 ## Orchestration layer
-The orchestrator runs a **7-step pipeline** with Google ADK. When a Gemini API key is configured, the agents generate structured JSON that maps directly to the Hardware IR. If no key is set, the system falls back to deterministic example projects for a reliable local demo.
+The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `backend/agents/orchestrator.py`). When a Gemini API key is configured, agents generate structured JSON that maps directly to the Hardware IR. If no key is set (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
+
+Gemini configuration behavior:
+- Default model: `gemini-3.5-flash`
+- Fallback model: `gemini-2.5-flash`
+- `STRICT_GEMINI=true` (default) fails fast when the requested model is unavailable
+- `STRICT_GEMINI=false` allows fallback to the configured fallback model
 
 ## Validation
 Validation is run after the netlist step. Critical issues trigger a repair loop that re-invokes the wiring agent before finalizing the IR.
+
+## Startup behavior
+On startup the server:
+- Initializes the DB schema
+- Auto-seeds component templates if the catalog is empty
+
+## Running locally
+Run the server from the repo root:
+
+```bash
+uvicorn backend.main:app --reload --port 8000
+```

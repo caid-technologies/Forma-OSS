@@ -2,6 +2,8 @@
 
 Blueprint stores component templates and generated projects in a relational database. PostgreSQL is the default, with a **SQLite fallback** for local development.
 
+The connection string is configured via `DATABASE_URL`. If the Postgres connection fails at startup, the backend falls back to `sqlite:///./blueprint.db` for out-of-the-box local reliability.
+
 ## Storage model
 Database models are defined in `backend/database.py`:
 
@@ -27,9 +29,11 @@ Archived outputs from the pipeline.
 ## Seeding the database
 Seed data is defined in `backend/seed_db.py`. Running:
 ```bash
-python3 seed_db.py
+python3 backend/seed_db.py
 ```
 creates the initial component library (MCUs, sensors, displays, actuators, power parts).
+
+On server startup, if the `component_templates` table is empty, the backend will also auto-seed the templates.
 
 ## Extensibility ideas
 - Component metadata enrichment (availability, supply chain links)

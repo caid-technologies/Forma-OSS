@@ -8,6 +8,21 @@ This project is research-oriented and welcomes contributors. Keep changes focuse
 3. Add or update documentation when you change behavior.
 4. Open a PR with a concise summary and testing notes.
 
+## Local commands
+Backend (from repo root):
+```bash
+source .venv/bin/activate
+uvicorn backend.main:app --reload --port 8000
+```
+
+Frontend:
+```bash
+cd frontend
+npm run dev
+npm run lint
+npm run build
+```
+
 ## Adding a new agent
 1. Define or extend the relevant Pydantic schema in `backend/models.py`.
 2. Add a new step in `backend/agents/orchestrator.py`.
@@ -21,7 +36,7 @@ This project is research-oriented and welcomes contributors. Keep changes focuse
 
 ## Adding seed components
 1. Add new entries in `backend/seed_db.py`.
-2. Re-run `python3 seed_db.py` to repopulate the database.
+2. Re-run `python3 backend/seed_db.py` to repopulate the database.
 3. Ensure pin definitions are complete and typed (power/ground/digital/etc).
 
 ## Frontend development tips

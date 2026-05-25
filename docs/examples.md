@@ -6,8 +6,12 @@ Blueprint ships with a few example Hardware IR projects to make the MVP easy to 
 - **Auto-Grow Plant Watering** (`examples/plant_watering.json`)
 - **Smart Thermostat** (`examples/smart_thermostat.json`)
 - **Biometric Deadbolt** (`examples/biometric_deadbolt.json`)
+- **Pocket MP3 Player** (`examples/pocket_mp3_player.json`)
 
 These same examples are mirrored in `frontend/public/examples/` for quick UI loading.
+
+You can deep-link an example in the UI:
+- `http://localhost:3000/?example=pocket_mp3_player`
 
 ## What each example includes
 - Typed Hardware IR (overview, requirements, components)

@@ -27,6 +27,12 @@ The core schema lives in `backend/models.py` and includes:
 - **validation** – `ValidationSummary` with categorized issues.
 - **is_valid** – boolean status after validation.
 
+Additional fields commonly populated at runtime:
+- **assembly_metadata** – backend-populated metadata such as generation timestamp, resolved model name, and render stats.
+- **mechanical.render_dimensions** – overall envelope dimensions used by the 3D viewer.
+- **mechanical.component_placements** – per-component placement records for the 3D viewer.
+- **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
+
 ## Key relationships
 - **ComponentInstance → PinDefinition:** Each instance carries a full pinout.
 - **ConnectionNet → PinReference:** Nets reference component pins by `ref_des` + `pin_id`.
@@ -41,3 +47,6 @@ The IR is produced in a loop:
 4. Validation results are embedded back into the IR.
 
 This makes the IR more than a snapshot—it’s a record of what was checked and why the design is considered safe within MVP scope.
+
+## Image inputs
+When `image_data` is provided to `POST /api/generate`, the backend stores the reference image in `assembly_metadata.reference_image_data` and adds lightweight extracted hints (for example `image_features`) so the UI can display the input context alongside the generated design.

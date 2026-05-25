@@ -10,15 +10,16 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 - **BOM & sourcing** table.
 - **Assembly instructions** and **mechanical notes** views.
 - **Export** of the Hardware IR package as JSON.
+- **3D mechanical scene** for enclosure and component placements.
 
 ## Primary tabs
 The main dashboard exposes several focused views:
-- **Overview** – project summary, constraints, and cost metrics.
-- **Schematic** – interactive React Flow wiring view.
-- **Vector View** – SVG schematic rendering.
-- **BOM & Sourcing** – component list and total cost.
-- **Instructions** – step-by-step assembly guidance.
-- **Mechanical** – enclosure and fabrication guidance.
+- **IMAGE** – project summary plus uploaded reference image (when present).
+- **BOM** – component list and total cost.
+- **MECH** – 3D enclosure + placements (Three.js / React Three Fiber).
+- **WIRE** – interactive React Flow wiring view.
+- **DOCS** – step-by-step assembly guidance and safety notes.
+- **SVG** – static SVG schematic rendering.
 
 ## Data flow
 The UI communicates with the backend API:
@@ -27,10 +28,20 @@ The UI communicates with the backend API:
 - `GET /api/projects` – history of generated projects
 - `POST /api/generate` – run the agent pipeline
 
+If the backend is offline, the UI can still load example JSONs from `frontend/public/examples/`.
+
+## Deep links
+You can load an example directly:
+- `http://localhost:3000/?example=pocket_mp3_player`
+
+You can also preselect a tab:
+- `http://localhost:3000/?example=pocket_mp3_player&tab=mech`
+
 ## Where to look
 - `frontend/app/page.tsx` – main UI, React Flow rendering, and tab layouts
 - `frontend/public/examples/` – example IR JSON files
 - `frontend/app/globals.css` – styling and theming
+- `frontend/components/mechanical-scene.tsx` – 3D mechanical viewer
 
 ## Rendering details
 The schematic view maps:

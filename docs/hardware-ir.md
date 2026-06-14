@@ -49,6 +49,6 @@ The IR is produced in a loop:
 This makes the IR more than a snapshot—it’s a record of what was checked and why the design is considered safe within MVP scope.
 
 ## Image inputs
-When `image_data` is provided to `POST /api/generate`, the backend stores the reference image in `assembly_metadata.reference_image_data` and adds lightweight extracted hints (for example `image_features`) so the UI can display the input context alongside the generated design.
+When `image_data` is provided to `POST /api/generate`, the backend stores the reference image in `assembly_metadata.reference_image_data` and adds lightweight extracted hints (for example `image_features`) so the UI can display the input context alongside the generated design. If `IMAGE_TEXT_PROVIDER` is configured, the backend can also store `image_text`, `image_text_provider`, and `image_text_model` after extracting a local vision-model description of the uploaded image.
 
 When image output is requested, the backend stores the generated product concept image in `assembly_metadata.product_image_data` and records `product_image_provider`, `product_image_model`, and `product_image_size`. The frontend prefers this generated image over the uploaded reference image on the IMAGE tab.

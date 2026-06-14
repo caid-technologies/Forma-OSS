@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from backend.agents.orchestrator import HardwarePipelineOrchestrator
 from backend.database import DBGeneratedProject, SessionLocal
 from backend.image_providers import build_image_provider, get_image_output_debug_config
+from backend.image_text_providers import build_image_text_provider, get_image_text_debug_config
 from backend.job_store import JOB_STORE
 from backend.models import ComponentInstance, ConnectionNet
 from backend.utils import generate_mermaid_chart, generate_svg_schematic
@@ -180,6 +181,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
             "default_path": "./blueprint_jobs.db",
         },
         "image_output": get_image_output_debug_config(),
+        "image_text": get_image_text_debug_config(),
         "actions": [
             "blueprint.generate_project",
             "blueprint.debug_config",
@@ -208,6 +210,77 @@ def _decode_image_data(image_data: Optional[str]) -> Tuple[Optional[bytes], Opti
     return base64.b64decode(base64_data), image_mime_type or "image/png"
 
 
+def _extract_reference_image_text(
+    prompt_text: str,
+    image_bytes: Optional[bytes],
+    image_mime_type: Optional[str],
+) -> Tuple[str, Dict[str, Any], bool]:
+    image_text_provider = build_image_text_provider()
+    image_text_config = image_text_provider.get_debug_config()
+    metadata: Dict[str, Any] = {
+        "image_text_provider": image_text_config.get("provider"),
+        "image_text_model": image_text_config.get("model_name"),
+        "image_text_configured": image_text_config.get("configured", False),
+    }
+
+    if not image_bytes:
+        return "", metadata, True
+    if not image_text_config.get("configured"):
+        logger.warning(
+            "Reference image text extraction is not configured; forwarding raw image to structured LLM. provider=%s model=%s reason=%s",
+            image_text_config.get("provider"),
+            image_text_config.get("model_name"),
+            image_text_config.get("reason"),
+        )
+        return "", metadata, True
+
+    try:
+        extraction = image_text_provider.extract_text(image_bytes, image_mime_type, user_prompt=prompt_text)
+    except Exception as exc:
+        logger.exception("Reference image text extraction failed; forwarding raw image to structured LLM. error=%s", exc)
+        metadata["image_text_error"] = str(exc)[:500]
+        return "", metadata, True
+
+    if not extraction or not extraction.text.strip():
+        logger.warning(
+            "Reference image text extraction returned no text; forwarding raw image to structured LLM. provider=%s model=%s",
+            image_text_config.get("provider"),
+            image_text_config.get("model_name"),
+        )
+        return "", metadata, True
+
+    metadata.update(
+        {
+            "image_text": extraction.text[:4000],
+            "image_text_provider": extraction.provider,
+            "image_text_model": extraction.model,
+            "image_text_prompt": extraction.prompt[:1000],
+        }
+    )
+    return extraction.text.strip(), metadata, _env_bool("IMAGE_TEXT_FORWARD_IMAGE", default=False)
+
+
+def _image_text_features(image_text: str, limit: int = 12) -> List[str]:
+    if not image_text:
+        return []
+
+    candidates = [line.strip(" -\t") for line in image_text.splitlines()]
+    if len([candidate for candidate in candidates if candidate]) <= 1:
+        candidates = [
+            chunk.strip(" -\t")
+            for chunk in image_text.replace(";", ".").split(".")
+        ]
+
+    features: List[str] = []
+    for candidate in candidates:
+        if not candidate:
+            continue
+        features.append(candidate[:180])
+        if len(features) >= limit:
+            break
+    return features
+
+
 def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = False) -> None:
     image_provider = build_image_provider(force_enabled=generate_image)
     image_config = image_provider.get_debug_config()
@@ -224,10 +297,18 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
     if not generate_image:
         return
 
+    if not image_config.get("configured"):
+        logger.warning(
+            "Product image generation requested but provider is not configured. provider=%s model=%s reason=%s",
+            image_config.get("provider"),
+            image_config.get("model_name"),
+            image_config.get("reason"),
+        )
+
     try:
         generated_image = image_provider.generate_project_image(prompt_text, ir)
     except Exception as exc:
-        logger.warning("Product image generation failed: %s", exc)
+        logger.exception("Product image generation failed. error=%s", exc)
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
             "product_image_error": str(exc)[:500],
@@ -235,6 +316,12 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         return
 
     if not generated_image:
+        logger.warning(
+            "Product image generation returned no image. provider=%s model=%s configured=%s",
+            image_config.get("provider"),
+            image_config.get("model_name"),
+            image_config.get("configured"),
+        )
         return
 
     ir.assembly_metadata = {
@@ -263,7 +350,7 @@ def _persist_updated_project_ir(ir: Any) -> None:
         db.commit()
     except Exception as exc:
         db.rollback()
-        logger.warning("Failed to persist updated project metadata for %s: %s", project_id, exc)
+        logger.exception("Failed to persist updated project metadata for %s: %s", project_id, exc)
     finally:
         db.close()
 
@@ -287,19 +374,37 @@ def build_generation_response(
             raise ValueError("Reference image could not be decoded.") from exc
         image_bytes, image_mime_type = None, None
 
+    image_text, image_text_metadata, forward_reference_image = _extract_reference_image_text(
+        prompt_text,
+        image_bytes,
+        image_mime_type,
+    )
+    generation_prompt = prompt_text
+    if image_text:
+        generation_prompt = (
+            f"{prompt_text}\n\n"
+            "Reference image analysis from configured image-text model:\n"
+            f"{image_text}"
+        )
+
     orchestrator = HardwarePipelineOrchestrator()
-    ir = orchestrator.generate_project(prompt_text, image_bytes=image_bytes, image_mime_type=image_mime_type)
+    ir = orchestrator.generate_project(
+        generation_prompt,
+        image_bytes=image_bytes if forward_reference_image else None,
+        image_mime_type=image_mime_type if forward_reference_image else None,
+    )
 
     if image_data:
         metadata = ir.assembly_metadata or {}
         ir.assembly_metadata = {
             **metadata,
+            **image_text_metadata,
             "reference_image_data": image_data,
-            "image_features": metadata.get("image_features") or ir.constraints[:12],
+            "image_features": metadata.get("image_features") or _image_text_features(image_text) or ir.constraints[:12],
             "input_mode": "prompt_image",
         }
 
-    _attach_product_image(prompt_text, ir, generate_image=generate_image)
+    _attach_product_image(generation_prompt, ir, generate_image=generate_image)
     _persist_updated_project_ir(ir)
 
     return {
@@ -325,6 +430,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
         return {
             **orchestrator.get_debug_config(),
             "image_output": get_image_output_debug_config(),
+            "image_text": get_image_text_debug_config(),
         }
 
     if normalized == "validate_circuit":
@@ -413,6 +519,13 @@ async def _process_server_message(message: A2AMessage) -> None:
         )
     except Exception as exc:
         JOB_STORE.mark_failed(message.job_id, str(exc))
+        logger.exception(
+            "A2A server-owned job failed job_id=%s action=%s sender=%s error=%s",
+            message.job_id,
+            message.action,
+            message.sender,
+            exc,
+        )
         event = A2AEvent(
             job_id=message.job_id,
             message_id=message.message_id,
@@ -665,6 +778,7 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Dict[str, Any]:
 
         return _jsonrpc_error(request_id, -32601, f"Unknown MCP method: {method}")
     except Exception as exc:
+        logger.exception("MCP request failed method=%s error=%s", method, exc)
         return _jsonrpc_error(request_id, -32000, str(exc))
 
 

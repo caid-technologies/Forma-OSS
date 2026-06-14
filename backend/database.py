@@ -1,4 +1,5 @@
 import os
+import logging
 from sqlalchemy import create_engine, Column, String, Float, Integer, JSON, Text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -6,6 +7,8 @@ from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 # We default to a PostgreSQL connection, but fall back gracefully to a local SQLite database
 # if Postgres is not accessible, to ensure 100% out-of-the-box local reliability.
@@ -26,7 +29,7 @@ else:
             pass
     except Exception:
         # Fallback to local SQLite if PostgreSQL connection fails
-        print("WARNING: PostgreSQL connection failed. Falling back to local SQLite 'blueprint.db'...")
+        logger.exception("PostgreSQL connection failed. Falling back to local SQLite 'blueprint.db'.")
         DATABASE_URL = "sqlite:///./blueprint.db"
         engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 

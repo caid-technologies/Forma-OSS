@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_IMAGE_SIZE = "1024x1024"
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 120.0
+DEFAULT_STABLE_DIFFUSION_BASE_URL = "http://127.0.0.1:7860"
 
 
 @dataclass
@@ -68,6 +69,28 @@ def _first_env_float(names: List[str], default: float) -> float:
         return default
 
 
+def _first_env_int(names: List[str]) -> Optional[int]:
+    raw_value = _first_env(names)
+    if raw_value is None:
+        return None
+    try:
+        return int(raw_value)
+    except ValueError:
+        logger.warning("Invalid image integer value %r; ignoring it.", raw_value)
+        return None
+
+
+def _first_env_optional_float(names: List[str]) -> Optional[float]:
+    raw_value = _first_env(names)
+    if raw_value is None:
+        return None
+    try:
+        return float(raw_value)
+    except ValueError:
+        logger.warning("Invalid image float value %r; ignoring it.", raw_value)
+        return None
+
+
 def _truncate(value: Any, limit: int) -> str:
     text = str(value or "").strip()
     if len(text) <= limit:
@@ -97,6 +120,26 @@ def _mime_for_output_format(output_format: str) -> str:
     if normalized in {"jpeg", "png", "webp"}:
         return f"image/{normalized}"
     return "image/png"
+
+
+def _parse_image_size(size: str, default: str = DEFAULT_IMAGE_SIZE) -> tuple[int, int]:
+    value = (size or default).strip().lower()
+    if "x" not in value:
+        value = default
+    try:
+        width_text, height_text = value.split("x", 1)
+        width = int(width_text)
+        height = int(height_text)
+    except ValueError:
+        width, height = (1024, 1024)
+    return width, height
+
+
+def _strip_data_url_prefix(value: str) -> str:
+    stripped = value.strip()
+    if "," in stripped and stripped.lower().startswith("data:"):
+        return stripped.split(",", 1)[1].strip()
+    return stripped
 
 
 class ImageProvider:
@@ -262,6 +305,111 @@ class OpenAIImageProvider(ImageProvider):
         )
 
 
+class StableDiffusionWebUIProvider(ImageProvider):
+    provider_name = "stable-diffusion-webui"
+
+    def __init__(self, enabled: bool = True, force_enabled: bool = False) -> None:
+        self.enabled = enabled or force_enabled
+        self.base_url = (
+            _first_env(["STABLE_DIFFUSION_BASE_URL", "IMAGE_BASE_URL"], DEFAULT_STABLE_DIFFUSION_BASE_URL)
+            or DEFAULT_STABLE_DIFFUSION_BASE_URL
+        ).rstrip("/")
+        self.api_key = _first_env(["STABLE_DIFFUSION_API_KEY", "IMAGE_API_KEY"])
+        self.model_name = _first_env(["STABLE_DIFFUSION_MODEL", "IMAGE_MODEL"], "stable-diffusion-webui") or "stable-diffusion-webui"
+        self.size = _first_env(["STABLE_DIFFUSION_SIZE", "IMAGE_SIZE", "OPENAI_IMAGE_SIZE"], DEFAULT_IMAGE_SIZE) or DEFAULT_IMAGE_SIZE
+        self.output_format = _first_env(["STABLE_DIFFUSION_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"], "png") or "png"
+        self.timeout_seconds = _first_env_float(["STABLE_DIFFUSION_TIMEOUT_SECONDS", "IMAGE_TIMEOUT_SECONDS"], DEFAULT_IMAGE_TIMEOUT_SECONDS)
+        self.steps = _first_env_int(["STABLE_DIFFUSION_STEPS", "IMAGE_STEPS"]) or 24
+        self.cfg_scale = _first_env_optional_float(["STABLE_DIFFUSION_CFG_SCALE", "IMAGE_CFG_SCALE"])
+        self.sampler_name = _first_env(["STABLE_DIFFUSION_SAMPLER", "IMAGE_SAMPLER"])
+        self.negative_prompt = _first_env(
+            ["STABLE_DIFFUSION_NEGATIVE_PROMPT", "IMAGE_NEGATIVE_PROMPT"],
+            "text, labels, watermark, logo, people, hands, weapons, high voltage, medical device",
+        )
+        self.seed = _first_env_int(["STABLE_DIFFUSION_SEED", "IMAGE_SEED"])
+        self.is_configured = bool(self.enabled and self.base_url)
+
+    def get_debug_config(self) -> Dict[str, Any]:
+        return {
+            **super().get_debug_config(),
+            "base_url": self.base_url,
+            "size": self.size,
+            "steps": self.steps,
+            "output_format": self.output_format,
+            "reason": None if self.is_configured else "Stable Diffusion WebUI base URL is missing or image output is disabled.",
+        }
+
+    def _headers(self) -> Dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        return headers
+
+    def _request_json(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        url = f"{self.base_url}/sdapi/v1/txt2img"
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=self._headers(),
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"stable diffusion image request failed with HTTP {exc.code}: {detail[:500]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"stable diffusion image request failed: {exc}") from exc
+
+        if not body.strip():
+            return {}
+        return json.loads(body)
+
+    def generate_project_image(self, user_prompt: str, ir: Any) -> Optional[GeneratedImage]:
+        if not self.is_configured:
+            return None
+
+        image_prompt = build_project_image_prompt(user_prompt, ir)
+        width, height = _parse_image_size(self.size)
+        payload: Dict[str, Any] = {
+            "prompt": image_prompt,
+            "negative_prompt": self.negative_prompt,
+            "width": width,
+            "height": height,
+            "steps": self.steps,
+            "batch_size": 1,
+            "n_iter": 1,
+        }
+        if self.cfg_scale is not None:
+            payload["cfg_scale"] = self.cfg_scale
+        if self.sampler_name:
+            payload["sampler_name"] = self.sampler_name
+        if self.seed is not None:
+            payload["seed"] = self.seed
+
+        response = self._request_json(payload)
+        images = response.get("images")
+        if not isinstance(images, list) or not images:
+            raise RuntimeError("stable diffusion image response did not include images.")
+        first_image = images[0]
+        if not isinstance(first_image, str) or not first_image.strip():
+            raise RuntimeError("stable diffusion image response did not include base64 image data.")
+
+        mime_type = _mime_for_output_format(self.output_format)
+        data_url = f"data:{mime_type};base64,{_strip_data_url_prefix(first_image)}"
+
+        return GeneratedImage(
+            data_url=data_url,
+            provider=self.provider_name,
+            model=self.model_name,
+            size=self.size,
+            prompt=image_prompt,
+            output_format=self.output_format,
+        )
+
+
 def _first_image_item(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     data = response.get("data")
     if isinstance(data, list) and data:
@@ -358,12 +506,14 @@ def build_image_provider(force_enabled: bool = False) -> ImageProvider:
 
     if provider_name in {"none", "disabled", "off", "false", "simulation", "mock"}:
         return NoImageProvider()
-    if provider_name in {"openai", "openai-compatible", "compatible"}:
+    if provider_name in {"openai", "openai-compatible", "compatible", "local", "local-openai", "local-openai-compatible"}:
         return OpenAIImageProvider(provider_name=provider_name, enabled=enabled, force_enabled=force_enabled)
+    if provider_name in {"stable-diffusion-webui", "automatic1111", "auto1111", "a1111", "sd-webui", "local-stable-diffusion"}:
+        return StableDiffusionWebUIProvider(enabled=enabled, force_enabled=force_enabled)
 
     logger.warning("Unsupported IMAGE_PROVIDER %r; image output is disabled.", provider_name)
     return NoImageProvider(
-        f"Unsupported IMAGE_PROVIDER '{provider_name}'. Supported providers are openai, openai-compatible, and none."
+        f"Unsupported IMAGE_PROVIDER '{provider_name}'. Supported providers are openai, openai-compatible, stable-diffusion-webui, and none."
     )
 
 

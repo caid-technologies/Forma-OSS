@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from typing import List, Optional, Dict, Any
 
 # ==========================================
@@ -11,6 +11,78 @@ class PinDefinition(BaseModel):
     pin_type: str = Field(..., description="Type of pin: Power, Ground, Digital, Analog, I2C, SPI, UART, PWM, Passive")
     voltage: Optional[float] = Field(None, description="Operating voltage of the pin in Volts, e.g., 3.3 or 5.0")
     description: Optional[str] = Field(None, description="Detailed description of the pin function")
+
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_pin_shorthand(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return _pin_shorthand_to_dict(value)
+
+        if isinstance(value, dict):
+            pin_id = str(value.get("pin_id") or value.get("id") or value.get("name") or "").strip()
+            if not pin_id:
+                return value
+
+            inferred = _pin_shorthand_to_dict(pin_id)
+            return {
+                **inferred,
+                **value,
+                "pin_id": pin_id,
+                "name": value.get("name") or inferred["name"],
+                "pin_type": value.get("pin_type") or value.get("type") or inferred["pin_type"],
+                "voltage": value.get("voltage", inferred.get("voltage")),
+                "description": value.get("description") or inferred["description"],
+            }
+
+        return value
+
+
+def _pin_shorthand_to_dict(pin_id: str) -> Dict[str, Any]:
+    normalized = str(pin_id).strip()
+    upper = normalized.upper()
+    pin_type = "Passive"
+    voltage: Optional[float] = None
+
+    if upper in {"GND", "GROUND", "NEG", "CATHODE"}:
+        pin_type = "Ground"
+        voltage = 0.0
+    elif upper in {"3V3", "3.3V", "V3.3"}:
+        pin_type = "Power"
+        voltage = 3.3
+    elif upper in {"5V", "+5V", "VBUS"}:
+        pin_type = "Power"
+        voltage = 5.0
+    elif upper in {"VCC", "VDD", "VIN", "POS"}:
+        pin_type = "Power"
+    elif upper in {"SCL", "SDA", "XCL", "XDA"}:
+        pin_type = "I2C"
+        voltage = 3.3
+    elif upper in {"SCK", "CLK", "MISO", "MOSI", "CS", "CSB", "SDO"}:
+        pin_type = "SPI"
+        voltage = 3.3
+    elif upper in {"TX", "RX", "TXD", "RXD"}:
+        pin_type = "UART"
+        voltage = 3.3
+    elif upper in {"PWM"}:
+        pin_type = "PWM"
+    elif upper.startswith("GPIO") or (upper.startswith("D") and upper[1:].isdigit()):
+        pin_type = "Digital"
+        voltage = 3.3
+    elif upper.startswith("A") and upper[1:].isdigit():
+        pin_type = "Analog"
+    elif upper in {"DATA", "DAT", "IN", "OUT", "TRIG", "ECHO", "INT", "EN"}:
+        pin_type = "Digital"
+    elif upper in {"ANODE"}:
+        pin_type = "Passive"
+
+    return {
+        "pin_id": normalized,
+        "name": normalized,
+        "pin_type": pin_type,
+        "voltage": voltage,
+        "description": f"Inferred from shorthand pin '{normalized}'.",
+    }
+
 
 class ComponentTemplate(BaseModel):
     part_number: str = Field(..., description="Manufacturer or generic part number, e.g., 'ESP32-WROOM-32D', 'DHT11'")

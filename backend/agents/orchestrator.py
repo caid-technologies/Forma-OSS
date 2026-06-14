@@ -41,6 +41,37 @@ def get_db_component_templates() -> List[Dict[str, Any]]:
     finally:
         db.close()
 
+
+def hydrate_component_pins_from_templates(
+    components: List[ComponentInstance],
+    templates: List[Dict[str, Any]],
+) -> List[ComponentInstance]:
+    """Use inventory templates as the source of truth for selected component pinouts."""
+    pins_by_part = {
+        template.get("part_number"): template.get("pins") or []
+        for template in templates
+        if template.get("part_number")
+    }
+
+    hydrated_components: List[ComponentInstance] = []
+    for component in components:
+        template_pins = pins_by_part.get(component.part_number)
+        if not template_pins:
+            hydrated_components.append(component)
+            continue
+
+        try:
+            pins = [PinDefinition.model_validate(pin) for pin in template_pins]
+        except Exception as exc:
+            logger.warning("Could not hydrate pins for %s from template: %s", component.part_number, exc)
+            hydrated_components.append(component)
+            continue
+
+        hydrated_components.append(component.model_copy(update={"pins": pins}))
+
+    return hydrated_components
+
+
 # Helper utilities to enrich HardwareIR schemas dynamically
 def extract_power_rails(components: List[ComponentInstance], nets: List[ConnectionNet]) -> List[PowerRail]:
     rails = []
@@ -388,7 +419,7 @@ def build_mechanical_render_data(ir: HardwareIR) -> HardwareIR:
 class HardwarePipelineOrchestrator:
     def __init__(self, use_simulation: bool = False):
         self.llm_provider = build_llm_provider()
-        self.use_simulation = use_simulation or not self.llm_provider.is_configured
+        self.use_simulation = use_simulation
         self.model_name = self.llm_provider.model_name
 
     def get_debug_config(self) -> Dict[str, Any]:
@@ -411,7 +442,14 @@ class HardwarePipelineOrchestrator:
             self.model_name = self.llm_provider.model_name
             return result
         except Exception as e:
-            logger.error(f"LLM structured call failed via {self.llm_provider.provider_name}: {e}")
+            logger.exception(
+                "LLM structured call failed via provider=%s model=%s schema=%s image_attached=%s: %s",
+                self.llm_provider.provider_name,
+                self.llm_provider.model_name,
+                getattr(schema_class, "__name__", "unknown"),
+                bool(image_bytes),
+                e,
+            )
             raise
 
     def generate_project(self, user_prompt: str, image_bytes: Optional[bytes] = None, image_mime_type: Optional[str] = None) -> HardwareIR:
@@ -468,10 +506,14 @@ class HardwarePipelineOrchestrator:
             self.save_project_to_db(user_prompt, project_ir)
             return project_ir
 
-        if self.use_simulation:
-            return self._generate_simulated_project(user_prompt, has_image=bool(image_bytes))
-
         model_validation = self.validate_configured_model()
+        if self.use_simulation:
+            raise LLMProviderConfigError("Simulation generation is disabled for jobs. Configure a live LLM provider.")
+        if not model_validation.live_generation_enabled:
+            raise LLMProviderConfigError(
+                model_validation.validation_error
+                or "Live LLM generation is unavailable. Configure a live LLM provider before starting a generation job."
+            )
 
         try:
             logger.info("Starting 7-Agent Pipeline Execution...")
@@ -518,14 +560,18 @@ class HardwarePipelineOrchestrator:
             - rationale: Explain why this component is selected and how it fits.
             - pins: MUST match the exact list of pins from the template, including pin_id, name, pin_type, voltage.
             
-            Output a JSON representation conforming to a List[ComponentInstance].
+            The inventory above is authoritative and sufficient for this project. If the user's ideal part is not listed, choose the closest safe available part and explain that substitution in the rationale. Examples: use BMP280 for pressure/altitude/weather sensing; use DHT22 for temperature/humidity; use SSD1306-I2C for a small display; use ESP32-WROOM-32D when wireless control is useful; use Arduino-Nano-V3 for simple non-wireless control.
+
+            Do not return an error object, apology, markdown, or commentary. Do not use a top-level "error" key.
+            Return exactly one JSON object with this outer shape:
+            {{"components": [/* ComponentInstance objects */]}}
             """
             # Helper class to wrap list output
             class ComponentListWrapper(BaseModel):
                 components: List[ComponentInstance]
                 
             comp_wrapper: ComponentListWrapper = self._call_llm_structured(comp_prompt, ComponentListWrapper, image_bytes, image_mime_type)
-            components = comp_wrapper.components
+            components = hydrate_component_pins_from_templates(comp_wrapper.components, db_components)
 
             # Compile intermediate IR for wiring
             components_json = json.dumps([c.model_dump() for c in components], indent=2)
@@ -674,7 +720,10 @@ class HardwarePipelineOrchestrator:
                     "model_name": self.model_name,
                     "fallback_mode": model_validation.fallback_active,
                     "requested_model": model_validation.requested_model,
+                    "requested_models": model_validation.requested_models or [model_validation.requested_model],
                     "actual_model": model_validation.actual_model,
+                    "candidate_models": model_validation.candidate_models or [],
+                    "fallback_models": model_validation.fallback_models or [],
                     "llm_provider": model_validation.provider,
                     "pipeline": "provider-agnostic structured LLM + ADK-style hardware agents",
                 },
@@ -691,8 +740,13 @@ class HardwarePipelineOrchestrator:
         except LLMProviderConfigError:
             raise
         except Exception as e:
-            logger.error(f"Pipeline execution encountered an error: {e}. Falling back to simulation.")
-            return self._generate_simulated_project(user_prompt, has_image=bool(image_bytes))
+            logger.exception(
+                "Pipeline execution failed via provider=%s model=%s. Job will fail without simulation fallback. error=%s",
+                self.llm_provider.provider_name,
+                self.llm_provider.model_name,
+                e,
+            )
+            raise
 
     def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         """Saves a successfully generated HardwareIR to the PostgreSQL/SQLite database."""
@@ -718,7 +772,7 @@ class HardwarePipelineOrchestrator:
             return project_id
         except Exception as e:
             db.rollback()
-            logger.error(f"Failed to save project to database: {e}")
+            logger.exception("Failed to save project to database: %s", e)
             return ""
         finally:
             db.close()

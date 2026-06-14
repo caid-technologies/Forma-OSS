@@ -1,11 +1,17 @@
 from typing import Any, Dict, List
 from uuid import uuid4
+import logging
 from fastapi import Body, FastAPI, Depends, HTTPException, Query, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from backend.logging_config import configure_logging
+
+configure_logging()
+logger = logging.getLogger(__name__)
 
 from backend.database import get_db, init_db, DBGeneratedProject, DBComponentTemplate
 from backend.seed_db import seed_database
@@ -27,6 +33,7 @@ from backend.a2a import (
     submit_a2a_message,
 )
 from backend.image_providers import get_image_output_debug_config
+from backend.image_text_providers import get_image_text_debug_config
 from backend.job_store import JOB_STORE
 from backend.validation import validate_circuit
 from backend.utils import generate_mermaid_chart, generate_svg_schematic
@@ -49,19 +56,19 @@ app.add_middleware(
 # Initialize and seed database on startup
 @app.on_event("startup")
 async def startup_event():
-    print("Starting up Blueprint server...")
+    logger.info("Starting up Blueprint server...")
     try:
         init_db()
         # Seed component templates if empty
         db = next(get_db())
         count = db.query(DBComponentTemplate).count()
         if count == 0:
-            print("Database empty. Seeding templates automatically...")
+            logger.info("Database empty. Seeding templates automatically.")
             seed_database()
         else:
-            print(f"Database ready with {count} component templates.")
+            logger.info("Database ready with %s component templates.", count)
     except Exception as e:
-        print(f"Error during database startup: {e}")
+        logger.exception("Error during database startup: %s", e)
     JOB_STORE.init_db()
     await start_a2a_tcp_server()
 
@@ -86,11 +93,22 @@ def debug_config_endpoint():
     """
     try:
         orchestrator = HardwarePipelineOrchestrator()
-        return {
+        config = {
             **orchestrator.get_debug_config(),
             "image_output": get_image_output_debug_config(),
+            "image_text": get_image_text_debug_config(),
         }
+        logger.info(
+            "Debug config resolved: provider=%s requested_model=%s actual_model=%s image_output=%s image_text=%s",
+            config.get("provider"),
+            config.get("requested_model"),
+            config.get("actual_model"),
+            config.get("image_output", {}).get("provider"),
+            config.get("image_text", {}).get("provider"),
+        )
+        return config
     except Exception as e:
+        logger.exception("Debug config failed: %s", e)
         raise HTTPException(status_code=500, detail=f"Debug config failed: {str(e)}")
 
 @app.post("/api/generate", response_model=Dict[str, Any])
@@ -120,8 +138,20 @@ def generate_project_endpoint(request: GenerateProjectRequest):
     JOB_STORE.mark_running(job_id)
 
     try:
+        logger.info(
+            "Starting generation job_id=%s prompt_present=%s image_present=%s generate_image=%s",
+            job_id,
+            bool(request.prompt.strip()),
+            bool(request.image_data),
+            request.generate_image,
+        )
         response = build_generation_response(request.prompt, request.image_data, generate_image=request.generate_image)
         JOB_STORE.mark_succeeded(job_id, response)
+        project_id = (
+            response.get("project_id")
+            or (response.get("project_ir", {}).get("assembly_metadata", {}) if isinstance(response.get("project_ir"), dict) else {}).get("project_id")
+        )
+        logger.info("Generation job succeeded job_id=%s project_id=%s", job_id, project_id)
         return {
             **response,
             "job_id": job_id,
@@ -129,10 +159,26 @@ def generate_project_endpoint(request: GenerateProjectRequest):
         }
     except ValueError as e:
         JOB_STORE.mark_failed(job_id, str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        logger.warning("Generation job rejected job_id=%s error=%s", job_id, e)
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": str(e),
+                "job_id": job_id,
+                "job": JOB_STORE.get_job(job_id),
+            },
+        )
     except Exception as e:
         JOB_STORE.mark_failed(job_id, str(e))
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        logger.exception("Generation job failed job_id=%s error=%s", job_id, e)
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": f"Generation failed: {str(e)}",
+                "job_id": job_id,
+                "job": JOB_STORE.get_job(job_id),
+            },
+        )
 
 
 @app.get("/api/a2a/capabilities")

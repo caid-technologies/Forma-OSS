@@ -5,7 +5,7 @@ Blueprint OSS turns prompts into structured hardware projects using a sequential
 ## System pipeline
 1. **Prompt + optional image** enters the system.
 2. **Safety guardrails** block high-risk domains early (weapons, medical, mains AC, etc.).
-3. **Model resolution** determines whether live LLM generation runs or a deterministic simulation fallback is used.
+3. **Model resolution** determines whether live LLM generation can run; unavailable or failing providers mark the job failed.
 4. **Intent Parser Agent** produces a high-level `ProjectOverview`.
 5. **Requirements Agent** extracts functional requirements and constraints.
 6. **Component Selection Agent** chooses parts from the seed database.
@@ -23,9 +23,9 @@ Blueprint OSS turns prompts into structured hardware projects using a sequential
 - The backend runs an **ADK-style sequential workflow** implemented in `backend/agents/orchestrator.py`.
 - Live structured JSON output is routed through `backend/llm_providers.py`.
 - Supported providers are `gemini`, `openai`, `openai-compatible`, and `simulation`.
-- Generic configuration uses `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `STRICT_LLM`, and `LLM_FALLBACK_MODEL`.
-- Gemini-specific variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_MODEL`, `STRICT_GEMINI`, `GEMINI_FALLBACK_MODEL`) remain supported as compatibility aliases.
-- If no API key is configured (or generation errors), the backend uses a deterministic simulation fallback backed by curated example projects.
+- Generic configuration uses `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`/`LLM_MODELS`, `STRICT_LLM`, and `LLM_FALLBACK_MODEL`/`LLM_FALLBACK_MODELS`.
+- Gemini-specific variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_MODEL`/`GEMINI_MODELS`, `STRICT_GEMINI`, `GEMINI_FALLBACK_MODEL`/`GEMINI_FALLBACK_MODELS`) remain supported as compatibility aliases.
+- If no API key is configured or generation errors, the backend marks the job failed and stores the error for inspection.
 
 ## System diagram
 ```mermaid

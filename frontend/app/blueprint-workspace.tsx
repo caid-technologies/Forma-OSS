@@ -276,6 +276,8 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobsLastUpdatedAt, setJobsLastUpdatedAt] = useState<string | null>(null);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [failedGenerationJobId, setFailedGenerationJobId] = useState<string | null>(null);
   const [showHeaderRecent, setShowHeaderRecent] = useState(false);
   const [catalogComponents, setCatalogComponents] = useState<any[]>([]);
   const [serverStatus, setServerStatus] = useState<"connected" | "disconnected">("disconnected");
@@ -565,6 +567,8 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
     const imageData = selectedImage;
     setIsLoading(true);
+    setGenerationError(null);
+    setFailedGenerationJobId(null);
     checkServerStatus();
 
     try {
@@ -578,9 +582,17 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
         }),
       });
 
-      if (!res.ok) throw new Error("Compilation server failed");
-
       const data = await res.json();
+      if (!res.ok) {
+        const detail = data?.detail;
+        const errorText =
+          typeof detail === "string"
+            ? detail
+            : detail?.error || `Compilation server failed with HTTP ${res.status}`;
+        if (detail?.job_id) setFailedGenerationJobId(detail.job_id);
+        throw new Error(errorText);
+      }
+
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
       setMermaidCode(data.mermaid_code);
@@ -590,16 +602,14 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       if (projectId) syncProjectRoute(projectId);
       fetchProjectHistory();
       fetchA2aJobs(jobStatusFilter, { silent: true });
+      setActiveTab("overview");
     } catch (error) {
-      console.warn("Using local simulation fallback", error);
-      const mockRes = await runMockCompilation(promptText, imageData);
-      setProjectIR(mockRes.project_ir);
-      setMermaidCode(mockRes.mermaid_code);
-      setSvgSchematic(mockRes.svg_schematic);
-      buildReactFlowGraph(mockRes.project_ir);
+      const message = error instanceof Error ? error.message : "Compilation failed";
+      setGenerationError(message);
+      setJobStatusFilter("failed");
+      fetchA2aJobs("failed", { silent: true });
     } finally {
       setSelectedImage(null);
-      setActiveTab("overview");
       setIsLoading(false);
     }
   };
@@ -677,40 +687,6 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       <text x="735" y="253" font-family="monospace" font-size="11" fill="#ec4899" text-anchor="middle">${(outputs[1]?.name || "Display").slice(0, 23)}</text>
       <path d="M550 231 H650" fill="none" stroke="#ec4899" stroke-width="2"/>
     </svg>`;
-  };
-
-  const runMockCompilation = async (userPrompt: string, imageData?: string | null): Promise<any> => {
-    const promptLower = userPrompt.toLowerCase();
-    let file = "biometric_deadbolt.json";
-
-    if (
-      imageData ||
-      promptLower.includes("mp3") ||
-      promptLower.includes("audio") ||
-      promptLower.includes("music") ||
-      promptLower.includes("player") ||
-      promptLower.includes("pocket")
-    ) {
-      file = "pocket_mp3_player.json";
-    } else if (promptLower.includes("water") || promptLower.includes("plant") || promptLower.includes("soil") || promptLower.includes("garden")) {
-      file = "plant_watering.json";
-    } else if (promptLower.includes("thermostat") || promptLower.includes("temperature") || promptLower.includes("weather")) {
-      file = "smart_thermostat.json";
-    }
-
-    const res = await fetch(`/examples/${file}`);
-    const ir = await res.json();
-    ir.assembly_metadata = {
-      ...(ir.assembly_metadata || {}),
-      reference_image_data: imageData || ir.assembly_metadata?.reference_image_data || null,
-      input_mode: imageData ? "prompt_image" : "prompt",
-      image_features: ir.assembly_metadata?.image_features || ir.constraints || [],
-    };
-    return {
-      project_ir: ir,
-      mermaid_code: pipelineMermaidCode,
-      svg_schematic: generateMockSvg(ir),
-    };
   };
 
   const loadOldProject = async (projectId: string, options: { syncRoute?: boolean } = {}) => {
@@ -974,6 +950,21 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                 </div>
               </div>
             </form>
+
+            {generationError && (
+              <div className="mt-4 border border-rose-500/30 bg-rose-950/20 p-4 text-left text-sm leading-6 text-rose-200">
+                <div className="flex items-start gap-3">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <div className="min-w-0">
+                    <div className="font-semibold text-rose-100">Compilation failed</div>
+                    <p className="mt-1 break-words text-xs text-rose-200/90">{generationError}</p>
+                    {failedGenerationJobId && (
+                      <p className="mt-2 font-mono text-[11px] text-rose-200/70">Job: {failedGenerationJobId}</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 flex flex-wrap justify-center gap-2">
               {samplePrompts.map((example) => (

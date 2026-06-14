@@ -87,31 +87,42 @@ LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `DATABASE_URL`: Database connection string (default: `******localhost:5432/blueprint`). Falls back to `sqlite:///./blueprint.db` if PostgreSQL is unavailable.
+- `LOG_LEVEL`: Backend log level. Defaults to `INFO`.
+- `BACKEND_LOG_FILE`: Optional backend log file path, for example `./blueprint-backend.log`.
 - `LLM_PROVIDER`: Live generation provider: `gemini`, `openai`, `openai-compatible`, or `simulation`.
 - `OPENAI_API_KEY`: API key for first-party OpenAI when `LLM_PROVIDER=openai`.
 - `OPENAI_MODEL`: OpenAI model ID. The example default is `gpt-4o-mini`.
+- `OPENAI_MODELS`: Optional ordered comma-separated OpenAI model list. When set, it supersedes `OPENAI_MODEL` and each model is tried before the job fails.
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format. Defaults to `json_schema`; `json_object` and `none` are also supported.
 - `OPENAI_TIMEOUT_SECONDS`: First-party OpenAI read timeout. Defaults to `300`.
 - `OPENAI_REASONING_EFFORT`: Optional reasoning effort for GPT-5/o-series models, for example `low`.
 - `OPENAI_TEMPERATURE`: Optional first-party OpenAI sampling temperature. Omitted by default so models that only support their default temperature can run.
 - `OPENAI_PROJECT_ID` / `OPENAI_ORG_ID`: Optional OpenAI project and organization routing headers.
 - `IMAGE_OUTPUT_ENABLED`: Optional global default for generated product images. The UI and API can opt in per job with `generate_image=true`.
-- `IMAGE_PROVIDER`: Image provider. Supports `openai`, `openai-compatible`, or `none`.
+- `IMAGE_PROVIDER`: Image provider. Supports `openai`, `openai-compatible`, `local`, `stable-diffusion-webui`, or `none`.
 - `OPENAI_IMAGE_MODEL`: OpenAI image model ID. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`: Generated image size, for example `1024x1024`.
+- `IMAGE_TEXT_PROVIDER`: Optional uploaded-image text extraction provider. Supports `openai`, `openai-compatible`, `local`, `ollama`, or `none`.
+- `IMAGE_TEXT_BASE_URL` / `IMAGE_TEXT_MODEL`: Local vision endpoint and model, for example Ollama at `http://localhost:11434` with `llava:latest`.
+- `IMAGE_TEXT_ALLOW_NO_API_KEY`: Set to `true` for local OpenAI-compatible vision endpoints that do not require auth.
+- `IMAGE_TEXT_FORWARD_IMAGE`: Set to `true` to also forward the raw image to the structured LLM after local image text extraction. Defaults to `false` when image text extraction succeeds.
+- `IMAGE_BASE_URL` / `IMAGE_MODEL`: Generic local image generation endpoint and model for `IMAGE_PROVIDER=local` or `openai-compatible`.
+- `STABLE_DIFFUSION_BASE_URL`: Stable Diffusion WebUI / Automatic1111 base URL for `IMAGE_PROVIDER=stable-diffusion-webui`.
 - `LLM_API_KEY`: Generic provider API key alias. For Gemini, `GEMINI_API_KEY` or `GOOGLE_API_KEY` still work.
 - `LLM_MODEL`: Model to use, for example `gemini-3.5-flash` or an OpenAI/OpenAI-compatible model ID.
+- `LLM_MODELS`: Optional ordered comma-separated model list for Gemini or OpenAI-compatible providers. When set, it supersedes `LLM_MODEL`.
 - `LLM_TIMEOUT_SECONDS`: Generic read timeout. OpenAI-compatible endpoints default to `90`.
 - `LLM_REASONING_EFFORT`: Optional generic reasoning effort for compatible endpoints that support it.
 - `LLM_TEMPERATURE`: Optional generic sampling temperature. OpenAI-compatible endpoints default to `0.2`; set `default`, `none`, or `omit` to omit it.
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
 - `LLM_FALLBACK_MODEL`: Optional fallback model when `STRICT_LLM=false`.
+- `LLM_FALLBACK_MODELS`: Optional ordered comma-separated fallback model list when `STRICT_LLM=false`.
 - `LLM_BASE_URL`: Optional base URL for OpenAI-compatible providers.
 - `JOB_METADATA_DB_PATH`: SQLite file used for durable A2A job metadata (default: `./blueprint_jobs.db`).
 - `A2A_SOCKET_ENABLED`: Set to `true` to start the optional TCP JSONL A2A socket.
 - `A2A_SOCKET_HOST` / `A2A_SOCKET_PORT`: Host and port for the optional TCP JSONL listener.
 
-If no live LLM provider is configured or generation fails, the backend returns deterministic simulation outputs based on built-in example projects.
+If no live LLM provider is configured or generation fails, the generation job is marked failed and the stored job error can be viewed through the Jobs panel or `/api/a2a/jobs/{job_id}`.
 
 ### Frontend (Next.js)
 ```bash
@@ -131,6 +142,8 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [Agents](docs/agents.md)
 - [Hardware IR](docs/hardware-ir.md)
 - [Validation](docs/validation.md)
+- [Local Models](docs/local-models.md)
+- [Debugging](docs/debugging.md)
 - [Database](docs/database.md)
 - [A2A](docs/a2a.md)
 - [Backend](docs/backend.md)

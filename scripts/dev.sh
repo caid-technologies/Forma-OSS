@@ -92,7 +92,7 @@ if [ ! -d "$ROOT_DIR/frontend/node_modules" ]; then
 fi
 
 if is_port_open "$BACKEND_PORT"; then
-  if curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/" >/dev/null 2>&1; then
+  if curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api" >/dev/null 2>&1; then
     log "Backend already appears to be running at http://$BACKEND_HOST:$BACKEND_PORT"
   else
     log "Port $BACKEND_PORT is already in use, but Blueprint did not respond there."
@@ -102,7 +102,7 @@ else
   log "Starting backend at http://$BACKEND_HOST:$BACKEND_PORT"
   "$VENV_DIR/bin/uvicorn" backend.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
   backend_pid="$!"
-  wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/" "Backend"
+  wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend"
 fi
 
 FRONTEND_PORT="$(first_free_port "$FRONTEND_PORT")"

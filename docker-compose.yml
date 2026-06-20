@@ -70,7 +70,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api', timeout=5)",
         ]
       interval: 10s
       timeout: 5s

@@ -44,8 +44,15 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
+const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
 const JOB_POLL_INTERVAL_MS = 5000;
+
+function normalizeApiUrl(value: string) {
+  const trimmed = value.trim().replace(/\/+$/, "");
+  if (!trimmed) return "/api";
+  return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+}
 
 const samplePrompts = [
   "Compact handheld device with display, controls, USB-C power, and enclosure",
@@ -371,7 +378,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
   const checkServerStatus = async () => {
     try {
-      const res = await fetch(`${API_URL}/`);
+      const res = await fetch(API_URL);
       setServerStatus(res.ok ? "connected" : "disconnected");
     } catch {
       setServerStatus("disconnected");
@@ -380,7 +387,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
   const fetchCatalog = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/components`);
+      const res = await fetch(`${API_URL}/components`);
       if (res.ok) setCatalogComponents(await res.json());
     } catch (e) {
       console.error("Error fetching catalog", e);
@@ -389,7 +396,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
   const fetchProjectHistory = async () => {
     try {
-      const res = await fetch(`${API_URL}/api/projects`);
+      const res = await fetch(`${API_URL}/projects`);
       if (res.ok) setProjectHistory(await res.json());
     } catch (e) {
       console.error("Error fetching project history", e);
@@ -402,7 +409,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     try {
       const params = new URLSearchParams({ limit: "100" });
       if (status !== "all") params.set("status", status);
-      const res = await fetch(`${API_URL}/api/a2a/jobs?${params.toString()}`);
+      const res = await fetch(`${API_URL}/a2a/jobs?${params.toString()}`);
       if (!res.ok) throw new Error(`Jobs endpoint returned ${res.status}`);
       setA2aJobs(await res.json());
       setJobsLastUpdatedAt(new Date().toISOString());
@@ -618,7 +625,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     checkServerStatus();
 
     try {
-      const res = await fetch(`${API_URL}/api/generate`, {
+      const res = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -767,7 +774,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     const shouldSyncRoute = options.syncRoute ?? true;
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/api/projects/${projectId}`);
+      const res = await fetch(`${API_URL}/projects/${projectId}`);
       if (!res.ok) return;
 
       const data = await res.json();

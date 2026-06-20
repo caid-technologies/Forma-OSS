@@ -161,7 +161,7 @@ OpenAI one-liner:
 LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn backend.main:app --reload --port 8000
 ```
 
-API docs: http://localhost:8000/docs
+API docs: http://localhost:8000/api/docs
 
 ## Frontend setup (Next.js)
 ```bash

@@ -162,7 +162,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                 "port_env": "A2A_SOCKET_PORT",
             },
             "mcp": {
-                "endpoint": "/mcp",
+                "endpoint": "/api/mcp",
                 "alias": "/api/a2a/mcp",
                 "tools": [
                     "blueprint.generate_project",

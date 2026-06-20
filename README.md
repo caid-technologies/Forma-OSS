@@ -147,7 +147,7 @@ npm run dev
 
 Open:
 - http://localhost:3000 (UI)
-- http://localhost:8000/docs (API docs)
+- http://localhost:8000/api/docs (API docs)
 
 Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_player (or any JSON under `frontend/public/examples/`).
 

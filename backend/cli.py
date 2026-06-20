@@ -77,7 +77,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def cmd_health(args: argparse.Namespace) -> int:
     api_url = _api_url(args.api_url)
     checks = {
-        "root": f"{api_url}/",
+        "root": f"{api_url}/api",
         "jobs": f"{api_url}/api/a2a/jobs?limit=1",
         "components": f"{api_url}/api/components",
     }

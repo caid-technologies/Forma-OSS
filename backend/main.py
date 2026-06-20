@@ -41,7 +41,11 @@ from backend.utils import generate_mermaid_chart, generate_svg_schematic
 app = FastAPI(
     title="Blueprint Open-Source API",
     description="AI-native prompt-to-hardware compilation, validation, and design generation platform.",
-    version="1.0.0"
+    version="1.0.0",
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
+    swagger_ui_oauth2_redirect_url="/api/docs/oauth2-redirect",
 )
 
 # Enable CORS for Next.js frontend
@@ -76,16 +80,17 @@ async def startup_event():
 async def shutdown_event():
     await stop_a2a_tcp_server()
 
-@app.get("/")
+@app.get("/api")
+@app.get("/api/")
 def read_root():
     return {
         "status": "online",
         "service": "Blueprint Open-Source Hardware Compiler",
         "version": "1.0.0",
-        "docs_url": "/docs"
+        "docs_url": "/api/docs"
     }
 
-@app.get("/debug/config")
+@app.get("/api/debug/config")
 def debug_config_endpoint():
     """
     Reports LLM provider and model resolution state without exposing credentials.
@@ -203,7 +208,7 @@ async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
     await handle_a2a_websocket(websocket, agent_id)
 
 
-@app.post("/mcp")
+@app.post("/api/mcp")
 async def mcp_endpoint(payload: Any = Body(...)):
     """MCP-style JSON-RPC endpoint exposing Blueprint tools."""
     return await handle_mcp_json_rpc(payload)

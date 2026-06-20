@@ -6,7 +6,7 @@ Blueprint exposes the same hardware generation capability through several agent-
 - **REST:** `GET /api/a2a/capabilities`, `PUT /api/a2a/agents/{agent_id}`, `POST /api/a2a/messages`, long-poll `GET /api/a2a/agents/{agent_id}/events`, and job metadata lookup under `GET /api/a2a/jobs`
 - **WebSocket:** `/api/a2a/socket/{agent_id}`
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
-- **MCP-style JSON-RPC:** `POST /mcp` or `POST /api/a2a/mcp`
+- **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
 
 Job metadata is persisted through `JOB_METADATA_BACKEND` (default: `auto`). In `auto`, Blueprint stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite at `JOB_METADATA_DB_PATH` (default: `./blueprint_jobs.db`). The store keeps compact metadata only: payloads have image data redacted, and results are summarized instead of storing full generated IR blobs.
 
@@ -70,7 +70,7 @@ A2A_SOCKET_PORT=8766
 Each line sent to the socket is an `A2AMessage` JSON object. Each line returned by the socket is an `A2AEvent` JSON object.
 
 ## MCP Tools
-`POST /mcp` supports:
+`POST /api/mcp` supports:
 - `initialize`
 - `tools/list`
 - `tools/call`

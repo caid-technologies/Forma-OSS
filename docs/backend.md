@@ -24,13 +24,13 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/a2a/jobs` – list persisted A2A job metadata
 - `GET /api/a2a/jobs/{job_id}` – fetch one persisted A2A job metadata record
 - `WebSocket /api/a2a/socket/{agent_id}` – bidirectional A2A event stream
-- `POST /mcp` and `POST /api/a2a/mcp` – MCP-style JSON-RPC tool endpoint
+- `POST /api/mcp` and `POST /api/a2a/mcp` – MCP-style JSON-RPC tool endpoint
 - `POST /api/validate` – validate a user-supplied netlist
 - `GET /api/components` – list component templates
 - `GET /api/projects` – list generated projects
 - `GET /api/projects/{project_id}` – fetch a stored project
 - `POST /api/seed` – re-seed the component database
-- `GET /debug/config` – inspect LLM, database, image-provider, and image-storage resolution (no secrets)
+- `GET /api/debug/config` – inspect LLM, database, image-provider, and image-storage resolution (no secrets)
 
 ## Orchestration layer
 The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `backend/agents/orchestrator.py`). Live agent calls go through `backend/llm_providers.py`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.

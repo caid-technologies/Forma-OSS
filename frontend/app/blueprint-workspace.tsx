@@ -44,7 +44,7 @@ import {
   ExternalLink,
 } from "lucide-react";
 
-const API_URL = "http://localhost:8000";
+const API_URL = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 const JOB_POLL_INTERVAL_MS = 5000;
 
 const samplePrompts = [

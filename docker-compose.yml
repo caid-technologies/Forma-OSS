@@ -1,0 +1,85 @@
+name: blueprint
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    image: blueprint-backend:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DOCKER_DATABASE_URL:-sqlite:////data/blueprint.db}
+      JOB_METADATA_DB_PATH: /data/blueprint_jobs.db
+      LLM_PROVIDER: ${LLM_PROVIDER:-simulation}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_ALLOW_NO_API_KEY: ${LLM_ALLOW_NO_API_KEY:-}
+      LLM_RESPONSE_FORMAT: ${LLM_RESPONSE_FORMAT:-}
+      LLM_VALIDATE_MODELS: ${LLM_VALIDATE_MODELS:-}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-}
+      LLM_REASONING_EFFORT: ${LLM_REASONING_EFFORT:-}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-}
+      STRICT_LLM: ${STRICT_LLM:-false}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_RESPONSE_FORMAT: ${OPENAI_RESPONSE_FORMAT:-}
+      OPENAI_VALIDATE_MODELS: ${OPENAI_VALIDATE_MODELS:-}
+      OPENAI_TIMEOUT_SECONDS: ${OPENAI_TIMEOUT_SECONDS:-}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-}
+      OPENAI_TEMPERATURE: ${OPENAI_TEMPERATURE:-}
+      OPENAI_PROJECT_ID: ${OPENAI_PROJECT_ID:-}
+      OPENAI_ORG_ID: ${OPENAI_ORG_ID:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GOOGLE_API_KEY: ${GOOGLE_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-}
+      STRICT_GEMINI: ${STRICT_GEMINI:-}
+      GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-}
+      IMAGE_OUTPUT_ENABLED: ${IMAGE_OUTPUT_ENABLED:-false}
+      IMAGE_PROVIDER: ${IMAGE_PROVIDER:-none}
+      IMAGE_API_KEY: ${IMAGE_API_KEY:-}
+      IMAGE_BASE_URL: ${IMAGE_BASE_URL:-}
+      OPENAI_IMAGE_API_KEY: ${OPENAI_IMAGE_API_KEY:-}
+      OPENAI_IMAGE_MODEL: ${OPENAI_IMAGE_MODEL:-}
+      OPENAI_IMAGE_SIZE: ${OPENAI_IMAGE_SIZE:-}
+      OPENAI_IMAGE_QUALITY: ${OPENAI_IMAGE_QUALITY:-}
+      OPENAI_IMAGE_OUTPUT_FORMAT: ${OPENAI_IMAGE_OUTPUT_FORMAT:-}
+      A2A_SOCKET_ENABLED: ${A2A_SOCKET_ENABLED:-false}
+      A2A_SOCKET_HOST: 0.0.0.0
+      A2A_SOCKET_PORT: ${A2A_SOCKET_PORT:-8766}
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - blueprint-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=5)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    image: blueprint-frontend:local
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  blueprint-data:

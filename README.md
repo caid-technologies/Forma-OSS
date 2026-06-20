@@ -46,6 +46,21 @@ From the repo root:
 
 This starts the FastAPI backend and Next.js frontend together. Use `BACKEND_PORT`, `FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
 
+### Docker
+Build and run both images from the repo root:
+
+```bash
+docker compose up --build
+```
+
+The Docker setup runs the backend on port `8000`, the frontend on port `3000`, and stores SQLite data in a named Docker volume. Set `LLM_PROVIDER`, `OPENAI_API_KEY`, `LLM_API_KEY`, or the other variables from `.env.example` before running Compose to use a live model provider; otherwise the backend defaults to simulation mode.
+
+If you change the published backend URL, rebuild the frontend with a matching public API URL:
+
+```bash
+BACKEND_PORT=8010 NEXT_PUBLIC_API_URL=http://localhost:8010 docker compose up --build
+```
+
 ### Backend (FastAPI)
 From the repo root:
 

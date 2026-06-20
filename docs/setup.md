@@ -6,6 +6,32 @@ Blueprint OSS runs a FastAPI backend and a Next.js frontend. PostgreSQL is suppo
 - **Python 3.11+**
 - **Node.js 18+**
 - **PostgreSQL** (optional, recommended for persistent storage)
+- **Docker** (optional, for containerized frontend/backend images)
+
+## Docker setup
+From the repo root:
+
+```bash
+docker compose up --build
+```
+
+This builds `blueprint-backend:local` and `blueprint-frontend:local`, starts the API on port `8000`, starts the UI on port `3000`, and keeps SQLite data in the `blueprint-data` Docker volume.
+
+The Compose backend defaults to:
+
+```env
+DATABASE_URL=sqlite:////data/blueprint.db
+JOB_METADATA_DB_PATH=/data/blueprint_jobs.db
+LLM_PROVIDER=simulation
+```
+
+Set the same live-provider variables listed below in your shell or repo-root `.env` before running Compose if you want model-backed generation. Use `DOCKER_DATABASE_URL` if you want to override the container database URL.
+
+If you publish the backend on a different host or port, rebuild the frontend with a matching browser-visible API URL:
+
+```bash
+BACKEND_PORT=8010 NEXT_PUBLIC_API_URL=http://localhost:8010 docker compose up --build
+```
 
 ## Backend setup (FastAPI)
 From the repo root:

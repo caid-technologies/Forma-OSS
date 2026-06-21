@@ -67,11 +67,36 @@ app = FastAPI(
     title="Blueprint Open-Source API",
     description="AI-native prompt-to-hardware compilation, validation, and design generation platform.",
     version="1.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-    openapi_url="/api/openapi.json",
-    swagger_ui_oauth2_redirect_url="/api/docs/oauth2-redirect",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    swagger_ui_oauth2_redirect_url="/docs/oauth2-redirect",
 )
+
+
+class ApiPrefixCompatibilityMiddleware:
+    """Accept /api-prefixed requests when the service receives the full public path."""
+
+    def __init__(self, app: Any, prefix: str = "/api") -> None:
+        self.app = app
+        self.prefix = prefix
+
+    async def __call__(self, scope: Dict[str, Any], receive: Any, send: Any) -> None:
+        if scope.get("type") in {"http", "websocket"}:
+            path = scope.get("path", "")
+            if path == self.prefix:
+                scope = dict(scope)
+                scope["path"] = "/"
+                scope["root_path"] = f"{scope.get('root_path', '').rstrip('/')}{self.prefix}"
+            elif path.startswith(f"{self.prefix}/"):
+                scope = dict(scope)
+                scope["path"] = path[len(self.prefix):] or "/"
+                scope["root_path"] = f"{scope.get('root_path', '').rstrip('/')}{self.prefix}"
+
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(ApiPrefixCompatibilityMiddleware)
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
@@ -105,8 +130,7 @@ async def startup_event():
 async def shutdown_event():
     await stop_a2a_tcp_server()
 
-@app.get("/api")
-@app.get("/api/")
+@app.get("/")
 def read_root():
     return {
         "status": "online",
@@ -115,7 +139,7 @@ def read_root():
         "docs_url": "/api/docs"
     }
 
-@app.get("/api/debug/config")
+@app.get("/debug/config")
 def debug_config_endpoint():
     """
     Reports LLM provider and model resolution state without exposing credentials.
@@ -132,7 +156,7 @@ def debug_config_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Debug config failed: {str(e)}")
 
-@app.post("/api/generate", response_model=Dict[str, Any])
+@app.post("/generate", response_model=Dict[str, Any])
 def generate_project_endpoint(request: GenerateProjectRequest):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
@@ -176,13 +200,13 @@ def generate_project_endpoint(request: GenerateProjectRequest):
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 
-@app.get("/api/a2a/capabilities")
+@app.get("/a2a/capabilities")
 def a2a_capabilities_endpoint():
     """Advertises Blueprint's A2A transports, actions, and MCP tools."""
     return get_a2a_capabilities()
 
 
-@app.put("/api/a2a/agents/{agent_id}")
+@app.put("/a2a/agents/{agent_id}")
 async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
     """Registers an agent so it can receive queued A2A events."""
     record = registration.model_dump()
@@ -190,14 +214,14 @@ async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
     return await A2A_HUB.register(agent_id, record)
 
 
-@app.post("/api/a2a/messages")
+@app.post("/a2a/messages")
 async def send_a2a_message(message: A2AMessage):
     """Submits an A2A message and queues an async result for the sender."""
     ack = await submit_a2a_message(message)
     return ack.model_dump()
 
 
-@app.get("/api/a2a/agents/{agent_id}/events")
+@app.get("/a2a/agents/{agent_id}/events")
 async def poll_a2a_events(
     agent_id: str,
     timeout: float = Query(25.0, ge=0.0, le=60.0),
@@ -208,7 +232,7 @@ async def poll_a2a_events(
     return [event.model_dump() for event in events]
 
 
-@app.get("/api/a2a/jobs")
+@app.get("/a2a/jobs")
 def list_a2a_jobs(
     sender: str | None = None,
     job_status: str | None = Query(None, alias="status"),
@@ -218,7 +242,7 @@ def list_a2a_jobs(
     return JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
 
 
-@app.get("/api/a2a/jobs/{job_id}")
+@app.get("/a2a/jobs/{job_id}")
 def get_a2a_job(job_id: str):
     """Fetches persisted metadata for one A2A job."""
     job = JOB_STORE.get_job(job_id)
@@ -227,24 +251,24 @@ def get_a2a_job(job_id: str):
     return job
 
 
-@app.websocket("/api/a2a/socket/{agent_id}")
+@app.websocket("/a2a/socket/{agent_id}")
 async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
     """WebSocket A2A transport. Send A2AMessage JSON; receive A2AEvent JSON."""
     await handle_a2a_websocket(websocket, agent_id)
 
 
-@app.post("/api/mcp")
+@app.post("/mcp")
 async def mcp_endpoint(payload: Any = Body(...)):
     """MCP-style JSON-RPC endpoint exposing Blueprint tools."""
     return await handle_mcp_json_rpc(payload)
 
 
-@app.post("/api/a2a/mcp")
+@app.post("/a2a/mcp")
 async def a2a_mcp_endpoint(payload: Any = Body(...)):
     """Alias for agents that discover MCP under the A2A route prefix."""
     return await handle_mcp_json_rpc(payload)
 
-@app.get("/api/projects")
+@app.get("/projects")
 def list_projects_endpoint():
     """Lists all previously compiled hardware projects."""
     try:
@@ -261,7 +285,7 @@ def list_projects_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/api/projects/{project_id}")
+@app.get("/projects/{project_id}")
 def get_project_endpoint(project_id: str):
     """Retrieves a specific hardware design and its corresponding schematics."""
     project = get_generated_project(project_id)
@@ -285,7 +309,7 @@ def get_project_endpoint(project_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project IR: {str(e)}")
 
-@app.get("/api/components")
+@app.get("/components")
 def get_components_endpoint():
     """Returns the template library of seed electrical parts."""
     try:
@@ -307,7 +331,7 @@ def get_components_endpoint():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/seed", status_code=status.HTTP_201_CREATED)
+@app.post("/seed", status_code=status.HTTP_201_CREATED)
 def trigger_db_seeding():
     """Manual trigger to re-seed the parts library database."""
     try:
@@ -323,7 +347,7 @@ class ValidateCircuitRequest(BaseModel):
     components: List[ComponentInstance]
     nets: List[ConnectionNet]
 
-@app.post("/api/validate", response_model=ValidationReport)
+@app.post("/validate", response_model=ValidationReport)
 def validate_circuit_endpoint(request: ValidateCircuitRequest):
     """
     Accepts arbitrary list of parts and electrical connection nets.

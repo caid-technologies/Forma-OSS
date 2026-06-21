@@ -1,5 +1,30 @@
+from pathlib import Path
+import sys
+import types
 from typing import Any, Dict, List
 from uuid import uuid4
+
+
+def _ensure_backend_package_imports() -> None:
+    """Support Vercel loading backend/main.py as top-level main.py."""
+    if "backend" in sys.modules:
+        return
+
+    current_dir = Path(__file__).resolve().parent
+    if not (current_dir / "database.py").exists():
+        return
+
+    backend_package = types.ModuleType("backend")
+    backend_package.__path__ = [str(current_dir)]
+    backend_package.__file__ = str(current_dir / "__init__.py")
+    backend_package.__package__ = "backend"
+    sys.modules["backend"] = backend_package
+    sys.modules.setdefault("backend.main", sys.modules[__name__])
+    setattr(backend_package, "main", sys.modules[__name__])
+
+
+_ensure_backend_package_imports()
+
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv

@@ -13,10 +13,33 @@
 html,
 body {
   margin: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
   background: #141519;
   color: #f8fafc;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   text-rendering: geometricPrecision;
+}
+
+html {
+  overflow-x: clip;
+}
+
+body {
+  min-height: 100vh;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
+.schematic-svg-wrap svg {
+  height: auto;
+  max-width: 100%;
 }
 
 button,

@@ -958,18 +958,18 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
   if (!projectIR) {
     return (
-      <div className="min-h-screen bg-[#141519] font-sans text-slate-100">
+      <div className="min-h-screen w-full overflow-x-hidden bg-[#141519] font-sans text-slate-100">
         <header className="border-b border-[#292b31] bg-[#141519]/95">
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-            <button type="button" onClick={goHome} className="text-left">
+          <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-4">
+            <button type="button" onClick={goHome} className="min-w-0 text-left">
               <span className="flex items-center gap-3">
                 <span className="flex h-9 w-9 items-center justify-center border border-[#2c2f37] bg-black text-white">
                   <Cpu className="h-4 w-4" />
                 </span>
-                <span className="block text-sm font-black uppercase tracking-[0.22em] text-white">Blueprint</span>
+                <span className="hidden text-sm font-black uppercase tracking-[0.22em] text-white sm:block">Blueprint</span>
               </span>
             </button>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <span className={`hidden border px-3 py-1.5 text-xs font-semibold sm:block ${
                 serverStatus === "connected"
                   ? "border-emerald-500/30 bg-emerald-950/30 text-emerald-400"
@@ -1016,7 +1016,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
           </div>
         </header>
 
-        <main className="mx-auto max-w-6xl px-5 py-12">
+        <main className="mx-auto w-full max-w-6xl px-5 py-12">
             <section className="mx-auto max-w-3xl text-center">
             <p className="text-sm font-medium text-slate-500">Shack 15</p>
             <h1 className="mt-4 text-4xl font-semibold leading-tight text-white sm:text-6xl">
@@ -1156,20 +1156,20 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   }
 
   return (
-    <div className="h-screen overflow-hidden bg-[#141519] text-slate-200">
-      <div className="grid h-full min-h-0 grid-cols-1 xl:grid-cols-[minmax(0,1fr)_280px]">
+    <div className="h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-200">
+      <div className="grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden xl:grid-cols-[minmax(0,1fr)_280px]">
         <main className="flex min-h-0 min-w-0 flex-col">
-          <header className="flex min-h-[78px] items-center gap-3 border-b border-[#282a30] bg-[#17181d] px-4">
+          <header className="flex min-h-[78px] min-w-0 items-center gap-2 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 sm:gap-3 sm:px-4">
             <button
               type="button"
               onClick={goHome}
-              className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black"
+              className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2a2c33] px-2 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black sm:px-3"
             >
               <ArrowLeft className="h-4 w-4" />
               <span className="hidden sm:inline">Home</span>
             </button>
 
-            <nav className="flex min-w-0 overflow-x-auto border border-[#2a2c33]">
+            <nav className="flex min-w-0 flex-1 overflow-x-auto border border-[#2a2c33]">
               {workspaceTabs.map((tab) => {
                 const Icon = tab.icon;
                 return (
@@ -1190,7 +1190,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
           </header>
 
-          <section className="min-h-0 flex-1 overflow-hidden">
+          <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
             {activeTab === "overview" && (
               <OverviewPanel
                 title={projectTitle}
@@ -1249,8 +1249,8 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
             )}
 
             {activeTab === "svg" && (
-              <div className="h-full overflow-auto bg-[#141519] p-6">
-                <div className="mx-auto max-w-5xl border border-[#2a2c33] bg-[#17181d] p-5" dangerouslySetInnerHTML={{ __html: svgSchematic }} />
+              <div className="h-full overflow-auto bg-[#141519] p-4 sm:p-6">
+                <div className="schematic-svg-wrap mx-auto max-w-5xl border border-[#2a2c33] bg-[#17181d] p-3 sm:p-5" dangerouslySetInnerHTML={{ __html: svgSchematic }} />
               </div>
             )}
 
@@ -1443,15 +1443,15 @@ function OverviewPanel({
   const activeImage = imageCandidates[imageIndex] || null;
 
   return (
-    <div className="h-full overflow-y-auto bg-[#141519] px-5 py-8">
-      <div className="mx-auto max-w-[890px]">
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] px-4 py-6 sm:px-5 sm:py-8">
+      <div className="mx-auto min-w-0 max-w-[890px]">
         <div className="relative border border-[#2a2c33] bg-[#d5d5d3]">
           {activeImage ? (
             <img
               src={activeImage.src}
               alt={activeImage.label}
               onError={() => setImageIndex((current) => current + 1)}
-              className="h-[440px] w-full object-contain"
+              className="h-[320px] w-full object-contain sm:h-[440px]"
             />
           ) : (
             <ProductRender product={metadata.product_visual} />
@@ -1461,11 +1461,11 @@ function OverviewPanel({
           </button>
         </div>
 
-        <div className="mt-6 border-t border-[#282a30] px-8 py-8">
-          <h1 className="text-2xl font-black uppercase tracking-[0.18em] text-white">{title}</h1>
+        <div className="mt-6 min-w-0 border-t border-[#282a30] px-2 py-6 sm:px-8 sm:py-8">
+          <h1 className="break-words text-xl font-black uppercase tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.18em]">{title}</h1>
           <div className="mt-5 flex flex-wrap gap-2">
             {features.slice(0, 12).map((feature, index) => (
-              <span key={`${feature}-${index}`} className="border border-[#333640] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.16em] text-slate-400">
+              <span key={`${feature}-${index}`} className="max-w-full break-words border border-[#333640] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-400 sm:tracking-[0.16em]">
                 {String(feature).split(":")[0]}
               </span>
             ))}
@@ -1473,7 +1473,7 @@ function OverviewPanel({
 
           <div className="mt-7">
             <div className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">Technical Description</div>
-            <p className="mt-4 max-w-3xl text-base leading-8 text-slate-300">{description}</p>
+            <p className="mt-4 max-w-3xl break-words text-base leading-8 text-slate-300">{description}</p>
           </div>
 
           <div className="mt-7 max-w-2xl border border-[#2a2c33]">
@@ -1494,45 +1494,95 @@ function OverviewPanel({
 
 function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }: { components: any[]; metrics: ReturnType<typeof emptyMetrics>; cadSources?: any[]; fabricationCost?: number }) {
   return (
-    <div className="h-full overflow-y-auto bg-[#141519] p-5">
-      <div className="border border-[#2a2c33]">
-        <div className="grid min-w-[980px] grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] border-b border-[#f5f5f5] px-5 py-5 text-sm font-black uppercase tracking-widest text-white">
-          <span>Part</span>
-          <span className="text-center">Qty</span>
-          <span>Unit</span>
-          <span>Source</span>
-          <span className="text-right">Subtotal</span>
-        </div>
-        <div className="min-w-[980px] divide-y divide-[#282a30]">
-          {components.map((component) => (
-            <div key={component.ref_des} className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] items-center px-5 py-6">
-              <div className="flex items-start gap-4">
-                <PartThumb component={component} />
-                <div className="min-w-0">
-                  <h3 className="text-lg font-black text-white">{component.name}</h3>
-                  <div className="mt-2 text-sm text-slate-500">{component.category}</div>
-                  <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">{component.rationale}</p>
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-5">
+      <div className="space-y-3 lg:hidden">
+        {components.map((component) => {
+          const tone = categoryTone[component.category?.toLowerCase()] || categoryTone.default;
+          const Icon = iconForCategory(component.category);
+          const subtotal = (component.unit_price || 0) * (component.quantity || 1);
+
+          return (
+            <article key={component.ref_des} className="border border-[#2a2c33] bg-[#17181d] p-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className={`flex h-11 w-11 shrink-0 items-center justify-center border ${tone.border} ${tone.bg}`}>
+                  <Icon className={`h-5 w-5 ${tone.text}`} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="break-words text-sm font-black text-white">{component.name}</h3>
+                  <p className="mt-2 break-words text-xs leading-5 text-slate-500">{component.rationale}</p>
                   <CategoryBadge category={component.category} />
                 </div>
               </div>
-              <div className="text-center text-base text-slate-200">{component.quantity}</div>
-              <div className="text-base text-slate-200">~${Number(component.unit_price || 0).toFixed(2)}</div>
-              <div className="flex flex-col items-start gap-2">
-                {getSourcesForComponent(component).map((source) => (
-                  <span key={source.label} className={`${source.className} inline-flex min-w-[86px] justify-center px-3 py-2 text-xs font-black italic text-black`}>
-                    {source.label}
-                  </span>
-                ))}
+
+              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                <div className="border border-[#25272e] bg-[#141519] px-3 py-2">
+                  <div className="font-black uppercase text-slate-600">Qty</div>
+                  <div className="mt-1 font-bold text-slate-200">{component.quantity}</div>
+                </div>
+                <div className="border border-[#25272e] bg-[#141519] px-3 py-2 text-right">
+                  <div className="font-black uppercase text-slate-600">Subtotal</div>
+                  <div className="mt-1 font-black text-white">~${subtotal.toFixed(2)}</div>
+                </div>
+                <div className="border border-[#25272e] bg-[#141519] px-3 py-2">
+                  <div className="font-black uppercase text-slate-600">Unit</div>
+                  <div className="mt-1 font-bold text-slate-200">~${Number(component.unit_price || 0).toFixed(2)}</div>
+                </div>
+                <div className="min-w-0 border border-[#25272e] bg-[#141519] px-3 py-2">
+                  <div className="font-black uppercase text-slate-600">Source</div>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {getSourcesForComponent(component).map((source) => (
+                      <span key={source.label} className={`${source.className} inline-flex justify-center px-2 py-1 text-[10px] font-black italic text-black`}>
+                        {source.label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
               </div>
-              <div className="text-right text-lg font-black text-white">~${((component.unit_price || 0) * (component.quantity || 1)).toFixed(2)}</div>
-            </div>
-          ))}
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="hidden overflow-x-auto border border-[#2a2c33] lg:block">
+        <div className="min-w-[980px]">
+          <div className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] border-b border-[#f5f5f5] px-5 py-5 text-sm font-black uppercase tracking-widest text-white">
+            <span>Part</span>
+            <span className="text-center">Qty</span>
+            <span>Unit</span>
+            <span>Source</span>
+            <span className="text-right">Subtotal</span>
+          </div>
+          <div className="divide-y divide-[#282a30]">
+            {components.map((component) => (
+              <div key={component.ref_des} className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] items-center px-5 py-6">
+                <div className="flex items-start gap-4">
+                  <PartThumb component={component} />
+                  <div className="min-w-0">
+                    <h3 className="text-lg font-black text-white">{component.name}</h3>
+                    <div className="mt-2 text-sm text-slate-500">{component.category}</div>
+                    <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">{component.rationale}</p>
+                    <CategoryBadge category={component.category} />
+                  </div>
+                </div>
+                <div className="text-center text-base text-slate-200">{component.quantity}</div>
+                <div className="text-base text-slate-200">~${Number(component.unit_price || 0).toFixed(2)}</div>
+                <div className="flex flex-col items-start gap-2">
+                  {getSourcesForComponent(component).map((source) => (
+                    <span key={source.label} className={`${source.className} inline-flex min-w-[86px] justify-center px-3 py-2 text-xs font-black italic text-black`}>
+                      {source.label}
+                    </span>
+                  ))}
+                </div>
+                <div className="text-right text-lg font-black text-white">~${((component.unit_price || 0) * (component.quantity || 1)).toFixed(2)}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="mt-5 flex items-center justify-between border border-[#2a2c33] px-6 py-6">
-        <span className="text-sm font-black uppercase tracking-[0.22em] text-slate-400">Total Estimated Cost</span>
-        <span className="text-3xl font-black text-white">~${metrics.totalCost.toFixed(2)}</span>
+      <div className="mt-5 flex flex-col gap-2 border border-[#2a2c33] px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-6">
+        <span className="text-sm font-black uppercase tracking-[0.16em] text-slate-400 sm:tracking-[0.22em]">Total Estimated Cost</span>
+        <span className="text-2xl font-black text-white sm:text-3xl">~${metrics.totalCost.toFixed(2)}</span>
       </div>
 
       <div className="mt-5 border border-[#2a2c33] p-4">
@@ -1558,8 +1608,8 @@ function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }:
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="truncate text-xs font-black uppercase tracking-[0.14em] text-white">{source.name}</div>
-                  <div className="mt-2 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">{source.source_type || "CAD"} / ${(Number(source.estimated_unit_price_usd || 0)).toFixed(2)}</div>
+                  <div className="break-words text-xs font-black uppercase tracking-[0.12em] text-white sm:tracking-[0.14em]">{source.name}</div>
+                  <div className="mt-2 break-words text-[10px] font-black uppercase tracking-[0.12em] text-cyan-300 sm:tracking-[0.16em]">{source.source_type || "CAD"} / ${(Number(source.estimated_unit_price_usd || 0)).toFixed(2)}</div>
                 </div>
                 <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
               </div>
@@ -1668,13 +1718,13 @@ function MechanicalPanel({
 
 function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issues: any[]; onDownload: () => void }) {
   return (
-    <div className="h-full overflow-y-auto bg-[#141519] p-6">
-      <div className="mb-6 flex items-center justify-between border-b border-[#2a2c33] pb-5">
-        <div>
-          <h2 className="text-xl font-black uppercase tracking-[0.18em] text-white">Build Instructions</h2>
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
+      <div className="mb-6 flex flex-col gap-4 border-b border-[#2a2c33] pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="break-words text-lg font-black uppercase tracking-[0.12em] text-white sm:text-xl sm:tracking-[0.18em]">Build Instructions</h2>
           <p className="mt-2 text-xs text-slate-500">Sequential assembly from the generated hardware graph.</p>
         </div>
-        <button onClick={onDownload} className="flex items-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black">
+        <button onClick={onDownload} className="flex shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black">
           <Download className="h-4 w-4" />
           Export
         </button>
@@ -1690,11 +1740,11 @@ function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issu
                 </span>
                 <div className="min-w-0 flex-1">
                   <h3 className="text-base font-black text-white">{step.title}</h3>
-                  <p className="mt-3 text-sm leading-7 text-slate-400">{step.description}</p>
+                  <p className="mt-3 break-words text-sm leading-7 text-slate-400">{step.description}</p>
                   {step.danger_flag && (
                     <div className="mt-4 flex gap-2 border border-rose-500/30 bg-rose-950/25 p-3 text-sm leading-6 text-rose-300">
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span>{step.danger_message || "Pay close attention to safety constraints during this stage."}</span>
+                      <span className="min-w-0 break-words">{step.danger_message || "Pay close attention to safety constraints during this stage."}</span>
                     </div>
                   )}
                   {step.affected_components?.length > 0 && (
@@ -1712,7 +1762,7 @@ function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issu
           ))}
         </div>
 
-        <div className="border border-[#2a2c33] bg-[#17181d] p-5">
+        <div className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-5">
           <div className="mb-4 flex items-center gap-2">
             <ShieldCheck className="h-4 w-4 text-cyan-400" />
             <h3 className="text-sm font-black uppercase tracking-widest text-white">Safety Audit</h3>
@@ -1722,7 +1772,7 @@ function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issu
               {issues.map((issue, index) => (
                 <div key={`${issue.description}-${index}`} className="border border-[#2a2c33] bg-[#141519] p-3">
                   <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{issue.severity} / {issue.category}</div>
-                  <p className="mt-2 text-xs leading-6 text-slate-400">{issue.description}</p>
+                  <p className="mt-2 break-words text-xs leading-6 text-slate-400">{issue.description}</p>
                 </div>
               ))}
             </div>
@@ -1775,7 +1825,7 @@ function JobsPanel({
   const panelDescription = description || `A2A job metadata from SQLite. Polling every ${Math.round(pollIntervalMs / 1000)}s.`;
 
   return (
-    <div className={`${compact ? "border border-[#2c2f37] bg-[#17181d] p-4" : "h-full overflow-y-auto bg-[#141519] p-6"}`}>
+    <div className={`min-w-0 overflow-x-hidden ${compact ? "border border-[#2c2f37] bg-[#17181d] p-4" : "h-full overflow-y-auto bg-[#141519] p-4 sm:p-6"}`}>
       <div className={`${compact ? "mb-3 pb-3" : "mb-5 pb-4"} flex items-start justify-between gap-4 border-b border-[#2a2c33]`}>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -1889,10 +1939,10 @@ function JobRow({
               {job.status === "succeeded" ? <CheckCircle className="h-3.5 w-3.5" /> : job.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               {job.status}
             </span>
-            <span className="truncate text-[11px] font-bold text-slate-500">{job.sender} {"->"} {job.recipient}</span>
+            <span className="min-w-0 max-w-full truncate text-[11px] font-bold text-slate-500">{job.sender} {"->"} {job.recipient}</span>
           </div>
           <h3 className="truncate text-sm font-black text-white">{title}</h3>
-          <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{prompt}</p>
+          <p className="mt-2 line-clamp-2 break-words text-xs leading-5 text-slate-500">{prompt}</p>
         </div>
 
         <button
@@ -1918,7 +1968,7 @@ function JobRow({
       )}
 
       {job.error && (
-        <div className="mt-3 border border-rose-500/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-300">
+        <div className="mt-3 break-words border border-rose-500/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-300">
           {job.error}
         </div>
       )}

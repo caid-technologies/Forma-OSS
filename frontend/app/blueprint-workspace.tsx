@@ -324,6 +324,14 @@ function projectRoute(projectId: string) {
   return `/project/${encodeURIComponent(projectId)}`;
 }
 
+function safeDecodeProjectId(projectId: string) {
+  try {
+    return decodeURIComponent(projectId);
+  } catch {
+    return projectId;
+  }
+}
+
 function normalizePlacement(value: any): PlacementPoint | null {
   if (!value || typeof value.x !== "number" || typeof value.y !== "number") return null;
   return { x: value.x, y: value.y };
@@ -349,6 +357,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   const [jobsLastUpdatedAt, setJobsLastUpdatedAt] = useState<string | null>(null);
   const [showHeaderRecent, setShowHeaderRecent] = useState(false);
   const [projectGalleryImages, setProjectGalleryImages] = useState<Record<string, ProjectImageCandidate | null>>({});
+  const [routeProjectError, setRouteProjectError] = useState<string | null>(null);
   const [catalogComponents, setCatalogComponents] = useState<any[]>([]);
   const [serverStatus, setServerStatus] = useState<"connected" | "disconnected">("disconnected");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -470,6 +479,8 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   }, [fetchA2aJobs, jobStatusFilter]);
 
   useEffect(() => {
+    if (routeProjectId || projectIR) return;
+
     const missingProjects = projectHistory.filter((project: any) => {
       const projectId = project?.project_id ? String(project.project_id) : "";
       return projectId && projectGalleryImages[projectId] === undefined;
@@ -477,19 +488,24 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     if (!missingProjects.length) return;
 
     let cancelled = false;
+    const controller = new AbortController();
 
     Promise.all(
       missingProjects.map(async (project: any): Promise<[string, ProjectImageCandidate | null]> => {
         const projectId = String(project.project_id);
         try {
-          const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`);
+          const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+            signal: controller.signal,
+          });
           if (!res.ok) return [projectId, null];
 
           const data = await res.json();
           const ir = withProjectResponseMetadata(data.project_ir, data);
           return [projectId, resolveProjectImageCandidates(ir?.assembly_metadata || {})[0] || null];
         } catch (error) {
-          console.error("Error fetching project image", error);
+          if (!controller.signal.aborted) {
+            console.error("Error fetching project image", error);
+          }
           return [projectId, null];
         }
       })
@@ -506,8 +522,9 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
-  }, [projectHistory, projectGalleryImages]);
+  }, [projectHistory, projectGalleryImages, projectIR, routeProjectId]);
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -835,14 +852,22 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     };
   };
 
-  const loadOldProject = async (projectId: string, options: { syncRoute?: boolean } = {}) => {
+  const loadOldProject = async (
+    projectId: string,
+    options: { syncRoute?: boolean; signal?: AbortSignal } = {}
+  ): Promise<boolean> => {
+    if (options.signal?.aborted) return false;
+
     const shouldSyncRoute = options.syncRoute ?? true;
+    const signal = options.signal;
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/projects/${projectId}`);
-      if (!res.ok) return;
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, { signal });
+      if (!res.ok) return false;
 
       const data = await res.json();
+      if (signal?.aborted) return false;
+
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
       setMermaidCode(data.mermaid_code);
@@ -850,20 +875,48 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       buildReactFlowGraph(ir);
       setActiveTab("overview");
       if (shouldSyncRoute) syncProjectRoute(projectId);
+      return true;
     } catch (error) {
-      console.error(error);
+      const errorName = error instanceof Error ? error.name : "";
+      if (errorName !== "AbortError") {
+        console.error(error);
+      }
+      return false;
     } finally {
-      setIsLoading(false);
+      if (!signal?.aborted) {
+        setIsLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (!routeProjectId) return;
+    if (!routeProjectId) {
+      setRouteProjectError(null);
+      return;
+    }
 
+    const controller = new AbortController();
+    const projectId = safeDecodeProjectId(routeProjectId);
     const tab = normalizeTab(new URLSearchParams(window.location.search).get("tab"));
-    loadOldProject(decodeURIComponent(routeProjectId), { syncRoute: false }).then(() => {
-      if (tab) setActiveTab(tab);
+    setProjectIR(null);
+    setMermaidCode("");
+    setSvgSchematic("");
+    setRouteProjectError(null);
+
+    loadOldProject(projectId, { syncRoute: false, signal: controller.signal }).then((loaded) => {
+      if (controller.signal.aborted) return;
+      if (!loaded) {
+        setRouteProjectError("Could not load that saved project.");
+        return;
+      }
+      if (tab) {
+        setActiveTab(tab);
+      }
     });
+
+    return () => {
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeProjectId]);
 
@@ -961,6 +1014,16 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     if (currentProjectId && job.result_summary?.project_id === currentProjectId) return true;
     return false;
   });
+
+  if (routeProjectId && !projectIR) {
+    return (
+      <ProjectRouteFallback
+        projectId={safeDecodeProjectId(routeProjectId)}
+        error={routeProjectError}
+        onHome={goHome}
+      />
+    );
+  }
 
   if (!projectIR) {
     return (
@@ -1523,6 +1586,60 @@ function ProjectGalleryCard({
         </button>
       </div>
     </article>
+  );
+}
+
+function ProjectRouteFallback({
+  projectId,
+  error,
+  onHome,
+}: {
+  projectId: string;
+  error: string | null;
+  onHome: () => void;
+}) {
+  return (
+    <div className="min-h-screen w-full overflow-x-hidden bg-[#141519] font-sans text-slate-100">
+      <header className="border-b border-[#292b31] bg-[#141519]/95">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-5 py-4">
+          <button type="button" onClick={onHome} className="min-w-0 text-left">
+            <span className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center border border-[#2c2f37] bg-black text-white">
+                <Cpu className="h-4 w-4" />
+              </span>
+              <span className="hidden text-sm font-black uppercase tracking-[0.22em] text-white sm:block">Blueprint</span>
+            </span>
+          </button>
+        </div>
+      </header>
+
+      <main className="mx-auto flex min-h-[calc(100vh-73px)] w-full max-w-6xl items-center justify-center px-5 py-12">
+        <section className="w-full max-w-md border border-[#2c2f37] bg-[#17181d] p-6 text-center shadow-2xl shadow-black/30">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center border border-[#2c2f37] bg-black text-white">
+            {error ? <AlertTriangle className="h-5 w-5 text-amber-300" /> : <RefreshCw className="h-5 w-5 animate-spin" />}
+          </div>
+          <h1 className="mt-5 text-lg font-black uppercase tracking-[0.18em] text-white">
+            {error ? "Project unavailable" : "Opening project"}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-500">
+            {error || "Loading the saved hardware plan."}
+          </p>
+          <div className="mt-4 truncate border border-[#2c2f37] bg-[#141519] px-3 py-2 text-xs font-mono text-slate-500">
+            {projectId}
+          </div>
+          {error && (
+            <button
+              type="button"
+              onClick={onHome}
+              className="mt-5 inline-flex h-10 items-center gap-2 border border-[#2a2c33] px-4 text-xs font-black uppercase text-white transition hover:bg-white hover:text-black"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back home
+            </button>
+          )}
+        </section>
+      </main>
+    </div>
   );
 }
 

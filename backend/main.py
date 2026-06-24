@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+import logging
 import sys
 import types
 from typing import Any, Dict, List
@@ -28,6 +29,7 @@ _ensure_backend_package_imports()
 
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -70,6 +72,15 @@ from backend.runtime_config import (
 from backend.storage import get_image_storage_config, hydrate_image_storage_metadata
 from backend.validation import get_generation_input_issue, validate_circuit
 from backend.utils import generate_mermaid_chart, generate_svg_schematic
+from backend.video_providers import GMICloudProvider, get_available_video_models, get_default_video_model
+from backend.video_storage import (
+    ensure_video_storage_configured,
+    get_video_storage_config,
+    list_project_videos,
+    upload_generated_videos_to_s3,
+)
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Blueprint Open-Source API",
@@ -167,6 +178,8 @@ def debug_config_endpoint():
             "job_metadata": JOB_STORE.get_config(),
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
+            "video_generation": GMICloudProvider().get_debug_config(),
+            "video_storage": get_video_storage_config(),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Debug config failed: {str(e)}")
@@ -228,6 +241,183 @@ def generate_project_endpoint(request: GenerateProjectRequest):
     except Exception as e:
         JOB_STORE.mark_failed(job_id, str(e))
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+
+
+class VideoImageToVideoRequest(BaseModel):
+    projectId: str | None = None
+    image: str | None = None
+    prompt: str | None = None
+    model: str | None = None
+    duration: str | None = "5"
+    sound: str | None = "off"
+
+
+VIDEO_FAILED_STATUSES = {"failed", "failure", "error", "cancelled", "canceled"}
+VIDEO_SUCCESS_STATUSES = {"success", "succeeded", "completed", "complete", "done"}
+
+
+def _normalize_video_model(model: str | None) -> str:
+    normalized = (model or get_default_video_model()).strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail="Video model is required.")
+    allowed_models = get_available_video_models()
+    if normalized not in allowed_models:
+        raise HTTPException(status_code=400, detail=f"Unsupported video model '{normalized}'.")
+    return normalized
+
+
+def _require_non_empty(value: str | None, message: str) -> str:
+    normalized = (value or "").strip()
+    if not normalized:
+        raise HTTPException(status_code=400, detail=message)
+    return normalized
+
+
+def _store_video_results(result: Any, *, project_id: str, model: str) -> List[Dict[str, Any]]:
+    if not result.video_urls:
+        return []
+    try:
+        stored_videos = upload_generated_videos_to_s3(
+            result.video_urls,
+            project_id=project_id,
+            request_id=result.request_id,
+            model=model,
+        )
+        return [stored_video.response_metadata() for stored_video in stored_videos]
+    except Exception as exc:
+        logger.exception(
+            "Generated video S3 upload failed for project_id=%s request_id=%s source_urls=%s",
+            project_id,
+            result.request_id,
+            result.video_urls,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"S3 upload failed for video request {result.request_id}: {str(exc)}",
+        ) from exc
+
+
+def _raise_if_completed_without_video(result: Any) -> None:
+    if result.status in VIDEO_SUCCESS_STATUSES and not result.video_urls:
+        raise HTTPException(
+            status_code=502,
+            detail=f"GMI Cloud video request {result.request_id} completed without a video URL.",
+        )
+
+
+def _video_route_response(result: Any, *, project_id: str, model: str, saved_videos: List[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "projectId": project_id,
+        "requestId": result.request_id,
+        "status": result.status,
+        "model": model,
+        "source": "gmi-cloud",
+        "videoUrls": result.video_urls,
+        "savedVideos": saved_videos,
+        "storedVideo": saved_videos[0] if saved_videos else None,
+    }
+
+
+@app.get("/video/models")
+def list_video_models_endpoint():
+    """Returns the backend-approved video generation models."""
+    models = get_available_video_models()
+    default_model = get_default_video_model()
+    provider_config = GMICloudProvider().get_debug_config()
+    return {
+        "models": [{"id": model, "label": model} for model in models],
+        "defaultModel": default_model,
+        "default_model": default_model,
+        "generationConfigured": provider_config["configured"],
+        "generation_configured": provider_config["configured"],
+        "reason": provider_config.get("reason"),
+    }
+
+
+@app.get("/video/projects/{project_id}")
+def list_project_videos_endpoint(project_id: str):
+    """Lists videos saved for one project from configured backend storage."""
+    project_id = _require_non_empty(project_id, "projectId is required.")
+    try:
+        videos = list_project_videos(project_id)
+        return {
+            "projectId": project_id,
+            "videos": [video.response_metadata() for video in videos],
+        }
+    except Exception as exc:
+        logger.exception("Video gallery list failed for project_id=%s", project_id)
+        raise HTTPException(status_code=500, detail=f"Video gallery failed: {str(exc)}") from exc
+
+
+@app.post("/video/image-to-video")
+def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
+    """Queues a backend-only GMI Cloud image-to-video generation request."""
+    project_id = _require_non_empty(request.projectId, "projectId is required.")
+    image = _require_non_empty(request.image, "image is required.")
+    prompt = _require_non_empty(request.prompt, "prompt is required.")
+    model = _normalize_video_model(request.model)
+    duration = _require_non_empty(request.duration, "duration is required.")
+    sound = "on" if (request.sound or "").strip().lower() == "on" else "off"
+
+    try:
+        ensure_video_storage_configured()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    provider = GMICloudProvider()
+    try:
+        result = provider.create_image_to_video(
+            image=image,
+            prompt=prompt,
+            model=model,
+            duration=duration,
+            sound=sound,
+        )
+    except Exception as exc:
+        logger.exception("GMI Cloud image-to-video create failed for project_id=%s model=%s", project_id, model)
+        status_code = 500 if "API key is missing" in str(exc) else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    if result.status in VIDEO_FAILED_STATUSES:
+        raise HTTPException(status_code=502, detail=f"GMI Cloud video request failed with status '{result.status}'.")
+    _raise_if_completed_without_video(result)
+
+    saved_videos = _store_video_results(result, project_id=project_id, model=model)
+    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
+
+
+@app.get("/video/image-to-video/status/{request_id}")
+def get_image_to_video_status_endpoint(
+    request_id: str,
+    projectId: str | None = Query(None, description="Project id that owns this video generation request."),
+    model: str | None = None,
+):
+    """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
+    request_id = _require_non_empty(request_id, "requestId is required.")
+    project_id = _require_non_empty(projectId, "projectId is required.")
+    model = _normalize_video_model(model)
+
+    provider = GMICloudProvider()
+    try:
+        result = provider.get_request_status(request_id)
+    except Exception as exc:
+        logger.exception("GMI Cloud image-to-video status failed for project_id=%s request_id=%s model=%s", project_id, request_id, model)
+        status_code = 500 if "API key is missing" in str(exc) else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    if result.status in VIDEO_FAILED_STATUSES:
+        raise HTTPException(status_code=502, detail=f"GMI Cloud video request failed with status '{result.status}'.")
+    _raise_if_completed_without_video(result)
+
+    saved_videos: List[Dict[str, Any]] = []
+    if result.video_urls or result.status in VIDEO_SUCCESS_STATUSES:
+        try:
+            ensure_video_storage_configured()
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+        saved_videos = _store_video_results(result, project_id=project_id, model=model)
+
+    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
 
 
 @app.post("/alpha-signups", response_model=AlphaSignupResponse)
@@ -395,9 +585,6 @@ def trigger_db_seeding():
         return {"message": "Database templates successfully seeded."}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-# Dedicated schemas for validate endpoint
-from pydantic import BaseModel
 
 class ValidateCircuitRequest(BaseModel):
     components: List[ComponentInstance]

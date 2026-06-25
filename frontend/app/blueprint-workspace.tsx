@@ -1871,35 +1871,6 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
           />
 
           <section className="mt-8 grid gap-3 lg:grid-cols-[1.35fr_0.85fr]">
-            <div className="border border-[#2c2f37] bg-[#17181d] p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div>
-                  <h2 className="text-base font-semibold text-white">Examples</h2>
-                  <p className="mt-1 text-xs text-slate-500">Open a finished hardware plan.</p>
-                </div>
-                <span className="text-xs text-slate-500">More</span>
-              </div>
-              <div className="grid gap-2 md:grid-cols-3">
-                {communityProjects.map((project) => (
-                  <button
-                    key={project.file}
-                    type="button"
-                    onClick={() => loadExample(project.file)}
-                    className="group border border-[#2c2f37] bg-[#141519] p-3 text-left hover:border-slate-500"
-                  >
-                    <div className="mb-3 flex h-8 w-8 items-center justify-center bg-black text-white">
-                      <Sparkles className="h-4 w-4" />
-                    </div>
-                    <h3 className="text-sm font-semibold text-white">{project.title}</h3>
-                    <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{project.description}</p>
-                    <span className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-white">
-                      Open project
-                      <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" />
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </div>
 
             <JobsPanel
               jobs={a2aJobs}

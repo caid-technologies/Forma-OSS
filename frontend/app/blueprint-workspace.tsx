@@ -401,9 +401,12 @@ type A2AJob = {
   error?: string | null;
 };
 
+type VideoGenerationMode = "image-to-video" | "video-to-video";
+
 type VideoModelOption = {
   id: string;
   label: string;
+  mode: VideoGenerationMode;
 };
 
 type StoredVideoInfo = {
@@ -417,6 +420,16 @@ type StoredVideoInfo = {
   sizeBytes?: number;
   metadata?: Record<string, any>;
 };
+
+function normalizeVideoGenerationMode(value: any): VideoGenerationMode {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (["video-to-video", "video_to_video", "video2video", "v2v", "video"].includes(normalized)) return "video-to-video";
+  return "image-to-video";
+}
+
+function videoSourceUrl(video: StoredVideoInfo | null | undefined): string {
+  return video?.url || video?.publicUrl || video?.signedUrl || "";
+}
 
 type SchematicNodeData = {
   component: any;
@@ -646,6 +659,8 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   const [videoRequestId, setVideoRequestId] = useState<string | null>(null);
   const [videoStatus, setVideoStatus] = useState("idle");
   const [videoStatusMessage, setVideoStatusMessage] = useState<string | null>(null);
+  const [videoMode, setVideoMode] = useState<VideoGenerationMode>("image-to-video");
+  const [videoSourceVideoUrl, setVideoSourceVideoUrl] = useState("");
   const [storedVideo, setStoredVideo] = useState<StoredVideoInfo | null>(null);
   const [videoGallery, setVideoGallery] = useState<StoredVideoInfo[]>([]);
   const [videoGalleryLoading, setVideoGalleryLoading] = useState(false);
@@ -772,9 +787,10 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       const data = await res.json();
       const modelOptions: VideoModelOption[] = (Array.isArray(data.models) ? data.models : [])
         .map((item: any) => {
-          if (typeof item === "string") return { id: item, label: item };
+          if (typeof item === "string") return { id: item, label: item, mode: "image-to-video" as VideoGenerationMode };
           const id = typeof item?.id === "string" ? item.id : typeof item?.model === "string" ? item.model : "";
-          return id ? { id, label: typeof item?.label === "string" ? item.label : id } : null;
+          const mode = normalizeVideoGenerationMode(item?.mode || item?.type || item?.inputType || item?.input_type);
+          return id ? { id, label: typeof item?.label === "string" ? item.label : id, mode } : null;
         })
         .filter((item: VideoModelOption | null): item is VideoModelOption => Boolean(item));
 
@@ -788,10 +804,10 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       setSelectedVideoModel((current) => {
         if (current && modelOptions.some((item) => item.id === current)) return current;
         const defaultModel = data.defaultModel || data.default_model;
-        if (typeof defaultModel === "string" && modelOptions.some((item) => item.id === defaultModel)) {
+        if (typeof defaultModel === "string" && modelOptions.some((item) => item.id === defaultModel && item.mode === "image-to-video")) {
           return defaultModel;
         }
-        return modelOptions[0]?.id || "";
+        return modelOptions.find((item) => item.mode === "image-to-video")?.id || modelOptions[0]?.id || "";
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Video models are unavailable.";
@@ -983,6 +999,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     const params = new URLSearchParams({
       projectId,
       model: selectedVideoModel,
+      mode: videoMode,
     });
 
     try {
@@ -996,7 +1013,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       setVideoStatus("failed");
       setVideoStatusMessage(message);
     }
-  }, [applyVideoStatusResponse, projectIR, selectedVideoModel, videoRequestId]);
+  }, [applyVideoStatusResponse, projectIR, selectedVideoModel, videoMode, videoRequestId]);
 
   const handleGenerateVideo = async () => {
     if (videoGenerationConfig.configured === false) {
@@ -1007,12 +1024,14 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
     const projectId = projectIdFromIR(projectIR);
     const image = videoImageInput.trim();
+    const sourceVideo = videoSourceVideoUrl.trim();
     const promptText = videoPrompt.trim();
     const model = selectedVideoModel.trim();
+    const isVideoToVideo = videoMode === "video-to-video";
 
-    if (!projectId || !image || !promptText || !model) {
+    if (!projectId || !promptText || !model || (isVideoToVideo ? !sourceVideo : !image)) {
       setVideoStatus("failed");
-      setVideoStatusMessage("Project id, image, prompt, and model are required.");
+      setVideoStatusMessage(`Project id, ${isVideoToVideo ? "source video" : "image"}, prompt, and model are required.`);
       return;
     }
 
@@ -1022,12 +1041,12 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     setVideoStatusMessage("Starting.");
 
     try {
-      const res = await fetch(`${API_URL}/video/image-to-video`, {
+      const res = await fetch(`${API_URL}/video/${isVideoToVideo ? "video-to-video" : "image-to-video"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           projectId,
-          image,
+          ...(isVideoToVideo ? { video: sourceVideo } : { image }),
           prompt: promptText,
           model,
           duration: videoDuration,
@@ -1595,6 +1614,8 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     setStoredVideo(null);
     setVideoGallery([]);
     setVideoGalleryError(null);
+    setVideoSourceVideoUrl("");
+    setVideoMode("image-to-video");
     setVideoStatus("idle");
     setVideoStatusMessage(null);
     if (fileInputRefVideo.current) fileInputRefVideo.current.value = "";
@@ -1604,6 +1625,22 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   useEffect(() => {
     if (!videoImageTouched) setVideoImageInput(defaultVideoImage);
   }, [defaultVideoImage, videoImageTouched]);
+
+  useEffect(() => {
+    const modeModels = videoModels.filter((model) => model.mode === videoMode);
+    if (modeModels.some((model) => model.id === selectedVideoModel)) return;
+    setSelectedVideoModel(modeModels[0]?.id || "");
+  }, [selectedVideoModel, videoMode, videoModels]);
+
+  useEffect(() => {
+    const sourceVideos = videoGallery.map(videoSourceUrl).filter(Boolean);
+    if (!sourceVideos.length) {
+      setVideoSourceVideoUrl("");
+      if (videoMode === "video-to-video") setVideoMode("image-to-video");
+      return;
+    }
+    setVideoSourceVideoUrl((current) => (current && sourceVideos.includes(current) ? current : sourceVideos[0]));
+  }, [videoGallery, videoMode]);
 
   useEffect(() => {
     if (!videoRequestId || storedVideo || isFinalVideoStatus(videoStatus)) return;
@@ -1982,12 +2019,16 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                 modelsError={videoModelsError}
                 selectedModel={selectedVideoModel}
                 setSelectedModel={setSelectedVideoModel}
+                mode={videoMode}
+                setMode={setVideoMode}
                 imageInput={videoImageInput}
                 setImageInput={(value) => {
                   setVideoImageTouched(true);
                   setVideoImageInput(value);
                 }}
                 defaultImage={defaultVideoImage}
+                sourceVideoUrl={videoSourceVideoUrl}
+                setSourceVideoUrl={setVideoSourceVideoUrl}
                 prompt={videoPrompt}
                 setPrompt={setVideoPrompt}
                 duration={videoDuration}
@@ -2010,7 +2051,13 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                 onRefreshGallery={() => {
                   if (currentProjectId) fetchProjectVideos(currentProjectId);
                 }}
-                canGenerate={Boolean(videoGenerationConfig.configured !== false && currentProjectId && videoImageInput.trim() && videoPrompt.trim() && selectedVideoModel)}
+                canGenerate={Boolean(
+                  videoGenerationConfig.configured !== false &&
+                    currentProjectId &&
+                    videoPrompt.trim() &&
+                    selectedVideoModel &&
+                    (videoMode === "video-to-video" ? videoSourceVideoUrl.trim() : videoImageInput.trim())
+                )}
               />
             )}
 
@@ -2754,9 +2801,13 @@ function VideoPanel({
   modelsError,
   selectedModel,
   setSelectedModel,
+  mode,
+  setMode,
   imageInput,
   setImageInput,
   defaultImage,
+  sourceVideoUrl,
+  setSourceVideoUrl,
   prompt,
   setPrompt,
   duration,
@@ -2782,9 +2833,13 @@ function VideoPanel({
   modelsError: string | null;
   selectedModel: string;
   setSelectedModel: (value: string) => void;
+  mode: VideoGenerationMode;
+  setMode: (value: VideoGenerationMode) => void;
   imageInput: string;
   setImageInput: (value: string) => void;
   defaultImage: string;
+  sourceVideoUrl: string;
+  setSourceVideoUrl: (value: string) => void;
   prompt: string;
   setPrompt: (value: string) => void;
   duration: string;
@@ -2804,9 +2859,19 @@ function VideoPanel({
   onRefreshGallery: () => void;
   canGenerate: boolean;
 }) {
-  const imagePreview = previewableImageSrc(imageInput);
+  const modeModels = models.filter((model) => model.mode === mode);
+  const sourceVideos = gallery
+    .map((video, index) => ({
+      video,
+      url: videoSourceUrl(video),
+      label: video.metadata?.requestId || video.key?.split("/").pop() || `Video ${index + 1}`,
+    }))
+    .filter((item) => item.url);
+  const videoToVideoAvailable = sourceVideos.length > 0;
+  const imagePreview = mode === "image-to-video" ? previewableImageSrc(imageInput) : null;
+  const sourceVideoPreview = mode === "video-to-video" ? sourceVideoUrl : "";
   const isGenerating = status === "loading" || Boolean(requestId && !storedVideo && !isFinalVideoStatus(status));
-  const generateDisabled = !canGenerate || isGenerating;
+  const generateDisabled = !canGenerate || isGenerating || !modeModels.length;
   const savedHref = storedVideo?.publicUrl || null;
 
   if (!generationAvailable) {
@@ -2872,17 +2937,39 @@ function VideoPanel({
             </button>
           </div>
 
+          <div className="mb-4 grid grid-cols-2 border border-[#2a2c33]">
+            {([
+              { value: "image-to-video" as VideoGenerationMode, label: "Image" },
+              { value: "video-to-video" as VideoGenerationMode, label: "Video", disabled: !videoToVideoAvailable },
+            ]).map((item) => (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => {
+                  if (!item.disabled) setMode(item.value);
+                }}
+                disabled={item.disabled}
+                className={`flex h-11 items-center justify-center gap-2 border-r border-[#2a2c33] text-xs font-black uppercase last:border-r-0 ${
+                  mode === item.value ? "bg-white text-black" : "bg-black text-slate-500 hover:text-white"
+                } disabled:cursor-not-allowed disabled:text-slate-800 disabled:hover:text-slate-800`}
+              >
+                {item.value === "video-to-video" ? <Film className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                {item.label}
+              </button>
+            ))}
+          </div>
+
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_220px]">
             <label className="block text-xs font-black uppercase tracking-[0.14em] text-slate-500">
               Model
               <select
                 value={selectedModel}
                 onChange={(event) => setSelectedModel(event.target.value)}
-                disabled={modelsLoading || !models.length}
+                disabled={modelsLoading || !modeModels.length}
                 className="mt-2 h-11 w-full border border-[#2a2c33] bg-black px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-cyan-300 disabled:opacity-50"
               >
-                {!models.length && <option value="">No models</option>}
-                {models.map((model) => (
+                {!modeModels.length && <option value="">No models</option>}
+                {modeModels.map((model) => (
                   <option key={model.id} value={model.id}>
                     {model.label}
                   </option>
@@ -2919,37 +3006,56 @@ function VideoPanel({
             />
           </label>
 
-          <div className="mt-5 border border-[#2a2c33] bg-[#141519] p-3">
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Image Source</div>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={onUploadImage}
-                  className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black"
-                >
-                  <Paperclip className="h-4 w-4" />
-                  Upload
-                </button>
-                <button
-                  type="button"
-                  onClick={onUseProjectImage}
-                  disabled={!defaultImage}
-                  className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  <Eye className="h-4 w-4" />
-                  Project Image
-                </button>
+          {mode === "image-to-video" ? (
+            <div className="mt-5 border border-[#2a2c33] bg-[#141519] p-3">
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Image Source</div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={onUploadImage}
+                    className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                    Upload
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onUseProjectImage}
+                    disabled={!defaultImage}
+                    className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <Eye className="h-4 w-4" />
+                    Project Image
+                  </button>
+                </div>
               </div>
-            </div>
 
-            <input
-              value={imageInput}
-              onChange={(event) => setImageInput(event.target.value)}
-              placeholder="https://... or data:image/..."
-              className="h-11 w-full border border-[#2a2c33] bg-black px-3 font-mono text-xs text-white outline-none placeholder:text-slate-700 focus:border-cyan-300"
-            />
-          </div>
+              <input
+                value={imageInput}
+                onChange={(event) => setImageInput(event.target.value)}
+                placeholder="https://... or data:image/..."
+                className="h-11 w-full border border-[#2a2c33] bg-black px-3 font-mono text-xs text-white outline-none placeholder:text-slate-700 focus:border-cyan-300"
+              />
+            </div>
+          ) : (
+            <label className="mt-5 block text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+              Source Video
+              <select
+                value={sourceVideoUrl}
+                onChange={(event) => setSourceVideoUrl(event.target.value)}
+                disabled={!sourceVideos.length}
+                className="mt-2 h-11 w-full border border-[#2a2c33] bg-black px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-cyan-300 disabled:opacity-50"
+              >
+                {!sourceVideos.length && <option value="">No saved videos</option>}
+                {sourceVideos.map((item) => (
+                  <option key={item.url} value={item.url}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
           <VideoGallery
             videos={gallery}
@@ -2961,12 +3067,14 @@ function VideoPanel({
 
         <aside className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-4 sm:p-5">
           <div className="aspect-video overflow-hidden border border-[#2a2c33] bg-black">
-            {imagePreview ? (
+            {mode === "video-to-video" && sourceVideoPreview ? (
+              <video src={sourceVideoPreview} controls preload="metadata" className="h-full w-full object-contain" />
+            ) : imagePreview ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={imagePreview} alt="Video source preview" className="h-full w-full object-contain" />
             ) : (
               <div className="flex h-full items-center justify-center text-xs font-black uppercase tracking-[0.18em] text-slate-700">
-                No image
+                No source
               </div>
             )}
           </div>

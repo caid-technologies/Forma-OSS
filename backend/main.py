@@ -72,7 +72,15 @@ from backend.runtime_config import (
 from backend.storage import get_image_storage_config, hydrate_image_storage_metadata
 from backend.validation import get_generation_input_issue, validate_circuit
 from backend.utils import generate_mermaid_chart, generate_svg_schematic
-from backend.video_providers import GMICloudProvider, get_available_video_models, get_default_video_model
+from backend.video_providers import (
+    GMICloudProvider,
+    VIDEO_MODE_IMAGE_TO_VIDEO,
+    VIDEO_MODE_VIDEO_TO_VIDEO,
+    get_available_video_model_options,
+    get_available_video_models,
+    get_default_video_model,
+    normalize_video_mode,
+)
 from backend.video_storage import (
     ensure_video_storage_configured,
     get_video_storage_config,
@@ -252,17 +260,27 @@ class VideoImageToVideoRequest(BaseModel):
     sound: str | None = "off"
 
 
+class VideoToVideoRequest(BaseModel):
+    projectId: str | None = None
+    video: str | None = None
+    prompt: str | None = None
+    model: str | None = None
+    duration: str | None = "5"
+    sound: str | None = "off"
+
+
 VIDEO_FAILED_STATUSES = {"failed", "failure", "error", "cancelled", "canceled"}
 VIDEO_SUCCESS_STATUSES = {"success", "succeeded", "completed", "complete", "done"}
 
 
-def _normalize_video_model(model: str | None) -> str:
-    normalized = (model or get_default_video_model()).strip()
+def _normalize_video_model(model: str | None, mode: str = VIDEO_MODE_IMAGE_TO_VIDEO) -> str:
+    normalized_mode = normalize_video_mode(mode)
+    normalized = (model or get_default_video_model(normalized_mode)).strip()
     if not normalized:
         raise HTTPException(status_code=400, detail="Video model is required.")
-    allowed_models = get_available_video_models()
+    allowed_models = get_available_video_models(normalized_mode)
     if normalized not in allowed_models:
-        raise HTTPException(status_code=400, detail=f"Unsupported video model '{normalized}'.")
+        raise HTTPException(status_code=400, detail=f"Unsupported {normalized_mode} model '{normalized}'.")
     return normalized
 
 
@@ -321,13 +339,16 @@ def _video_route_response(result: Any, *, project_id: str, model: str, saved_vid
 @app.get("/video/models")
 def list_video_models_endpoint():
     """Returns the backend-approved video generation models."""
-    models = get_available_video_models()
-    default_model = get_default_video_model()
+    models = get_available_video_model_options()
+    default_model = get_default_video_model(VIDEO_MODE_IMAGE_TO_VIDEO)
+    default_video_to_video_model = get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO)
     provider_config = GMICloudProvider().get_debug_config()
     return {
-        "models": [{"id": model, "label": model} for model in models],
+        "models": [model.response_metadata() for model in models],
         "defaultModel": default_model,
         "default_model": default_model,
+        "defaultVideoToVideoModel": default_video_to_video_model,
+        "default_video_to_video_model": default_video_to_video_model,
         "generationConfigured": provider_config["configured"],
         "generation_configured": provider_config["configured"],
         "reason": provider_config.get("reason"),
@@ -355,7 +376,7 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     image = _require_non_empty(request.image, "image is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
-    model = _normalize_video_model(request.model)
+    model = _normalize_video_model(request.model, VIDEO_MODE_IMAGE_TO_VIDEO)
     duration = _require_non_empty(request.duration, "duration is required.")
     sound = "on" if (request.sound or "").strip().lower() == "on" else "off"
 
@@ -386,16 +407,54 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
     return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
 
 
+@app.post("/video/video-to-video")
+def create_video_to_video_endpoint(request: VideoToVideoRequest):
+    """Queues a backend-only GMI Cloud video-to-video generation request."""
+    project_id = _require_non_empty(request.projectId, "projectId is required.")
+    video = _require_non_empty(request.video, "video is required.")
+    prompt = _require_non_empty(request.prompt, "prompt is required.")
+    model = _normalize_video_model(request.model, VIDEO_MODE_VIDEO_TO_VIDEO)
+    duration = _require_non_empty(request.duration, "duration is required.")
+    sound = "on" if (request.sound or "").strip().lower() == "on" else "off"
+
+    try:
+        ensure_video_storage_configured()
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    provider = GMICloudProvider()
+    try:
+        result = provider.create_video_to_video(
+            video=video,
+            prompt=prompt,
+            model=model,
+            duration=duration,
+            sound=sound,
+        )
+    except Exception as exc:
+        logger.exception("GMI Cloud video-to-video create failed for project_id=%s model=%s", project_id, model)
+        status_code = 500 if "API key is missing" in str(exc) else 502
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+
+    if result.status in VIDEO_FAILED_STATUSES:
+        raise HTTPException(status_code=502, detail=f"GMI Cloud video request failed with status '{result.status}'.")
+    _raise_if_completed_without_video(result)
+
+    saved_videos = _store_video_results(result, project_id=project_id, model=model)
+    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
+
+
 @app.get("/video/image-to-video/status/{request_id}")
 def get_image_to_video_status_endpoint(
     request_id: str,
     projectId: str | None = Query(None, description="Project id that owns this video generation request."),
     model: str | None = None,
+    mode: str | None = Query(VIDEO_MODE_IMAGE_TO_VIDEO, description="Video generation mode."),
 ):
     """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
     request_id = _require_non_empty(request_id, "requestId is required.")
     project_id = _require_non_empty(projectId, "projectId is required.")
-    model = _normalize_video_model(model)
+    model = _normalize_video_model(model, normalize_video_mode(mode))
 
     provider = GMICloudProvider()
     try:

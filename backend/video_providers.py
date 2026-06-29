@@ -13,9 +13,64 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 DEFAULT_GMI_BASE_URL = "https://console.gmicloud.ai"
+VIDEO_MODE_IMAGE_TO_VIDEO = "image-to-video"
+VIDEO_MODE_VIDEO_TO_VIDEO = "video-to-video"
 DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL = "kling-v3-image-to-video"
+DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL = "wan2.7-videoedit"
 DEFAULT_GMI_REQUESTS_PATH = "/api/v1/ie/requestqueue/apikey/requests"
 DEFAULT_GMI_TIMEOUT_SECONDS = 120.0
+
+
+@dataclass(frozen=True)
+class VideoModelDefinition:
+    id: str
+    label: str
+    mode: str
+
+    def response_metadata(self) -> Dict[str, str]:
+        return {
+            "id": self.id,
+            "label": self.label,
+            "mode": self.mode,
+            "type": self.mode,
+        }
+
+
+DEFAULT_GMI_IMAGE_TO_VIDEO_MODELS = [
+    DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL,
+    "kling-o1-image-to-video",
+    "Kling-Image2Video-V2.1-Master",
+    "Kling-Image2Video-V2.1-Pro",
+    "Kling-Image2Video-V2.1-Standard",
+    "Kling-Image2Video-V2-Master",
+    "Kling-Image2Video-V1.6-Pro",
+    "Kling-Image2Video-V1.6-Standard",
+    "skyreels-v4-image-to-video",
+    "ltx-2-pro-image-to-video",
+    "ltx-2-fast-image-to-video",
+    "pixverse-v6-i2v",
+    "pixverse-v5.6-i2v",
+    "pixverse-v5.5-i2v",
+    "seedance-1-0-pro-250528",
+    "seedance-1-0-pro-fast-251015",
+    "seedance-1-5-pro-251215",
+    "seedance-2-0-260128",
+    "seedance-2-0-fast-260128",
+    "wan2.7-i2v",
+    "wan2.6-i2v",
+    "wan2.5-i2v-preview",
+    "vidu-q3-pro-i2v",
+    "vidu-q2-pro-i2v",
+]
+
+DEFAULT_GMI_VIDEO_TO_VIDEO_MODELS = [
+    DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL,
+    "seedance-2-0-260128",
+    "seedance-2-0-fast-260128",
+    "pixverse-v6-extend",
+    "pixverse-v5.6-extend",
+    "kling-o1-edit-video",
+]
 
 
 @dataclass
@@ -60,27 +115,84 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
-def get_default_video_model() -> str:
-    return _env("GMI_CLOUD_IMAGE_TO_VIDEO_MODEL", DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL) or DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL
-
-
-def get_available_video_models() -> List[str]:
-    configured = _env("GMI_CLOUD_VIDEO_MODELS")
-    default_model = get_default_video_model()
-    if not configured:
-        return [default_model]
+def _parse_model_list(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
 
     models: List[str] = []
     try:
-        parsed = json.loads(configured)
+        parsed = json.loads(value)
         if isinstance(parsed, list):
             models = [str(item).strip() for item in parsed if str(item).strip()]
     except json.JSONDecodeError:
-        models = [item.strip() for item in configured.split(",") if item.strip()]
+        models = [item.strip() for item in value.split(",") if item.strip()]
 
-    if default_model not in models:
-        models.insert(0, default_model)
-    return list(dict.fromkeys(models))
+    return models
+
+
+def _model_label(model: str) -> str:
+    return model.replace("-", " ").replace("_", " ").strip().title()
+
+
+def _model_definition(model: str, mode: str) -> VideoModelDefinition:
+    return VideoModelDefinition(id=model, label=_model_label(model), mode=mode)
+
+
+def _dedupe_definitions(definitions: List[VideoModelDefinition]) -> List[VideoModelDefinition]:
+    deduped: List[VideoModelDefinition] = []
+    seen = set()
+    for definition in definitions:
+        key = (definition.mode, definition.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(definition)
+    return deduped
+
+
+def normalize_video_mode(mode: Optional[str]) -> str:
+    normalized = (mode or VIDEO_MODE_IMAGE_TO_VIDEO).strip().lower()
+    if normalized in {"image", "i2v", "image2video", "image_to_video"}:
+        return VIDEO_MODE_IMAGE_TO_VIDEO
+    if normalized in {"video", "v2v", "video2video", "video_to_video"}:
+        return VIDEO_MODE_VIDEO_TO_VIDEO
+    if normalized in {VIDEO_MODE_IMAGE_TO_VIDEO, VIDEO_MODE_VIDEO_TO_VIDEO}:
+        return normalized
+    return VIDEO_MODE_IMAGE_TO_VIDEO
+
+
+def get_default_video_model(mode: str = VIDEO_MODE_IMAGE_TO_VIDEO) -> str:
+    normalized_mode = normalize_video_mode(mode)
+    if normalized_mode == VIDEO_MODE_VIDEO_TO_VIDEO:
+        return _env("GMI_CLOUD_VIDEO_TO_VIDEO_MODEL", DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL) or DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL
+    return _env("GMI_CLOUD_IMAGE_TO_VIDEO_MODEL", DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL) or DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL
+
+
+def get_available_video_model_options(mode: Optional[str] = None) -> List[VideoModelDefinition]:
+    image_models = [
+        get_default_video_model(VIDEO_MODE_IMAGE_TO_VIDEO),
+        *DEFAULT_GMI_IMAGE_TO_VIDEO_MODELS,
+        *_parse_model_list(_env("GMI_CLOUD_IMAGE_TO_VIDEO_MODELS")),
+        *_parse_model_list(_env("GMI_CLOUD_VIDEO_MODELS")),
+    ]
+    video_models = [
+        get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO),
+        *DEFAULT_GMI_VIDEO_TO_VIDEO_MODELS,
+        *_parse_model_list(_env("GMI_CLOUD_VIDEO_TO_VIDEO_MODELS")),
+    ]
+
+    definitions = [
+        *[_model_definition(model, VIDEO_MODE_IMAGE_TO_VIDEO) for model in image_models if model],
+        *[_model_definition(model, VIDEO_MODE_VIDEO_TO_VIDEO) for model in video_models if model],
+    ]
+    normalized_mode = normalize_video_mode(mode) if mode else None
+    if normalized_mode:
+        definitions = [definition for definition in definitions if definition.mode == normalized_mode]
+    return _dedupe_definitions(definitions)
+
+
+def get_available_video_models(mode: Optional[str] = None) -> List[str]:
+    return [definition.id for definition in get_available_video_model_options(mode)]
 
 
 def _status_value(value: Any) -> str:
@@ -163,7 +275,9 @@ class GMICloudProvider:
             "configured": self.is_configured,
             "base_url": self.base_url,
             "default_model": self.default_model,
+            "default_video_to_video_model": get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO),
             "models": get_available_video_models(),
+            "model_options": [model.response_metadata() for model in get_available_video_model_options()],
             "reason": reason,
         }
 
@@ -224,14 +338,47 @@ class GMICloudProvider:
         )
 
     def create_image_to_video(self, *, image: str, prompt: str, model: str, duration: str, sound: str = "off") -> VideoGenerationResult:
+        model_key = model.strip().lower()
+        image_key = "first_frame" if model_key.startswith("seedance-") else "image"
         payload = {
             "model": model,
             "payload": {
-                "image": image,
+                image_key: image,
                 "prompt": prompt,
                 "duration": str(duration),
                 "sound": sound or "off",
             },
+        }
+        response = self._request_json(self.requests_path, method="POST", payload=payload)
+        return self._normalize_response(response)
+
+    def create_video_to_video(self, *, video: str, prompt: str, model: str, duration: str, sound: str = "off") -> VideoGenerationResult:
+        model_key = model.strip().lower()
+        if model_key.startswith("seedance-"):
+            request_payload: Dict[str, Any] = {
+                "reference_videos": [video],
+                "prompt": prompt,
+                "duration": str(duration),
+                "sound": sound or "off",
+            }
+            payload = {
+                "model": model,
+                "payload": request_payload,
+            }
+            response = self._request_json(self.requests_path, method="POST", payload=payload)
+            return self._normalize_response(response)
+
+        source_key = "video_url" if model_key in {"kling-o1-edit-video"} else "video"
+        request_payload: Dict[str, Any] = {
+            source_key: video,
+            "prompt": prompt,
+            "duration": str(duration),
+            "sound": sound or "off",
+        }
+
+        payload = {
+            "model": model,
+            "payload": request_payload,
         }
         response = self._request_json(self.requests_path, method="POST", payload=payload)
         return self._normalize_response(response)

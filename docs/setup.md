@@ -101,6 +101,16 @@ SUPABASE_S3_BUCKET=contents
 # LLM_MODEL=gpt-4o-mini
 # LLM_FALLBACK_MODEL=your_fallback_model_here
 
+# Optional Firecrawl MCP design research
+DESIGN_RESEARCH_ENABLED=false
+# FIRECRAWL_API_KEY=your_firecrawl_api_key_here
+# FIRECRAWL_MCP_URL=https://mcp.firecrawl.dev/v2/mcp
+# FIRECRAWL_MCP_SEARCH_TOOL=firecrawl_search
+# DESIGN_RESEARCH_MAX_QUERIES=3
+# DESIGN_RESEARCH_RESULTS_PER_QUERY=3
+# DESIGN_RESEARCH_MAX_CONTEXT_CHARS=12000
+# FIRECRAWL_MCP_TIMEOUT_SECONDS=25
+
 # Optional for OpenAI-compatible providers
 # LLM_PROVIDER=openai-compatible
 # LLM_BASE_URL=http://localhost:11434/v1
@@ -144,6 +154,10 @@ Notes:
 - With `STRICT_LLM=true`, generation fails fast when model availability validation is enabled and `LLM_MODEL` is unavailable.
 - With `STRICT_LLM=false`, the backend may fall back to `LLM_FALLBACK_MODEL`.
 - OpenAI-compatible endpoints can use `LLM_BASE_URL`; local endpoints that do not require auth can set `LLM_ALLOW_NO_API_KEY=true`.
+- `DESIGN_RESEARCH_ENABLED=true` runs optional Firecrawl MCP search before live LLM component selection.
+- `FIRECRAWL_API_KEY` enables the default Firecrawl remote MCP endpoint when `FIRECRAWL_MCP_URL` is not set.
+- `FIRECRAWL_MCP_URL` can point at another MCP-over-HTTP Firecrawl server.
+- Firecrawl research is injected as design evidence only; generated electrical components are still constrained to the local `component_templates` catalog.
 - `JOB_METADATA_BACKEND=auto` stores A2A job metadata in Supabase when the main app database is Supabase, otherwise in SQLite. `BLUEPRINT_DEV_MODE=true` always uses SQLite.
 - `JOB_METADATA_DB_PATH` controls the SQLite A2A job metadata file.
 - A2A REST, WebSocket, and MCP routes are always mounted. The TCP JSONL socket starts only when `A2A_SOCKET_ENABLED=true`.

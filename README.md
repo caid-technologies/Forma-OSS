@@ -8,12 +8,14 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 
 ## What you can do
 - Compile a hardware idea into typed **Hardware IR** (Pydantic)
+- Revise an existing project through **chat**, with saved revision history
 - Run **rule-based electrical validation** (shorts, voltage mismatch, unpowered ICs, pin conflicts, overcurrent risk)
 - Visualize wiring with:
   - Interactive **React Flow** schematic
   - Generated **SVG** schematic
 - View a lightweight **3D mechanical layout** (Three.js / React Three Fiber)
 - Generate an optional **product concept image** with an image model
+- Run optional **Firecrawl MCP design research** for reference designs, common BOM patterns, CAD/enclosure hints, source logs, and module hints
 - Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `BLUEPRINT_DEV_MODE` for SQLite-only local work
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
 
@@ -22,11 +24,12 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 Blueprint follows a sequential processing pipeline:
 
 1. **Input**: User provides a prompt and optional image
-2. **Agent Processing**: ADK-style sequential agents process the input using the configured structured LLM provider
+2. **Agent Processing**: ADK-style sequential agents process the input using the configured structured LLM provider, optionally enriched with Firecrawl MCP research
 3. **Hardware IR Generation**: Agents produce typed Hardware IR (Pydantic models)
 4. **Validation & Repair**: Rule-based validation checks the design and repairs issues automatically
-5. **UI Outputs**: Generate interactive visualizations (product image, React Flow schematic, SVG diagrams, 3D mechanical layout) and save to database
-6. **Persistence**: Project data is stored in Supabase or SQLite
+5. **Chat Revisions**: Existing projects can be revised from chat, incrementing `assembly_metadata.revision` and appending `project_version_history`
+6. **UI Outputs**: Generate interactive visualizations (product image, React Flow schematic, SVG diagrams, 3D mechanical layout) and save to database
+7. **Persistence**: Project data is stored in Supabase or SQLite
 
 ## MVP scope & safety boundaries
 Blueprint intentionally limits scope to low-voltage maker electronics:
@@ -109,6 +112,9 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
 - `BLUEPRINT_DEPLOYMENT`: When `true`, deployed builds without a live LLM show generated examples plus an alpha signup form instead of running generation.
+- `DESIGN_RESEARCH_ENABLED`: Set to `true` to run optional Firecrawl MCP design research before live LLM component selection.
+- `FIRECRAWL_API_KEY`: Firecrawl API key. When present and `FIRECRAWL_MCP_URL` is omitted, the backend uses the Firecrawl remote MCP endpoint.
+- `FIRECRAWL_MCP_URL`: Optional MCP-over-HTTP endpoint for Firecrawl.
 - `LLM_PROVIDER`: Live generation provider: `gemini`, `openai`, `openai-compatible`, or `simulation`.
 - `OPENAI_API_KEY`: API key for first-party OpenAI when `LLM_PROVIDER=openai`.
 - `OPENAI_MODEL`: OpenAI model ID. The example default is `gpt-4o-mini`.

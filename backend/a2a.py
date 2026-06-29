@@ -12,10 +12,11 @@ from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 from backend.agents.orchestrator import HardwarePipelineOrchestrator
-from backend.database import update_generated_project_hardware_ir
+from backend.database import get_generated_project, update_generated_project_hardware_ir
+from backend.design_research import get_design_research_debug_config
 from backend.image_providers import build_image_provider, get_image_output_debug_config
 from backend.job_store import JOB_STORE
-from backend.models import ComponentInstance, ConnectionNet
+from backend.models import ComponentInstance, ConnectionNet, HardwareIR
 from backend.runtime_config import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
@@ -171,6 +172,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                 "alias": "/api/a2a/mcp",
                 "tools": [
                     "blueprint.generate_project",
+                    "blueprint.revise_project",
                     "blueprint.debug_config",
                     "blueprint.validate_circuit",
                     "blueprint.a2a.send_message",
@@ -181,10 +183,12 @@ def get_a2a_capabilities() -> Dict[str, Any]:
             },
         },
         "job_metadata": JOB_STORE.get_config(),
+        "design_research": get_design_research_debug_config(),
         "image_output": get_image_output_debug_config(),
         "image_storage": get_image_storage_config(),
         "actions": [
             "blueprint.generate_project",
+            "blueprint.revise_project",
             "blueprint.debug_config",
             "blueprint.validate_circuit",
             "blueprint.a2a.capabilities",
@@ -374,6 +378,33 @@ def build_generation_response(
     }
 
 
+def build_revision_response(project_id: str, message: str) -> Dict[str, Any]:
+    normalized_project_id = (project_id or "").strip()
+    normalized_message = (message or "").strip()
+    if not normalized_project_id:
+        raise ValueError("project_id is required.")
+    if not normalized_message:
+        raise ValueError("message is required.")
+
+    project = get_generated_project(normalized_project_id)
+    if not project:
+        raise ValueError("Project not found.")
+
+    current_ir = HardwareIR(**project.hardware_ir)
+    orchestrator = HardwarePipelineOrchestrator()
+    llm_config = orchestrator.get_debug_config()
+    if deployment_runtime_config(llm_config)["alpha_generation_gate_active"]:
+        raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE)
+
+    revised_ir = orchestrator.revise_project(current_ir, normalized_message)
+    return {
+        "project_id": normalized_project_id,
+        "project_ir": revised_ir.model_dump(),
+        "mermaid_code": generate_mermaid_chart(revised_ir),
+        "svg_schematic": generate_svg_schematic(revised_ir),
+    }
+
+
 async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized = action.removeprefix("blueprint.")
 
@@ -385,10 +416,18 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             _payload_bool(payload.get("generate_image"), default=False),
         )
 
+    if normalized in {"revise_project", "chat_project"}:
+        return await asyncio.to_thread(
+            build_revision_response,
+            payload.get("project_id", ""),
+            payload.get("message", ""),
+        )
+
     if normalized == "debug_config":
         orchestrator = HardwarePipelineOrchestrator()
         return {
             **orchestrator.get_debug_config(),
+            "design_research": get_design_research_debug_config(),
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
         }
@@ -636,6 +675,18 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             "name": "blueprint.debug_config",
             "description": "Return configured LLM provider and model resolution details.",
             "inputSchema": {"type": "object", "properties": {}},
+        },
+        {
+            "name": "blueprint.revise_project",
+            "description": "Revise an existing Blueprint project from a chat message and save a new project version.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_id": {"type": "string"},
+                    "message": {"type": "string"},
+                },
+                "required": ["project_id", "message"],
+            },
         },
         {
             "name": "blueprint.validate_circuit",

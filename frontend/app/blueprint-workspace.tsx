@@ -48,12 +48,15 @@ import {
   X,
   ExternalLink,
   Handshake,
+  MessageSquare,
+  GitBranch,
 } from "lucide-react";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
 const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
 const JOB_POLL_INTERVAL_MS = 5000;
 const VIDEO_POLL_INTERVAL_MS = 4000;
+const AGENT_TRACE_STEP_MS = 1700;
 
 function normalizeApiUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
@@ -65,6 +68,19 @@ const samplePrompts = [
   "Compact handheld device with display, controls, USB-C power, and enclosure",
   "Environmental monitor with sensor feedback, display, and battery power",
   "Small controller for a low-voltage actuator or relay",
+];
+
+const agentTraceStages = [
+  { id: "guardrails", label: "Guardrails", detail: "Checking input scope and safety boundaries." },
+  { id: "research", label: "Firecrawl research", detail: "Looking for reference builds, BOM patterns, and CAD hints." },
+  { id: "intent", label: "Intent parser", detail: "Condensing the idea into a project overview." },
+  { id: "requirements", label: "Requirements", detail: "Extracting constraints, power needs, and missing details." },
+  { id: "components", label: "Component selector", detail: "Choosing validated catalog parts." },
+  { id: "wiring", label: "Wiring agent", detail: "Mapping pins into power, ground, and signal nets." },
+  { id: "validation", label: "Validation", detail: "Checking shorts, voltage mismatch, and pin conflicts." },
+  { id: "mechanical", label: "Mechanical", detail: "Drafting enclosure, mounting, and fabrication notes." },
+  { id: "assembly", label: "Assembly", detail: "Writing build steps and safety warnings." },
+  { id: "render", label: "Render + save", detail: "Preparing diagrams, 3D layout, and project metadata." },
 ];
 
 const hardwareIdeaTerms = new Set([
@@ -324,6 +340,13 @@ type AlphaGateConfig = {
   gateActive: boolean;
 };
 
+type DesignResearchConfig = {
+  enabled: boolean | null;
+  configured: boolean | null;
+  provider?: string | null;
+  searchTool?: string | null;
+};
+
 type VideoGenerationConfig = {
   configured: boolean | null;
   reason: string | null;
@@ -343,6 +366,7 @@ const pipelineMermaidCode = `graph LR
 
 const workspaceTabs = [
   { id: "overview", label: "IMAGE", icon: Eye },
+  { id: "chat", label: "CHAT", icon: MessageSquare },
   { id: "bom", label: "BOM", icon: ShoppingBag },
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
@@ -596,6 +620,232 @@ function withProjectResponseMetadata(ir: any, response: any) {
   };
 }
 
+function AgentTracePanel({
+  status,
+  phaseIndex,
+  projectIR,
+  designResearchConfig,
+  message,
+}: {
+  status: "idle" | "running" | "complete" | "error";
+  phaseIndex: number;
+  projectIR: any;
+  designResearchConfig: DesignResearchConfig;
+  message: string | null;
+}) {
+  const metadata = projectIR?.assembly_metadata || {};
+  const research = metadata.design_research || null;
+  const criticalCount = projectIR?.validation?.critical?.length || 0;
+  const warningCount = projectIR?.validation?.warning?.length || 0;
+  const infoCount = projectIR?.validation?.info?.length || 0;
+
+  const researchEnabled =
+    typeof research?.enabled === "boolean"
+      ? research.enabled
+      : Boolean(designResearchConfig.enabled && designResearchConfig.configured);
+  const researchDetail = research
+    ? research.enabled
+      ? `${research.reference_count || 0} references, ${(research.discovered_components || []).length} module hints.`
+      : "Skipped. Firecrawl research is disabled or not configured."
+    : researchEnabled
+      ? `Searching ${designResearchConfig.searchTool || "firecrawl_search"}.`
+      : "Skipped unless Firecrawl research is enabled.";
+
+  const detailsByStage: Record<string, string> = {
+    research: researchDetail,
+    components: projectIR?.components?.length
+      ? `${projectIR.components.length} catalog parts selected.`
+      : "Choosing validated catalog parts.",
+    wiring: projectIR?.nets?.length
+      ? `${projectIR.nets.length} nets and ${(projectIR.pin_mappings || []).length} MCU mappings.`
+      : "Mapping pins into power, ground, and signal nets.",
+    validation: projectIR
+      ? `${criticalCount} critical, ${warningCount} warnings, ${infoCount} info.`
+      : "Checking shorts, voltage mismatch, and pin conflicts.",
+    render: metadata.project_id
+      ? `Saved project ${String(metadata.project_id).slice(0, 8)}.`
+      : "Preparing diagrams, 3D layout, and project metadata.",
+  };
+
+  const rows = agentTraceStages.map((stage, index) => {
+    let state: "pending" | "running" | "complete" | "error" | "warning" = "pending";
+    if (status === "running") {
+      state = index < phaseIndex ? "complete" : index === phaseIndex ? "running" : "pending";
+    } else if (status === "complete") {
+      state = stage.id === "validation" && criticalCount > 0 ? "warning" : "complete";
+    } else if (status === "error") {
+      state = index < phaseIndex ? "complete" : index === phaseIndex ? "error" : "pending";
+    }
+
+    return {
+      ...stage,
+      state,
+      detail: detailsByStage[stage.id] || stage.detail,
+    };
+  });
+
+  const visibleRows = status === "idle" && !projectIR ? rows.slice(0, 4) : rows;
+  const runningStage = rows[Math.min(phaseIndex, rows.length - 1)];
+  const headerText =
+    status === "running"
+      ? runningStage?.label || "Running"
+      : status === "complete"
+        ? projectIR?.overview?.title || "Compilation complete"
+        : status === "error"
+          ? "Generation stopped"
+          : "Ready";
+  const statusTone =
+    status === "running"
+      ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100"
+      : status === "complete"
+        ? "border-emerald-300/40 bg-emerald-300/10 text-emerald-100"
+        : status === "error"
+          ? "border-rose-300/40 bg-rose-300/10 text-rose-100"
+          : "border-[#2c2f37] bg-black/20 text-slate-400";
+
+  return (
+    <div className="mb-3 border border-[#252832] bg-black/25 px-3 py-3">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <div className="text-[10px] font-black uppercase text-slate-500">Agent trace</div>
+          <div className="mt-1 truncate text-xs font-bold text-slate-200">{headerText}</div>
+        </div>
+        <span className={`inline-flex w-fit items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${statusTone}`}>
+          {status === "running" ? <RefreshCw className="h-3 w-3 animate-spin" /> : status === "complete" ? <CheckCircle className="h-3 w-3" /> : status === "error" ? <AlertTriangle className="h-3 w-3" /> : <Info className="h-3 w-3" />}
+          {status === "running" ? "Thinking" : status === "complete" ? "Done" : status === "error" ? "Error" : "Ready"}
+        </span>
+      </div>
+
+      {message && (
+        <div className="mt-3 border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
+          {message}
+        </div>
+      )}
+
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {visibleRows.map((stage) => (
+          <AgentTraceStep key={stage.id} stage={stage} />
+        ))}
+      </div>
+
+      <ResearchLogPanel research={research} compact />
+    </div>
+  );
+}
+
+function AgentTraceStep({
+  stage,
+}: {
+  stage: {
+    id: string;
+    label: string;
+    detail: string;
+    state: "pending" | "running" | "complete" | "error" | "warning";
+  };
+}) {
+  const tone =
+    stage.state === "running"
+      ? "border-cyan-300/35 bg-cyan-300/10 text-cyan-100"
+      : stage.state === "complete"
+        ? "border-emerald-300/25 bg-emerald-300/5 text-emerald-100"
+        : stage.state === "error"
+          ? "border-rose-300/35 bg-rose-300/10 text-rose-100"
+          : stage.state === "warning"
+            ? "border-amber-300/35 bg-amber-300/10 text-amber-100"
+            : "border-[#2c2f37] bg-[#111217] text-slate-500";
+  const Icon =
+    stage.state === "running"
+      ? RefreshCw
+      : stage.state === "complete"
+        ? CheckCircle
+        : stage.state === "error" || stage.state === "warning"
+          ? AlertTriangle
+          : Info;
+
+  return (
+    <div className={`min-w-0 border px-3 py-2 ${tone}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <Icon className={`h-3.5 w-3.5 shrink-0 ${stage.state === "running" ? "animate-spin" : ""}`} />
+        <div className="truncate text-[11px] font-black uppercase">{stage.label}</div>
+      </div>
+      <div className="mt-1 line-clamp-2 text-[11px] leading-4 opacity-75">{stage.detail}</div>
+    </div>
+  );
+}
+
+function ResearchLogPanel({ research, compact = false }: { research: any; compact?: boolean }) {
+  if (!research?.enabled) return null;
+
+  const logs = Array.isArray(research.logs) ? research.logs : [];
+  const references = Array.isArray(research.references) ? research.references : [];
+  if (!logs.length && !references.length) return null;
+
+  return (
+    <div className={`mt-3 border border-[#252832] bg-[#111217] ${compact ? "p-3" : "p-4"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <ExternalLink className="h-4 w-4 text-cyan-300" />
+          <h3 className="text-xs font-black uppercase tracking-[0.16em] text-white">Firecrawl logs</h3>
+        </div>
+        <span className="border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-100">
+          {references.length} sources
+        </span>
+      </div>
+
+      <div className="mt-3 space-y-2">
+        {logs.slice(0, compact ? 2 : 6).map((log: any, index: number) => {
+          const sources = Array.isArray(log.sources) ? log.sources : [];
+          const components = Array.isArray(log.discovered_components) ? log.discovered_components : [];
+          return (
+            <div key={`${log.query || "query"}-${index}`} className="border border-[#2c2f37] bg-black/20 p-3">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <div className="truncate text-[11px] font-black uppercase text-slate-300">{log.query || "Research query"}</div>
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">{log.message || log.status || "Completed."}</p>
+                </div>
+                <span className={`w-fit border px-2 py-1 text-[10px] font-black uppercase ${
+                  log.status === "error"
+                    ? "border-rose-300/35 bg-rose-300/10 text-rose-100"
+                    : "border-emerald-300/25 bg-emerald-300/5 text-emerald-100"
+                }`}>
+                  {log.status || "ok"}
+                </span>
+              </div>
+
+              {components.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {components.slice(0, 8).map((component: string) => (
+                    <span key={component} className="border border-[#333640] px-2 py-1 text-[10px] font-black uppercase text-slate-400">
+                      {component}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {sources.length > 0 && (
+                <div className="mt-3 space-y-1.5">
+                  {sources.slice(0, compact ? 2 : 4).map((source: any) => (
+                    <a
+                      key={source.url}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex min-w-0 items-center gap-2 text-[11px] leading-5 text-cyan-200 hover:text-white"
+                    >
+                      <ExternalLink className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{source.title || source.url}</span>
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function projectIdFromIR(ir: any) {
   return ir?.assembly_metadata?.project_id || null;
 }
@@ -659,6 +909,12 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   const [alphaGateConfig, setAlphaGateConfig] = useState<AlphaGateConfig>({
     gateActive: false,
   });
+  const [designResearchConfig, setDesignResearchConfig] = useState<DesignResearchConfig>({
+    enabled: null,
+    configured: null,
+    provider: null,
+    searchTool: null,
+  });
   const [videoGenerationConfig, setVideoGenerationConfig] = useState<VideoGenerationConfig>({
     configured: null,
     reason: null,
@@ -672,6 +928,14 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
   const [alphaSignupStatus, setAlphaSignupStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [alphaSignupMessage, setAlphaSignupMessage] = useState<string | null>(null);
   const [generateProductImage, setGenerateProductImage] = useState(false);
+  const [agentTraceStatus, setAgentTraceStatus] = useState<"idle" | "running" | "complete" | "error">("idle");
+  const [agentTracePhaseIndex, setAgentTracePhaseIndex] = useState(0);
+  const [agentTraceStartedAt, setAgentTraceStartedAt] = useState<number | null>(null);
+  const [agentTraceMessage, setAgentTraceMessage] = useState<string | null>(null);
+  const [agentTraceProjectIR, setAgentTraceProjectIR] = useState<any>(null);
+  const [chatDraft, setChatDraft] = useState("");
+  const [isChatRevisionLoading, setIsChatRevisionLoading] = useState(false);
+  const [chatRevisionError, setChatRevisionError] = useState<string | null>(null);
   const [mechElectricalActive, setMechElectricalActive] = useState(true);
   const [mechToggles, setMechToggles] = useState({
     structural: true,
@@ -700,6 +964,14 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     generationInputNotice || (prompt.trim() && !generationInputValidation.isValid ? generationInputValidation.message : null);
   const hasGenerationInput = Boolean(prompt.trim() || selectedImage);
   const alphaGateActive = alphaGateConfig.gateActive;
+  const showAgentTrace = Boolean(
+    prompt.trim() ||
+    selectedImage ||
+    isLoading ||
+    agentTraceStatus !== "idle" ||
+    agentTraceMessage ||
+    agentTraceProjectIR
+  );
 
   const scrollToProjects = () => {
     projectsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -723,6 +995,15 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     }
   };
 
+  const resetAgentTraceForInput = () => {
+    if (isLoading) return;
+    setAgentTraceStatus("idle");
+    setAgentTraceMessage(null);
+    setAgentTraceStartedAt(null);
+    setAgentTracePhaseIndex(0);
+    setAgentTraceProjectIR(null);
+  };
+
   useEffect(() => {
     checkServerStatus();
     fetchRuntimeConfig();
@@ -730,6 +1011,19 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     fetchCatalog();
     fetchProjectHistory();
   }, []);
+
+  useEffect(() => {
+    if (agentTraceStatus !== "running" || !agentTraceStartedAt) return;
+
+    const tick = () => {
+      const elapsed = Date.now() - agentTraceStartedAt;
+      setAgentTracePhaseIndex(Math.min(agentTraceStages.length - 1, Math.floor(elapsed / AGENT_TRACE_STEP_MS)));
+    };
+
+    tick();
+    const interval = window.setInterval(tick, 450);
+    return () => window.clearInterval(interval);
+  }, [agentTraceStartedAt, agentTraceStatus]);
 
   const checkServerStatus = async () => {
     try {
@@ -750,6 +1044,14 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       setAlphaGateConfig({
         gateActive: Boolean(deployment.alpha_generation_gate_active),
       });
+      if (config.design_research) {
+        setDesignResearchConfig({
+          enabled: Boolean(config.design_research.enabled),
+          configured: Boolean(config.design_research.configured),
+          provider: typeof config.design_research.provider === "string" ? config.design_research.provider : null,
+          searchTool: typeof config.design_research.search_tool === "string" ? config.design_research.search_tool : null,
+        });
+      }
       if (config.video_generation) {
         setVideoGenerationConfig({
           configured: Boolean(config.video_generation.configured),
@@ -933,6 +1235,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     const reader = new FileReader();
     reader.onloadend = () => {
       setGenerationInputNotice(null);
+      resetAgentTraceForInput();
       setSelectedImage(reader.result as string);
     };
     reader.readAsDataURL(file);
@@ -940,6 +1243,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
 
   const removeSelectedImage = () => {
     setGenerationInputNotice(null);
+    resetAgentTraceForInput();
     setSelectedImage(null);
     if (fileInputRefSidebar.current) fileInputRefSidebar.current.value = "";
     if (fileInputRefCenter.current) fileInputRefCenter.current.value = "";
@@ -1219,6 +1523,11 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     let generatedProject = false;
 
     setGenerationInputNotice(null);
+    setAgentTraceStatus("running");
+    setAgentTracePhaseIndex(0);
+    setAgentTraceStartedAt(Date.now());
+    setAgentTraceMessage(null);
+    setAgentTraceProjectIR(null);
     setIsLoading(true);
     checkServerStatus();
 
@@ -1237,11 +1546,17 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
         const errorMessage = await readApiErrorMessage(res);
         if (res.status === 400) {
           setGenerationInputNotice(errorMessage);
+          setAgentTraceStatus("error");
+          setAgentTraceStartedAt(null);
+          setAgentTraceMessage(errorMessage);
           return;
         }
         if (res.status === 503) {
           setAlphaGateConfig({ gateActive: true });
           setGenerationInputNotice(errorMessage);
+          setAgentTraceStatus("error");
+          setAgentTraceStartedAt(null);
+          setAgentTraceMessage(errorMessage);
           return;
         }
         throw new Error(errorMessage);
@@ -1257,10 +1572,18 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       if (projectId) syncProjectRoute(projectId);
       fetchProjectHistory();
       fetchA2aJobs(jobStatusFilter, { silent: true });
+      setAgentTraceStatus("complete");
+      setAgentTracePhaseIndex(agentTraceStages.length - 1);
+      setAgentTraceStartedAt(null);
+      setAgentTraceMessage(null);
+      setAgentTraceProjectIR(ir);
       generatedProject = true;
     } catch (error) {
       if (alphaGateActive) {
         setAlphaSignupMessage("Generation is not available in this alpha deployment yet. Leave your information and we will follow up when it opens.");
+        setAgentTraceStatus("error");
+        setAgentTraceStartedAt(null);
+        setAgentTraceMessage(error instanceof Error ? error.message : "Generation is not available in this alpha deployment yet.");
         return;
       }
 
@@ -1270,6 +1593,11 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       setMermaidCode(mockRes.mermaid_code);
       setSvgSchematic(mockRes.svg_schematic);
       buildReactFlowGraph(mockRes.project_ir);
+      setAgentTraceStatus("complete");
+      setAgentTracePhaseIndex(agentTraceStages.length - 1);
+      setAgentTraceStartedAt(null);
+      setAgentTraceMessage("Used local simulation fallback after the backend request failed.");
+      setAgentTraceProjectIR(mockRes.project_ir);
       generatedProject = true;
     } finally {
       if (generatedProject) {
@@ -1277,6 +1605,45 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
         setActiveTab("overview");
       }
       setIsLoading(false);
+    }
+  };
+
+  const handleProjectChat = async (event: React.FormEvent) => {
+    event.preventDefault();
+    const message = chatDraft.trim();
+    const projectId = projectIdFromIR(projectIR);
+    if (!projectId || !message) return;
+
+    setIsChatRevisionLoading(true);
+    setChatRevisionError(null);
+
+    try {
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+
+      const data = await res.json();
+      const ir = withProjectResponseMetadata(data.project_ir, data);
+      setProjectIR(ir);
+      setMermaidCode(data.mermaid_code);
+      setSvgSchematic(data.svg_schematic);
+      buildReactFlowGraph(ir);
+      setAgentTraceStatus("complete");
+      setAgentTracePhaseIndex(agentTraceStages.length - 1);
+      setAgentTraceStartedAt(null);
+      setAgentTraceMessage(`Saved revision ${ir.assembly_metadata?.revision || "latest"}.`);
+      setAgentTraceProjectIR(ir);
+      setChatDraft("");
+      fetchProjectHistory();
+      fetchA2aJobs(jobStatusFilter, { silent: true });
+    } catch (error) {
+      setChatRevisionError(error instanceof Error ? error.message : "Project revision failed.");
+    } finally {
+      setIsChatRevisionLoading(false);
     }
   };
 
@@ -1755,6 +2122,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                       value={prompt}
                       onChange={(event) => {
                         setGenerationInputNotice(null);
+                        resetAgentTraceForInput();
                         setPrompt(event.target.value);
                       }}
                       placeholder="Describe what you want to build, or upload an image."
@@ -1772,6 +2140,15 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                       {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                     </button>
                   </div>
+                  {showAgentTrace && (
+                    <AgentTracePanel
+                      status={agentTraceStatus}
+                      phaseIndex={agentTracePhaseIndex}
+                      projectIR={agentTraceProjectIR}
+                      designResearchConfig={designResearchConfig}
+                      message={agentTraceMessage}
+                    />
+                  )}
                   {selectedImage && (
                     <div className="mb-3 flex items-center gap-3 border border-[#2c2f37] bg-black/30 p-2">
                       <img src={selectedImage} alt="Attached reference" className="h-16 w-24 object-cover" />
@@ -1829,6 +2206,7 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                       type="button"
                       onClick={() => {
                         setGenerationInputNotice(null);
+                        resetAgentTraceForInput();
                         setPrompt(example);
                       }}
                       className="border border-[#2c2f37] bg-[#17181d] px-3 py-2 text-[11px] leading-5 text-slate-400 hover:border-slate-500 hover:text-white"
@@ -1918,6 +2296,20 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
                 features={imageFeatures}
                 metrics={metrics}
                 metadata={projectIR.assembly_metadata || {}}
+              />
+            )}
+
+            {activeTab === "chat" && (
+              <ChatPanel
+                projectIR={projectIR}
+                draft={chatDraft}
+                setDraft={(value) => {
+                  setChatRevisionError(null);
+                  setChatDraft(value);
+                }}
+                onSubmit={handleProjectChat}
+                isSubmitting={isChatRevisionLoading}
+                error={chatRevisionError}
               />
             )}
 
@@ -2371,6 +2763,130 @@ function SchematicLegend() {
             <span>{wire.label}</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function ChatPanel({
+  projectIR,
+  draft,
+  setDraft,
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  projectIR: any;
+  draft: string;
+  setDraft: (value: string) => void;
+  onSubmit: (event: React.FormEvent) => void;
+  isSubmitting: boolean;
+  error: string | null;
+}) {
+  const metadata = projectIR?.assembly_metadata || {};
+  const chatHistory = Array.isArray(metadata.chat_history) ? metadata.chat_history : [];
+  const versionHistory = Array.isArray(projectIR?.project_version_history) ? projectIR.project_version_history : [];
+  const currentRevision = metadata.revision || versionHistory.length || 1;
+
+  return (
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
+      <div className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[minmax(0,1.25fr)_minmax(280px,0.75fr)]">
+        <section className="min-w-0 border border-[#2a2c33] bg-[#17181d]">
+          <div className="border-b border-[#2a2c33] p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <MessageSquare className="h-4 w-4 text-cyan-300" />
+                  <h2 className="text-sm font-black uppercase tracking-[0.2em] text-white">Project Chat</h2>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-500">Ask for changes and Blueprint will save a new version of this Hardware IR.</p>
+              </div>
+              <span className="border border-cyan-300/25 bg-cyan-300/10 px-3 py-1.5 text-xs font-black uppercase text-cyan-100">
+                Revision {currentRevision}
+              </span>
+            </div>
+          </div>
+
+          <div className="space-y-3 p-4 sm:p-5">
+            {chatHistory.length ? (
+              chatHistory.map((message: any, index: number) => {
+                const isUser = message.role === "user";
+                return (
+                  <div
+                    key={`${message.role || "message"}-${message.revision || index}-${index}`}
+                    className={`max-w-[92%] border px-4 py-3 ${
+                      isUser
+                        ? "ml-auto border-cyan-300/25 bg-cyan-300/10 text-cyan-50"
+                        : "border-[#2a2c33] bg-[#141519] text-slate-300"
+                    }`}
+                  >
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] opacity-70">
+                      <span>{isUser ? "You" : "Blueprint"}</span>
+                      {message.revision && <span>rev {message.revision}</span>}
+                      {message.created_at && <span>{formatJobTime(message.created_at)}</span>}
+                    </div>
+                    <p className="break-words text-sm leading-6">{message.content}</p>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="border border-[#2a2c33] bg-[#141519] p-5 text-sm leading-6 text-slate-500">
+                No chat revisions yet. Send a change request to create the next version.
+              </div>
+            )}
+          </div>
+
+          <form onSubmit={onSubmit} className="border-t border-[#2a2c33] p-4 sm:p-5">
+            <label className="block text-[11px] font-black uppercase tracking-[0.18em] text-slate-500">
+              Revision request
+              <textarea
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+                placeholder="Example: make it battery powered, add an OLED, and update the enclosure for outdoor use."
+                className="mt-3 min-h-[112px] w-full resize-none border border-[#2a2c33] bg-black px-3 py-3 text-sm normal-case leading-6 text-white outline-none placeholder:text-slate-600 focus:border-cyan-300"
+              />
+            </label>
+            {error && (
+              <div className="mt-3 flex items-start gap-2 border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-xs leading-5 text-rose-100">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+            <button
+              type="submit"
+              disabled={isSubmitting || !draft.trim()}
+              className="mt-3 inline-flex h-11 w-full items-center justify-center gap-2 bg-white px-4 text-sm font-black uppercase text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+            >
+              {isSubmitting ? <RefreshCw className="h-4 w-4 animate-spin" /> : <GitBranch className="h-4 w-4" />}
+              Save new version
+            </button>
+          </form>
+        </section>
+
+        <aside className="min-w-0 space-y-4">
+          <section className="border border-[#2a2c33] bg-[#17181d] p-4">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-cyan-300" />
+              <h3 className="text-xs font-black uppercase tracking-[0.18em] text-white">Versions</h3>
+            </div>
+            <div className="mt-4 space-y-2">
+              {versionHistory.length ? versionHistory.slice().reverse().map((version: any, index: number) => (
+                <div key={`${version.version || version.revision || index}-${index}`} className="border border-[#2a2c33] bg-[#141519] p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-black uppercase text-white">{version.version || `rev ${version.revision || versionHistory.length - index}`}</span>
+                    {version.source && <span className="border border-[#333640] px-2 py-1 text-[10px] font-black uppercase text-slate-500">{version.source}</span>}
+                  </div>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">{version.description || "Project version"}</p>
+                  {version.created_at && <p className="mt-2 text-[11px] text-slate-600">{formatJobTime(version.created_at)}</p>}
+                </div>
+              )) : (
+                <div className="border border-[#2a2c33] bg-[#141519] p-3 text-xs leading-5 text-slate-500">No version records.</div>
+              )}
+            </div>
+          </section>
+
+          <ResearchLogPanel research={metadata.design_research} />
+        </aside>
       </div>
     </div>
   );

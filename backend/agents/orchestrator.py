@@ -12,8 +12,10 @@ from backend.database import (
     get_component_template_by_part_number,
     list_component_templates,
     save_generated_project,
+    update_generated_project_hardware_ir,
 )
 from backend.llm_providers import LLMProviderConfigError, LLMProviderValidation, build_llm_provider
+from backend.design_research import collect_design_research
 from backend.runtime_config import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
@@ -498,12 +500,16 @@ class HardwarePipelineOrchestrator:
 
         try:
             logger.info("Starting 7-Agent Pipeline Execution...")
+            design_research = collect_design_research(user_prompt)
+            design_research_context = design_research.to_prompt_context()
             
             # 1. Intent Parser Agent
             logger.info("Invoking Intent Parser Agent...")
             intent_prompt = f"""
             You are an Intent Parser Agent. Convert the user's idea and visual reference (if provided) into a structured hardware project overview.
             User Idea: "{user_prompt}"
+            Design research context:
+            {design_research_context}
             Generate the ProjectOverview schema containing title, description, difficulty, estimated cost (set to 0 for now), and category.
             """
             overview: ProjectOverview = self._call_llm_structured(intent_prompt, ProjectOverview, image_bytes, image_mime_type)
@@ -515,6 +521,8 @@ class HardwarePipelineOrchestrator:
             User Idea: "{user_prompt}"
             Project Title: "{overview.title}"
             Project Description: "{overview.description}"
+            Design research context:
+            {design_research_context}
             Generate the FunctionalRequirements schema. Make sure to identify appropriate operating voltage (usually 3.3V or 5V depending on common microcontrollers like ESP32 or Arduino).
             """
             requirements: FunctionalRequirements = self._call_llm_structured(req_prompt, FunctionalRequirements, image_bytes, image_mime_type)
@@ -532,8 +540,13 @@ class HardwarePipelineOrchestrator:
             
             Here are the available components in our database with their pin definitions and prices:
             {db_comp_json}
+
+            Design research context:
+            {design_research_context}
             
             Select a suitable list of components. You MUST include a microcontroller (e.g., ESP32-WROOM-32D or Arduino-Nano-V3) and any sensors, actuators, displays, or passive/power parts needed.
+            Treat the database above as the trusted electrical catalog. Use design research only as evidence for common design patterns, likely module families, and CAD/source hints.
+            Do not instantiate a discovered web component unless its part_number exactly matches a database part_number above. If research suggests an unavailable component, choose the nearest compatible database component and explain that choice in rationale.
             For each selected component, instantiate it as a ComponentInstance with:
             - ref_des: Unique ID like 'U1' (for MCUs), 'SEN1', 'ACT1', 'DISP1', 'R1', 'LED1', 'BAT1'
             - part_number: MUST match exactly one of the available part_numbers in the database list above.
@@ -639,6 +652,8 @@ class HardwarePipelineOrchestrator:
             You are a Mechanical/Fabrication and CAD Sourcing Agent. Provide enclosure, mounting, material, and 3D printing/laser cutting details for this project.
             Project: "{overview.title}" - Description: "{overview.description}"
             Components Selected: {components_json}
+            Design research context:
+            {design_research_context}
             Populate the MechanicalNotes schema, including:
             - fabrication_cost_estimate_usd: realistic mechanical-only print/cut/enclosure cost, excluding electrical components.
             - cad_sources: CAD/enclosure/fabrication records with name, source_type, url, file_formats, license, estimated_unit_price_usd, and adaptation notes.
@@ -700,6 +715,7 @@ class HardwarePipelineOrchestrator:
                     "actual_model": model_validation.actual_model,
                     "llm_provider": model_validation.provider,
                     "pipeline": "provider-agnostic structured LLM + ADK-style hardware agents",
+                    "design_research": design_research.metadata(),
                 },
                 project_version_history=[{"version": "0.1", "description": "Initial design compilation via 7-agent ADK pipeline"}],
                 validation=validation_summary,
@@ -719,6 +735,235 @@ class HardwarePipelineOrchestrator:
                 raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE) from e
             logger.error(f"Pipeline execution encountered an error: {e}. Falling back to simulation.")
             return self._generate_simulated_project(user_prompt, has_image=bool(image_bytes))
+
+    def revise_project(self, current_ir: HardwareIR, user_message: str) -> HardwareIR:
+        """Revise an existing HardwareIR from a chat message and persist a new project version."""
+        message = (user_message or "").strip()
+        if not message:
+            raise ValueError("Message is required.")
+
+        safety_error = check_safety_violations(message)
+        if safety_error:
+            raise ValueError(safety_error)
+
+        if self.use_simulation:
+            if deployment_mode_enabled():
+                raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE)
+            return self._revise_project_simulated(current_ir, message)
+
+        try:
+            model_validation = self.validate_configured_model()
+        except LLMProviderConfigError as e:
+            if deployment_mode_enabled():
+                logger.error("LLM provider validation failed in deployment mode during revision: %s", e)
+                raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE) from e
+            raise
+
+        try:
+            project_context = " ".join([
+                current_ir.overview.title if current_ir.overview else "",
+                current_ir.overview.description if current_ir.overview else "",
+                message,
+            ]).strip()
+            design_research = collect_design_research(project_context)
+            design_research_context = design_research.to_prompt_context()
+            db_components = get_db_component_templates()
+            current_ir_json = json.dumps(current_ir.model_dump(), indent=2)
+
+            revision_prompt = f"""
+            You are a Project Revision Agent for Blueprint OSS.
+            The user is continuing a chat about an existing low-voltage hardware project.
+
+            User revision request:
+            "{message}"
+
+            Current Hardware IR:
+            {current_ir_json}
+
+            Trusted component catalog:
+            {json.dumps(db_components, indent=2)}
+
+            Design research context:
+            {design_research_context}
+
+            Return a complete updated HardwareIR JSON object, not a partial patch.
+            Requirements:
+            - Preserve the existing project identity, safety scope, and low-voltage educational constraints.
+            - Apply the user's requested revision across overview, requirements, components, nets, pin_mappings, mechanical notes, and assembly steps when relevant.
+            - Prefer existing components when the request can be satisfied without replacing parts.
+            - If adding or replacing electrical parts, choose part_number values that exactly match the trusted component catalog and include full pins.
+            - Keep all physical pins in at most one signal net and keep power/ground rails electrically safe.
+            - Keep reference/product image metadata if it is present in assembly_metadata.
+            """
+            revised_ir: HardwareIR = self._call_llm_structured(revision_prompt, HardwareIR)
+            return self._finalize_project_revision(
+                current_ir=current_ir,
+                revised_ir=revised_ir,
+                user_message=message,
+                design_research=design_research,
+                model_validation=model_validation,
+                simulated=False,
+            )
+        except Exception as e:
+            if deployment_mode_enabled():
+                logger.error("Revision pipeline encountered an error in deployment mode: %s", e)
+                raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE) from e
+            logger.error("Revision pipeline encountered an error: %s. Falling back to simulation revision.", e)
+            return self._revise_project_simulated(current_ir, message)
+
+    def _finalize_project_revision(
+        self,
+        *,
+        current_ir: HardwareIR,
+        revised_ir: HardwareIR,
+        user_message: str,
+        design_research: Any,
+        model_validation: Optional[LLMProviderValidation] = None,
+        simulated: bool = False,
+    ) -> HardwareIR:
+        """Normalize, validate, version, and persist a revised HardwareIR."""
+        project_id = canonical_project_uuid((current_ir.assembly_metadata or {}).get("project_id"))
+        current_metadata = current_ir.assembly_metadata or {}
+        revised_metadata = revised_ir.assembly_metadata or {}
+        current_revision = int(current_metadata.get("revision") or len(current_ir.project_version_history or []) or 1)
+        next_revision = current_revision + 1
+        now = datetime.utcnow().isoformat()
+
+        if not revised_ir.overview and current_ir.overview:
+            revised_ir.overview = current_ir.overview
+        if not revised_ir.requirements and current_ir.requirements:
+            revised_ir.requirements = current_ir.requirements
+        if not revised_ir.components:
+            revised_ir.components = current_ir.components
+        if not revised_ir.nets:
+            revised_ir.nets = current_ir.nets
+        if not revised_ir.pin_mappings:
+            revised_ir.pin_mappings = current_ir.pin_mappings
+        if not revised_ir.assembly:
+            revised_ir.assembly = current_ir.assembly
+        if not revised_ir.mechanical and current_ir.mechanical:
+            revised_ir.mechanical = current_ir.mechanical
+
+        if revised_ir.overview:
+            revised_ir.overview.estimated_cost = round(sum(c.unit_price * c.quantity for c in revised_ir.components), 2)
+
+        validation_issues = validate_circuit(revised_ir.components, revised_ir.nets)
+        revised_ir.validation = build_validation_summary(validation_issues)
+        revised_ir.is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
+        revised_ir.buses = extract_buses(revised_ir.nets)
+        revised_ir.power_rails = extract_power_rails(revised_ir.components, revised_ir.nets)
+        revised_ir.estimated_current_draw_ma = estimate_current_draw(revised_ir.components)
+        if revised_ir.mechanical:
+            revised_ir.fabrication_notes = revised_ir.mechanical.fabrication_details
+
+        previous_history = list(current_ir.project_version_history or [])
+        version_entry = {
+            "version": f"0.{next_revision}",
+            "revision": next_revision,
+            "source": "chat",
+            "created_at": now,
+            "description": f"Chat revision: {user_message[:220]}",
+        }
+        revised_ir.project_version_history = [*previous_history, version_entry]
+
+        previous_chat = list(current_metadata.get("chat_history") or [])
+        assistant_summary = (
+            revised_ir.overview.description
+            if revised_ir.overview and revised_ir.overview.description
+            else "Updated the hardware plan."
+        )
+        chat_history = [
+            *previous_chat,
+            {
+                "role": "user",
+                "content": user_message,
+                "revision": next_revision,
+                "created_at": now,
+            },
+            {
+                "role": "assistant",
+                "content": assistant_summary,
+                "revision": next_revision,
+                "created_at": now,
+            },
+        ]
+
+        provider = "simulation" if simulated else (model_validation.provider if model_validation else self.llm_provider.provider_name)
+        revised_ir.assembly_metadata = {
+            **current_metadata,
+            **revised_metadata,
+            "project_id": project_id,
+            "revision": next_revision,
+            "updated_at": now,
+            "last_revision_source": "chat",
+            "last_revision_message": user_message,
+            "chat_history": chat_history,
+            "design_research": design_research.metadata(),
+            "model_name": self.model_name,
+            "llm_provider": provider,
+            "pipeline": "chat revision + provider-agnostic structured LLM + ADK-style hardware agents",
+        }
+        if model_validation:
+            revised_ir.assembly_metadata = {
+                **revised_ir.assembly_metadata,
+                "fallback_mode": model_validation.fallback_active,
+                "requested_model": model_validation.requested_model,
+                "actual_model": model_validation.actual_model,
+            }
+
+        revised_ir = build_mechanical_render_data(revised_ir)
+        update_generated_project_hardware_ir(
+            project_id,
+            revised_ir.model_dump(),
+            title=revised_ir.overview.title if revised_ir.overview else None,
+        )
+        logger.info("Project %s revised to revision %s via chat.", project_id, next_revision)
+        return revised_ir
+
+    def _revise_project_simulated(self, current_ir: HardwareIR, user_message: str) -> HardwareIR:
+        revised_ir = current_ir.model_copy(deep=True)
+        now = datetime.utcnow().isoformat()
+
+        if revised_ir.overview:
+            revised_ir.overview.description = (
+                f"{revised_ir.overview.description} Revision request incorporated: {user_message}"
+            )
+        if revised_ir.requirements:
+            revised_ir.requirements.requirements = [
+                *revised_ir.requirements.requirements,
+                f"Revision request: {user_message}",
+            ]
+        revised_ir.constraints = [*revised_ir.constraints, f"Revision request: {user_message}"]
+        revised_ir.fabrication_notes = [
+            *revised_ir.fabrication_notes,
+            f"Review fabrication and mounting details for revision request: {user_message}",
+        ]
+        if revised_ir.assembly:
+            next_step = max((step.step_num for step in revised_ir.assembly), default=0) + 1
+            revised_ir.assembly.append(AssemblyStep(
+                step_num=next_step,
+                title="Review chat revision",
+                description=f"Review and apply the requested design update: {user_message}",
+                danger_flag=False,
+                affected_components=[component.ref_des for component in revised_ir.components[:4]],
+            ))
+
+        simulated_research = collect_design_research(
+            f"{revised_ir.overview.title if revised_ir.overview else 'hardware project'} {user_message}"
+        )
+        self.model_name = "simulation"
+        revised_ir.assembly_metadata = {
+            **(revised_ir.assembly_metadata or {}),
+            "simulation_revision_at": now,
+        }
+        return self._finalize_project_revision(
+            current_ir=current_ir,
+            revised_ir=revised_ir,
+            user_message=user_message,
+            design_research=simulated_research,
+            model_validation=None,
+            simulated=True,
+        )
 
     def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         """Saves a successfully generated HardwareIR to the configured database."""

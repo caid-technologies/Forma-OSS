@@ -43,10 +43,11 @@ from backend.database import (
     list_generated_projects,
     save_alpha_signup,
 )
+from backend.design_research import get_design_research_debug_config
 from backend.seed_db import seed_database
 from backend.models import (
     AlphaSignupRequest, AlphaSignupResponse,
-    GenerateProjectRequest, HardwareIR, ValidationReport, 
+    GenerateProjectRequest, HardwareIR, ProjectChatRequest, ValidationReport, 
     ComponentInstance, ConnectionNet, ValidationIssue
 )
 from backend.agents.orchestrator import HardwarePipelineOrchestrator
@@ -55,6 +56,7 @@ from backend.a2a import (
     A2AAgentRegistration,
     A2AMessage,
     build_generation_response,
+    build_revision_response,
     get_a2a_capabilities,
     handle_a2a_websocket,
     handle_mcp_json_rpc,
@@ -176,6 +178,7 @@ def debug_config_endpoint():
             "deployment": _deployment_runtime_config(llm_config),
             "database": get_database_config(),
             "job_metadata": JOB_STORE.get_config(),
+            "design_research": get_design_research_debug_config(),
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
             "video_generation": GMICloudProvider().get_debug_config(),
@@ -554,6 +557,49 @@ def get_project_endpoint(project_id: str):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project IR: {str(e)}")
+
+
+@app.post("/projects/{project_id}/chat", response_model=Dict[str, Any])
+def chat_project_endpoint(project_id: str, request: ProjectChatRequest):
+    """Revises an existing project from a chat message and persists a new Hardware IR version."""
+    job_id = f"job_chat_{uuid4().hex}"
+    message_id = f"msg_{uuid4().hex}"
+    payload = {
+        "project_id": project_id,
+        "message": request.message,
+    }
+    JOB_STORE.create_job(
+        job_id=job_id,
+        message_id=message_id,
+        correlation_id=project_id,
+        action="blueprint.revise_project",
+        sender="frontend",
+        recipient="blueprint",
+        payload=payload,
+        server_owned=True,
+        status="queued",
+    )
+    JOB_STORE.mark_running(job_id)
+
+    try:
+        response = build_revision_response(project_id, request.message)
+        JOB_STORE.mark_succeeded(job_id, response)
+        return {
+            **response,
+            "job_id": job_id,
+            "job": JOB_STORE.get_job(job_id),
+        }
+    except ValueError as e:
+        JOB_STORE.mark_failed(job_id, str(e))
+        status_code = 404 if "not found" in str(e).lower() else 400
+        raise HTTPException(status_code=status_code, detail=str(e))
+    except AlphaGenerationUnavailableError as e:
+        JOB_STORE.mark_failed(job_id, str(e))
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+    except Exception as e:
+        JOB_STORE.mark_failed(job_id, str(e))
+        raise HTTPException(status_code=500, detail=f"Project revision failed: {str(e)}")
+
 
 @app.get("/components")
 def get_components_endpoint():

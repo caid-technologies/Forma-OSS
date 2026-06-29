@@ -402,14 +402,17 @@ def get_generated_project(project_id: str) -> Optional[Any]:
         db.close()
 
 
-def update_generated_project_hardware_ir(project_id: str, hardware_ir: Dict[str, Any]) -> bool:
+def update_generated_project_hardware_ir(project_id: str, hardware_ir: Dict[str, Any], title: Optional[str] = None) -> bool:
     project_id = _canonical_project_id(project_id)
     hardware_ir = _hardware_ir_with_project_id(project_id, hardware_ir)
+    updates: Dict[str, Any] = {"hardware_ir": hardware_ir}
+    if title:
+        updates["title"] = title
     if DATABASE_BACKEND == "supabase":
         response = (
             get_supabase_client()
             .table("generated_projects")
-            .update({"hardware_ir": hardware_ir})
+            .update(updates)
             .eq("project_id", project_id)
             .execute()
         )
@@ -421,6 +424,8 @@ def update_generated_project_hardware_ir(project_id: str, hardware_ir: Dict[str,
         if not project:
             return False
         project.hardware_ir = hardware_ir
+        if title:
+            project.title = title
         db.commit()
         return True
     except Exception:

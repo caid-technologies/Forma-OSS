@@ -77,9 +77,12 @@ Each line sent to the socket is an `A2AMessage` JSON object. Each line returned 
 
 Available tools:
 - `blueprint.generate_project`
+- `blueprint.revise_project`
 - `blueprint.debug_config`
 - `blueprint.validate_circuit`
 - `blueprint.a2a.send_message`
 - `blueprint.a2a.poll_events`
 - `blueprint.a2a.get_job`
 - `blueprint.a2a.list_jobs`
+
+`blueprint.revise_project` expects `project_id` and `message`. It applies the same chat revision path as `POST /api/projects/{project_id}/chat`, saves a new project revision, and returns the revised Hardware IR plus Mermaid/SVG diagrams.

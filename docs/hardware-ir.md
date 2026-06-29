@@ -29,6 +29,10 @@ The core schema lives in `backend/models.py` and includes:
 
 Additional fields commonly populated at runtime:
 - **assembly_metadata** – backend-populated metadata such as generation timestamp, resolved model name, and render stats.
+- **assembly_metadata.revision** – current project revision number.
+- **assembly_metadata.chat_history** – user/assistant chat messages that produced revisions.
+- **assembly_metadata.design_research** – optional Firecrawl MCP logs, sources, excerpts, and discovered module hints.
+- **project_version_history** – ordered revision records; chat revisions append entries with source, timestamp, revision number, and description.
 - **mechanical.render_dimensions** – overall envelope dimensions used by the 3D viewer.
 - **mechanical.component_placements** – per-component placement records for the 3D viewer.
 - **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
@@ -52,3 +56,6 @@ This makes the IR more than a snapshot—it’s a record of what was checked and
 When `image_data` is provided to `POST /api/generate`, the backend uploads the reference image to Supabase Storage when the Supabase service-role/secret key is configured and `BLUEPRINT_DEV_MODE` is not enabled, then records `assembly_metadata.reference_image_url`, `reference_image_s3_bucket`, and `reference_image_s3_key`. If storage is not configured or `BLUEPRINT_DEV_MODE=true`, it falls back to `assembly_metadata.reference_image_data`.
 
 When image output is requested, the backend uploads the generated product concept image to Supabase Storage when the Supabase service-role/secret key is configured and `BLUEPRINT_DEV_MODE` is not enabled, then records `assembly_metadata.product_image_url`, `product_image_s3_bucket`, and `product_image_s3_key` along with `product_image_provider`, `product_image_model`, and `product_image_size`. In dev mode, the product image stays inline in the SQLite project record. The frontend prefers this generated image URL over inline data and over the uploaded reference image on the IMAGE tab.
+
+## Chat revisions
+Existing projects can be revised through `POST /api/projects/{project_id}/chat`. The backend loads the current Hardware IR, applies the chat request through the revision agent, reruns validation, updates diagrams, increments `assembly_metadata.revision`, appends `project_version_history`, and stores the revised IR back into the project row.

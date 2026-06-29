@@ -6,6 +6,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `backend/main.py` – FastAPI app and API routes
 - `backend/agents/orchestrator.py` – multi-agent pipeline
 - `backend/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
+- `backend/design_research.py` – optional Firecrawl MCP design research adapter
 - `backend/llm_providers.py` – provider-agnostic structured LLM adapters
 - `backend/image_providers.py` – optional generated product image adapters
 - `backend/storage.py` – Supabase Storage image uploads, disabled in development mode
@@ -30,11 +31,16 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/components` – list component templates
 - `GET /api/projects` – list generated projects
 - `GET /api/projects/{project_id}` – fetch a stored project
+- `POST /api/projects/{project_id}/chat` – revise a stored project from a chat message and save a new IR version
 - `POST /api/seed` – re-seed the component database
 - `GET /api/debug/config` – inspect LLM, database, image-provider, and image-storage resolution (no secrets)
 
 ## Orchestration layer
 The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `backend/agents/orchestrator.py`). Live agent calls go through `backend/llm_providers.py`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
+
+When `DESIGN_RESEARCH_ENABLED=true`, the live pipeline runs an optional Firecrawl MCP research pass before intent/requirements/component selection. Research results are injected as evidence for reference designs, common BOM patterns, and CAD/enclosure sources. The component template database remains the trusted electrical catalog: component selection may use research to choose among known parts, but generated `ComponentInstance.part_number` values are still instructed to match the seeded database exactly. Research logs, source URLs, excerpts, and module hints are stored in `assembly_metadata.design_research`.
+
+Project chat revisions use `POST /api/projects/{project_id}/chat`. The revision agent receives the current Hardware IR plus the user's chat message, returns a complete revised IR, reruns rule-based validation, increments `assembly_metadata.revision`, appends `project_version_history`, and persists the updated project row.
 
 ## A2A layer
 The A2A layer exposes Blueprint to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses `JOB_METADATA_BACKEND=auto`, storing in Supabase when the main app database is Supabase and otherwise falling back to SQLite at `JOB_METADATA_DB_PATH` (default `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite for job metadata. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
@@ -42,6 +48,11 @@ The A2A layer exposes Blueprint to external agents as a tool server and lightwei
 LLM configuration behavior:
 - `BLUEPRINT_DEV_MODE=true`: forces SQLite for app data and A2A job metadata even when Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `BLUEPRINT_DEPLOYMENT=true`: enables the deployment-only alpha gate. If live generation is unavailable, `/api/generate` is blocked and the frontend captures launch interest through `/api/alpha-signups`
+- `DESIGN_RESEARCH_ENABLED=true`: enables Firecrawl MCP research before live LLM component selection
+- `FIRECRAWL_API_KEY`: Firecrawl API key. When present and `FIRECRAWL_MCP_URL` is omitted, the backend uses the Firecrawl remote MCP endpoint
+- `FIRECRAWL_MCP_URL`: optional MCP-over-HTTP endpoint, defaulting to the Firecrawl remote MCP endpoint when an API key is configured
+- `FIRECRAWL_MCP_SEARCH_TOOL`: MCP search tool name, defaulting to `firecrawl_search`
+- `DESIGN_RESEARCH_MAX_QUERIES`, `DESIGN_RESEARCH_RESULTS_PER_QUERY`, `DESIGN_RESEARCH_MAX_CONTEXT_CHARS`: limits for the research context injected into agent prompts
 - `LLM_PROVIDER`: `gemini`, `openai`, `openai-compatible`, or `simulation`
 - `LLM_MODEL`: provider model ID
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`

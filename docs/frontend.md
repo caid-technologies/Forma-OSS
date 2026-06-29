@@ -4,6 +4,8 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 
 ## Core UI features
 - **Prompt input** with optional image upload.
+- **Agent trace** under the prompt showing staged progress, Firecrawl research logs, and source links when research runs.
+- **Project chat** for revising an existing Hardware IR and saving new versions.
 - **Example presets** for quick exploration.
 - **React Flow schematic** showing components and nets.
 - **Vector schematic** rendered from SVG output.
@@ -15,6 +17,7 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 ## Primary tabs
 The main dashboard exposes several focused views:
 - **IMAGE** – project summary plus generated product image, falling back to the uploaded reference image when no generated image is present.
+- **CHAT** – revision composer, chat history, version history, and Firecrawl source logs.
 - **BOM** – component list and total cost.
 - **MECH** – 3D enclosure + placements (Three.js / React Three Fiber).
 - **WIRE** – interactive React Flow wiring view.
@@ -27,6 +30,7 @@ The UI communicates with the backend API:
 - `GET /api/components` – component catalog
 - `GET /api/projects` – history of generated projects
 - `POST /api/generate` – run the agent pipeline
+- `POST /api/projects/{project_id}/chat` – revise the active project and persist a new version
 
 If the backend is offline, the UI can still load example JSONs from `frontend/public/examples/`.
 

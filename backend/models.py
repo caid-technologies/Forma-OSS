@@ -188,6 +188,24 @@ class GenerateProjectRequest(BaseModel):
     )
 
 
+class ProjectChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, max_length=4000, description="Natural language revision request for an existing project")
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def strip_message(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("message")
+    @classmethod
+    def require_message(cls, value: Optional[str]) -> str:
+        if not value:
+            raise ValueError("Message is required.")
+        return value
+
+
 class AlphaSignupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120, description="Person's name")
     email: str = Field(..., min_length=3, max_length=254, description="Contact email")

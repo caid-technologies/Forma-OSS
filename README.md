@@ -14,7 +14,7 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
   - Generated **SVG** schematic
 - View a lightweight **3D mechanical layout** (Three.js / React Three Fiber)
 - Generate an optional **product concept image** with an image model
-- Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback**
+- Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `BLUEPRINT_DEV_MODE` for SQLite-only local work
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
 
 ## How it works
@@ -105,6 +105,7 @@ LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `SUPABASE_URL`: Supabase project API URL, for example `https://your-project-ref.supabase.co`.
 - `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`: Backend-only Supabase key for writes. Do not use anon/publishable keys.
+- `BLUEPRINT_DEV_MODE`: When `true`, forces SQLite for app data and A2A job metadata, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
 - `BLUEPRINT_DEPLOYMENT`: When `true`, deployed builds without a live LLM show generated examples plus an alpha signup form instead of running generation.

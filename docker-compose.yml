@@ -8,6 +8,7 @@ services:
     image: blueprint-backend:local
     restart: unless-stopped
     environment:
+      BLUEPRINT_DEV_MODE: ${BLUEPRINT_DEV_MODE:-}
       DATABASE_BACKEND: ${DATABASE_BACKEND:-}
       SQLITE_DATABASE_URL: ${SQLITE_DATABASE_URL:-sqlite:////data/blueprint.db}
       SUPABASE_URL: ${SUPABASE_URL:-}

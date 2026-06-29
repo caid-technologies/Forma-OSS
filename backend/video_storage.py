@@ -9,6 +9,8 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 
+from backend.runtime_config import blueprint_dev_mode_enabled
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -100,10 +102,15 @@ def _supabase_service_key() -> Optional[str]:
 
 
 def _supabase_client_enabled() -> bool:
+    if blueprint_dev_mode_enabled():
+        return False
     return bool(_supabase_url() and _supabase_service_key())
 
 
 def _supabase_storage_bucket(bucket: str):
+    if blueprint_dev_mode_enabled():
+        raise RuntimeError("Supabase video storage is disabled while BLUEPRINT_DEV_MODE=true.")
+
     supabase_url = _supabase_url()
     service_key = _supabase_service_key()
     if not supabase_url or not service_key:
@@ -142,6 +149,24 @@ def get_video_storage_config() -> Dict[str, Any]:
     has_static_keys = bool(_env("AWS_ACCESS_KEY_ID") and _env("AWS_SECRET_ACCESS_KEY"))
     has_credential_source = _has_aws_credential_source()
     supabase_client_enabled = _supabase_client_enabled()
+    if blueprint_dev_mode_enabled():
+        return {
+            "enabled": False,
+            "bucket": bucket,
+            "region": region,
+            "prefix": _video_prefix(),
+            "public_base_url": public_base_url.rstrip("/") if public_base_url else None,
+            "endpoint_url": endpoint_url,
+            "write_method": None,
+            "bucket_configured": bool(bucket),
+            "region_configured": bool(region),
+            "static_access_key_configured": has_static_keys,
+            "credential_source_configured": has_credential_source,
+            "supabase_url_configured": bool(_supabase_url()),
+            "supabase_service_key_configured": bool(_supabase_service_key()),
+            "dev_mode": True,
+            "disabled_reason": "BLUEPRINT_DEV_MODE disables remote video storage to avoid Supabase writes.",
+        }
     return {
         "enabled": bool(bucket and region and (has_credential_source or supabase_client_enabled)),
         "bucket": bucket,
@@ -156,11 +181,14 @@ def get_video_storage_config() -> Dict[str, Any]:
         "credential_source_configured": has_credential_source,
         "supabase_url_configured": bool(_supabase_url()),
         "supabase_service_key_configured": bool(_supabase_service_key()),
+        "dev_mode": False,
     }
 
 
 def ensure_video_storage_configured() -> Dict[str, Any]:
     config = get_video_storage_config()
+    if config.get("dev_mode"):
+        raise RuntimeError("Video storage is disabled while BLUEPRINT_DEV_MODE=true.")
     if not config["bucket_configured"]:
         raise RuntimeError("Video S3 storage is missing VIDEO_S3_BUCKET.")
     if not config["region_configured"]:
@@ -490,6 +518,9 @@ def _list_s3_project_videos(config: Dict[str, Any], project_id: str) -> List[Sto
 def list_project_videos(project_id: str) -> List[StoredVideo]:
     if not project_id or not str(project_id).strip():
         raise ValueError("Video gallery requires projectId.")
+
+    if blueprint_dev_mode_enabled():
+        return []
 
     config = ensure_video_storage_configured()
     if config["write_method"] == "supabase-client":

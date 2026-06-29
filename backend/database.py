@@ -10,6 +10,8 @@ from sqlalchemy import Column, Float, Integer, JSON, String, Text, create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
+from backend.runtime_config import blueprint_dev_mode_enabled
+
 load_dotenv()
 
 logger = logging.getLogger(__name__)
@@ -155,6 +157,12 @@ def _build_supabase_client(url: str, key: str):
 def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
     override = _backend_override()
     sqlite_url = _sqlite_database_url()
+
+    if blueprint_dev_mode_enabled():
+        if override == "supabase":
+            logger.warning("BLUEPRINT_DEV_MODE=true overrides DATABASE_BACKEND=supabase; using SQLite.")
+        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+        return DatabaseConfig(backend="sqlite", source="BLUEPRINT_DEV_MODE", url=sqlite_url), engine, None
 
     if override == "sqlite":
         engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
@@ -460,10 +468,11 @@ def save_alpha_signup(
         db.close()
 
 
-def get_database_config() -> Dict[str, str]:
+def get_database_config() -> Dict[str, Any]:
     return {
         "backend": DATABASE_BACKEND,
         "source": DATABASE_SOURCE,
         "url": DATABASE_URL,
         "client": "supabase-py" if DATABASE_BACKEND == "supabase" else "sqlite/sqlalchemy",
+        "dev_mode": blueprint_dev_mode_enabled(),
     }

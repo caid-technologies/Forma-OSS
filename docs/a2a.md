@@ -8,7 +8,7 @@ Blueprint exposes the same hardware generation capability through several agent-
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
 - **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
 
-Job metadata is persisted through `JOB_METADATA_BACKEND` (default: `auto`). In `auto`, Blueprint stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite at `JOB_METADATA_DB_PATH` (default: `./blueprint_jobs.db`). The store keeps compact metadata only: payloads have image data redacted, and results are summarized instead of storing full generated IR blobs.
+Job metadata is persisted through `JOB_METADATA_BACKEND` (default: `auto`). In `auto`, Blueprint stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite at `JOB_METADATA_DB_PATH` (default: `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite, even if Supabase credentials are configured. The store keeps compact metadata only: payloads have image data redacted, and results are summarized instead of storing full generated IR blobs.
 
 ## Message Shape
 ```json

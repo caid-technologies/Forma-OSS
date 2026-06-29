@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from backend.runtime_config import blueprint_dev_mode_enabled
+
 load_dotenv()
 
 DEFAULT_JOB_DB_PATH = "./blueprint_jobs.db"
@@ -22,6 +24,8 @@ def _job_db_path() -> str:
 
 
 def _job_metadata_backend() -> str:
+    if blueprint_dev_mode_enabled():
+        return "sqlite"
     value = os.getenv("JOB_METADATA_BACKEND", "auto").strip().lower()
     if value in {"auto", "supabase", "database", "db"}:
         return "supabase" if value != "auto" else "auto"
@@ -94,7 +98,7 @@ class JobMetadataStore:
     def __init__(self, db_path: Optional[str] = None, backend: Optional[str] = None) -> None:
         self.db_path = db_path or _job_db_path()
         requested_backend = (backend or _job_metadata_backend()).strip().lower()
-        if db_path is not None:
+        if blueprint_dev_mode_enabled() or db_path is not None:
             requested_backend = "sqlite"
         self.requested_backend = requested_backend if requested_backend in {"auto", "supabase", "sqlite"} else "auto"
         self.backend = "unconfigured"
@@ -125,8 +129,13 @@ class JobMetadataStore:
     def get_config(self) -> Dict[str, Any]:
         self._ensure_backend_configured()
         if self.backend == "supabase":
-            return {"backend": "supabase", "client": "supabase-py", "table": "a2a_jobs"}
-        return {"backend": "sqlite", "path_env": "JOB_METADATA_DB_PATH", "path": self.db_path}
+            return {"backend": "supabase", "client": "supabase-py", "table": "a2a_jobs", "dev_mode": False}
+        return {
+            "backend": "sqlite",
+            "path_env": "JOB_METADATA_DB_PATH",
+            "path": self.db_path,
+            "dev_mode": blueprint_dev_mode_enabled(),
+        }
 
     def init_db(self) -> None:
         if self._initialized:

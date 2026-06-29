@@ -20,6 +20,7 @@ This builds `blueprint-backend:local` and `blueprint-frontend:local`, starts the
 The Compose backend defaults to:
 
 ```env
+BLUEPRINT_DEV_MODE=false
 SQLITE_DATABASE_URL=sqlite:////data/blueprint.db
 JOB_METADATA_BACKEND=auto
 JOB_METADATA_DB_PATH=/data/blueprint_jobs.db
@@ -54,6 +55,7 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # SUPABASE_SECRET_KEY=your_secret_key_here
 
 # Local fallback / explicit SQLite
+# BLUEPRINT_DEV_MODE=true
 # DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:///./blueprint.db
 
@@ -118,6 +120,7 @@ A2A_SOCKET_PORT=8766
 Notes:
 - Supabase mode uses `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`; it does not use a Postgres connection string.
 - Do not use anon, publishable, or `NEXT_PUBLIC_` Supabase keys for the backend. They obey RLS and cannot seed these tables by default.
+- `BLUEPRINT_DEV_MODE=true` forces SQLite for app data and A2A job metadata even if Supabase env vars are present. It also disables Supabase Storage writes, so reference and product image data is stored inline in the SQLite project record.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
 - `BLUEPRINT_DEPLOYMENT=true` enables the deployment-only alpha gate. When live LLM generation is unavailable, the frontend offers generated example projects plus a contact form that stores leads in `alpha_signups`.
@@ -132,7 +135,7 @@ Notes:
 - `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, or `none`.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
-- When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_SECRET_KEY` are set, uploaded reference images and generated product images are stored in the Supabase Storage bucket from `SUPABASE_S3_BUCKET` (default `contents`) through the Supabase client. S3-compatible credentials are only a fallback.
+- When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_SECRET_KEY` are set, uploaded reference images and generated product images are stored in the Supabase Storage bucket from `SUPABASE_S3_BUCKET` (default `contents`) through the Supabase client. S3-compatible credentials are only a fallback. `BLUEPRINT_DEV_MODE=true` disables this storage path.
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS` controls how long refreshed Supabase Storage read URLs live when projects are loaded. It defaults to `86400`.
 - `LLM_API_KEY` is a generic provider key alias. Gemini aliases (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) are still supported.
 - `LLM_TIMEOUT_SECONDS` controls the generic provider read timeout. OpenAI-compatible endpoints default to `90`.
@@ -141,7 +144,7 @@ Notes:
 - With `STRICT_LLM=true`, generation fails fast when model availability validation is enabled and `LLM_MODEL` is unavailable.
 - With `STRICT_LLM=false`, the backend may fall back to `LLM_FALLBACK_MODEL`.
 - OpenAI-compatible endpoints can use `LLM_BASE_URL`; local endpoints that do not require auth can set `LLM_ALLOW_NO_API_KEY=true`.
-- `JOB_METADATA_BACKEND=auto` stores A2A job metadata in Supabase when the main app database is Supabase, otherwise in SQLite.
+- `JOB_METADATA_BACKEND=auto` stores A2A job metadata in Supabase when the main app database is Supabase, otherwise in SQLite. `BLUEPRINT_DEV_MODE=true` always uses SQLite.
 - `JOB_METADATA_DB_PATH` controls the SQLite A2A job metadata file.
 - A2A REST, WebSocket, and MCP routes are always mounted. The TCP JSONL socket starts only when `A2A_SOCKET_ENABLED=true`.
 

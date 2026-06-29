@@ -16,6 +16,10 @@ def env_bool(name: str, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def blueprint_dev_mode_enabled() -> bool:
+    return env_bool("BLUEPRINT_DEV_MODE")
+
+
 def deployment_mode_enabled() -> bool:
     return any(
         env_bool(name)

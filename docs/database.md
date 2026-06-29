@@ -8,6 +8,7 @@ Database selection is configured in `backend/database.py`:
 - Raw Postgres connection strings are intentionally ignored by the app database layer.
 - With no Supabase client configuration, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - Set `DATABASE_BACKEND=sqlite` to force SQLite, or `DATABASE_BACKEND=supabase` to require Supabase client configuration.
+- Set `BLUEPRINT_DEV_MODE=true` to force SQLite even when Supabase credentials are present. Dev mode also forces A2A job metadata to SQLite and disables Supabase Storage writes; uploaded/generated image data remains inline in the stored Hardware IR.
 
 ## Storage model
 Database models are defined in `backend/database.py`:
@@ -37,6 +38,7 @@ Archived outputs from the pipeline.
 A2A job metadata follows `JOB_METADATA_BACKEND`:
 - `auto` stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite.
 - `sqlite` forces the Python stdlib `sqlite3` store.
+- `BLUEPRINT_DEV_MODE=true` overrides this setting and uses SQLite.
 - SQLite path default: `./blueprint_jobs.db`
 - SQLite path override: `JOB_METADATA_DB_PATH`
 - Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, compact result summaries, and errors

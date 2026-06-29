@@ -10,6 +10,8 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 
+from backend.runtime_config import blueprint_dev_mode_enabled
+
 load_dotenv()
 
 DEFAULT_BUCKET = "contents"
@@ -101,6 +103,31 @@ def _public_base_url() -> Optional[str]:
 
 
 def get_image_storage_config() -> Dict[str, Any]:
+    if blueprint_dev_mode_enabled():
+        return {
+            "enabled": False,
+            "provider": "sqlite-inline",
+            "write_method": None,
+            "endpoint": None,
+            "bucket": _env("SUPABASE_S3_BUCKET", DEFAULT_BUCKET),
+            "region": _first_env(
+                ("SUPABASE_S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"),
+                "us-east-1",
+            ),
+            "signed_url_seconds": _signed_url_seconds(),
+            "public_base_url": None,
+            "supabase_url_configured": bool(_supabase_url()),
+            "service_key_configured": bool(_supabase_service_key()),
+            "access_key_configured": bool(
+                _first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
+            ),
+            "secret_key_configured": bool(
+                _first_env(("SUPABASE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"))
+            ),
+            "dev_mode": True,
+            "disabled_reason": "BLUEPRINT_DEV_MODE stores image data inline with SQLite project records.",
+        }
+
     supabase_url = _supabase_url()
     service_key = _supabase_service_key()
     access_key_id = _first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
@@ -120,6 +147,7 @@ def get_image_storage_config() -> Dict[str, Any]:
         "service_key_configured": bool(service_key),
         "access_key_configured": bool(access_key_id),
         "secret_key_configured": bool(secret_access_key),
+        "dev_mode": False,
     }
 
 
@@ -134,6 +162,9 @@ def _signed_url_seconds() -> int:
 
 
 def _supabase_storage_bucket(bucket: str):
+    if blueprint_dev_mode_enabled():
+        raise RuntimeError("Supabase Storage is disabled while BLUEPRINT_DEV_MODE=true.")
+
     supabase_url = _supabase_url()
     service_key = _supabase_service_key()
     if not supabase_url or not service_key:
@@ -220,6 +251,8 @@ def _public_url(bucket: str, key: str, endpoint: str) -> str:
 
 def create_signed_image_url(bucket: str, key: str, expires_in: Optional[int] = None) -> Optional[str]:
     if not bucket or not key:
+        return None
+    if blueprint_dev_mode_enabled():
         return None
     bucket_proxy = _supabase_storage_bucket(bucket)
     signed = bucket_proxy.create_signed_url(key, expires_in or _signed_url_seconds())

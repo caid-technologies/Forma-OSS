@@ -14,6 +14,7 @@ from backend.database import (
     save_generated_project,
 )
 from backend.llm_providers import LLMProviderConfigError, LLMProviderValidation, build_llm_provider
+from backend.observability import serialize_for_langfuse, start_observation, update_observation
 from backend.runtime_config import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
@@ -421,13 +422,42 @@ class HardwarePipelineOrchestrator:
         if self.use_simulation:
             raise RuntimeError("Simulation mode is active; should use simulated generator instead.")
 
-        try:
-            result = self.llm_provider.generate_structured(prompt, schema_class, image_bytes, image_mime_type)
-            self.model_name = self.llm_provider.model_name
-            return result
-        except Exception as e:
-            logger.error(f"LLM structured call failed via {self.llm_provider.provider_name}: {e}")
-            raise
+        schema_name = getattr(schema_class, "__name__", "StructuredResponse")
+        metadata = {
+            "workflow": "default",
+            "llm_provider": self.llm_provider.provider_name,
+            "response_schema": schema_name,
+            "has_reference_image": bool(image_bytes),
+            "image_mime_type": image_mime_type,
+        }
+        with start_observation(
+            name=f"blueprint.default.{schema_name}",
+            as_type="generation",
+            model=self.llm_provider.model_name,
+            input={
+                "prompt": prompt,
+                "schema": schema_name,
+                "has_reference_image": bool(image_bytes),
+                "image_mime_type": image_mime_type,
+            },
+            metadata=metadata,
+        ) as observation:
+            try:
+                result = self.llm_provider.generate_structured(prompt, schema_class, image_bytes, image_mime_type)
+                self.model_name = self.llm_provider.model_name
+                update_observation(
+                    observation,
+                    output=serialize_for_langfuse(result),
+                    metadata={**metadata, "actual_model": self.model_name},
+                )
+                return result
+            except Exception as e:
+                update_observation(
+                    observation,
+                    metadata={**metadata, "error_type": e.__class__.__name__, "error": str(e)[:1000]},
+                )
+                logger.error(f"LLM structured call failed via {self.llm_provider.provider_name}: {e}")
+                raise
 
     def generate_project(self, user_prompt: str, image_bytes: Optional[bytes] = None, image_mime_type: Optional[str] = None) -> HardwareIR:
         """Orchestrates the 7-agent hardware compilation pipeline with verification loop."""

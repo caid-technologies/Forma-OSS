@@ -15,6 +15,7 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 - View a lightweight **3D mechanical layout** (Three.js / React Three Fiber)
 - Generate an optional **product concept image** with an image model
 - Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `BLUEPRINT_DEV_MODE` for SQLite-only local work
+- Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
 
 ## How it works
@@ -117,6 +118,11 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `OPENAI_REASONING_EFFORT`: Optional reasoning effort for GPT-5/o-series models, for example `low`.
 - `OPENAI_TEMPERATURE`: Optional first-party OpenAI sampling temperature. Omitted by default so models that only support their default temperature can run.
 - `OPENAI_PROJECT_ID` / `OPENAI_ORG_ID`: Optional OpenAI project and organization routing headers.
+- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`: Optional Langfuse project keys. When both are set, the backend traces each generation request and structured LLM call.
+- `LANGFUSE_BASE_URL`: Optional Langfuse host (default `https://cloud.langfuse.com`).
+- `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_TRACING_RELEASE`: Optional Langfuse trace attributes.
+- `LANGFUSE_MAX_FIELD_CHARS`: Optional traced payload preview cap (default `20000`).
+- `LANGFUSE_ENABLED`: Optional explicit on/off switch. Set to `false` to disable tracing even when keys are present.
 - `IMAGE_OUTPUT_ENABLED`: Optional global default for generated product images. The UI and API can opt in per job with `generate_image=true`.
 - `IMAGE_PROVIDER`: Image provider. Supports `openai`, `openai-compatible`, or `none`.
 - `OPENAI_IMAGE_MODEL`: OpenAI image model ID. The example default is `gpt-image-2`.

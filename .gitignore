@@ -25,6 +25,10 @@ __pycache__/
 .env.production.local
 supabase/.temp/
 
+# Runtime logs
+.logs/
+*.log
+
 # IDE & OS files
 .DS_Store
 .idea/

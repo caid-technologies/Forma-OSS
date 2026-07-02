@@ -29,6 +29,7 @@ from backend.models import (
     ProjectOverview,
     ValidationIssue,
 )
+from backend.observability import serialize_for_langfuse, start_observation, update_observation
 from backend.runtime_config import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
@@ -109,9 +110,41 @@ class WebResearchHardwarePipeline:
         if self.use_simulation:
             raise RuntimeError("Simulation mode is active; web research workflow needs a live structured LLM provider.")
 
-        result = self.llm_provider.generate_structured(prompt, schema_class, image_bytes, image_mime_type)
-        self.model_name = self.llm_provider.model_name
-        return result
+        schema_name = getattr(schema_class, "__name__", "StructuredResponse")
+        metadata = {
+            "workflow": self.workflow_id,
+            "llm_provider": self.llm_provider.provider_name,
+            "response_schema": schema_name,
+            "has_reference_image": bool(image_bytes),
+            "image_mime_type": image_mime_type,
+        }
+        with start_observation(
+            name=f"blueprint.{self.workflow_id}.{schema_name}",
+            as_type="generation",
+            model=self.llm_provider.model_name,
+            input={
+                "prompt": prompt,
+                "schema": schema_name,
+                "has_reference_image": bool(image_bytes),
+                "image_mime_type": image_mime_type,
+            },
+            metadata=metadata,
+        ) as observation:
+            try:
+                result = self.llm_provider.generate_structured(prompt, schema_class, image_bytes, image_mime_type)
+                self.model_name = self.llm_provider.model_name
+                update_observation(
+                    observation,
+                    output=serialize_for_langfuse(result),
+                    metadata={**metadata, "actual_model": self.model_name},
+                )
+                return result
+            except Exception as exc:
+                update_observation(
+                    observation,
+                    metadata={**metadata, "error_type": exc.__class__.__name__, "error": str(exc)[:1000]},
+                )
+                raise
 
     def generate_project(
         self,

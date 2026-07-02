@@ -77,6 +77,15 @@ STRICT_LLM=true
 # OPENAI_PROJECT_ID=your_openai_project_id_here
 # OPENAI_ORG_ID=your_openai_org_id_here
 
+# Optional Langfuse observability
+# LANGFUSE_PUBLIC_KEY=pk-lf-your_public_key_here
+# LANGFUSE_SECRET_KEY=sk-lf-your_secret_key_here
+# LANGFUSE_BASE_URL=https://cloud.langfuse.com
+# LANGFUSE_TRACING_ENVIRONMENT=local
+# LANGFUSE_TRACING_RELEASE=dev
+# LANGFUSE_MAX_FIELD_CHARS=20000
+# LANGFUSE_ENABLED=false
+
 # Optional generated product image output
 IMAGE_OUTPUT_ENABLED=false
 IMAGE_PROVIDER=openai
@@ -131,6 +140,7 @@ Notes:
 - `OPENAI_REASONING_EFFORT` can lower latency for GPT-5/o-series reasoning models, for example `low`.
 - `OPENAI_TEMPERATURE` is optional and omitted by default for first-party OpenAI so models that only support their default temperature can run.
 - `OPENAI_PROJECT_ID` and `OPENAI_ORG_ID` are optional routing headers for accounts that need explicit project or organization selection.
+- Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
 - `IMAGE_OUTPUT_ENABLED=true` makes generated product concept images the default. Leave it `false` and use the UI checkbox or `generate_image=true` API flag to opt in per job.
 - `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, or `none`.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.

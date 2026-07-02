@@ -22,6 +22,13 @@ from backend.database import update_generated_project_hardware_ir
 from backend.image_providers import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from backend.job_store import JOB_STORE
 from backend.models import ComponentInstance, ConnectionNet
+from backend.observability import (
+    get_langfuse_debug_config,
+    propagate_observation_attributes,
+    serialize_for_langfuse,
+    start_observation,
+    update_observation,
+)
 from backend.runtime_config import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
@@ -189,6 +196,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         "job_metadata": JOB_STORE.get_config(),
         "image_output": get_image_output_debug_config(),
         "image_storage": get_image_storage_config(),
+        "observability": get_langfuse_debug_config(),
         "workflows": list_workflows(),
         "actions": [
             "blueprint.generate_project",
@@ -401,46 +409,92 @@ def build_generation_response(
     if deployment_runtime_config(llm_config)["alpha_generation_gate_active"]:
         raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE)
 
-    ir = generate_project_with_workflow(
-        workflow_id,
-        prompt_text,
-        image_bytes=image_bytes,
-        image_mime_type=image_mime_type,
-    )
-    ir.assembly_metadata = {
-        **(ir.assembly_metadata or {}),
+    trace_metadata = {
         "workflow": workflow_id,
+        "has_reference_image": bool(image_data),
+        "image_mime_type": image_mime_type,
+        "generate_image": generate_image,
     }
+    with start_observation(
+        name="blueprint.generate_project",
+        as_type="span",
+        input={
+            "prompt": prompt_text,
+            "workflow": workflow_id,
+            "has_reference_image": bool(image_data),
+            "generate_image": generate_image,
+        },
+        metadata=trace_metadata,
+    ) as root_observation:
+        with propagate_observation_attributes(
+            trace_name="blueprint.generate_project",
+            metadata=trace_metadata,
+            tags=["blueprint", f"workflow:{workflow_id}"],
+        ):
+            ir = generate_project_with_workflow(
+                workflow_id,
+                prompt_text,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+            )
+            ir.assembly_metadata = {
+                **(ir.assembly_metadata or {}),
+                "workflow": workflow_id,
+            }
 
-    if image_data:
-        metadata = ir.assembly_metadata or {}
-        storage_metadata = _attach_stored_image_metadata(
-            ir,
-            image_data=image_data,
-            metadata_prefix="reference_image",
-            object_prefix="reference",
-            fallback_content_type=image_mime_type or "image/png",
-        )
-        reference_metadata: Dict[str, Any] = {
-            **storage_metadata,
-            "image_features": metadata.get("image_features") or ir.constraints[:12],
-            "input_mode": "prompt_image",
-        }
-        if not storage_metadata.get("reference_image_url"):
-            reference_metadata["reference_image_data"] = image_data
-        ir.assembly_metadata = {
-            **metadata,
-            **reference_metadata,
-        }
+            if image_data:
+                metadata = ir.assembly_metadata or {}
+                storage_metadata = _attach_stored_image_metadata(
+                    ir,
+                    image_data=image_data,
+                    metadata_prefix="reference_image",
+                    object_prefix="reference",
+                    fallback_content_type=image_mime_type or "image/png",
+                )
+                reference_metadata: Dict[str, Any] = {
+                    **storage_metadata,
+                    "image_features": metadata.get("image_features") or ir.constraints[:12],
+                    "input_mode": "prompt_image",
+                }
+                if not storage_metadata.get("reference_image_url"):
+                    reference_metadata["reference_image_data"] = image_data
+                ir.assembly_metadata = {
+                    **metadata,
+                    **reference_metadata,
+                }
 
-    _attach_product_image(prompt_text, ir, generate_image=generate_image)
-    _persist_updated_project_ir(ir)
+            _attach_product_image(prompt_text, ir, generate_image=generate_image)
+            _persist_updated_project_ir(ir)
 
-    return {
-        "project_ir": ir.model_dump(),
-        "mermaid_code": generate_mermaid_chart(ir),
-        "svg_schematic": generate_svg_schematic(ir),
-    }
+            response = {
+                "project_ir": ir.model_dump(),
+                "mermaid_code": generate_mermaid_chart(ir),
+                "svg_schematic": generate_svg_schematic(ir),
+            }
+            update_observation(
+                root_observation,
+                output={
+                    "project_id": (ir.assembly_metadata or {}).get("project_id"),
+                    "title": ir.overview.title if ir.overview else None,
+                    "is_valid": ir.is_valid,
+                    "component_count": len(ir.components),
+                    "net_count": len(ir.nets),
+                    "workflow": workflow_id,
+                },
+                metadata={
+                    **trace_metadata,
+                    "project_id": (ir.assembly_metadata or {}).get("project_id"),
+                    "llm_provider": (ir.assembly_metadata or {}).get("llm_provider"),
+                    "model_name": (ir.assembly_metadata or {}).get("model_name"),
+                    "response_summary": serialize_for_langfuse(
+                        {
+                            "has_mermaid": bool(response["mermaid_code"]),
+                            "has_svg_schematic": bool(response["svg_schematic"]),
+                        }
+                    ),
+                },
+            )
+            return response
 
 
 async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -461,6 +515,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             **orchestrator.get_debug_config(),
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
+            "observability": get_langfuse_debug_config(),
             "workflows": list_workflows(),
         }
 

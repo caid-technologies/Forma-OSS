@@ -1406,12 +1406,17 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
       }
 
       console.warn("Using local simulation fallback", error);
-      const mockRes = await runMockCompilation(promptText, imageData);
-      setProjectIR(mockRes.project_ir);
-      setMermaidCode(mockRes.mermaid_code);
-      setSvgSchematic(mockRes.svg_schematic);
-      buildReactFlowGraph(mockRes.project_ir);
-      generatedProject = true;
+      try {
+        const mockRes = await runMockCompilation(promptText, imageData);
+        setProjectIR(mockRes.project_ir);
+        setMermaidCode(mockRes.mermaid_code);
+        setSvgSchematic(mockRes.svg_schematic);
+        buildReactFlowGraph(mockRes.project_ir);
+        generatedProject = true;
+      } catch (fallbackError) {
+        const message = fallbackError instanceof Error ? fallbackError.message : "Local example fallback failed.";
+        setGenerationInputNotice(`Generation failed and local fallback was unavailable: ${message}`);
+      }
     } finally {
       if (generatedProject) {
         setSelectedImage(null);
@@ -1551,6 +1556,9 @@ export function BlueprintWorkspace({ routeProjectId = null }: HomeProps = {}) {
     }
 
     const res = await fetch(`/examples/${file}`);
+    if (!res.ok) {
+      throw new Error(`Could not load local example ${file}.`);
+    }
     const ir = await res.json();
     ir.assembly_metadata = {
       ...(ir.assembly_metadata || {}),

@@ -8,6 +8,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `backend/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
 - `backend/llm_providers.py` – provider-agnostic structured LLM adapters
 - `backend/image_providers.py` – optional generated product image adapters
+- `backend/observability.py` – optional Langfuse tracing helpers
 - `backend/storage.py` – Supabase Storage image uploads, disabled in development mode
 - `backend/validation.py` – rule-based electrical checks
 - `backend/models.py` – Pydantic IR schemas
@@ -51,6 +52,11 @@ LLM configuration behavior:
 - `OPENAI_REASONING_EFFORT`: optional reasoning effort for GPT-5/o-series models, for example `low`
 - `OPENAI_TEMPERATURE`: optional first-party OpenAI sampling temperature. Omitted by default so models that only support their default temperature can run
 - `OPENAI_PROJECT_ID` / `OPENAI_ORG_ID`: optional OpenAI project and organization routing headers
+- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`: optional Langfuse project keys. When both are set, Blueprint traces each generation request and structured LLM step.
+- `LANGFUSE_BASE_URL`: optional Langfuse host, defaulting to `https://cloud.langfuse.com`.
+- `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_TRACING_RELEASE`: optional trace attributes for environment and release filtering.
+- `LANGFUSE_MAX_FIELD_CHARS`: optional per-field payload cap for traced prompt/output previews, defaulting to `20000`.
+- `LANGFUSE_ENABLED=false`: explicit opt-out when project keys are present in the runtime environment.
 - `IMAGE_OUTPUT_ENABLED=true`: make product concept image generation the default. Requests can opt in per job with `generate_image=true`
 - `IMAGE_PROVIDER`: `openai`, `openai-compatible`, or `none`
 - `OPENAI_IMAGE_MODEL`: first-party OpenAI image model, for example `gpt-image-2`

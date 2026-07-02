@@ -65,6 +65,7 @@ from backend.a2a import (
 )
 from backend.image_providers import get_image_output_debug_config
 from backend.job_store import JOB_STORE
+from backend.observability import flush_langfuse, get_langfuse_debug_config
 from backend.runtime_config import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
@@ -164,6 +165,7 @@ async def startup_event():
 @app.on_event("shutdown")
 async def shutdown_event():
     await stop_a2a_tcp_server()
+    flush_langfuse()
 
 @app.get("/")
 def read_root():
@@ -189,6 +191,7 @@ def debug_config_endpoint():
             "job_metadata": JOB_STORE.get_config(),
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
+            "observability": get_langfuse_debug_config(),
             "video_generation": GMICloudProvider().get_debug_config(),
             "video_storage": get_video_storage_config(),
             "workflows": list_workflows(),

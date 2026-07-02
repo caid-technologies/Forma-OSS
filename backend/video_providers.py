@@ -17,8 +17,12 @@ VIDEO_MODE_IMAGE_TO_VIDEO = "image-to-video"
 VIDEO_MODE_VIDEO_TO_VIDEO = "video-to-video"
 DEFAULT_GMI_IMAGE_TO_VIDEO_MODEL = "kling-v3-image-to-video"
 DEFAULT_GMI_VIDEO_TO_VIDEO_MODEL = "wan2.7-videoedit"
+GMI_GEMINI_OMNI_FLASH_PREVIEW_MODEL = "gemini-omni-flash-preview"
+GMI_GEMINI_OMNI_FLASH_PREVIEW_MODEL_URL = "https://console.gmicloud.ai/user-console/ie/model-hub/video/gemini-omni-flash-preview"
 DEFAULT_GMI_REQUESTS_PATH = "/api/v1/ie/requestqueue/apikey/requests"
 DEFAULT_GMI_TIMEOUT_SECONDS = 120.0
+DEFAULT_VIDEO_ASPECT_RATIO = "16:9"
+DEFAULT_VIDEO_ASPECT_RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"]
 
 
 @dataclass(frozen=True)
@@ -26,14 +30,19 @@ class VideoModelDefinition:
     id: str
     label: str
     mode: str
+    source_url: Optional[str] = None
 
     def response_metadata(self) -> Dict[str, str]:
-        return {
+        metadata = {
             "id": self.id,
             "label": self.label,
             "mode": self.mode,
             "type": self.mode,
         }
+        if self.source_url:
+            metadata["source_url"] = self.source_url
+            metadata["sourceUrl"] = self.source_url
+        return metadata
 
 
 DEFAULT_GMI_IMAGE_TO_VIDEO_MODELS = [
@@ -61,6 +70,7 @@ DEFAULT_GMI_IMAGE_TO_VIDEO_MODELS = [
     "wan2.5-i2v-preview",
     "vidu-q3-pro-i2v",
     "vidu-q2-pro-i2v",
+    GMI_GEMINI_OMNI_FLASH_PREVIEW_MODEL,
 ]
 
 DEFAULT_GMI_VIDEO_TO_VIDEO_MODELS = [
@@ -70,6 +80,7 @@ DEFAULT_GMI_VIDEO_TO_VIDEO_MODELS = [
     "pixverse-v6-extend",
     "pixverse-v5.6-extend",
     "kling-o1-edit-video",
+    GMI_GEMINI_OMNI_FLASH_PREVIEW_MODEL,
 ]
 
 
@@ -135,7 +146,8 @@ def _model_label(model: str) -> str:
 
 
 def _model_definition(model: str, mode: str) -> VideoModelDefinition:
-    return VideoModelDefinition(id=model, label=_model_label(model), mode=mode)
+    source_url = GMI_GEMINI_OMNI_FLASH_PREVIEW_MODEL_URL if model == GMI_GEMINI_OMNI_FLASH_PREVIEW_MODEL else None
+    return VideoModelDefinition(id=model, label=_model_label(model), mode=mode, source_url=source_url)
 
 
 def _dedupe_definitions(definitions: List[VideoModelDefinition]) -> List[VideoModelDefinition]:
@@ -193,6 +205,29 @@ def get_available_video_model_options(mode: Optional[str] = None) -> List[VideoM
 
 def get_available_video_models(mode: Optional[str] = None) -> List[str]:
     return [definition.id for definition in get_available_video_model_options(mode)]
+
+
+def get_available_video_aspect_ratios() -> List[str]:
+    configured = _parse_model_list(_env("GMI_CLOUD_VIDEO_ASPECT_RATIOS"))
+    ratios = [*DEFAULT_VIDEO_ASPECT_RATIOS, *configured]
+    return list(dict.fromkeys(ratio for ratio in ratios if ratio))
+
+
+def normalize_video_aspect_ratio(value: Optional[str]) -> str:
+    raw_value = (value or DEFAULT_VIDEO_ASPECT_RATIO).strip().lower()
+    aliases = {
+        "landscape": "16:9",
+        "wide": "16:9",
+        "widescreen": "16:9",
+        "portrait": "9:16",
+        "vertical": "9:16",
+        "square": "1:1",
+    }
+    normalized = aliases.get(raw_value, raw_value)
+    allowed = get_available_video_aspect_ratios()
+    if normalized not in allowed:
+        raise ValueError(f"Unsupported video aspect ratio '{value}'. Valid ratios: {', '.join(allowed)}.")
+    return normalized
 
 
 def _status_value(value: Any) -> str:
@@ -278,6 +313,8 @@ class GMICloudProvider:
             "default_video_to_video_model": get_default_video_model(VIDEO_MODE_VIDEO_TO_VIDEO),
             "models": get_available_video_models(),
             "model_options": [model.response_metadata() for model in get_available_video_model_options()],
+            "aspect_ratios": get_available_video_aspect_ratios(),
+            "default_aspect_ratio": DEFAULT_VIDEO_ASPECT_RATIO,
             "reason": reason,
         }
 
@@ -337,7 +374,16 @@ class GMICloudProvider:
             raw=response,
         )
 
-    def create_image_to_video(self, *, image: str, prompt: str, model: str, duration: str, sound: str = "off") -> VideoGenerationResult:
+    def create_image_to_video(
+        self,
+        *,
+        image: str,
+        prompt: str,
+        model: str,
+        duration: str,
+        aspect_ratio: Optional[str] = None,
+        sound: str = "off",
+    ) -> VideoGenerationResult:
         model_key = model.strip().lower()
         image_key = "first_frame" if model_key.startswith("seedance-") else "image"
         payload = {
@@ -346,19 +392,30 @@ class GMICloudProvider:
                 image_key: image,
                 "prompt": prompt,
                 "duration": str(duration),
+                "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio),
                 "sound": sound or "off",
             },
         }
         response = self._request_json(self.requests_path, method="POST", payload=payload)
         return self._normalize_response(response)
 
-    def create_video_to_video(self, *, video: str, prompt: str, model: str, duration: str, sound: str = "off") -> VideoGenerationResult:
+    def create_video_to_video(
+        self,
+        *,
+        video: str,
+        prompt: str,
+        model: str,
+        duration: str,
+        aspect_ratio: Optional[str] = None,
+        sound: str = "off",
+    ) -> VideoGenerationResult:
         model_key = model.strip().lower()
         if model_key.startswith("seedance-"):
             request_payload: Dict[str, Any] = {
                 "reference_videos": [video],
                 "prompt": prompt,
                 "duration": str(duration),
+                "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio),
                 "sound": sound or "off",
             }
             payload = {
@@ -373,6 +430,7 @@ class GMICloudProvider:
             source_key: video,
             "prompt": prompt,
             "duration": str(duration),
+            "aspect_ratio": normalize_video_aspect_ratio(aspect_ratio),
             "sound": sound or "off",
         }
 

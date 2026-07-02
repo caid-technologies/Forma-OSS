@@ -293,7 +293,15 @@ def hydrate_image_storage_metadata(metadata: Dict[str, Any], project_id: Optiona
     bucket = metadata.get("product_image_s3_bucket") or metadata.get("reference_image_s3_bucket") or config["bucket"]
     expires_in = config["signed_url_seconds"]
 
-    for metadata_prefix, object_prefix in (("product_image", "product"), ("reference_image", "reference")):
+    image_prefixes = [
+        ("product_image", "product"),
+        ("product_case_image", "product-case"),
+        ("product_inside_image", "product-inside"),
+        ("product_diagram_image", "product-diagram"),
+        ("reference_image", "reference"),
+    ]
+
+    for metadata_prefix, object_prefix in image_prefixes:
         key_name = f"{metadata_prefix}_s3_key"
         bucket_name = f"{metadata_prefix}_s3_bucket"
         url_name = f"{metadata_prefix}_url"
@@ -329,6 +337,31 @@ def hydrate_image_storage_metadata(metadata: Dict[str, Any], project_id: Optiona
                 metadata[f"{metadata_prefix}_url_expires_in_seconds"] = expires_in
                 metadata[f"{metadata_prefix}_storage_enabled"] = True
                 metadata[f"{metadata_prefix}_storage_method"] = "supabase-client"
+
+    sequence = metadata.get("product_visual_sequence")
+    if isinstance(sequence, list):
+        hydrated_sequence = []
+        for item in sequence:
+            if not isinstance(item, dict):
+                hydrated_sequence.append(item)
+                continue
+            view_id = item.get("view_id")
+            if not isinstance(view_id, str) or not view_id:
+                hydrated_sequence.append(item)
+                continue
+            metadata_prefix = f"product_{view_id}_image"
+            updated_item = dict(item)
+            url = metadata.get(f"{metadata_prefix}_url")
+            if url:
+                updated_item["url"] = url
+            if metadata.get(f"{metadata_prefix}_content_type"):
+                updated_item["content_type"] = metadata[f"{metadata_prefix}_content_type"]
+            if metadata.get(f"{metadata_prefix}_s3_bucket"):
+                updated_item["s3_bucket"] = metadata[f"{metadata_prefix}_s3_bucket"]
+            if metadata.get(f"{metadata_prefix}_s3_key"):
+                updated_item["s3_key"] = metadata[f"{metadata_prefix}_s3_key"]
+            hydrated_sequence.append(updated_item)
+        metadata["product_visual_sequence"] = hydrated_sequence
 
     return metadata
 

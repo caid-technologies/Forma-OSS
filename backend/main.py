@@ -44,6 +44,7 @@ from backend.database import (
     save_alpha_signup,
 )
 from backend.seed_db import seed_database
+from backend.agents.workflows import list_workflows
 from backend.models import (
     AlphaSignupRequest, AlphaSignupResponse,
     GenerateProjectRequest, HardwareIR, ValidationReport, 
@@ -76,9 +77,11 @@ from backend.video_providers import (
     GMICloudProvider,
     VIDEO_MODE_IMAGE_TO_VIDEO,
     VIDEO_MODE_VIDEO_TO_VIDEO,
+    get_available_video_aspect_ratios,
     get_available_video_model_options,
     get_available_video_models,
     get_default_video_model,
+    normalize_video_aspect_ratio,
     normalize_video_mode,
 )
 from backend.video_storage import (
@@ -188,6 +191,7 @@ def debug_config_endpoint():
             "image_storage": get_image_storage_config(),
             "video_generation": GMICloudProvider().get_debug_config(),
             "video_storage": get_video_storage_config(),
+            "workflows": list_workflows(),
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Debug config failed: {str(e)}")
@@ -214,6 +218,7 @@ def generate_project_endpoint(request: GenerateProjectRequest):
     message_id = f"msg_{uuid4().hex}"
     payload = {
         "prompt": request.prompt,
+        "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
     }
@@ -231,7 +236,12 @@ def generate_project_endpoint(request: GenerateProjectRequest):
     JOB_STORE.mark_running(job_id)
 
     try:
-        response = build_generation_response(request.prompt, request.image_data, generate_image=request.generate_image)
+        response = build_generation_response(
+            request.prompt,
+            request.image_data,
+            generate_image=request.generate_image,
+            workflow=request.workflow,
+        )
         JOB_STORE.mark_succeeded(job_id, response)
         project_id = (response.get("project_ir", {}).get("assembly_metadata") or {}).get("project_id")
         return {
@@ -251,12 +261,20 @@ def generate_project_endpoint(request: GenerateProjectRequest):
         raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
 
 
+@app.get("/workflows")
+def list_generation_workflows_endpoint():
+    """List generation workflows available to frontend and CLI clients."""
+    return list_workflows()
+
+
 class VideoImageToVideoRequest(BaseModel):
     projectId: str | None = None
     image: str | None = None
     prompt: str | None = None
     model: str | None = None
     duration: str | None = "5"
+    aspectRatio: str | None = None
+    aspect_ratio: str | None = None
     sound: str | None = "off"
 
 
@@ -266,6 +284,8 @@ class VideoToVideoRequest(BaseModel):
     prompt: str | None = None
     model: str | None = None
     duration: str | None = "5"
+    aspectRatio: str | None = None
+    aspect_ratio: str | None = None
     sound: str | None = "off"
 
 
@@ -282,6 +302,13 @@ def _normalize_video_model(model: str | None, mode: str = VIDEO_MODE_IMAGE_TO_VI
     if normalized not in allowed_models:
         raise HTTPException(status_code=400, detail=f"Unsupported {normalized_mode} model '{normalized}'.")
     return normalized
+
+
+def _normalize_video_request_aspect_ratio(aspect_ratio: str | None) -> str:
+    try:
+        return normalize_video_aspect_ratio(aspect_ratio)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _require_non_empty(value: str | None, message: str) -> str:
@@ -323,12 +350,21 @@ def _raise_if_completed_without_video(result: Any) -> None:
         )
 
 
-def _video_route_response(result: Any, *, project_id: str, model: str, saved_videos: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _video_route_response(
+    result: Any,
+    *,
+    project_id: str,
+    model: str,
+    saved_videos: List[Dict[str, Any]],
+    aspect_ratio: str | None = None,
+) -> Dict[str, Any]:
     return {
         "projectId": project_id,
         "requestId": result.request_id,
         "status": result.status,
         "model": model,
+        "aspectRatio": aspect_ratio,
+        "aspect_ratio": aspect_ratio,
         "source": "gmi-cloud",
         "videoUrls": result.video_urls,
         "savedVideos": saved_videos,
@@ -349,6 +385,8 @@ def list_video_models_endpoint():
         "default_model": default_model,
         "defaultVideoToVideoModel": default_video_to_video_model,
         "default_video_to_video_model": default_video_to_video_model,
+        "aspectRatioOptions": get_available_video_aspect_ratios(),
+        "aspect_ratio_options": get_available_video_aspect_ratios(),
         "generationConfigured": provider_config["configured"],
         "generation_configured": provider_config["configured"],
         "reason": provider_config.get("reason"),
@@ -378,6 +416,7 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_IMAGE_TO_VIDEO)
     duration = _require_non_empty(request.duration, "duration is required.")
+    aspect_ratio = _normalize_video_request_aspect_ratio(request.aspectRatio or request.aspect_ratio)
     sound = "on" if (request.sound or "").strip().lower() == "on" else "off"
 
     try:
@@ -392,6 +431,7 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
             prompt=prompt,
             model=model,
             duration=duration,
+            aspect_ratio=aspect_ratio,
             sound=sound,
         )
     except Exception as exc:
@@ -404,7 +444,7 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
     _raise_if_completed_without_video(result)
 
     saved_videos = _store_video_results(result, project_id=project_id, model=model)
-    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
+    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos, aspect_ratio=aspect_ratio)
 
 
 @app.post("/video/video-to-video")
@@ -415,6 +455,7 @@ def create_video_to_video_endpoint(request: VideoToVideoRequest):
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_VIDEO_TO_VIDEO)
     duration = _require_non_empty(request.duration, "duration is required.")
+    aspect_ratio = _normalize_video_request_aspect_ratio(request.aspectRatio or request.aspect_ratio)
     sound = "on" if (request.sound or "").strip().lower() == "on" else "off"
 
     try:
@@ -429,6 +470,7 @@ def create_video_to_video_endpoint(request: VideoToVideoRequest):
             prompt=prompt,
             model=model,
             duration=duration,
+            aspect_ratio=aspect_ratio,
             sound=sound,
         )
     except Exception as exc:
@@ -441,7 +483,7 @@ def create_video_to_video_endpoint(request: VideoToVideoRequest):
     _raise_if_completed_without_video(result)
 
     saved_videos = _store_video_results(result, project_id=project_id, model=model)
-    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
+    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos, aspect_ratio=aspect_ratio)
 
 
 @app.get("/video/image-to-video/status/{request_id}")

@@ -31,6 +31,27 @@ def _fetch_json(url: str) -> tuple[int, Any]:
         return exc.code, payload
 
 
+def _post_json(url: str, payload: dict[str, Any], timeout: int = 180) -> tuple[int, Any]:
+    raw = json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=raw,
+        headers={"Accept": "application/json", "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            body = response.read().decode("utf-8")
+            return response.status, json.loads(body) if body else None
+    except urllib.error.HTTPError as exc:
+        body = exc.read().decode("utf-8", errors="replace")
+        try:
+            payload = json.loads(body)
+        except json.JSONDecodeError:
+            payload = body
+        return exc.code, payload
+
+
 def _print_json(value: Any) -> None:
     print(json.dumps(value, indent=2, sort_keys=True))
 
@@ -139,6 +160,44 @@ def cmd_jobs(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_generate(args: argparse.Namespace) -> int:
+    api_url = _api_url(args.api_url)
+    image_data = args.image_data
+    if args.image_file:
+        import base64
+        import mimetypes
+
+        mime_type = mimetypes.guess_type(args.image_file)[0] or "image/png"
+        with open(args.image_file, "rb") as file:
+            encoded = base64.b64encode(file.read()).decode("ascii")
+        image_data = f"data:{mime_type};base64,{encoded}"
+
+    payload = {
+        "prompt": args.prompt,
+        "workflow": args.workflow,
+        "image_data": image_data,
+        "generate_image": args.generate_image,
+    }
+    try:
+        status, response = _post_json(f"{api_url}/api/generate", payload, timeout=args.timeout)
+    except urllib.error.URLError as exc:
+        print(f"Could not reach backend at {api_url}: {exc.reason}", file=sys.stderr)
+        return 1
+
+    if status < 200 or status >= 300:
+        print(f"Generate endpoint returned HTTP {status}:", file=sys.stderr)
+        _print_json(response)
+        return 1
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as file:
+            json.dump(response, file, indent=2, sort_keys=True)
+            file.write("\n")
+    else:
+        _print_json(response)
+    return 0
+
+
 def cmd_seed(_: argparse.Namespace) -> int:
     from backend.seed_db import seed_database
 
@@ -182,6 +241,22 @@ def build_parser() -> argparse.ArgumentParser:
     jobs.add_argument("--local", action="store_true", help="Read directly from the local SQLite job store.")
     jobs.add_argument("--db-path", help="SQLite job database path for --local. Defaults to JOB_METADATA_DB_PATH.")
     jobs.set_defaults(func=cmd_jobs)
+
+    generate = subparsers.add_parser("generate", help="Generate a project through the backend API.")
+    generate.add_argument("prompt", help="Hardware idea to generate.")
+    generate.add_argument("--api-url", default=DEFAULT_API_URL, help=f"Backend URL. Defaults to {DEFAULT_API_URL}.")
+    generate.add_argument(
+        "--workflow",
+        default="default",
+        choices=["default", "web_research"],
+        help="Generation workflow to use.",
+    )
+    generate.add_argument("--image-data", help="Optional data URL or base64 image string.")
+    generate.add_argument("--image-file", help="Optional local reference image file.")
+    generate.add_argument("--generate-image", action="store_true", help="Request a product concept image.")
+    generate.add_argument("--timeout", default=180, type=int, help="HTTP timeout in seconds.")
+    generate.add_argument("--output", help="Write response JSON to a file.")
+    generate.set_defaults(func=cmd_generate)
 
     seed = subparsers.add_parser("seed", help="Initialize and seed the component database.")
     seed.set_defaults(func=cmd_seed)

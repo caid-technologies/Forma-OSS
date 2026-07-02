@@ -11,9 +11,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from backend.agents.workflows import (
+    generate_project_with_workflow,
+    get_workflow_debug_config,
+    list_workflows,
+    normalize_workflow_id,
+)
 from backend.agents.orchestrator import HardwarePipelineOrchestrator
 from backend.database import update_generated_project_hardware_ir
-from backend.image_providers import build_image_provider, get_image_output_debug_config
+from backend.image_providers import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from backend.job_store import JOB_STORE
 from backend.models import ComponentInstance, ConnectionNet
 from backend.runtime_config import (
@@ -183,6 +189,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         "job_metadata": JOB_STORE.get_config(),
         "image_output": get_image_output_debug_config(),
         "image_storage": get_image_storage_config(),
+        "workflows": list_workflows(),
         "actions": [
             "blueprint.generate_project",
             "blueprint.debug_config",
@@ -251,6 +258,7 @@ def _attach_stored_image_metadata(
 def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = False) -> None:
     image_provider = build_image_provider(force_enabled=generate_image)
     image_config = image_provider.get_debug_config()
+    visual_spec = build_project_visual_spec(prompt_text, ir)
     metadata = {
         **(ir.assembly_metadata or {}),
         "image_output_requested": generate_image,
@@ -258,6 +266,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         "image_output_provider": image_config.get("provider"),
         "image_output_model": image_config.get("model_name"),
         "image_output_configured": image_config.get("configured", False),
+        "product_visual_spec": visual_spec,
     }
     ir.assembly_metadata = metadata
 
@@ -265,7 +274,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         return
 
     try:
-        generated_image = image_provider.generate_project_image(prompt_text, ir)
+        generated_images = image_provider.generate_project_image_sequence(prompt_text, ir)
     except Exception as exc:
         logger.warning("Product image generation failed: %s", exc)
         ir.assembly_metadata = {
@@ -274,27 +283,77 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         }
         return
 
-    if not generated_image:
+    if not generated_images:
         return
 
-    storage_metadata = _attach_stored_image_metadata(
-        ir,
-        image_data=generated_image.data_url,
-        metadata_prefix="product_image",
-        object_prefix="product",
-        fallback_content_type=f"image/{generated_image.output_format or 'png'}",
-        allow_remote_url=True,
-    )
     product_metadata: Dict[str, Any] = {
-        "product_image_provider": generated_image.provider,
-        "product_image_model": generated_image.model,
-        "product_image_size": generated_image.size,
-        "product_image_output_format": generated_image.output_format,
-        "product_image_prompt": generated_image.prompt,
-        **storage_metadata,
+        "product_visual_sequence_count": len(generated_images),
     }
-    if not storage_metadata.get("product_image_url"):
-        product_metadata["product_image_data"] = generated_image.data_url
+    product_visual_sequence: List[Dict[str, Any]] = []
+
+    for index, generated_image in enumerate(generated_images):
+        view_id = generated_image.view_id or f"view_{index + 1}"
+        metadata_prefix = f"product_{view_id}_image"
+        object_prefix = f"product-{view_id}"
+        storage_metadata = _attach_stored_image_metadata(
+            ir,
+            image_data=generated_image.data_url,
+            metadata_prefix=metadata_prefix,
+            object_prefix=object_prefix,
+            fallback_content_type=f"image/{generated_image.output_format or 'png'}",
+            allow_remote_url=True,
+        )
+        image_url = storage_metadata.get(f"{metadata_prefix}_url")
+        image_record: Dict[str, Any] = {
+            "view_id": view_id,
+            "label": generated_image.label,
+            "provider": generated_image.provider,
+            "model": generated_image.model,
+            "size": generated_image.size,
+            "output_format": generated_image.output_format,
+            "prompt": generated_image.prompt,
+            "prompt_original_length": generated_image.prompt_original_length,
+            "prompt_final_length": generated_image.prompt_final_length,
+            "prompt_compacted": generated_image.prompt_compacted,
+            "prompt_compaction_strategy": generated_image.prompt_compaction_strategy,
+            "reference_view_id": generated_image.reference_view_id,
+            "url": image_url,
+            "content_type": storage_metadata.get(f"{metadata_prefix}_content_type"),
+            "s3_bucket": storage_metadata.get(f"{metadata_prefix}_s3_bucket"),
+            "s3_key": storage_metadata.get(f"{metadata_prefix}_s3_key"),
+            "storage_method": storage_metadata.get(f"{metadata_prefix}_storage_method"),
+            "storage_error": storage_metadata.get(f"{metadata_prefix}_storage_error"),
+        }
+        if not image_url:
+            image_record["data"] = generated_image.data_url
+            product_metadata[f"{metadata_prefix}_data"] = generated_image.data_url
+
+        product_visual_sequence.append(image_record)
+        product_metadata.update(storage_metadata)
+
+        if index == 0:
+            product_metadata.update(
+                {
+                    "product_image_provider": generated_image.provider,
+                    "product_image_model": generated_image.model,
+                    "product_image_size": generated_image.size,
+                    "product_image_output_format": generated_image.output_format,
+                    "product_image_prompt": generated_image.prompt,
+                    "product_image_prompt_original_length": generated_image.prompt_original_length,
+                    "product_image_prompt_final_length": generated_image.prompt_final_length,
+                    "product_image_prompt_compacted": generated_image.prompt_compacted,
+                    "product_image_prompt_compaction_strategy": generated_image.prompt_compaction_strategy,
+                    "product_image_url": image_url,
+                    "product_image_content_type": storage_metadata.get(f"{metadata_prefix}_content_type"),
+                    "product_image_s3_bucket": storage_metadata.get(f"{metadata_prefix}_s3_bucket"),
+                    "product_image_s3_key": storage_metadata.get(f"{metadata_prefix}_s3_key"),
+                    "product_image_storage_method": storage_metadata.get(f"{metadata_prefix}_storage_method"),
+                }
+            )
+            if not image_url:
+                product_metadata["product_image_data"] = generated_image.data_url
+
+    product_metadata["product_visual_sequence"] = product_visual_sequence
 
     ir.assembly_metadata = {
         **(ir.assembly_metadata or {}),
@@ -318,8 +377,10 @@ def build_generation_response(
     prompt: str,
     image_data: Optional[str] = None,
     generate_image: bool = False,
+    workflow: str = "default",
 ) -> Dict[str, Any]:
     prompt_text = (prompt or "").strip()
+    workflow_id = normalize_workflow_id(workflow)
     has_prompt = bool(prompt_text)
     input_issue = get_generation_input_issue(prompt_text, has_image=bool(image_data))
     if input_issue:
@@ -336,12 +397,20 @@ def build_generation_response(
             raise ValueError("Reference image could not be decoded.") from exc
         image_bytes, image_mime_type = None, None
 
-    orchestrator = HardwarePipelineOrchestrator()
-    llm_config = orchestrator.get_debug_config()
+    llm_config = get_workflow_debug_config(workflow_id)
     if deployment_runtime_config(llm_config)["alpha_generation_gate_active"]:
         raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE)
 
-    ir = orchestrator.generate_project(prompt_text, image_bytes=image_bytes, image_mime_type=image_mime_type)
+    ir = generate_project_with_workflow(
+        workflow_id,
+        prompt_text,
+        image_bytes=image_bytes,
+        image_mime_type=image_mime_type,
+    )
+    ir.assembly_metadata = {
+        **(ir.assembly_metadata or {}),
+        "workflow": workflow_id,
+    }
 
     if image_data:
         metadata = ir.assembly_metadata or {}
@@ -383,6 +452,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             payload.get("prompt", ""),
             payload.get("image_data"),
             _payload_bool(payload.get("generate_image"), default=False),
+            payload.get("workflow", "default"),
         )
 
     if normalized == "debug_config":
@@ -391,6 +461,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             **orchestrator.get_debug_config(),
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
+            "workflows": list_workflows(),
         }
 
     if normalized == "validate_circuit":
@@ -626,6 +697,11 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "prompt": {"type": "string"},
+                    "workflow": {
+                        "type": "string",
+                        "enum": ["default", "web_research"],
+                        "default": "default",
+                    },
                     "image_data": {"type": "string", "description": "Optional data URL or base64 image"},
                     "generate_image": {"type": "boolean", "default": False},
                 },

@@ -178,6 +178,10 @@ class HardwareIR(BaseModel):
 
 class GenerateProjectRequest(BaseModel):
     prompt: str = Field(..., description="User's natural language project description")
+    workflow: str = Field(
+        "default",
+        description="Generation workflow id: default or web_research"
+    )
     image_data: Optional[str] = Field(
         None,
         description="Optional data URL or base64-encoded reference image for multimodal project extraction"

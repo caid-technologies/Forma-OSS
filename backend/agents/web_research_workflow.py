@@ -17,6 +17,7 @@ from backend.agents.orchestrator import (
     extract_power_rails,
 )
 from backend.database import save_generated_project
+from backend.job_source_usage import source_usage_for_workflow
 from backend.llm_providers import LLMProviderConfigError, build_llm_provider
 from backend.models import (
     AssemblyStep,
@@ -171,6 +172,7 @@ class WebResearchHardwarePipeline:
             ir.assembly_metadata = {
                 **(ir.assembly_metadata or {}),
                 "workflow": self.workflow_id,
+                "source_usage": source_usage_for_workflow(self.workflow_id),
                 "workflow_fallback": "simulation",
                 "firecrawl_research": self.research_client.config.reason,
             }
@@ -242,6 +244,7 @@ class WebResearchHardwarePipeline:
                 "actual_model": model_validation.actual_model,
                 "llm_provider": model_validation.provider,
                 "workflow": self.workflow_id,
+                "source_usage": source_usage_for_workflow(self.workflow_id),
                 "pipeline": "Firecrawl MCP web research + sourced hardware agents",
                 "component_source_policy": "web-sourced components; not constrained to seed_db.py",
                 "architecture_notes": plan.architecture_notes,

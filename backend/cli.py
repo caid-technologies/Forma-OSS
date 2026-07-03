@@ -63,6 +63,24 @@ def _format_cell(value: Any, width: int) -> str:
     return text.ljust(width)
 
 
+def _job_source_label(job: dict[str, Any]) -> str:
+    summary = job.get("result_summary") if isinstance(job.get("result_summary"), dict) else {}
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    source_usage = job.get("source_usage") or summary.get("source_usage") or {}
+    if not isinstance(source_usage, dict):
+        source_usage = {}
+    workflow = str(source_usage.get("workflow") or summary.get("workflow") or payload.get("workflow") or "")
+    workflow = workflow.strip().lower().replace("-", "_")
+    labels = source_usage.get("source_labels")
+    if isinstance(labels, list) and labels:
+        return " + ".join(str(label) for label in labels)
+    if source_usage.get("web_research") or source_usage.get("firecrawl") or workflow in {"web_research", "firecrawl"}:
+        return "Web Research"
+    if source_usage.get("catalog") or source_usage.get("data_warehouse") or workflow in {"default", "catalog"}:
+        return "Catalog"
+    return "-"
+
+
 def _print_jobs_table(jobs: list[dict[str, Any]]) -> None:
     if not jobs:
         print("No jobs found.")
@@ -72,6 +90,7 @@ def _print_jobs_table(jobs: list[dict[str, Any]]) -> None:
         ("status", 10),
         ("sender", 12),
         ("action", 28),
+        ("source", 16),
         ("job_id", 34),
         ("updated_at", 24),
         ("error", 32),
@@ -80,7 +99,8 @@ def _print_jobs_table(jobs: list[dict[str, Any]]) -> None:
     print(header)
     print("  ".join("-" * width for _, width in columns))
     for job in jobs:
-        print("  ".join(_format_cell(job.get(name), width) for name, width in columns))
+        row = {**job, "source": _job_source_label(job)}
+        print("  ".join(_format_cell(row.get(name), width) for name, width in columns))
 
 
 def cmd_serve(args: argparse.Namespace) -> int:

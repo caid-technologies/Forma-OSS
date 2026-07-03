@@ -41,7 +41,7 @@ A2A job metadata follows `JOB_METADATA_BACKEND`:
 - `BLUEPRINT_DEV_MODE=true` overrides this setting and uses SQLite.
 - SQLite path default: `./blueprint_jobs.db`
 - SQLite path override: `JOB_METADATA_DB_PATH`
-- Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, compact result summaries, and errors
+- Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, `source_usage` metadata for Catalog/data warehouse vs Web Research/Firecrawl, compact result summaries, and errors
 
 ### alpha_signups
 Alpha access leads captured when `BLUEPRINT_DEPLOYMENT=true` and live LLM generation is unavailable.

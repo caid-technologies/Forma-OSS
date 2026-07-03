@@ -23,8 +23,8 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `PUT /api/a2a/agents/{agent_id}` – register an agent listener
 - `POST /api/a2a/messages` – submit or broker an A2A message
 - `GET /api/a2a/agents/{agent_id}/events` – long-poll queued A2A events
-- `GET /api/a2a/jobs` – list persisted A2A job metadata
-- `GET /api/a2a/jobs/{job_id}` – fetch one persisted A2A job metadata record
+- `GET /api/a2a/jobs` – list persisted A2A job metadata, including generation `source_usage`
+- `GET /api/a2a/jobs/{job_id}` – fetch one persisted A2A job metadata record, including generation `source_usage`
 - `WebSocket /api/a2a/socket/{agent_id}` – bidirectional A2A event stream
 - `POST /api/mcp` and `POST /api/a2a/mcp` – MCP-style JSON-RPC tool endpoint
 - `POST /api/validate` – validate a user-supplied netlist

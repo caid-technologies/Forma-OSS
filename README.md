@@ -96,7 +96,9 @@ uvicorn backend.main:app --reload --port 8000
 
 The CLI uses `.venv/bin/python` when present and falls back to `python3`. `health`
 checks the root, component, and A2A jobs endpoints; `jobs --local` reads the
-SQLite job metadata store directly when the API server is not running.
+SQLite job metadata store directly when the API server is not running. Job
+tables include the generation source when known: `Catalog`, `Web Research`, or
+both.
 
 To run with OpenAI:
 ```bash

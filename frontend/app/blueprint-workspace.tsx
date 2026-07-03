@@ -59,12 +59,14 @@ type GenerationWorkflowOption = {
   id: string;
   label: string;
   description?: string;
+  uses_catalog?: boolean;
+  uses_web_research?: boolean;
   uses_firecrawl_mcp?: boolean;
 };
 
 const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
-  { id: "default", label: "Catalog", description: "Catalog workflow" },
-  { id: "web_research", label: "Web Research", description: "Firecrawl MCP workflow", uses_firecrawl_mcp: true },
+  { id: "default", label: "Catalog", description: "Catalog workflow", uses_catalog: true },
+  { id: "web_research", label: "Web Research", description: "Firecrawl MCP workflow", uses_web_research: true, uses_firecrawl_mcp: true },
 ];
 
 function normalizeApiUrl(value: string) {
@@ -410,6 +412,7 @@ type A2AJob = {
   completed_at?: string | null;
   payload?: Record<string, any>;
   result_summary?: Record<string, any> | null;
+  source_usage?: Record<string, any>;
   error?: string | null;
 };
 
@@ -3649,6 +3652,9 @@ function JobRow({
   const summary = job.result_summary || {};
   const title = summary.title || job.payload?.prompt || job.action;
   const prompt = job.payload?.prompt || job.correlation_id || job.job_id;
+  const sourceUsage = getJobSourceUsage(job);
+  const sourceLabel = formatSourceUsageLabel(sourceUsage);
+  const SourceIcon = sourceUsage.web_research || sourceUsage.firecrawl ? Sparkles : Database;
   const isOpenable = Boolean(project?.project_id);
 
   return (
@@ -3660,6 +3666,12 @@ function JobRow({
               {job.status === "succeeded" ? <CheckCircle className="h-3.5 w-3.5" /> : job.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               {job.status}
             </span>
+            {sourceLabel !== "-" && (
+              <span className="inline-flex max-w-full items-center gap-1.5 truncate border border-cyan-300/25 bg-cyan-300/10 px-2 py-1 text-[11px] font-black uppercase text-cyan-200">
+                <SourceIcon className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{sourceLabel}</span>
+              </span>
+            )}
             <span className="min-w-0 max-w-full truncate text-[11px] font-bold text-slate-500">{job.sender} {"->"} {job.recipient}</span>
           </div>
           <h3 className="truncate text-sm font-black text-white">{title}</h3>
@@ -3678,10 +3690,11 @@ function JobRow({
       </div>
 
       {!compact && (
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-6">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-7">
           <JobMetric label="Job" value={job.job_id} />
           <JobMetric label="Created" value={formatJobTime(job.created_at)} />
           <JobMetric label="Duration" value={formatJobDuration(job)} />
+          <JobMetric label="Source" value={sourceLabel} />
           <JobMetric label="Parts" value={summary.component_count ?? "-"} />
           <JobMetric label="Valid" value={summary.is_valid === undefined ? "-" : summary.is_valid ? "yes" : "no"} />
           <JobMetric label="Image" value={summary.has_product_image ? summary.product_image_model || "yes" : "-"} />
@@ -3695,6 +3708,40 @@ function JobRow({
       )}
     </article>
   );
+}
+
+function getJobSourceUsage(job: A2AJob) {
+  const summaryUsage = job.result_summary?.source_usage;
+  const workflow = job.result_summary?.workflow || job.payload?.workflow;
+  return normalizeJobSourceUsage(job.source_usage || summaryUsage || (workflow ? { workflow } : {}));
+}
+
+function normalizeJobSourceUsage(value: any) {
+  const sourceUsage = value && typeof value === "object" ? value : {};
+  const rawWorkflow = typeof sourceUsage.workflow === "string" ? sourceUsage.workflow : "";
+  const workflow = rawWorkflow.trim().toLowerCase().replace(/-/g, "_");
+  const catalog = Boolean(sourceUsage.catalog || sourceUsage.data_warehouse || sourceUsage.used_catalog || workflow === "default" || workflow === "catalog");
+  const webResearch = Boolean(sourceUsage.web_research || sourceUsage.firecrawl || sourceUsage.used_web_research || workflow === "web_research" || workflow === "firecrawl");
+  const sourceLabels = Array.isArray(sourceUsage.source_labels)
+    ? sourceUsage.source_labels.filter((label: any) => typeof label === "string" && label.trim())
+    : [];
+  const labels = sourceLabels.length ? sourceLabels : [
+    ...(catalog ? ["Catalog"] : []),
+    ...(webResearch ? ["Web Research"] : []),
+  ];
+  return {
+    ...sourceUsage,
+    workflow,
+    catalog,
+    web_research: webResearch,
+    firecrawl: Boolean(sourceUsage.firecrawl || webResearch),
+    source_labels: labels,
+  };
+}
+
+function formatSourceUsageLabel(sourceUsage: Record<string, any>) {
+  const labels = Array.isArray(sourceUsage.source_labels) ? sourceUsage.source_labels : [];
+  return labels.length ? labels.join(" + ") : "-";
 }
 
 function JobMetric({ label, value }: { label: string; value: any }) {

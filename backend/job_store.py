@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from backend.job_source_usage import infer_source_usage
 from backend.runtime_config import blueprint_dev_mode_enabled
 
 load_dotenv()
@@ -72,6 +73,7 @@ def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
     overview = project_ir.get("overview") or {}
     metadata = project_ir.get("assembly_metadata") or {}
     validation = project_ir.get("validation") or {}
+    source_usage = infer_source_usage(result=result)
 
     return {
         "project_id": metadata.get("project_id"),
@@ -88,6 +90,8 @@ def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
         "has_product_image": bool(metadata.get("product_image_data") or metadata.get("product_image_url")),
         "product_image_provider": metadata.get("product_image_provider") or metadata.get("image_output_provider"),
         "product_image_model": metadata.get("product_image_model") or metadata.get("image_output_model"),
+        "workflow": metadata.get("workflow"),
+        "source_usage": source_usage,
         "pipeline": metadata.get("pipeline"),
     }
 
@@ -168,15 +172,41 @@ class JobMetadataStore:
                     completed_at TEXT,
                     payload_json TEXT,
                     result_summary_json TEXT,
+                    source_usage_json TEXT,
                     error TEXT
                 )
                 """
             )
+            self._migrate_sqlite_schema(conn)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_a2a_jobs_sender ON a2a_jobs(sender)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_a2a_jobs_status ON a2a_jobs(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_a2a_jobs_created_at ON a2a_jobs(created_at)")
             conn.commit()
         self._initialized = True
+
+    def _migrate_sqlite_schema(self, conn: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(a2a_jobs)").fetchall()}
+        if "source_usage_json" not in columns:
+            conn.execute("ALTER TABLE a2a_jobs ADD COLUMN source_usage_json TEXT")
+
+        rows = conn.execute(
+            """
+            SELECT job_id, action, payload_json, result_summary_json, source_usage_json
+            FROM a2a_jobs
+            WHERE source_usage_json IS NULL OR source_usage_json = ''
+            """
+        ).fetchall()
+        for row in rows:
+            source_usage = infer_source_usage(
+                action=row["action"],
+                payload=_json_loads(row["payload_json"]) or {},
+                result_summary=_json_loads(row["result_summary_json"]) or {},
+            )
+            if source_usage:
+                conn.execute(
+                    "UPDATE a2a_jobs SET source_usage_json = ? WHERE job_id = ?",
+                    (_json_dumps(source_usage), row["job_id"]),
+                )
 
     def create_job(
         self,
@@ -193,6 +223,7 @@ class JobMetadataStore:
     ) -> Dict[str, Any]:
         self.init_db()
         now = _utc_now()
+        source_usage = infer_source_usage(action=action, payload=payload)
         if self.backend == "supabase":
             self._client.table("a2a_jobs").upsert(
                 {
@@ -210,6 +241,7 @@ class JobMetadataStore:
                     "completed_at": None,
                     "payload_json": _redact_payload(payload),
                     "result_summary_json": None,
+                    "source_usage_json": source_usage,
                     "error": None,
                 },
                 on_conflict="job_id",
@@ -221,9 +253,9 @@ class JobMetadataStore:
                 """
                 INSERT OR REPLACE INTO a2a_jobs (
                     job_id, message_id, correlation_id, action, sender, recipient, status,
-                    server_owned, created_at, updated_at, payload_json
+                    server_owned, created_at, updated_at, payload_json, source_usage_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -237,6 +269,7 @@ class JobMetadataStore:
                     now,
                     now,
                     _json_dumps(_redact_payload(payload)),
+                    _json_dumps(source_usage),
                 ),
             )
         return self.get_job(job_id) or {}
@@ -272,6 +305,14 @@ class JobMetadataStore:
         self.init_db()
         now = _utc_now()
         result_summary = summarize_result(result)
+        current = self.get_job(job_id) or {}
+        source_usage = infer_source_usage(
+            action=current.get("action"),
+            payload=current.get("payload"),
+            result=result,
+            result_summary=result_summary,
+            current=current,
+        )
         if self.backend == "supabase":
             self._client.table("a2a_jobs").update(
                 {
@@ -279,6 +320,7 @@ class JobMetadataStore:
                     "completed_at": now,
                     "updated_at": now,
                     "result_summary_json": result_summary,
+                    "source_usage_json": source_usage,
                     "error": None,
                 }
             ).eq("job_id", job_id).execute()
@@ -288,10 +330,10 @@ class JobMetadataStore:
             conn.execute(
                 """
                 UPDATE a2a_jobs
-                SET status = ?, completed_at = ?, updated_at = ?, result_summary_json = ?, error = NULL
+                SET status = ?, completed_at = ?, updated_at = ?, result_summary_json = ?, source_usage_json = ?, error = NULL
                 WHERE job_id = ?
                 """,
-                ("succeeded", now, now, _json_dumps(result_summary), job_id),
+                ("succeeded", now, now, _json_dumps(result_summary), _json_dumps(source_usage), job_id),
             )
 
     def mark_failed(self, job_id: str, error: str) -> None:
@@ -390,8 +432,17 @@ class JobMetadataStore:
     def _row_to_dict(row: Any) -> Dict[str, Any]:
         result = dict(row)
         result["server_owned"] = bool(result["server_owned"])
-        result["payload"] = _json_loads(result.pop("payload_json", None)) or {}
-        result["result_summary"] = _json_loads(result.pop("result_summary_json", None))
+        payload = _json_loads(result.pop("payload_json", None)) or {}
+        result_summary = _json_loads(result.pop("result_summary_json", None))
+        source_usage = _json_loads(result.pop("source_usage_json", None)) or {}
+        result["payload"] = payload
+        result["result_summary"] = result_summary
+        result["source_usage"] = infer_source_usage(
+            action=result.get("action"),
+            payload=payload,
+            result_summary=result_summary,
+            current={"source_usage": source_usage},
+        )
         return result
 
 

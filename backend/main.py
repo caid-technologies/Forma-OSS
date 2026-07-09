@@ -129,6 +129,50 @@ logger = logging.getLogger(__name__)
 ROOT_DIR = Path(__file__).resolve().parents[1]
 EXAMPLE_RESULTS_DIR = ROOT_DIR / "examples" / "results"
 
+
+def _parse_job_timestamp(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+
+
+def _generation_duration_seconds(job: Optional[Dict[str, Any]]) -> Optional[int]:
+    if not job:
+        return None
+    started_at = _parse_job_timestamp(job.get("started_at"))
+    completed_at = _parse_job_timestamp(job.get("completed_at"))
+    if not started_at or not completed_at or completed_at < started_at:
+        return None
+    return max(1, round((completed_at - started_at).total_seconds()))
+
+
+def _attach_generation_timing_metadata(response: Dict[str, Any], job: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    duration_seconds = _generation_duration_seconds(job)
+    if duration_seconds is None:
+        return response
+
+    project_ir = response.get("project_ir")
+    if not isinstance(project_ir, dict):
+        return response
+
+    metadata = project_ir.get("assembly_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    project_ir["assembly_metadata"] = {
+        **metadata,
+        "total_generation_time_seconds": duration_seconds,
+        "total_generation_started_at": job.get("started_at") if job else None,
+        "total_generation_completed_at": job.get("completed_at") if job else None,
+    }
+    return response
+
 app = FastAPI(
     title="Blueprint Open-Source API",
     description="AI-native prompt-to-hardware compilation, validation, and design generation platform.",
@@ -364,14 +408,21 @@ def generate_project_endpoint(request: GenerateProjectRequest):
                 frontend_job_id=job_id,
             )
         JOB_STORE.mark_succeeded(job_id, response)
+        job = JOB_STORE.get_job(job_id)
+        response = _attach_generation_timing_metadata(response, job)
         metadata = (response.get("project_ir", {}).get("assembly_metadata") or {})
         project_id = metadata.get("project_id")
+        if project_id and isinstance(response.get("project_ir"), dict):
+            try:
+                update_generated_project_hardware_ir(project_id, response["project_ir"])
+            except Exception:
+                logger.warning("Failed to persist generation timing metadata for project_id=%s", project_id, exc_info=debug_mode_enabled())
         return {
             **response,
             "project_id": project_id,
             "chat_id": metadata.get("chat_id"),
             "job_id": job_id,
-            "job": JOB_STORE.get_job(job_id),
+            "job": job,
         }
     except ValueError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None

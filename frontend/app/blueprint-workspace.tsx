@@ -1584,6 +1584,7 @@ function schematicGridPosition(side: "left" | "right", index: number, rowsPerCol
 
 function withProjectResponseMetadata(ir: any, response: any) {
   if (!ir) return ir;
+  const timingMetadata = generationTimingMetadataFromJob(response?.job);
   return {
     ...ir,
     assembly_metadata: {
@@ -1592,8 +1593,59 @@ function withProjectResponseMetadata(ir: any, response: any) {
       chat_id: ir.assembly_metadata?.chat_id || response?.chat_id,
       frontend_job_id: ir.assembly_metadata?.frontend_job_id || response?.job_id,
       source_prompt: ir.assembly_metadata?.source_prompt || response?.prompt,
+      ...timingMetadata,
     },
   };
+}
+
+function timestampMs(value: any): number | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  const ms = new Date(value).getTime();
+  return Number.isNaN(ms) ? null : ms;
+}
+
+function durationSecondsBetween(startValue: any, endValue: any): number | null {
+  const start = timestampMs(startValue);
+  const end = timestampMs(endValue);
+  if (start === null || end === null || end < start) return null;
+  return Math.max(1, Math.round((end - start) / 1000));
+}
+
+function generationTimingMetadataFromJob(job: A2AJob | null | undefined): Record<string, any> {
+  const seconds = durationSecondsBetween(job?.started_at, job?.completed_at);
+  if (seconds === null) return {};
+  return {
+    total_generation_time_seconds: seconds,
+    total_generation_started_at: job?.started_at || null,
+    total_generation_completed_at: job?.completed_at || null,
+  };
+}
+
+function formatDurationSeconds(value: any) {
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) return "-";
+  const totalSeconds = Math.max(1, Math.round(seconds));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const remainingSeconds = totalSeconds % 60;
+  if (hours) return `${hours}h ${minutes}m ${remainingSeconds}s`;
+  if (minutes) return `${minutes}m ${remainingSeconds}s`;
+  return `${remainingSeconds}s`;
+}
+
+function formatTotalGenerationTime(metadata: Record<string, any> = {}) {
+  const explicitSeconds =
+    metadata.total_generation_time_seconds ??
+    metadata.total_generation_duration_seconds ??
+    metadata.generation_duration_seconds ??
+    metadata.duration_seconds;
+  const formatted = formatDurationSeconds(explicitSeconds);
+  if (formatted !== "-") return formatted;
+  const derivedSeconds = durationSecondsBetween(
+    metadata.total_generation_started_at || metadata.generation_started_at || metadata.started_at,
+    metadata.total_generation_completed_at || metadata.generation_completed_at || metadata.completed_at
+  );
+  return formatDurationSeconds(derivedSeconds);
 }
 
 function projectIdFromIR(ir: any) {
@@ -4072,6 +4124,7 @@ export function BlueprintWorkspace({
             title={projectTitle}
             description={projectDescription}
             namespace={activeWorkspaceNamespace}
+            totalGenerationTime={formatTotalGenerationTime(projectIR?.assembly_metadata || {})}
             components={components}
             metrics={metrics}
             issues={issues}
@@ -7085,6 +7138,7 @@ function ChatNamespaceSummaryPanel({
   title,
   description,
   namespace,
+  totalGenerationTime,
   components,
   metrics,
   issues,
@@ -7093,6 +7147,7 @@ function ChatNamespaceSummaryPanel({
   title: string;
   description: string;
   namespace: string;
+  totalGenerationTime: string;
   components: any[];
   metrics: ReturnType<typeof emptyMetrics>;
   issues: any[];
@@ -7114,10 +7169,11 @@ function ChatNamespaceSummaryPanel({
           </div>
         </div>
 
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 xl:grid-cols-5">
           <JobMetric label="Project" value={projectId || "-"} />
           <JobMetric label="Title" value={title} />
           <JobMetric label="Parts" value={metrics.totalParts} />
+          <JobMetric label="Total Generation Time" value={totalGenerationTime} />
           <JobMetric label="Validation" value={issues.length ? `${issues.length} issues` : "approved"} />
         </div>
 
@@ -7672,11 +7728,7 @@ function formatJobTime(value?: string | null) {
 
 function formatJobDuration(job: A2AJob) {
   if (!job.started_at || !job.completed_at) return job.status === "running" ? "running" : "-";
-  const start = new Date(job.started_at).getTime();
-  const end = new Date(job.completed_at).getTime();
-  if (Number.isNaN(start) || Number.isNaN(end) || end < start) return "-";
-  const seconds = Math.max(1, Math.round((end - start) / 1000));
-  return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return formatDurationSeconds(durationSecondsBetween(job.started_at, job.completed_at));
 }
 
 function PartsSidebar({ components, issues, isValid }: { components: any[]; issues: any[]; isValid: boolean }) {

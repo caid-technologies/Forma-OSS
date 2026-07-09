@@ -133,27 +133,44 @@ Notes:
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
 - `BLUEPRINT_DEPLOYMENT=true` enables the deployment-only alpha gate. When live LLM generation is unavailable, the frontend offers generated example projects plus a contact form that stores leads in `alpha_signups`.
-- `LLM_PROVIDER` can be `gemini`, `openai`, `openai-compatible`, or `simulation`.
+- `LLM_PROVIDER` can be `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
+- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
 - `OPENAI_RESPONSE_FORMAT` defaults to `json_schema` for OpenAI. You can set it to `json_object` for older JSON mode or `none` to omit `response_format`.
 - `OPENAI_TIMEOUT_SECONDS` controls the per-request OpenAI read timeout and defaults to `300`.
 - `OPENAI_REASONING_EFFORT` can lower latency for GPT-5/o-series reasoning models, for example `low`.
 - `OPENAI_TEMPERATURE` is optional and omitted by default for first-party OpenAI so models that only support their default temperature can run.
 - `OPENAI_PROJECT_ID` and `OPENAI_ORG_ID` are optional routing headers for accounts that need explicit project or organization selection.
+- `BASETEN_API_KEY` enables Baseten Model APIs when `LLM_PROVIDER=baseten`; `BASETEN_BASE_URL` defaults to `https://inference.baseten.co/v1`.
+- `BASETEN_MODEL` selects the Baseten model slug, for example `deepseek-ai/DeepSeek-V4-Pro`.
+- `HF_TOKEN`, `HUGGINGFACE_API_KEY`, or `HUGGINGFACE_HUB_TOKEN` enables Hugging Face Inference Providers when `LLM_PROVIDER=huggingface`; `HUGGINGFACE_BASE_URL` defaults to `https://router.huggingface.co/v1`.
+- `HUGGINGFACE_MODEL` selects the Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
+- `NVIDIA_API_KEY` enables NVIDIA Build/NIM APIs when `LLM_PROVIDER=nvidia`; `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
+- `NVIDIA_MODEL` selects the NVIDIA model slug, for example `meta/llama-3.1-8b-instruct`.
+- `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`: `auto`, `tavily`, `firecrawl`, or `none`. `auto` prefers Tavily when `TAVILY_API_KEY` is set and falls back to Firecrawl when configured.
+- `TAVILY_API_KEY` enables Tavily research. `TAVILY_SEARCH_LIMIT`, `TAVILY_SEARCH_DEPTH`, `TAVILY_INCLUDE_ANSWER`, and `TAVILY_INCLUDE_RAW_CONTENT` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
 - `IMAGE_OUTPUT_ENABLED=true` makes generated product concept images the default. Leave it `false` and use the UI checkbox or `generate_image=true` API flag to opt in per job.
 - `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, or `none`.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
+- For `IMAGE_PROVIDER=openai`, image generation uses `OPENAI_IMAGE_API_KEY` or `OPENAI_API_KEY` and `OPENAI_IMAGE_BASE_URL` or `OPENAI_BASE_URL`. It does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; those belong to text-model routing and OpenAI-compatible providers.
+- For `IMAGE_PROVIDER=openai-compatible`, use `IMAGE_BASE_URL`/`IMAGE_API_KEY` or the compatible `LLM_BASE_URL`/`LLM_API_KEY` pair when you intentionally want a non-OpenAI image endpoint.
 - When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_SECRET_KEY` are set, uploaded reference images and generated product images are stored in the Supabase Storage bucket from `SUPABASE_S3_BUCKET` (default `contents`) through the Supabase client. S3-compatible credentials are only a fallback. `BLUEPRINT_DEV_MODE=true` disables this storage path.
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS` controls how long refreshed Supabase Storage read URLs live when projects are loaded. It defaults to `86400`.
 - `LLM_API_KEY` is a generic provider key alias. Gemini aliases (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) are still supported.
 - `LLM_TIMEOUT_SECONDS` controls the generic provider read timeout. OpenAI-compatible endpoints default to `90`.
+- `RUNPOD_TIMEOUT_SECONDS` controls Runpod OpenAI-compatible read timeout. It defaults to `1200` so 10-15 minute cold starts or long generations can finish.
+- `RUNPOD_POLL_TIMEOUT_SECONDS` controls Runpod Serverless status polling timeout. It defaults to `1200`.
+- `RUNPOD_EXECUTION_TIMEOUT_MS` and `RUNPOD_TTL_MS` control Runpod Serverless job policy values. Use `1200000` for 20-minute generation windows.
+- `RUNPOD_PARTI_SEED_TIMEOUT_SECONDS` controls only the `caid-technologies/parti-base` seed call and defaults to `RUNPOD_TIMEOUT_SECONDS`.
 - `LLM_REASONING_EFFORT` passes reasoning effort to compatible endpoints that support it.
 - `LLM_TEMPERATURE` controls generic provider sampling. OpenAI-compatible endpoints default to `0.2`; set `default`, `none`, or `omit` to omit it.
 - With `STRICT_LLM=true`, generation fails fast when model availability validation is enabled and `LLM_MODEL` is unavailable.
 - With `STRICT_LLM=false`, the backend may fall back to `LLM_FALLBACK_MODEL`.
 - OpenAI-compatible endpoints can use `LLM_BASE_URL`; local endpoints that do not require auth can set `LLM_ALLOW_NO_API_KEY=true`.
+- Runpod OpenAI-compatible/vLLM endpoints can use `RUNPOD_API_KEY` plus `RUNPOD_OPENAI_BASE_URL`. Runpod Serverless queue workers can use `RUNPOD_API_KEY` plus `RUNPOD_ENDPOINT_ID` or `RUNPOD_ENDPOINT_URL`. If each queue-style model has a different endpoint, set `RUNPOD_MODEL_ENDPOINTS` to a JSON mapping of model IDs to endpoint IDs or URLs.
 - `JOB_METADATA_BACKEND=auto` stores A2A job metadata in Supabase when the main app database is Supabase, otherwise in SQLite. `BLUEPRINT_DEV_MODE=true` always uses SQLite.
 - `JOB_METADATA_DB_PATH` controls the SQLite A2A job metadata file.
 - A2A REST, WebSocket, and MCP routes are always mounted. The TCP JSONL socket starts only when `A2A_SOCKET_ENABLED=true`.

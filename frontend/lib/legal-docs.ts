@@ -1,0 +1,350 @@
+export const legalContactEmail = "team@caid-technologies.com";
+export const legalEntityName = "CAID TECHNOLOGIES, INC.";
+export const legalLastUpdated = "July 8, 2026";
+export const legalEffectiveDate = "July 8, 2026";
+
+export type LegalSection = {
+  heading: string;
+  paragraphs?: string[];
+  bullets?: string[];
+};
+
+export type LegalDocument = {
+  slug: string;
+  title: string;
+  summary: string;
+  sections: LegalSection[];
+};
+
+export const legalDocuments: LegalDocument[] = [
+  {
+    slug: "terms-of-service",
+    title: "Terms of Service",
+    summary: "The terms that govern access to and use of Blueprint.",
+    sections: [
+      {
+        heading: "The Service",
+        paragraphs: [
+          "Blueprint is an AI-assisted tool for generating low-voltage maker electronics project information, including structured hardware descriptions, parts lists, wiring notes, validation warnings, assembly notes, diagrams, and concept images.",
+          "Generated content can be incomplete, inaccurate, unsafe, non-unique, or unsuitable for a particular purpose. You are responsible for independent review, testing, and professional validation before building, purchasing parts for, manufacturing, selling, or deploying any generated design.",
+        ],
+      },
+      {
+        heading: "Eligibility",
+        paragraphs: [
+          "You must be at least 13 years old to use the Service. If you are under the age of majority where you live, you may use the Service only with permission and supervision from a parent or legal guardian. The Service is not directed to children under 13.",
+        ],
+      },
+      {
+        heading: "Accounts, Content, and Outputs",
+        paragraphs: [
+          "You are responsible for activity under your account and for keeping credentials, API keys, integration tokens, and devices secure.",
+          "You grant Blueprint permission to host, store, reproduce, process, transmit, display, and use prompts, uploads, project data, and related content as needed to provide, secure, improve, and support the Service.",
+          "As between you and Blueprint, you may use generated outputs for lawful purposes, subject to these terms and applicable third-party rights or provider terms.",
+        ],
+      },
+      {
+        heading: "Hardware Safety",
+        paragraphs: [
+          "Blueprint is not a substitute for professional engineering review, certified electrical design, laboratory testing, safety certification, legal advice, medical advice, or product compliance work.",
+        ],
+        bullets: [
+          "Do not use Blueprint for mains AC, high-voltage, high-current, or unsafe battery systems without qualified professional oversight.",
+          "Do not use Blueprint for weapons, harmful devices, medical devices, automotive systems, aviation systems, industrial controls, public infrastructure, or other safety-critical systems.",
+          "Do not sell or deploy products based on Blueprint outputs without qualified engineering, regulatory, and safety review.",
+        ],
+      },
+      {
+        heading: "Third-Party Services",
+        paragraphs: [
+          "The Service may rely on model providers, image providers, hosting providers, databases, analytics, authentication, email, storage, payment processors, suppliers, and marketplaces. Third-party services are governed by their own terms, privacy policies, fees, data practices, and availability.",
+        ],
+      },
+      {
+        heading: "Disclaimers and Liability",
+        paragraphs: [
+          "The Service and outputs are provided as is and as available. To the maximum extent permitted by law, Blueprint disclaims warranties of merchantability, fitness for a particular purpose, title, non-infringement, accuracy, safety, availability, and quiet enjoyment.",
+          "To the maximum extent permitted by law, Blueprint will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, lost data, business interruption, personal injury, property damage, product liability, or cost of substitute services.",
+        ],
+      },
+      {
+        heading: "Contact",
+        paragraphs: [`Questions about these terms can be sent to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "privacy-policy",
+    title: "Privacy Policy",
+    summary: "How Blueprint collects, uses, shares, and protects information.",
+    sections: [
+      {
+        heading: "Information We Collect",
+        bullets: [
+          "Account and contact information, such as name, email address, organization, role, and support details.",
+          "Authentication and integration information, including provider selections, masked credential status, and API keys or tokens you choose to save.",
+          "Project and generation content, including prompts, uploaded images, chat history, generated hardware IR, BOMs, diagrams, validation results, assembly notes, and concept images.",
+          "Usage, device, log, diagnostic, and communication information.",
+        ],
+      },
+      {
+        heading: "How We Use Information",
+        paragraphs: [
+          "We use information to provide, operate, maintain, secure, debug, improve, and support the Service; create and store generated projects; route requests to configured providers; communicate with users; enforce policies; comply with law; and develop aggregated or de-identified analytics.",
+        ],
+      },
+      {
+        heading: "AI Providers",
+        paragraphs: [
+          "Blueprint may send prompts, uploaded images, project content, and related metadata to AI model providers, image generation providers, hosting providers, or compatible infrastructure selected or configured for a generation request.",
+          "Provider data practices may vary. Review provider terms and privacy policies before using live model, image, storage, or infrastructure providers.",
+        ],
+      },
+      {
+        heading: "Disclosure",
+        paragraphs: [
+          "We may disclose information to service providers, third-party services you connect or select, other users or the public if you intentionally share content, legal authorities when required, parties involved in business transfers, and others with your consent.",
+          "We do not sell personal information for money. If our practices change in a way that requires additional choices, we will update this policy.",
+        ],
+      },
+      {
+        heading: "Retention and Security",
+        paragraphs: [
+          "We keep information for as long as reasonably necessary to provide the Service, maintain project history, meet legal obligations, resolve disputes, prevent abuse, enforce agreements, and support security and reliability.",
+          "We use reasonable safeguards designed to protect information. No method of transmission or storage is completely secure.",
+        ],
+      },
+      {
+        heading: "Your Choices",
+        bullets: [
+          "You may request access, correction, deletion, export, restriction, portability, or objection where available under applicable law.",
+          "You may control cookies and local storage through your browser.",
+          "You may disconnect third-party integrations and opt out of non-essential emails.",
+        ],
+      },
+      {
+        heading: "Children",
+        paragraphs: [
+          "The Service is not directed to children under 13, and we do not knowingly collect personal information from children under 13.",
+        ],
+      },
+      {
+        heading: "Contact",
+        paragraphs: [`Privacy requests can be sent to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "acceptable-use-policy",
+    title: "Acceptable Use Policy",
+    summary: "Rules for safe, lawful, and respectful use of Blueprint.",
+    sections: [
+      {
+        heading: "Safety-First Scope",
+        paragraphs: [
+          "Blueprint is intended for low-voltage maker electronics, educational prototypes, and early design exploration. You may not use the Service to create or facilitate unsafe, illegal, abusive, or rights-violating activity.",
+        ],
+      },
+      {
+        heading: "Prohibited Hardware Uses",
+        bullets: [
+          "Weapons, explosives, traps, harmful devices, or systems intended to injure people or damage property.",
+          "Mains AC, high-voltage, high-current, unsafe battery, or high-power energy systems without qualified professional oversight.",
+          "Medical, automotive, aviation, railway, maritime, industrial control, public infrastructure, emergency response, or other safety-critical systems.",
+          "Unlawful surveillance, stalking, credential theft, evasion, sabotage, physical intrusion, or safety bypass systems.",
+        ],
+      },
+      {
+        heading: "Prohibited Conduct",
+        bullets: [
+          "Violating laws, sanctions, export controls, court orders, or third-party rights.",
+          "Submitting infringing, private, confidential, harmful, exploitative, hateful, harassing, or deceptive content.",
+          "Bypassing rate limits, access controls, safety controls, payment controls, model restrictions, or usage limits.",
+          "Using stolen or unauthorized API keys or abusing model, image, cloud, marketplace, or integration providers.",
+        ],
+      },
+      {
+        heading: "Responsible Use",
+        paragraphs: [
+          "You are responsible for independently verifying component ratings, datasheets, pinouts, wiring, polarity, grounding, fusing, battery protection, supplier reliability, legal requirements, and product safety requirements before using outputs.",
+        ],
+      },
+      {
+        heading: "Reporting",
+        paragraphs: [`Report abuse, safety concerns, or security issues to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "hardware-safety-disclaimer",
+    title: "Hardware Safety Disclaimer",
+    summary: "Important limits for AI-generated hardware plans.",
+    sections: [
+      {
+        heading: "Not Professional Engineering Advice",
+        paragraphs: [
+          "Blueprint outputs are not professional electrical, mechanical, industrial, product safety, legal, regulatory, medical, or manufacturing advice. Generated designs, diagrams, BOMs, validation reports, and assembly notes may be wrong, incomplete, unsafe, outdated, or unsuitable for your intended use.",
+        ],
+      },
+      {
+        heading: "Intended Scope",
+        paragraphs: [
+          "Blueprint is intended for low-voltage maker electronics, typically 3.3V to 5V DC educational prototypes and hobby projects.",
+        ],
+      },
+      {
+        heading: "Do Not Use For",
+        bullets: [
+          "Mains AC wiring or line-powered products.",
+          "High-voltage, high-current, high-temperature, or high-energy systems.",
+          "Lithium battery packs, charging, or power systems without qualified review.",
+          "Medical, automotive, aviation, industrial, public infrastructure, life-safety, weapons, or harmful-device systems.",
+          "Commercial products without formal engineering, testing, and certification.",
+        ],
+      },
+      {
+        heading: "Required Independent Checks",
+        paragraphs: [
+          "Before purchasing parts or building anything, verify datasheets, manufacturer application notes, voltage, current, power, thermal limits, pinouts, polarity, grounding, battery chemistry, enclosure safety, mechanical tolerances, and regulatory obligations.",
+        ],
+      },
+      {
+        heading: "Contact",
+        paragraphs: [`Report dangerous outputs or safety issues to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "cookie-and-local-storage-notice",
+    title: "Cookie and Local Storage Notice",
+    summary: "How Blueprint may use browser storage and similar technologies.",
+    sections: [
+      {
+        heading: "How Blueprint Uses Storage",
+        bullets: [
+          "Keeping users signed in and supporting secure sessions.",
+          "Remembering settings, preferences, selected project state, and UI state.",
+          "Storing local chat or project drafts in the browser.",
+          "Measuring usage, diagnosing errors, improving reliability, and preventing abuse.",
+        ],
+      },
+      {
+        heading: "Categories",
+        bullets: [
+          "Strictly necessary storage for security and core Service functionality.",
+          "Functional storage for preferences, project state, local chat history, and UI settings.",
+          "Analytics or marketing storage only if those tools are enabled and required consent is obtained.",
+        ],
+      },
+      {
+        heading: "Your Choices",
+        paragraphs: [
+          "You can block or delete cookies and local storage in your browser settings. Some Service features may not work correctly if necessary storage is disabled or cleared.",
+        ],
+      },
+      {
+        heading: "Contact",
+        paragraphs: [`Questions about cookies or local storage can be sent to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "copyright-dmca-policy",
+    title: "Copyright and DMCA Policy",
+    summary: "How to report copyright concerns.",
+    sections: [
+      {
+        heading: "Copyright Complaints",
+        paragraphs: [
+          "If you believe content available through the Service infringes your copyright, send a notice with your signature, identification of the copyrighted work, identification of the allegedly infringing material, your contact details, your good-faith statement, and your accuracy statement under penalty of perjury.",
+        ],
+      },
+      {
+        heading: "Counter-Notices",
+        paragraphs: [
+          "If you believe content was removed by mistake or misidentification, send a counter-notice with your contact information, identification of the removed material, a jurisdiction statement, and your statement under penalty of perjury that the material was removed by mistake or misidentification.",
+        ],
+      },
+      {
+        heading: "Repeat Infringers",
+        paragraphs: [
+          "Blueprint may suspend or terminate accounts of repeat infringers and may remove content that appears to infringe intellectual property rights.",
+        ],
+      },
+      {
+        heading: "Contact",
+        paragraphs: [`Copyright notices can be sent to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "security-policy",
+    title: "Security and Vulnerability Disclosure Policy",
+    summary: "How to report vulnerabilities safely.",
+    sections: [
+      {
+        heading: "Reporting",
+        paragraphs: [`Send vulnerability reports to ${legalContactEmail}. Include affected URLs, API routes, packages, reproduction steps, impact, evidence, and whether any data that was not yours was accessed.`],
+      },
+      {
+        heading: "In Scope",
+        bullets: [
+          "The public Blueprint web application.",
+          "Documented Blueprint APIs.",
+          "Authentication, authorization, project access, and integration handling.",
+          "Public repository code maintained by Blueprint.",
+        ],
+      },
+      {
+        heading: "Out of Scope",
+        bullets: [
+          "Denial-of-service or load testing.",
+          "Social engineering, phishing, or physical attacks.",
+          "Attacks against third-party providers or suppliers.",
+          "Accessing, modifying, deleting, or exfiltrating data that is not yours.",
+          "Automated scanning that degrades the Service.",
+        ],
+      },
+      {
+        heading: "Safe Harbor",
+        paragraphs: [
+          "If you act in good faith, follow this policy, avoid privacy violations and disruption, and report issues promptly, Blueprint will not pursue legal action against you for the research itself.",
+        ],
+      },
+    ],
+  },
+  {
+    slug: "accessibility-statement",
+    title: "Accessibility Statement",
+    summary: "Blueprint's accessibility commitment and feedback path.",
+    sections: [
+      {
+        heading: "Commitment",
+        paragraphs: [
+          "Blueprint is committed to making the Service accessible and usable for as many people as possible.",
+          "Our goal is to substantially conform to the Web Content Accessibility Guidelines (WCAG) 2.2 Level AA where practical for the current product stage.",
+        ],
+      },
+      {
+        heading: "Ongoing Work",
+        paragraphs: [
+          "We intend to improve accessibility through design reviews, semantic markup, keyboard navigation, color contrast checks, responsive layouts, alternative text, clear focus states, and testing with assistive technologies.",
+        ],
+      },
+      {
+        heading: "Known Limitations",
+        paragraphs: [
+          "Some generated diagrams, images, 3D scenes, canvas views, or third-party embedded content may not yet provide equivalent accessible alternatives. We will prioritize reasonable fixes when issues are reported.",
+        ],
+      },
+      {
+        heading: "Feedback",
+        paragraphs: [`If you experience an accessibility barrier, contact ${legalContactEmail} with the page or feature, assistive technology or browser details if relevant, and a short description of the problem.`],
+      },
+    ],
+  },
+];
+
+export function getLegalDocument(slug: string) {
+  return legalDocuments.find((document) => document.slug === slug) || null;
+}

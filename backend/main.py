@@ -1,9 +1,11 @@
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import json
 import logging
 import sys
 import types
-from typing import Any, Dict, List
+import urllib.parse
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 
@@ -16,6 +18,10 @@ def _ensure_backend_package_imports() -> None:
     if not (current_dir / "database.py").exists():
         return
 
+    project_root = current_dir.parent
+    if str(project_root) not in sys.path:
+        sys.path.insert(0, str(project_root))
+
     backend_package = types.ModuleType("backend")
     backend_package.__path__ = [str(current_dir)]
     backend_package.__file__ = str(current_dir / "__init__.py")
@@ -27,6 +33,12 @@ def _ensure_backend_package_imports() -> None:
 
 _ensure_backend_package_imports()
 
+from blueprint_core.debug import (
+    api_error_detail,
+    debug_mode_enabled,
+    exception_debug_payload,
+    get_debug_mode_config,
+)
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -34,7 +46,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from backend.database import (
+from blueprint_core.user_integrations import apply_user_integrations_to_environment
+
+apply_user_integrations_to_environment()
+
+from backend.logging_config import configure_backend_logging
+
+configure_backend_logging()
+
+from blueprint_core.database import (
     count_component_templates,
     get_database_config,
     get_generated_project,
@@ -42,15 +62,17 @@ from backend.database import (
     list_component_templates,
     list_generated_projects,
     save_alpha_signup,
+    update_generated_project_hardware_ir,
 )
 from backend.seed_db import seed_database
-from backend.agents.workflows import list_workflows
-from backend.models import (
-    AlphaSignupRequest, AlphaSignupResponse,
-    GenerateProjectRequest, HardwareIR, ValidationReport, 
+from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
+from blueprint_core.clarifying_questions import ask_clarifying_questions
+from blueprint_core.models import (
+    AlphaSignupRequest, AlphaSignupResponse, ClarifyingQuestionsRequest, ClarifyingQuestionsResponse,
+    GenerateProjectRequest, HardwareIR, IterateProjectRequest, ValidationReport, VideoSelfCorrectRequest,
     ComponentInstance, ConnectionNet, ValidationIssue
 )
-from backend.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from backend.a2a import (
     A2A_HUB,
     A2AAgentRegistration,
@@ -63,17 +85,28 @@ from backend.a2a import (
     stop_a2a_tcp_server,
     submit_a2a_message,
 )
-from backend.image_providers import get_image_output_debug_config
+from blueprint_core.images import get_image_output_debug_config
+from blueprint_core.iteration import ProjectIterator
+from blueprint_core.llm import LLMProviderConfigError
+from blueprint_core.llm import LLMProviderOutputError
+from blueprint_core.project_objects import build_project_object, list_project_namespaces
+from blueprint_core.pipeline import list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
+from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVideoSelfCorrectionAgent
+from backend.logs_api import router as logs_router
+from backend.streams_api import router as streams_router
+from backend.user_integrations_api import router as user_integrations_router
 from backend.job_store import JOB_STORE
-from backend.observability import flush_langfuse, get_langfuse_debug_config
-from backend.runtime_config import (
+from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
+from blueprint_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
+    generation_unavailable_detail,
 )
 from backend.storage import get_image_storage_config, hydrate_image_storage_metadata
-from backend.validation import get_generation_input_issue, validate_circuit
-from backend.utils import generate_mermaid_chart, generate_svg_schematic
+from blueprint_core.validation import validate_circuit
+from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
 from backend.video_providers import (
     GMICloudProvider,
     VIDEO_MODE_IMAGE_TO_VIDEO,
@@ -93,6 +126,8 @@ from backend.video_storage import (
 )
 
 logger = logging.getLogger(__name__)
+ROOT_DIR = Path(__file__).resolve().parents[1]
+EXAMPLE_RESULTS_DIR = ROOT_DIR / "examples" / "results"
 
 app = FastAPI(
     title="Blueprint Open-Source API",
@@ -138,6 +173,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(logs_router)
+app.include_router(streams_router)
+app.include_router(user_integrations_router)
+
+
+@app.middleware("http")
+async def apply_user_integrations_middleware(request: Any, call_next: Any) -> Any:
+    apply_user_integrations_to_environment()
+    return await call_next(request)
+
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
     return deployment_runtime_config(llm_config, signup_storage=get_database_config()["client"])
@@ -146,17 +191,17 @@ def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
 # Initialize and seed database on startup
 @app.on_event("startup")
 async def startup_event():
-    print("Starting up Blueprint server...")
+    logger.info("Starting up Blueprint server...")
     try:
         init_db()
         count = count_component_templates()
         if count == 0:
-            print("Database empty. Seeding templates automatically...")
+            logger.info("Database empty. Seeding templates automatically...")
             seed_database()
         else:
-            print(f"Database ready with {count} component templates.")
+            logger.info("Database ready with %s component templates.", count)
     except Exception as e:
-        print(f"Error during database startup: {e}")
+        logger.exception("Error during database startup: %s", e)
         raise
     JOB_STORE.init_db()
     await start_a2a_tcp_server()
@@ -176,13 +221,17 @@ def read_root():
         "docs_url": "/api/docs"
     }
 
+
 @app.get("/debug/config")
-def debug_config_endpoint():
+def debug_config_endpoint(
+    provider: Optional[str] = Query(None, description="Optional runtime LLM provider override to validate."),
+    model: Optional[str] = Query(None, description="Optional runtime LLM model override to validate."),
+):
     """
     Reports LLM provider and model resolution state without exposing credentials.
     """
     try:
-        orchestrator = HardwarePipelineOrchestrator()
+        orchestrator = HardwarePipelineOrchestrator(provider_name=provider, model_name=model)
         llm_config = orchestrator.get_debug_config()
         return {
             **llm_config,
@@ -192,12 +241,24 @@ def debug_config_endpoint():
             "image_output": get_image_output_debug_config(),
             "image_storage": get_image_storage_config(),
             "observability": get_langfuse_debug_config(),
+            "debug": get_debug_mode_config(),
             "video_generation": GMICloudProvider().get_debug_config(),
+            "video_self_correction": FireworksVideoReviewClient().get_debug_config(),
             "video_storage": get_video_storage_config(),
             "workflows": list_workflows(),
+            "project_namespaces": [namespace.model_dump(mode="json") for namespace in list_project_namespaces()],
         }
+    except LLMProviderConfigError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e, provider=provider, model=model),
+        ) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Debug config failed: {str(e)}")
+        logger.exception("Debug config failed.")
+        raise HTTPException(
+            status_code=500,
+            detail=api_error_detail(code="debug_config_failed", message=f"Debug config failed: {str(e)}", exc=e),
+        ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])
 def generate_project_endpoint(request: GenerateProjectRequest):
@@ -205,25 +266,75 @@ def generate_project_endpoint(request: GenerateProjectRequest):
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
     """
-    llm_config = HardwarePipelineOrchestrator().get_debug_config()
+    try:
+        llm_config = get_workflow_debug_config(
+            request.workflow,
+            provider_name=request.provider,
+            model_name=request.model,
+            external_source_provider=request.external_source_provider,
+        )
+    except LLMProviderConfigError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(
+                code="llm_config_invalid",
+                message=str(e),
+                exc=e,
+                provider=request.provider,
+                model=request.model,
+                context={
+                    "workflow": request.workflow,
+                    "generate_image": request.generate_image,
+                    "external_source_provider": request.external_source_provider,
+                },
+            ),
+        ) from e
     deployment_config = _deployment_runtime_config(llm_config)
     if deployment_config["alpha_generation_gate_active"]:
+        detail = generation_unavailable_detail(llm_config)
+        logger.warning(
+            "Generation unavailable for provider=%s model=%s: %s",
+            detail.get("provider"),
+            detail.get("model"),
+            detail.get("reason") or detail.get("message"),
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
+            detail=detail,
         )
 
-    input_issue = get_generation_input_issue(request.prompt, has_image=bool(request.image_data))
-    if input_issue:
-        raise HTTPException(status_code=400, detail=input_issue)
+    if not (request.prompt or "").strip() and not request.image_data:
+        message = "Provide a prompt or reference image."
+        detail = (
+            api_error_detail(
+                code="generation_input_invalid",
+                message=message,
+                provider=request.provider,
+                model=request.model,
+                context={
+                    "workflow": request.workflow,
+                    "has_image": bool(request.image_data),
+                    "external_source_provider": request.external_source_provider,
+                },
+            )
+            if debug_mode_enabled()
+            else message
+        )
+        raise HTTPException(status_code=400, detail=detail)
 
-    job_id = f"job_frontend_{uuid4().hex}"
+    job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
     payload = {
         "prompt": request.prompt,
         "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
+        "provider": request.provider,
+        "model": request.model,
+        "chat_id": request.chat_id,
+        "source_project_id": request.source_project_id,
+        "client_job_id": request.client_job_id,
+        "external_source_provider": request.external_source_provider,
     }
     JOB_STORE.create_job(
         job_id=job_id,
@@ -239,35 +350,141 @@ def generate_project_endpoint(request: GenerateProjectRequest):
     JOB_STORE.mark_running(job_id)
 
     try:
-        response = build_generation_response(
-            request.prompt,
-            request.image_data,
-            generate_image=request.generate_image,
-            workflow=request.workflow,
-        )
+        with observe_agent_pipeline(lambda event: JOB_STORE.append_progress_event(job_id, event.as_dict())):
+            response = build_generation_response(
+                request.prompt,
+                request.image_data,
+                generate_image=request.generate_image,
+                workflow=request.workflow,
+                provider=request.provider,
+                model=request.model,
+                external_source_provider=request.external_source_provider,
+                chat_id=request.chat_id,
+                source_project_id=request.source_project_id,
+                frontend_job_id=job_id,
+            )
         JOB_STORE.mark_succeeded(job_id, response)
-        project_id = (response.get("project_ir", {}).get("assembly_metadata") or {}).get("project_id")
+        metadata = (response.get("project_ir", {}).get("assembly_metadata") or {})
+        project_id = metadata.get("project_id")
         return {
             **response,
             "project_id": project_id,
+            "chat_id": metadata.get("chat_id"),
             "job_id": job_id,
             "job": JOB_STORE.get_job(job_id),
         }
     except ValueError as e:
-        JOB_STORE.mark_failed(job_id, str(e))
-        raise HTTPException(status_code=400, detail=str(e))
+        error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
+        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        logger.warning("Generation request rejected for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(
+                code="generation_request_invalid",
+                message=str(e),
+                exc=e,
+                job_id=job_id,
+                provider=request.provider,
+                model=request.model,
+                context=payload,
+            ),
+        ) from e
+    except LLMProviderConfigError as e:
+        error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
+        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        logger.warning("Generation LLM config failed for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(
+                code="llm_config_invalid",
+                message=str(e),
+                exc=e,
+                job_id=job_id,
+                provider=request.provider,
+                model=request.model,
+                context=payload,
+            ),
+        ) from e
+    except LLMProviderOutputError as e:
+        error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
+        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        logger.warning(
+            "LLM output rejected for job_id=%s provider=%s model=%s: %s",
+            job_id,
+            request.provider,
+            request.model,
+            e,
+            exc_info=debug_mode_enabled(),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=api_error_detail(
+                code="llm_output_invalid",
+                message=str(e),
+                exc=e,
+                job_id=job_id,
+                provider=request.provider,
+                model=request.model,
+                context=payload,
+            ),
+        ) from e
     except AlphaGenerationUnavailableError as e:
-        JOB_STORE.mark_failed(job_id, str(e))
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=str(e))
+        error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
+        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        code = "alpha_generation_unavailable" if str(e) == ALPHA_GENERATION_UNAVAILABLE_MESSAGE else "llm_generation_unavailable"
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=api_error_detail(
+                code=code,
+                message=str(e),
+                exc=e,
+                job_id=job_id,
+                provider=request.provider,
+                model=request.model,
+                context=payload,
+            ),
+        ) from e
     except Exception as e:
-        JOB_STORE.mark_failed(job_id, str(e))
-        raise HTTPException(status_code=500, detail=f"Generation failed: {str(e)}")
+        error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
+        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        logger.exception("Generation failed for job_id=%s provider=%s model=%s", job_id, request.provider, request.model)
+        raise HTTPException(
+            status_code=500,
+            detail=api_error_detail(
+                code="generation_failed",
+                message=f"Generation failed: {str(e)}",
+                exc=e,
+                job_id=job_id,
+                provider=request.provider,
+                model=request.model,
+                context=payload,
+            ),
+        ) from e
 
 
 @app.get("/workflows")
 def list_generation_workflows_endpoint():
     """List generation workflows available to frontend and CLI clients."""
     return list_workflows()
+
+
+@app.get("/pipeline/steps")
+def list_agent_pipeline_steps_endpoint(
+    workflow: Optional[str] = Query(None, description="Generation workflow id, for example default or web_research."),
+    include_image: bool = Query(False, description="Include optional product image generation stage."),
+):
+    """List public, user-safe agent pipeline stages for the selected workflow."""
+    return {
+        "workflow": pipeline_workflow_id(workflow),
+        "include_image": include_image,
+        "steps": list_agent_pipeline_steps(workflow, include_image=include_image),
+    }
+
+
+@app.post("/clarifying-questions", response_model=ClarifyingQuestionsResponse)
+def clarifying_questions_endpoint(request: ClarifyingQuestionsRequest):
+    """Run the core Context Clarifier Agent before starting a generation job."""
+    return ask_clarifying_questions(request)
 
 
 class VideoImageToVideoRequest(BaseModel):
@@ -321,7 +538,16 @@ def _require_non_empty(value: str | None, message: str) -> str:
     return normalized
 
 
-def _store_video_results(result: Any, *, project_id: str, model: str) -> List[Dict[str, Any]]:
+def _store_video_results(
+    result: Any,
+    *,
+    project_id: str,
+    model: str,
+    prompt: str | None = None,
+    mode: str | None = None,
+    aspect_ratio: str | None = None,
+    source_url: str | None = None,
+) -> List[Dict[str, Any]]:
     if not result.video_urls:
         return []
     try:
@@ -330,6 +556,10 @@ def _store_video_results(result: Any, *, project_id: str, model: str) -> List[Di
             project_id=project_id,
             request_id=result.request_id,
             model=model,
+            prompt=prompt,
+            mode=mode,
+            aspect_ratio=aspect_ratio,
+            source_url=source_url,
         )
         return [stored_video.response_metadata() for stored_video in stored_videos]
     except Exception as exc:
@@ -360,12 +590,16 @@ def _video_route_response(
     model: str,
     saved_videos: List[Dict[str, Any]],
     aspect_ratio: str | None = None,
+    prompt: str | None = None,
+    mode: str | None = None,
 ) -> Dict[str, Any]:
     return {
         "projectId": project_id,
         "requestId": result.request_id,
         "status": result.status,
         "model": model,
+        "mode": mode,
+        "prompt": prompt,
         "aspectRatio": aspect_ratio,
         "aspect_ratio": aspect_ratio,
         "source": "gmi-cloud",
@@ -446,8 +680,24 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest):
         raise HTTPException(status_code=502, detail=f"GMI Cloud video request failed with status '{result.status}'.")
     _raise_if_completed_without_video(result)
 
-    saved_videos = _store_video_results(result, project_id=project_id, model=model)
-    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos, aspect_ratio=aspect_ratio)
+    saved_videos = _store_video_results(
+        result,
+        project_id=project_id,
+        model=model,
+        prompt=prompt,
+        mode=VIDEO_MODE_IMAGE_TO_VIDEO,
+        aspect_ratio=aspect_ratio,
+        source_url=image,
+    )
+    return _video_route_response(
+        result,
+        project_id=project_id,
+        model=model,
+        saved_videos=saved_videos,
+        aspect_ratio=aspect_ratio,
+        prompt=prompt,
+        mode=VIDEO_MODE_IMAGE_TO_VIDEO,
+    )
 
 
 @app.post("/video/video-to-video")
@@ -485,8 +735,24 @@ def create_video_to_video_endpoint(request: VideoToVideoRequest):
         raise HTTPException(status_code=502, detail=f"GMI Cloud video request failed with status '{result.status}'.")
     _raise_if_completed_without_video(result)
 
-    saved_videos = _store_video_results(result, project_id=project_id, model=model)
-    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos, aspect_ratio=aspect_ratio)
+    saved_videos = _store_video_results(
+        result,
+        project_id=project_id,
+        model=model,
+        prompt=prompt,
+        mode=VIDEO_MODE_VIDEO_TO_VIDEO,
+        aspect_ratio=aspect_ratio,
+        source_url=video,
+    )
+    return _video_route_response(
+        result,
+        project_id=project_id,
+        model=model,
+        saved_videos=saved_videos,
+        aspect_ratio=aspect_ratio,
+        prompt=prompt,
+        mode=VIDEO_MODE_VIDEO_TO_VIDEO,
+    )
 
 
 @app.get("/video/image-to-video/status/{request_id}")
@@ -495,11 +761,16 @@ def get_image_to_video_status_endpoint(
     projectId: str | None = Query(None, description="Project id that owns this video generation request."),
     model: str | None = None,
     mode: str | None = Query(VIDEO_MODE_IMAGE_TO_VIDEO, description="Video generation mode."),
+    prompt: str | None = Query(None, description="Prompt used for the original video request."),
+    aspectRatio: str | None = Query(None, description="Aspect ratio used for the original video request."),
+    sourceUrl: str | None = Query(None, description="Source image or video URL used for the original video request."),
 ):
     """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
     request_id = _require_non_empty(request_id, "requestId is required.")
     project_id = _require_non_empty(projectId, "projectId is required.")
-    model = _normalize_video_model(model, normalize_video_mode(mode))
+    normalized_mode = normalize_video_mode(mode)
+    model = _normalize_video_model(model, normalized_mode)
+    aspect_ratio = _normalize_video_request_aspect_ratio(aspectRatio) if aspectRatio else None
 
     provider = GMICloudProvider()
     try:
@@ -519,9 +790,25 @@ def get_image_to_video_status_endpoint(
             ensure_video_storage_configured()
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
-        saved_videos = _store_video_results(result, project_id=project_id, model=model)
+        saved_videos = _store_video_results(
+            result,
+            project_id=project_id,
+            model=model,
+            prompt=prompt,
+            mode=normalized_mode,
+            aspect_ratio=aspect_ratio,
+            source_url=sourceUrl,
+        )
 
-    return _video_route_response(result, project_id=project_id, model=model, saved_videos=saved_videos)
+    return _video_route_response(
+        result,
+        project_id=project_id,
+        model=model,
+        saved_videos=saved_videos,
+        aspect_ratio=aspect_ratio,
+        prompt=prompt,
+        mode=normalized_mode,
+    )
 
 
 @app.post("/alpha-signups", response_model=AlphaSignupResponse)
@@ -601,6 +888,200 @@ def get_a2a_job(job_id: str):
     return job
 
 
+def _parse_example_job_time(value: Any) -> datetime:
+    if isinstance(value, str) and value.strip():
+        normalized = value.strip().replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(normalized)
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except ValueError:
+            pass
+    return datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _format_example_job_time(value: datetime) -> str:
+    return value.astimezone(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _example_job_status(status_value: Any) -> str:
+    normalized = str(status_value or "").strip().lower()
+    if normalized in {"pass", "passed", "success", "succeeded", "completed"}:
+        return "succeeded"
+    if normalized in {"fail", "failed", "error"}:
+        return "failed"
+    if normalized in {"running", "queued"}:
+        return normalized
+    return "failed"
+
+
+def _example_job_id(summary_path: Path, index: int, result: Dict[str, Any]) -> str:
+    provider = str(result.get("provider") or "provider")
+    model = str(result.get("model") or "model")
+    raw = f"example_{summary_path.stem}_{index}_{provider}_{model}"
+    return "".join(char if char.isalnum() else "_" for char in raw).strip("_")
+
+
+def _example_operation_summary(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    counts = {"succeeded": 0, "failed": 0, "pending": 0, "not_requested": 0}
+    for operation in operations:
+        operation_status = str(operation.get("status") or "unknown")
+        counts[operation_status] = counts.get(operation_status, 0) + 1
+    return {
+        "total": len(operations),
+        "failed": counts.get("failed", 0),
+        "succeeded": counts.get("succeeded", 0),
+        "pending": counts.get("pending", 0),
+        "not_requested": counts.get("not_requested", 0),
+        "ok": counts.get("failed", 0) == 0,
+    }
+
+
+def _example_project_object_jobs(limit: int, status: Optional[str]) -> List[Dict[str, Any]]:
+    if not EXAMPLE_RESULTS_DIR.exists():
+        return []
+
+    jobs: List[Dict[str, Any]] = []
+    normalized_filter = None if not status or status == "all" else status
+    summary_paths = sorted(
+        (path for path in EXAMPLE_RESULTS_DIR.glob("*-summary.json") if not path.name.startswith("latest-")),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+
+    for summary_path in summary_paths:
+        try:
+            summary_payload = json.loads(summary_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            logger.warning("Skipping unreadable example project summary: %s", summary_path)
+            continue
+
+        run_id = str(summary_payload.get("run_id") or summary_path.stem.removesuffix("-summary"))
+        completed_at = _parse_example_job_time(summary_payload.get("created_at"))
+        results = summary_payload.get("results") if isinstance(summary_payload.get("results"), list) else []
+        for index, result in enumerate(results):
+            if not isinstance(result, dict):
+                continue
+            job_status = _example_job_status(result.get("status"))
+            if normalized_filter and normalized_filter != job_status:
+                continue
+
+            duration_seconds = float(result.get("duration_seconds") or 0.0)
+            started_at = completed_at - timedelta(seconds=max(0.0, duration_seconds))
+            provider = result.get("runtime_provider") or result.get("provider")
+            model = result.get("runtime_model") or result.get("model")
+            project_operation = {
+                "id": "example_project_object_generation",
+                "label": "Project object generation",
+                "status": "succeeded" if job_status == "succeeded" else "failed",
+                "provider": provider,
+                "model": model,
+                "error": result.get("error"),
+                "details": {
+                    "version": result.get("version"),
+                    "namespace_count": len(result.get("namespaces") or []),
+                    "pipeline": result.get("pipeline"),
+                },
+            }
+            operation_statuses = [project_operation]
+            seen_operation_ids = {project_operation["id"]}
+            saved_operations = result.get("operation_statuses")
+            if isinstance(saved_operations, list):
+                for saved_operation in saved_operations:
+                    if not isinstance(saved_operation, dict):
+                        continue
+                    operation_id = str(saved_operation.get("id") or "")
+                    if operation_id and operation_id in seen_operation_ids:
+                        continue
+                    if operation_id:
+                        seen_operation_ids.add(operation_id)
+                    operation_statuses.append(saved_operation)
+            operation_summary = _example_operation_summary(operation_statuses)
+            jobs.append(
+                {
+                    "job_id": _example_job_id(summary_path, index, result),
+                    "message_id": f"example_{run_id}",
+                    "correlation_id": run_id,
+                    "action": "examples.project_object_generation",
+                    "sender": "examples",
+                    "recipient": "blueprint",
+                    "status": job_status,
+                    "server_owned": False,
+                    "created_at": _format_example_job_time(started_at),
+                    "updated_at": _format_example_job_time(completed_at),
+                    "started_at": _format_example_job_time(started_at),
+                    "completed_at": _format_example_job_time(completed_at),
+                    "payload": {
+                        "provider": result.get("provider"),
+                        "model": result.get("model"),
+                        "runtime_provider": result.get("runtime_provider"),
+                        "runtime_model": result.get("runtime_model"),
+                        "summary_path": str(summary_path.relative_to(ROOT_DIR)),
+                    },
+                    "result_summary": {
+                        "project_id": result.get("object_id"),
+                        "title": result.get("title") or f"{result.get('provider')}/{result.get('model')}",
+                        "is_valid": result.get("is_valid"),
+                        "llm_provider": provider,
+                        "model_name": model,
+                        "pipeline": result.get("pipeline"),
+                        "workflow": "examples",
+                        "has_product_image": result.get("has_product_image"),
+                        "image_output_requested": result.get("image_output_requested"),
+                        "image_output_enabled": result.get("image_output_enabled"),
+                        "image_output_configured": result.get("image_output_configured"),
+                        "image_output_status": result.get("image_output_status"),
+                        "image_output_failed": result.get("image_output_status") == "failed",
+                        "image_output_error": result.get("image_output_error"),
+                        "image_output_error_type": result.get("image_output_error_type"),
+                        "image_output_generated_count": result.get("image_output_generated_count"),
+                        "product_image_provider": result.get("image_output_provider"),
+                        "product_image_model": result.get("image_output_model"),
+                        "product_image_error": result.get("image_output_error"),
+                        "source_usage": {
+                            "workflow": "examples",
+                            "source_labels": ["Examples"],
+                        },
+                        "operation_statuses": operation_statuses,
+                        "operation_summary": operation_summary,
+                        "namespace_count": len(result.get("namespaces") or []),
+                        "duration_seconds": duration_seconds,
+                    },
+                    "source_usage": {
+                        "workflow": "examples",
+                        "source_labels": ["Examples"],
+                    },
+                    "error": result.get("error"),
+                    "error_debug": (
+                        {
+                            "error_type": result.get("error_type"),
+                            "error": result.get("error"),
+                            "traceback": result.get("traceback"),
+                        }
+                        if result.get("error") or result.get("traceback")
+                        else None
+                    ),
+                }
+            )
+
+            if len(jobs) >= limit:
+                return jobs
+
+    return jobs
+
+
+@app.get("/example-project-object-jobs")
+def list_example_project_object_jobs(
+    job_status: str | None = Query(None, alias="status"),
+    limit: int = Query(50, ge=1, le=200),
+):
+    """Lists project-object jobs created by scripts under examples/results."""
+    try:
+        return _example_project_object_jobs(limit=limit, status=job_status)
+    except Exception as exc:
+        logger.exception("Example project object job listing failed.")
+        raise HTTPException(status_code=500, detail=f"Example project jobs unavailable: {str(exc)}") from exc
+
+
 @app.websocket("/a2a/socket/{agent_id}")
 async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
     """WebSocket A2A transport. Send A2AMessage JSON; receive A2AEvent JSON."""
@@ -626,6 +1107,7 @@ def list_projects_endpoint():
         return [
             {
                 "project_id": p.project_id,
+                "chat_id": getattr(p, "chat_id", None),
                 "title": p.title,
                 "prompt": p.prompt,
                 "created_at": p.created_at
@@ -650,14 +1132,254 @@ def get_project_endpoint(project_id: str):
         
         return {
             "project_id": project.project_id,
+            "chat_id": getattr(project, "chat_id", None) or (ir.assembly_metadata or {}).get("chat_id"),
             "prompt": project.prompt,
             "created_at": project.created_at,
             "project_ir": ir.model_dump(),
+            "project_object": build_project_object(ir).model_dump(mode="json"),
             "mermaid_code": mermaid_code,
             "svg_schematic": svg_schematic
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project IR: {str(e)}")
+
+
+@app.get("/projects/{project_id}/video-prompt")
+def generate_project_video_prompt_endpoint(project_id: str):
+    """Builds an image-to-video prompt from Blueprint project namespaces."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        ir = HardwareIR(**project.hardware_ir)
+        ir.assembly_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
+        prompt_payload = generate_image_to_video_prompt_from_namespaces(ir)
+        return {
+            "project_id": project.project_id,
+            **prompt_payload,
+        }
+    except Exception as e:
+        logger.exception("Project video prompt generation failed for project_id=%s", project_id)
+        raise HTTPException(status_code=500, detail=f"Video prompt generation failed: {str(e)}") from e
+
+
+@app.post("/projects/{project_id}/iterate")
+def iterate_project_endpoint(project_id: str, request: IterateProjectRequest):
+    """Applies an iteration instruction to an existing project through blueprint_core."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        current_ir = HardwareIR(**project.hardware_ir)
+        iterator = ProjectIterator(provider_name=request.provider, model_name=request.model)
+        revised_ir = iterator.iterate_project(
+            current_ir,
+            request.instruction,
+            original_prompt=project.prompt,
+            project_id=project.project_id,
+            target_namespace=request.namespace,
+        )
+        revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
+        if request.save:
+            saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"))
+            if not saved:
+                raise HTTPException(status_code=404, detail="Project not found.")
+
+        return {
+            "project_id": project.project_id,
+            "prompt": project.prompt,
+            "created_at": project.created_at,
+            "saved": request.save,
+            "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
+            "project_ir": revised_ir.model_dump(mode="json"),
+            "project_object": build_project_object(revised_ir, target_namespace=request.namespace).model_dump(mode="json"),
+            "mermaid_code": generate_mermaid_chart(revised_ir),
+            "svg_schematic": generate_svg_schematic(revised_ir),
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except LLMProviderConfigError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(
+                code="llm_config_invalid",
+                message=str(e),
+                exc=e,
+                provider=request.provider,
+                model=request.model,
+                context={"project_id": project_id, "instruction": request.instruction},
+            ),
+        ) from e
+    except LLMProviderOutputError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=api_error_detail(
+                code="llm_output_invalid",
+                message=str(e),
+                exc=e,
+                provider=request.provider,
+                model=request.model,
+                context={"project_id": project_id, "instruction": request.instruction},
+            ),
+        ) from e
+    except Exception as e:
+        logger.exception("Project iteration failed for project_id=%s provider=%s model=%s", project_id, request.provider, request.model)
+        raise HTTPException(status_code=500, detail=f"Project iteration failed: {str(e)}") from e
+
+
+def _stored_video_metadata_value(video: Any, keys: List[str]) -> str:
+    metadata = getattr(video, "metadata", None)
+    if not isinstance(metadata, dict):
+        return ""
+    lowered = {str(key).lower(): value for key, value in metadata.items()}
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        lowered_value = lowered.get(key.lower())
+        if isinstance(lowered_value, str) and lowered_value.strip():
+            return lowered_value.strip()
+    return ""
+
+
+def _normalized_url_path(value: str) -> str:
+    if not value:
+        return ""
+    try:
+        return urllib.parse.unquote(urllib.parse.urlparse(value).path).strip("/")
+    except Exception:
+        return ""
+
+
+def _stored_video_matches_review_request(video: Any, *, video_url: str, video_key: Optional[str]) -> bool:
+    requested_key = str(video_key or "").strip()
+    stored_key = str(getattr(video, "key", "") or "").strip()
+    stored_s3_uri = str(getattr(video, "s3_uri", "") or "").strip()
+    if requested_key and requested_key in {stored_key, stored_s3_uri}:
+        return True
+
+    requested_url = str(video_url or "").strip()
+    candidates = {
+        str(getattr(video, "public_url", "") or "").strip(),
+        str(getattr(video, "signed_url", "") or "").strip(),
+        stored_s3_uri,
+    }
+    if requested_url and requested_url in candidates:
+        return True
+
+    requested_path = _normalized_url_path(requested_url)
+    return bool(stored_key and requested_path and requested_path.endswith(stored_key))
+
+
+def _resolve_stored_video_review_target(project_id: str, request: VideoSelfCorrectRequest) -> str:
+    try:
+        videos = list_project_videos(project_id)
+    except Exception as exc:
+        logger.exception("Video review target lookup failed for project_id=%s", project_id)
+        raise HTTPException(
+            status_code=400,
+            detail="Video review requires a saved project video.",
+        ) from exc
+
+    matched_video = next(
+        (
+            video
+            for video in videos
+            if _stored_video_matches_review_request(video, video_url=request.video_url, video_key=request.video_key)
+        ),
+        None,
+    )
+    if matched_video is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Video review only supports saved videos for this project.",
+        )
+
+    review_url = (
+        str(getattr(matched_video, "public_url", "") or "").strip()
+        or str(getattr(matched_video, "signed_url", "") or "").strip()
+        or request.video_url
+    )
+    if not review_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="The saved video needs an HTTP(S) URL before it can be reviewed.")
+    return review_url
+
+
+@app.post("/projects/{project_id}/video-self-correct")
+def video_self_correct_project_endpoint(project_id: str, request: VideoSelfCorrectRequest):
+    """Reviews a generated project video with a Fireworks native video model and applies a corrective iteration."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        current_ir = HardwareIR(**project.hardware_ir)
+        review_video_url = _resolve_stored_video_review_target(project.project_id, request)
+        agent = FireworksVideoSelfCorrectionAgent(
+            review_client=FireworksVideoReviewClient(model=request.review_model),
+            iterator=ProjectIterator(provider_name=request.provider, model_name=request.model),
+        )
+        revised_ir, review = agent.correct_project_from_video(
+            current_ir,
+            video_url=review_video_url,
+            original_prompt=project.prompt,
+            project_id=project.project_id,
+            target_namespace=request.namespace,
+        )
+        revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
+        if request.save:
+            saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"))
+            if not saved:
+                raise HTTPException(status_code=404, detail="Project not found.")
+
+        target_namespace = (revised_ir.assembly_metadata or {}).get("iteration_target_namespace") or request.namespace
+        return {
+            "project_id": project.project_id,
+            "prompt": project.prompt,
+            "created_at": project.created_at,
+            "saved": request.save,
+            "video_review": review.model_dump(mode="json"),
+            "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
+            "project_ir": revised_ir.model_dump(mode="json"),
+            "project_object": build_project_object(revised_ir, target_namespace=target_namespace).model_dump(mode="json"),
+            "mermaid_code": generate_mermaid_chart(revised_ir),
+            "svg_schematic": generate_svg_schematic(revised_ir),
+        }
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except LLMProviderConfigError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(
+                code="video_review_config_invalid",
+                message=str(e),
+                exc=e,
+                provider="fireworks",
+                model=request.review_model,
+                context={"project_id": project_id, "video_url": request.video_url, "video_key": request.video_key},
+            ),
+        ) from e
+    except LLMProviderOutputError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=api_error_detail(
+                code="video_review_output_invalid",
+                message=str(e),
+                exc=e,
+                provider="fireworks",
+                model=request.review_model,
+                context={"project_id": project_id, "video_url": request.video_url, "video_key": request.video_key},
+            ),
+        ) from e
+    except Exception as e:
+        logger.exception("Video self-correction failed for project_id=%s", project_id)
+        raise HTTPException(status_code=500, detail=f"Video self-correction failed: {str(e)}") from e
 
 @app.get("/components")
 def get_components_endpoint():

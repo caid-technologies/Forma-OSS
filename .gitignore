@@ -24,9 +24,12 @@ __pycache__/
 .env.test.local
 .env.production.local
 supabase/.temp/
+tmp/
 
 # Runtime logs
 .logs/
+.blueprint/
+.spacebase/
 *.log
 
 # IDE & OS files

@@ -8,6 +8,7 @@ FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
+BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/backend-dev.log}"
 
 backend_pid=""
 frontend_pid=""
@@ -81,7 +82,7 @@ if [ ! -x "$VENV_DIR/bin/python" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
 fi
 
-if [ ! -x "$VENV_DIR/bin/uvicorn" ]; then
+if ! "$VENV_DIR/bin/python" -m uvicorn --version >/dev/null 2>&1; then
   log "Installing backend dependencies"
   "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/backend/requirements.txt"
 fi
@@ -94,13 +95,17 @@ fi
 if is_port_open "$BACKEND_PORT"; then
   if curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api" >/dev/null 2>&1; then
     log "Backend already appears to be running at http://$BACKEND_HOST:$BACKEND_PORT"
+    log "Backend logs are controlled by the existing backend process."
   else
     log "Port $BACKEND_PORT is already in use, but Blueprint did not respond there."
     exit 1
   fi
 else
+  mkdir -p "$(dirname "$BACKEND_LOG_FILE")"
+  export BACKEND_LOG_FILE
   log "Starting backend at http://$BACKEND_HOST:$BACKEND_PORT"
-  "$VENV_DIR/bin/uvicorn" backend.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
+  log "Backend log file: $BACKEND_LOG_FILE"
+  "$VENV_DIR/bin/python" -m uvicorn backend.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
   backend_pid="$!"
   wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend"
 fi

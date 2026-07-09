@@ -1,0 +1,63 @@
+[system]
+name = "blueprint-edge"
+instance_id = "local-dev"
+environment = "development"
+
+[mcp]
+enabled = true
+protocol_version = "2024-11-05"
+server_name = "blueprint-edge"
+server_version = "0.1.0"
+
+[external_mcp.contra]
+enabled = true
+name = "contra-mcp"
+endpoint = "https://contra.com/mcp"
+metadata_url = "https://contra.com/.well-known/oauth-protected-resource/mcp"
+authorization_server = "https://contra.com/api"
+required_scope = "mcp:tools"
+token_env = "CONTRA_MCP_TOKEN"
+
+[spacebase]
+enabled = true
+root_dir = "../.spacebase"
+default_stream = "llama-cpp-local"
+events_file_name = "events.jsonl"
+agents_dir_name = "agents"
+
+[[spacebase.agents]]
+name = "planner"
+role = "plan next useful action from streamed model output"
+source = "contra-mcp"
+model = "contra.com/mcp"
+
+[[spacebase.agents]]
+name = "critic"
+role = "check streamed model output for failures and contradictions"
+source = "contra-mcp"
+model = "contra.com/mcp"
+
+[sources.manual]
+enabled = true
+
+[sources.stdin]
+enabled = true
+name = "stdin"
+
+[sources.linux]
+enabled = true
+name = "local-linux"
+include_proc = true
+include_os_release = true
+
+[sources.ollama]
+enabled = true
+name = "local-ollama"
+base_url = "http://127.0.0.1:11434"
+default_model = "qwen3:0.6b"
+
+[sources.llama_cpp]
+enabled = true
+name = "local-llama-cpp"
+base_url = "http://127.0.0.1:8080"
+default_model = "local-model"

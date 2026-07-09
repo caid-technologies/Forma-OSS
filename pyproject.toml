@@ -1,0 +1,67 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "caid-blueprint-core"
+dynamic = ["version"]
+description = "Reusable generation, validation, provider, and project-object core for Blueprint OSS."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "CAID TECHNOLOGIES, INC.", email = "team@caid-technologies.com" },
+]
+maintainers = [
+    { name = "CAID TECHNOLOGIES, INC.", email = "team@caid-technologies.com" },
+]
+keywords = ["hardware", "eda", "llm", "agents", "pydantic"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+    "Typing :: Typed",
+]
+dependencies = [
+    "pydantic>=2.12.0",
+    "python-dotenv>=1.0.1",
+    "sqlalchemy==2.0.31",
+]
+
+[project.urls]
+Homepage = "https://github.com/caid-technologies/Blueprint-OSS"
+Repository = "https://github.com/caid-technologies/Blueprint-OSS"
+Documentation = "https://github.com/caid-technologies/Blueprint-OSS#readme"
+
+[project.optional-dependencies]
+gemini = ["google-genai>=0.1.0"]
+huggingface = ["huggingface-hub>=0.34.0"]
+observability = ["langfuse>=4.0.0"]
+supabase = ["supabase==2.31.0"]
+tavily = ["tavily-python>=0.5.0"]
+terminal = ["Pillow>=10.0.0"]
+all = [
+    "google-genai>=0.1.0",
+    "huggingface-hub>=0.34.0",
+    "langfuse>=4.0.0",
+    "Pillow>=10.0.0",
+    "supabase==2.31.0",
+    "tavily-python>=0.5.0",
+]
+dev = [
+    "build>=1.2.0",
+]
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["blueprint_core", "blueprint_core.*"]
+
+[tool.setuptools.package-data]
+blueprint_core = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "blueprint_core._version.__version__" }

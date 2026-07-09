@@ -10,7 +10,7 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 
-from backend.runtime_config import blueprint_dev_mode_enabled
+from blueprint_core.runtime import blueprint_dev_mode_enabled
 
 load_dotenv()
 

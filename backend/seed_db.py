@@ -4,8 +4,8 @@ import os
 # Add parent directory to path so imports work when running this file directly
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from backend.database import init_db, insert_component_template_if_missing
-from backend.models import PinDefinition, ComponentTemplate
+from blueprint_core.database import init_db, insert_component_template_if_missing
+from blueprint_core.models import PinDefinition, ComponentTemplate
 import json
 
 # Define our robust set of seed electronic components

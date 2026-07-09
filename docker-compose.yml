@@ -9,6 +9,9 @@ services:
     restart: unless-stopped
     environment:
       BLUEPRINT_DEV_MODE: ${BLUEPRINT_DEV_MODE:-}
+      BLUEPRINT_DEBUG: ${BLUEPRINT_DEBUG:-}
+      LOG_LEVEL: ${LOG_LEVEL:-}
+      BACKEND_LOG_FILE: ${BACKEND_LOG_FILE:-}
       DATABASE_BACKEND: ${DATABASE_BACKEND:-}
       SQLITE_DATABASE_URL: ${SQLITE_DATABASE_URL:-sqlite:////data/blueprint.db}
       SUPABASE_URL: ${SUPABASE_URL:-}
@@ -84,10 +87,14 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        NEXT_PUBLIC_BLUEPRINT_DEBUG: ${NEXT_PUBLIC_BLUEPRINT_DEBUG:-${BLUEPRINT_DEBUG:-false}}
+        NEXT_PUBLIC_BLUEPRINT_DEV_MODE: ${NEXT_PUBLIC_BLUEPRINT_DEV_MODE:-${BLUEPRINT_DEV_MODE:-false}}
     image: blueprint-frontend:local
     restart: unless-stopped
     environment:
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      NEXT_PUBLIC_BLUEPRINT_DEBUG: ${NEXT_PUBLIC_BLUEPRINT_DEBUG:-${BLUEPRINT_DEBUG:-false}}
+      NEXT_PUBLIC_BLUEPRINT_DEV_MODE: ${NEXT_PUBLIC_BLUEPRINT_DEV_MODE:-${BLUEPRINT_DEV_MODE:-false}}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:

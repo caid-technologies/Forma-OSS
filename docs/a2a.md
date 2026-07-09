@@ -44,7 +44,7 @@ curl -X POST http://localhost:8000/api/a2a/messages \
   -d '{"sender":"agent_alpha","recipient":"blueprint","action":"blueprint.generate_project","payload":{"prompt":"ESP32 soil moisture monitor with OLED","generate_image":false}}'
 ```
 
-Set `payload.generate_image` to `true` only for jobs that should call the configured image model.
+Set `payload.generate_image` to `true` only for jobs that should call the configured image model. If the image model fails, the hardware job can still succeed; persisted job metadata includes `result_summary.operation_statuses`, `image_output_status=failed`, `image_output_error`, and `image_output_error_type`.
 
 3. Long-poll for queued events:
 ```bash

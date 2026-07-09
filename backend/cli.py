@@ -8,8 +8,11 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
+from blueprint_core.selectors import split_llm_selector
+
 
 DEFAULT_API_URL = "http://127.0.0.1:8000"
+DEFAULT_GENERATE_TIMEOUT_SECONDS = 1200
 
 
 def _api_url(value: str) -> str:
@@ -31,7 +34,7 @@ def _fetch_json(url: str) -> tuple[int, Any]:
         return exc.code, payload
 
 
-def _post_json(url: str, payload: dict[str, Any], timeout: int = 180) -> tuple[int, Any]:
+def _post_json(url: str, payload: dict[str, Any], timeout: int = DEFAULT_GENERATE_TIMEOUT_SECONDS) -> tuple[int, Any]:
     raw = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         url,
@@ -50,6 +53,10 @@ def _post_json(url: str, payload: dict[str, Any], timeout: int = 180) -> tuple[i
         except json.JSONDecodeError:
             payload = body
         return exc.code, payload
+
+
+def _parse_llm_selector(value: str | None) -> tuple[str | None, str | None]:
+    return split_llm_selector(value)
 
 
 def _print_json(value: Any) -> None:
@@ -182,6 +189,13 @@ def cmd_jobs(args: argparse.Namespace) -> int:
 
 def cmd_generate(args: argparse.Namespace) -> int:
     api_url = _api_url(args.api_url)
+    try:
+        llm_provider, llm_model = _parse_llm_selector(args.llm)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    provider = args.provider or llm_provider
+    model = args.model or llm_model
     image_data = args.image_data
     if args.image_file:
         import base64
@@ -195,8 +209,11 @@ def cmd_generate(args: argparse.Namespace) -> int:
     payload = {
         "prompt": args.prompt,
         "workflow": args.workflow,
+        "external_source_provider": args.external_source_provider,
         "image_data": image_data,
         "generate_image": args.generate_image,
+        "provider": provider,
+        "model": model,
     }
     try:
         status, response = _post_json(f"{api_url}/api/generate", payload, timeout=args.timeout)
@@ -274,7 +291,15 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--image-data", help="Optional data URL or base64 image string.")
     generate.add_argument("--image-file", help="Optional local reference image file.")
     generate.add_argument("--generate-image", action="store_true", help="Request a product concept image.")
-    generate.add_argument("--timeout", default=180, type=int, help="HTTP timeout in seconds.")
+    generate.add_argument(
+        "--external-source-provider",
+        choices=["auto", "tavily", "firecrawl"],
+        help="Provider for the web_research workflow.",
+    )
+    generate.add_argument("--llm", help="Runtime LLM selector in provider/model form, for example openai/gpt-5.5.")
+    generate.add_argument("--provider", help="Runtime LLM provider override, for example openai or runpod.")
+    generate.add_argument("--model", help="Runtime LLM model override.")
+    generate.add_argument("--timeout", default=DEFAULT_GENERATE_TIMEOUT_SECONDS, type=int, help="HTTP timeout in seconds.")
     generate.add_argument("--output", help="Write response JSON to a file.")
     generate.set_defaults(func=cmd_generate)
 

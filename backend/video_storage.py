@@ -9,7 +9,7 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 
-from backend.runtime_config import blueprint_dev_mode_enabled
+from blueprint_core.runtime import blueprint_dev_mode_enabled
 
 load_dotenv()
 
@@ -218,6 +218,14 @@ def _download_video(video_url: str) -> tuple[bytes, str]:
     return content, content_type
 
 
+def _metadata_text(value: Optional[str], max_length: int = 1800) -> Optional[str]:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    normalized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]+", " ", normalized)
+    return normalized[:max_length]
+
+
 def build_video_object_key(project_id: str, request_id: str, index: int = 0) -> str:
     if not project_id or not str(project_id).strip():
         raise ValueError("Video upload requires projectId.")
@@ -326,6 +334,10 @@ def upload_generated_video_to_s3(
     project_id: str,
     request_id: str,
     model: str,
+    prompt: Optional[str] = None,
+    mode: Optional[str] = None,
+    aspect_ratio: Optional[str] = None,
+    source_url: Optional[str] = None,
     index: int = 0,
 ) -> StoredVideo:
     import boto3
@@ -338,6 +350,18 @@ def upload_generated_video_to_s3(
         "model": str(model),
         "source": "gmi-cloud",
     }
+    prompt_value = _metadata_text(prompt)
+    mode_value = _metadata_text(mode, 80)
+    aspect_ratio_value = _metadata_text(aspect_ratio, 40)
+    source_url_value = _metadata_text(source_url, 500)
+    if prompt_value:
+        metadata["prompt"] = prompt_value
+    if mode_value:
+        metadata["mode"] = mode_value
+    if aspect_ratio_value:
+        metadata["aspectRatio"] = aspect_ratio_value
+    if source_url_value and source_url_value.startswith(("http://", "https://", "s3://")):
+        metadata["sourceUrl"] = source_url_value
 
     if config["write_method"] == "supabase-client":
         existing_video = _existing_or_legacy_supabase_video(
@@ -403,6 +427,10 @@ def upload_generated_videos_to_s3(
     project_id: str,
     request_id: str,
     model: str,
+    prompt: Optional[str] = None,
+    mode: Optional[str] = None,
+    aspect_ratio: Optional[str] = None,
+    source_url: Optional[str] = None,
 ) -> List[StoredVideo]:
     stored: List[StoredVideo] = []
     for index, video_url in enumerate(video_urls):
@@ -413,6 +441,10 @@ def upload_generated_videos_to_s3(
                     project_id=project_id,
                     request_id=request_id,
                     model=model,
+                    prompt=prompt,
+                    mode=mode,
+                    aspect_ratio=aspect_ratio,
+                    source_url=source_url,
                     index=index,
                 )
             )
@@ -436,6 +468,22 @@ def _metadata_from_storage_item(item: Dict[str, Any]) -> tuple[str, int]:
     except (TypeError, ValueError):
         size_bytes = 0
     return str(content_type), size_bytes
+
+
+def _response_metadata_from_storage_item(item: Dict[str, Any]) -> Dict[str, str]:
+    metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
+    flattened: Dict[str, str] = {}
+    for key, value in metadata.items():
+        if isinstance(value, (dict, list, tuple)):
+            continue
+        flattened[str(key)] = str(value)
+    nested = metadata.get("metadata")
+    if isinstance(nested, dict):
+        for key, value in nested.items():
+            if isinstance(value, (dict, list, tuple)):
+                continue
+            flattened[str(key)] = str(value)
+    return flattened
 
 
 def _list_supabase_project_videos(config: Dict[str, Any], project_id: str) -> List[StoredVideo]:
@@ -474,14 +522,13 @@ def _list_supabase_project_videos(config: Dict[str, Any], project_id: str) -> Li
             seen_keys.add(key)
             seen_names.add(name)
             content_type, size_bytes = _metadata_from_storage_item(item)
-            metadata = item.get("metadata") if isinstance(item.get("metadata"), dict) else {}
             videos.append(
                 _stored_video_from_key(
                     bucket=config["bucket"],
                     key=key,
                     content_type=content_type,
                     size_bytes=size_bytes,
-                    metadata={str(k): str(v) for k, v in metadata.items()},
+                    metadata=_response_metadata_from_storage_item(item),
                 )
             )
 
@@ -504,12 +551,23 @@ def _list_s3_project_videos(config: Dict[str, Any], project_id: str) -> List[Sto
         key = item.get("Key")
         if not isinstance(key, str) or not key.lower().endswith((".mp4", ".mov", ".webm", ".m4v")):
             continue
+        metadata: Dict[str, str] = {}
+        content_type = DEFAULT_VIDEO_CONTENT_TYPE
+        try:
+            head = client.head_object(Bucket=config["bucket"], Key=key)
+            metadata = {str(k): str(v) for k, v in (head.get("Metadata") or {}).items()}
+            head_content_type = head.get("ContentType")
+            if isinstance(head_content_type, str) and head_content_type.startswith("video/"):
+                content_type = head_content_type
+        except Exception:
+            logger.exception("Video metadata lookup failed for bucket=%s key=%s", config["bucket"], key)
         videos.append(
             _stored_video_from_key(
                 bucket=config["bucket"],
                 key=key,
-                content_type=DEFAULT_VIDEO_CONTENT_TYPE,
+                content_type=content_type,
                 size_bytes=int(item.get("Size") or 0),
+                metadata=metadata,
             )
         )
     return videos

@@ -15,12 +15,32 @@ source .venv/bin/activate
 uvicorn backend.main:app --reload --port 8000
 ```
 
+The combined dev launcher starts the backend and frontend together and writes backend/uvicorn logs to `.logs/backend-dev.log` for the local LOGS tab:
+
+```bash
+./scripts/dev.sh
+```
+
+If you run uvicorn directly and want the frontend LOGS tab to show backend output, set `BACKEND_LOG_FILE=.logs/backend-dev.log`.
+
+Tests:
+```bash
+./scripts/test.sh
+```
+
 Frontend:
 ```bash
 cd frontend
 npm run dev
 npm run lint
 npm run build
+```
+
+Rust integration:
+```bash
+./scripts/test-rust.sh
+cd rust
+cargo run -p blueprint-edge -- linux-snapshot
 ```
 
 ## Adding a new agent

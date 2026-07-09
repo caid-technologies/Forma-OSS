@@ -12,6 +12,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /data \
     && chown -R appuser:appuser /data /app
@@ -21,6 +25,7 @@ RUN pip install --upgrade pip \
     && pip install -r backend/requirements.txt
 
 COPY backend ./backend
+COPY blueprint_core ./blueprint_core
 RUN chown -R appuser:appuser /app
 
 USER appuser

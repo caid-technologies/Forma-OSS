@@ -61,15 +61,72 @@ button:disabled {
 }
 
 .react-flow__handle {
-  width: 8px;
-  height: 8px;
-  background-color: var(--handle-color, #ffffff) !important;
+  width: 7px;
+  height: 7px;
+  background-color: var(--handle-color, #111216) !important;
   border: 1.5px solid var(--handle-border, #22d3ee) !important;
 }
 
 .schematic-node .react-flow__handle {
   opacity: 1;
-  box-shadow: 0 0 0 2px #ffffff;
+  box-shadow: 0 0 0 2px #0f1014;
+}
+
+.schematic-flow .react-flow__pane {
+  cursor: grab;
+}
+
+.schematic-flow .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.schematic-card {
+  width: 240px;
+  min-height: 104px;
+  border: 1px solid color-mix(in srgb, var(--schematic-accent, #38bdf8) 48%, #2f333c);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    #15161b;
+  padding: 10px;
+  color: #f8fafc;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+}
+
+.schematic-controller-card {
+  width: 300px;
+  min-height: 292px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--schematic-soft, #082f49) 46%, transparent), transparent 58%),
+    #15161b;
+}
+
+.schematic-pin-row {
+  position: relative;
+  min-height: 17px;
+  border: 1px solid #2c3440;
+  background: #0f1014;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.schematic-pin-connected {
+  border-color: color-mix(in srgb, var(--schematic-accent, #38bdf8) 62%, #2c3440);
+  background: color-mix(in srgb, var(--schematic-soft, #082f49) 44%, #0f1014);
+}
+
+.schematic-pin-row .react-flow__handle {
+  width: 6px;
+  height: 6px;
+}
+
+.schematic-flow .react-flow__edge-path {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.schematic-flow .react-flow__minimap-mask {
+  fill: rgba(17, 18, 22, 0.64);
 }
 
 .react-flow__edge-path {
@@ -118,10 +175,10 @@ button:disabled {
 }
 
 .react-flow__controls-button {
-  background: #ffffff !important;
-  border-bottom-color: #d9dce3 !important;
-  color: #202127 !important;
-  fill: #202127 !important;
+  background: #15161b !important;
+  border-bottom-color: #2f333c !important;
+  color: #cbd5e1 !important;
+  fill: #cbd5e1 !important;
 }
 
 .react-flow__controls-button:hover {

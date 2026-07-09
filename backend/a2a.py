@@ -11,32 +11,34 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from backend.agents.workflows import (
+from blueprint_core.agents.workflows import (
     generate_project_with_workflow,
     get_workflow_debug_config,
     list_workflows,
     normalize_workflow_id,
 )
-from backend.agents.orchestrator import HardwarePipelineOrchestrator
-from backend.database import update_generated_project_hardware_ir
-from backend.image_providers import build_image_provider, build_project_visual_spec, get_image_output_debug_config
+from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.database import update_generated_project_hardware_ir
+from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from backend.job_store import JOB_STORE
-from backend.models import ComponentInstance, ConnectionNet
-from backend.observability import (
+from blueprint_core.llm import get_llm_runtime_debug_config
+from blueprint_core.models import ComponentInstance, ConnectionNet
+from blueprint_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
     serialize_for_langfuse,
     start_observation,
     update_observation,
 )
-from backend.runtime_config import (
-    ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
+from blueprint_core.pipeline import emit_agent_pipeline_event, observe_agent_pipeline
+from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
+    generation_unavailable_message,
 )
 from backend.storage import get_image_storage_config, upload_image_to_supabase_s3
-from backend.utils import generate_mermaid_chart, generate_svg_schematic
-from backend.validation import get_generation_input_issue, validate_circuit
+from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
+from blueprint_core.validation import validate_circuit
 
 
 logger = logging.getLogger(__name__)
@@ -163,6 +165,11 @@ A2A_HUB = A2AHub()
 
 
 def get_a2a_capabilities() -> Dict[str, Any]:
+    try:
+        llm_runtime = get_llm_runtime_debug_config()
+    except Exception as exc:
+        llm_runtime = {"error": str(exc)}
+
     return {
         "agent_id": BLUEPRINT_AGENT_ID,
         "name": "Blueprint OSS Hardware Compiler",
@@ -194,6 +201,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
             },
         },
         "job_metadata": JOB_STORE.get_config(),
+        "llm_runtime": llm_runtime,
         "image_output": get_image_output_debug_config(),
         "image_storage": get_image_storage_config(),
         "observability": get_langfuse_debug_config(),
@@ -263,10 +271,73 @@ def _attach_stored_image_metadata(
     }
 
 
+def _operation_summary(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    counts = {"succeeded": 0, "failed": 0, "pending": 0, "not_requested": 0}
+    for operation in operations:
+        status = str(operation.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "total": len(operations),
+        "failed": counts.get("failed", 0),
+        "succeeded": counts.get("succeeded", 0),
+        "pending": counts.get("pending", 0),
+        "not_requested": counts.get("not_requested", 0),
+        "ok": counts.get("failed", 0) == 0,
+    }
+
+
+def _set_operation_status(
+    ir: Any,
+    operation_id: str,
+    *,
+    label: str,
+    status: str,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    requested: Optional[bool] = None,
+    enabled: Optional[bool] = None,
+    configured: Optional[bool] = None,
+    reason: Optional[str] = None,
+    error: Optional[str] = None,
+    error_type: Optional[str] = None,
+    details: Optional[Dict[str, Any]] = None,
+) -> None:
+    metadata = dict(ir.assembly_metadata or {})
+    operations = [
+        item for item in metadata.get("operation_statuses", [])
+        if isinstance(item, dict) and item.get("id") != operation_id
+    ]
+    record: Dict[str, Any] = {
+        "id": operation_id,
+        "label": label,
+        "status": status,
+    }
+    optional_values = {
+        "provider": provider,
+        "model": model,
+        "requested": requested,
+        "enabled": enabled,
+        "configured": configured,
+        "reason": reason,
+        "error": error,
+        "error_type": error_type,
+        "details": details,
+    }
+    for key, value in optional_values.items():
+        if value is not None:
+            record[key] = value
+
+    operations.append(record)
+    metadata["operation_statuses"] = operations
+    metadata["operation_summary"] = _operation_summary(operations)
+    ir.assembly_metadata = metadata
+
+
 def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = False) -> None:
     image_provider = build_image_provider(force_enabled=generate_image)
     image_config = image_provider.get_debug_config()
     visual_spec = build_project_visual_spec(prompt_text, ir)
+    image_status = "pending" if generate_image else "not_requested"
     metadata = {
         **(ir.assembly_metadata or {}),
         "image_output_requested": generate_image,
@@ -274,27 +345,132 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         "image_output_provider": image_config.get("provider"),
         "image_output_model": image_config.get("model_name"),
         "image_output_configured": image_config.get("configured", False),
+        "image_output_status": image_status,
+        "image_output_reason": image_config.get("reason"),
         "product_visual_spec": visual_spec,
     }
     ir.assembly_metadata = metadata
+    _set_operation_status(
+        ir,
+        "image_generation",
+        label="Image generation",
+        status=image_status,
+        provider=image_config.get("provider"),
+        model=image_config.get("model_name"),
+        requested=generate_image,
+        enabled=image_config.get("enabled", False),
+        configured=image_config.get("configured", False),
+        reason=image_config.get("reason"),
+    )
 
     if not generate_image:
+        return
+
+    if not image_config.get("configured", False):
+        error_message = image_config.get("reason") or "Image output was requested, but the image provider is not configured."
+        logger.warning(
+            "Image generation operation failed before request: provider=%s model=%s reason=%s",
+            image_config.get("provider"),
+            image_config.get("model_name"),
+            error_message,
+        )
+        ir.assembly_metadata = {
+            **(ir.assembly_metadata or {}),
+            "image_output_status": "failed",
+            "image_output_failed": True,
+            "image_output_error": str(error_message)[:500],
+            "image_output_error_type": "configuration",
+            "product_image_error": str(error_message)[:500],
+        }
+        _set_operation_status(
+            ir,
+            "image_generation",
+            label="Image generation",
+            status="failed",
+            provider=image_config.get("provider"),
+            model=image_config.get("model_name"),
+            requested=True,
+            enabled=image_config.get("enabled", False),
+            configured=False,
+            reason=image_config.get("reason"),
+            error=str(error_message)[:500],
+            error_type="configuration",
+        )
         return
 
     try:
         generated_images = image_provider.generate_project_image_sequence(prompt_text, ir)
     except Exception as exc:
-        logger.warning("Product image generation failed: %s", exc)
+        logger.warning(
+            "Image generation operation failed: provider=%s model=%s error_type=%s error=%s",
+            image_config.get("provider"),
+            image_config.get("model_name"),
+            exc.__class__.__name__,
+            exc,
+        )
+        error_message = str(exc)[:500]
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
-            "product_image_error": str(exc)[:500],
+            "image_output_status": "failed",
+            "image_output_failed": True,
+            "image_output_error": error_message,
+            "image_output_error_type": exc.__class__.__name__,
+            "product_image_error": error_message,
         }
+        _set_operation_status(
+            ir,
+            "image_generation",
+            label="Image generation",
+            status="failed",
+            provider=image_config.get("provider"),
+            model=image_config.get("model_name"),
+            requested=True,
+            enabled=image_config.get("enabled", False),
+            configured=image_config.get("configured", False),
+            error=error_message,
+            error_type=exc.__class__.__name__,
+        )
         return
 
     if not generated_images:
+        error_message = "Image output was requested, but the image provider returned no images."
+        logger.warning(
+            "Image generation operation failed: provider=%s model=%s error_type=empty_response error=%s",
+            image_config.get("provider"),
+            image_config.get("model_name"),
+            error_message,
+        )
+        ir.assembly_metadata = {
+            **(ir.assembly_metadata or {}),
+            "image_output_status": "failed",
+            "image_output_failed": True,
+            "image_output_error": error_message,
+            "image_output_error_type": "empty_response",
+            "product_image_error": error_message,
+            "product_visual_sequence_count": 0,
+        }
+        _set_operation_status(
+            ir,
+            "image_generation",
+            label="Image generation",
+            status="failed",
+            provider=image_config.get("provider"),
+            model=image_config.get("model_name"),
+            requested=True,
+            enabled=image_config.get("enabled", False),
+            configured=image_config.get("configured", False),
+            error=error_message,
+            error_type="empty_response",
+        )
         return
 
     product_metadata: Dict[str, Any] = {
+        "image_output_status": "succeeded",
+        "image_output_failed": False,
+        "image_output_error": None,
+        "image_output_error_type": None,
+        "image_output_generated_count": len(generated_images),
+        "product_image_error": None,
         "product_visual_sequence_count": len(generated_images),
     }
     product_visual_sequence: List[Dict[str, Any]] = []
@@ -367,6 +543,35 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         **(ir.assembly_metadata or {}),
         **product_metadata,
     }
+    storage_errors = [
+        record.get("storage_error")
+        for record in product_visual_sequence
+        if isinstance(record, dict) and record.get("storage_error")
+    ]
+    _set_operation_status(
+        ir,
+        "image_generation",
+        label="Image generation",
+        status="succeeded",
+        provider=image_config.get("provider"),
+        model=image_config.get("model_name"),
+        requested=True,
+        enabled=image_config.get("enabled", False),
+        configured=image_config.get("configured", False),
+        details={"generated_count": len(generated_images)},
+    )
+    _set_operation_status(
+        ir,
+        "image_storage",
+        label="Image storage",
+        status="failed" if storage_errors else "succeeded",
+        requested=True,
+        enabled=True,
+        configured=True,
+        error=str(storage_errors[0])[:500] if storage_errors else None,
+        error_type="storage_upload" if storage_errors else None,
+        details={"stored_count": len([record for record in product_visual_sequence if isinstance(record, dict) and record.get("url")])},
+    )
 
 
 def _persist_updated_project_ir(ir: Any) -> None:
@@ -386,13 +591,16 @@ def build_generation_response(
     image_data: Optional[str] = None,
     generate_image: bool = False,
     workflow: str = "default",
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    external_source_provider: Optional[str] = None,
+    chat_id: Optional[str] = None,
+    source_project_id: Optional[str] = None,
+    frontend_job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
     has_prompt = bool(prompt_text)
-    input_issue = get_generation_input_issue(prompt_text, has_image=bool(image_data))
-    if input_issue:
-        raise ValueError(input_issue)
     if not has_prompt and not image_data:
         raise ValueError("Provide a prompt or reference image.")
     if not has_prompt:
@@ -405,15 +613,28 @@ def build_generation_response(
             raise ValueError("Reference image could not be decoded.") from exc
         image_bytes, image_mime_type = None, None
 
-    llm_config = get_workflow_debug_config(workflow_id)
+    llm_config = get_workflow_debug_config(
+        workflow_id,
+        provider_name=provider,
+        model_name=model,
+        external_source_provider=external_source_provider,
+    )
     if deployment_runtime_config(llm_config)["alpha_generation_gate_active"]:
-        raise AlphaGenerationUnavailableError(ALPHA_GENERATION_UNAVAILABLE_MESSAGE)
+        raise AlphaGenerationUnavailableError(generation_unavailable_message(llm_config))
 
     trace_metadata = {
         "workflow": workflow_id,
+        "chat_id": chat_id,
+        "source_project_id": source_project_id,
+        "requested_provider": provider,
+        "requested_model": model,
+        "runtime_provider": (llm_config.get("runtime") or {}).get("runtime_provider"),
+        "runtime_model": (llm_config.get("runtime") or {}).get("runtime_model"),
         "has_reference_image": bool(image_data),
         "image_mime_type": image_mime_type,
         "generate_image": generate_image,
+        "frontend_job_id": frontend_job_id,
+        "external_source_provider": external_source_provider,
     }
     with start_observation(
         name="blueprint.generate_project",
@@ -421,6 +642,9 @@ def build_generation_response(
         input={
             "prompt": prompt_text,
             "workflow": workflow_id,
+            "provider": provider,
+            "model": model,
+            "external_source_provider": external_source_provider,
             "has_reference_image": bool(image_data),
             "generate_image": generate_image,
         },
@@ -436,10 +660,23 @@ def build_generation_response(
                 prompt_text,
                 image_bytes=image_bytes,
                 image_mime_type=image_mime_type,
+                provider_name=provider,
+                model_name=model,
+                external_source_provider=external_source_provider,
+                generation_metadata={
+                    "chat_id": chat_id,
+                    "source_project_id": source_project_id,
+                    "frontend_job_id": frontend_job_id,
+                    "external_source_provider": external_source_provider,
+                },
             )
             ir.assembly_metadata = {
                 **(ir.assembly_metadata or {}),
+                "chat_id": chat_id or (ir.assembly_metadata or {}).get("chat_id"),
+                "source_project_id": source_project_id or (ir.assembly_metadata or {}).get("source_project_id"),
+                "frontend_job_id": frontend_job_id or (ir.assembly_metadata or {}).get("frontend_job_id"),
                 "workflow": workflow_id,
+                "external_source_provider": external_source_provider or (ir.assembly_metadata or {}).get("external_source_provider"),
             }
 
             if image_data:
@@ -463,10 +700,22 @@ def build_generation_response(
                     **reference_metadata,
                 }
 
+            if generate_image:
+                emit_agent_pipeline_event(workflow_id, "image_generation", "started")
             _attach_product_image(prompt_text, ir, generate_image=generate_image)
+            if generate_image:
+                image_status = (ir.assembly_metadata or {}).get("image_output_status")
+                emit_agent_pipeline_event(
+                    workflow_id,
+                    "image_generation",
+                    "failed" if image_status == "failed" else "completed",
+                    details={"image_output_status": image_status},
+                )
             _persist_updated_project_ir(ir)
 
             response = {
+                "project_id": (ir.assembly_metadata or {}).get("project_id"),
+                "chat_id": (ir.assembly_metadata or {}).get("chat_id"),
                 "project_ir": ir.model_dump(),
                 "mermaid_code": generate_mermaid_chart(ir),
                 "svg_schematic": generate_svg_schematic(ir),
@@ -475,6 +724,7 @@ def build_generation_response(
                 root_observation,
                 output={
                     "project_id": (ir.assembly_metadata or {}).get("project_id"),
+                    "chat_id": (ir.assembly_metadata or {}).get("chat_id"),
                     "title": ir.overview.title if ir.overview else None,
                     "is_valid": ir.is_valid,
                     "component_count": len(ir.components),
@@ -484,8 +734,11 @@ def build_generation_response(
                 metadata={
                     **trace_metadata,
                     "project_id": (ir.assembly_metadata or {}).get("project_id"),
+                    "chat_id": (ir.assembly_metadata or {}).get("chat_id"),
                     "llm_provider": (ir.assembly_metadata or {}).get("llm_provider"),
                     "model_name": (ir.assembly_metadata or {}).get("model_name"),
+                    "runtime_provider": (ir.assembly_metadata or {}).get("runtime_provider"),
+                    "runtime_model": (ir.assembly_metadata or {}).get("runtime_model"),
                     "response_summary": serialize_for_langfuse(
                         {
                             "has_mermaid": bool(response["mermaid_code"]),
@@ -507,10 +760,19 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             payload.get("image_data"),
             _payload_bool(payload.get("generate_image"), default=False),
             payload.get("workflow", "default"),
+            payload.get("provider"),
+            payload.get("model"),
+            payload.get("external_source_provider"),
+            payload.get("chat_id"),
+            payload.get("source_project_id"),
+            payload.get("client_job_id") or payload.get("frontend_job_id"),
         )
 
     if normalized == "debug_config":
-        orchestrator = HardwarePipelineOrchestrator()
+        orchestrator = HardwarePipelineOrchestrator(
+            provider_name=payload.get("provider"),
+            model_name=payload.get("model"),
+        )
         return {
             **orchestrator.get_debug_config(),
             "image_output": get_image_output_debug_config(),
@@ -591,7 +853,8 @@ async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
 async def _process_server_message(message: A2AMessage) -> None:
     JOB_STORE.mark_running(message.job_id)
     try:
-        result = await call_blueprint_action(message.action, message.payload)
+        with observe_agent_pipeline(lambda event: JOB_STORE.append_progress_event(message.job_id, event.as_dict())):
+            result = await call_blueprint_action(message.action, message.payload)
         JOB_STORE.mark_succeeded(message.job_id, result)
         event = A2AEvent(
             job_id=message.job_id,
@@ -759,6 +1022,11 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     },
                     "image_data": {"type": "string", "description": "Optional data URL or base64 image"},
                     "generate_image": {"type": "boolean", "default": False},
+                    "external_source_provider": {
+                        "type": "string",
+                        "enum": ["auto", "tavily", "firecrawl"],
+                        "description": "Optional provider for web_research workflow.",
+                    },
                 },
                 "required": ["prompt"],
             },

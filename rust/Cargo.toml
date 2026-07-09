@@ -1,0 +1,10 @@
+[workspace]
+resolver = "2"
+members = [
+    "blueprint-edge",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/blueprint-oss/blueprint-oss"

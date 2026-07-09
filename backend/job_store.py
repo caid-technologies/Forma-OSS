@@ -1,23 +1,26 @@
 import json
+import logging
 import os
 import sqlite3
 import threading
 from contextlib import closing
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-from backend.job_source_usage import infer_source_usage
-from backend.runtime_config import blueprint_dev_mode_enabled
+from blueprint_core.job_source_usage import infer_source_usage
+from blueprint_core.runtime import blueprint_dev_mode_enabled
 
 load_dotenv()
 
 DEFAULT_JOB_DB_PATH = "./blueprint_jobs.db"
+OPTIONAL_SUPABASE_COLUMNS = {"source_usage_json", "error_debug_json", "progress_events_json"}
+logger = logging.getLogger(__name__)
 
 
 def _utc_now() -> str:
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def _job_db_path() -> str:
@@ -62,6 +65,47 @@ def _redact_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return redacted
 
 
+def _operation_summary(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
+    failed = sum(1 for operation in operations if operation.get("status") == "failed")
+    succeeded = sum(1 for operation in operations if operation.get("status") == "succeeded")
+    pending = sum(1 for operation in operations if operation.get("status") == "pending")
+    not_requested = sum(1 for operation in operations if operation.get("status") == "not_requested")
+    return {
+        "total": len(operations),
+        "failed": failed,
+        "succeeded": succeeded,
+        "pending": pending,
+        "not_requested": not_requested,
+        "ok": failed == 0,
+    }
+
+
+def _result_operation_statuses(project_ir: Dict[str, Any], metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+    raw_operations = metadata.get("operation_statuses")
+    operations = [item for item in raw_operations if isinstance(item, dict)] if isinstance(raw_operations, list) else []
+    operation_ids = {str(item.get("id") or "") for item in operations}
+    if "hardware_generation" not in operation_ids:
+        validation = project_ir.get("validation") or {}
+        operations.insert(
+            0,
+            {
+                "id": "hardware_generation",
+                "label": "Hardware generation",
+                "status": "succeeded",
+                "provider": metadata.get("runtime_provider") or metadata.get("llm_provider"),
+                "model": metadata.get("runtime_model") or metadata.get("model_name"),
+                "details": {
+                    "is_valid": project_ir.get("is_valid"),
+                    "component_count": len(project_ir.get("components") or []),
+                    "net_count": len(project_ir.get("nets") or []),
+                    "critical_issue_count": len(validation.get("critical") or []),
+                    "warning_issue_count": len(validation.get("warning") or []),
+                },
+            },
+        )
+    return operations
+
+
 def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     if not result:
         return None
@@ -74,9 +118,12 @@ def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
     metadata = project_ir.get("assembly_metadata") or {}
     validation = project_ir.get("validation") or {}
     source_usage = infer_source_usage(result=result)
+    operation_statuses = _result_operation_statuses(project_ir, metadata)
 
     return {
         "project_id": metadata.get("project_id"),
+        "chat_id": metadata.get("chat_id"),
+        "source_project_id": metadata.get("source_project_id"),
         "title": overview.get("title"),
         "category": overview.get("category"),
         "estimated_cost": overview.get("estimated_cost"),
@@ -88,8 +135,21 @@ def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
         "llm_provider": metadata.get("llm_provider"),
         "model_name": metadata.get("model_name"),
         "has_product_image": bool(metadata.get("product_image_data") or metadata.get("product_image_url")),
+        "image_output_requested": metadata.get("image_output_requested"),
+        "image_output_enabled": metadata.get("image_output_enabled"),
+        "image_output_configured": metadata.get("image_output_configured"),
+        "image_output_status": metadata.get("image_output_status"),
+        "image_output_failed": metadata.get("image_output_failed"),
+        "image_output_error": metadata.get("image_output_error") or metadata.get("product_image_error"),
+        "image_output_error_type": metadata.get("image_output_error_type"),
+        "image_output_reason": metadata.get("image_output_reason"),
+        "image_output_generated_count": metadata.get("image_output_generated_count"),
         "product_image_provider": metadata.get("product_image_provider") or metadata.get("image_output_provider"),
         "product_image_model": metadata.get("product_image_model") or metadata.get("image_output_model"),
+        "product_image_error": metadata.get("product_image_error"),
+        "product_image_storage_error": metadata.get("product_image_storage_error") or metadata.get("product_case_image_storage_error"),
+        "operation_statuses": operation_statuses,
+        "operation_summary": _operation_summary(operation_statuses),
         "workflow": metadata.get("workflow"),
         "source_usage": source_usage,
         "pipeline": metadata.get("pipeline"),
@@ -109,6 +169,7 @@ class JobMetadataStore:
         self._client = None
         self._lock = threading.Lock()
         self._initialized = False
+        self._supabase_unavailable_columns: set[str] = set()
 
     def _ensure_backend_configured(self) -> None:
         if self.backend != "unconfigured":
@@ -118,7 +179,7 @@ class JobMetadataStore:
             self.backend = "sqlite"
             return
 
-        from backend.database import DATABASE_BACKEND, get_supabase_client
+        from blueprint_core.database import DATABASE_BACKEND, get_supabase_client
 
         if DATABASE_BACKEND == "supabase":
             self.backend = "supabase"
@@ -173,7 +234,9 @@ class JobMetadataStore:
                     payload_json TEXT,
                     result_summary_json TEXT,
                     source_usage_json TEXT,
-                    error TEXT
+                    progress_events_json TEXT,
+                    error TEXT,
+                    error_debug_json TEXT
                 )
                 """
             )
@@ -188,6 +251,10 @@ class JobMetadataStore:
         columns = {row["name"] for row in conn.execute("PRAGMA table_info(a2a_jobs)").fetchall()}
         if "source_usage_json" not in columns:
             conn.execute("ALTER TABLE a2a_jobs ADD COLUMN source_usage_json TEXT")
+        if "error_debug_json" not in columns:
+            conn.execute("ALTER TABLE a2a_jobs ADD COLUMN error_debug_json TEXT")
+        if "progress_events_json" not in columns:
+            conn.execute("ALTER TABLE a2a_jobs ADD COLUMN progress_events_json TEXT")
 
         rows = conn.execute(
             """
@@ -225,7 +292,8 @@ class JobMetadataStore:
         now = _utc_now()
         source_usage = infer_source_usage(action=action, payload=payload)
         if self.backend == "supabase":
-            self._client.table("a2a_jobs").upsert(
+            self._execute_supabase_mutation(
+                lambda values: self._client.table("a2a_jobs").upsert(values, on_conflict="job_id"),
                 {
                     "job_id": job_id,
                     "message_id": message_id,
@@ -242,10 +310,11 @@ class JobMetadataStore:
                     "payload_json": _redact_payload(payload),
                     "result_summary_json": None,
                     "source_usage_json": source_usage,
+                    "progress_events_json": [],
+                    "error_debug_json": None,
                     "error": None,
                 },
-                on_conflict="job_id",
-            ).execute()
+            )
             return self.get_job(job_id) or {}
 
         with self._locked_connection() as conn:
@@ -253,9 +322,9 @@ class JobMetadataStore:
                 """
                 INSERT OR REPLACE INTO a2a_jobs (
                     job_id, message_id, correlation_id, action, sender, recipient, status,
-                    server_owned, created_at, updated_at, payload_json, source_usage_json
+                    server_owned, created_at, updated_at, payload_json, source_usage_json, progress_events_json, error_debug_json
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     job_id,
@@ -270,9 +339,47 @@ class JobMetadataStore:
                     now,
                     _json_dumps(_redact_payload(payload)),
                     _json_dumps(source_usage),
+                    _json_dumps([]),
+                    None,
                 ),
             )
         return self.get_job(job_id) or {}
+
+    def append_progress_event(self, job_id: str, event: Dict[str, Any]) -> None:
+        self.init_db()
+        now = _utc_now()
+        event_payload = dict(event or {})
+        event_payload.setdefault("observed_at", now)
+
+        if self.backend == "supabase":
+            current = self.get_job(job_id) or {}
+            events = list(current.get("progress_events") or [])
+            events.append(event_payload)
+            self._execute_supabase_mutation(
+                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id),
+                {
+                    "updated_at": now,
+                    "progress_events_json": events,
+                },
+            )
+            return
+
+        with self._locked_connection() as conn:
+            row = conn.execute("SELECT progress_events_json FROM a2a_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            if row is None:
+                return
+            events = _json_loads(row["progress_events_json"]) or []
+            if not isinstance(events, list):
+                events = []
+            events.append(event_payload)
+            conn.execute(
+                """
+                UPDATE a2a_jobs
+                SET progress_events_json = ?, updated_at = ?
+                WHERE job_id = ?
+                """,
+                (_json_dumps(events), now, job_id),
+            )
 
     def mark_running(self, job_id: str) -> None:
         self.init_db()
@@ -314,50 +421,54 @@ class JobMetadataStore:
             current=current,
         )
         if self.backend == "supabase":
-            self._client.table("a2a_jobs").update(
+            self._execute_supabase_mutation(
+                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id),
                 {
                     "status": "succeeded",
                     "completed_at": now,
                     "updated_at": now,
                     "result_summary_json": result_summary,
                     "source_usage_json": source_usage,
+                    "error_debug_json": None,
                     "error": None,
-                }
-            ).eq("job_id", job_id).execute()
+                },
+            )
             return
 
         with self._locked_connection() as conn:
             conn.execute(
                 """
                 UPDATE a2a_jobs
-                SET status = ?, completed_at = ?, updated_at = ?, result_summary_json = ?, source_usage_json = ?, error = NULL
+                SET status = ?, completed_at = ?, updated_at = ?, result_summary_json = ?, source_usage_json = ?, error_debug_json = NULL, error = NULL
                 WHERE job_id = ?
                 """,
                 ("succeeded", now, now, _json_dumps(result_summary), _json_dumps(source_usage), job_id),
             )
 
-    def mark_failed(self, job_id: str, error: str) -> None:
+    def mark_failed(self, job_id: str, error: str, error_debug: Optional[Dict[str, Any]] = None) -> None:
         self.init_db()
         now = _utc_now()
         if self.backend == "supabase":
-            self._client.table("a2a_jobs").update(
+            self._execute_supabase_mutation(
+                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id),
                 {
                     "status": "failed",
                     "completed_at": now,
                     "updated_at": now,
+                    "error_debug_json": error_debug,
                     "error": error,
-                }
-            ).eq("job_id", job_id).execute()
+                },
+            )
             return
 
         with self._locked_connection() as conn:
             conn.execute(
                 """
                 UPDATE a2a_jobs
-                SET status = ?, completed_at = ?, updated_at = ?, error = ?
+                SET status = ?, completed_at = ?, updated_at = ?, error = ?, error_debug_json = ?
                 WHERE job_id = ?
                 """,
-                ("failed", now, now, error, job_id),
+                ("failed", now, now, error, _json_dumps(error_debug) if error_debug else None, job_id),
             )
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
@@ -428,6 +539,27 @@ class JobMetadataStore:
     def _locked_connection(self) -> sqlite3.Connection:
         return _LockedConnection(self._lock, self._connect())
 
+    def _execute_supabase_mutation(self, build_query: Any, payload: Dict[str, Any]) -> Any:
+        """Run a Supabase write while tolerating optional metadata columns missing in older schemas."""
+        while True:
+            values = {
+                key: value
+                for key, value in payload.items()
+                if key not in self._supabase_unavailable_columns
+            }
+            try:
+                return build_query(values).execute()
+            except Exception as exc:
+                missing_column = _missing_optional_supabase_column(exc)
+                if not missing_column or missing_column in self._supabase_unavailable_columns:
+                    raise
+                self._supabase_unavailable_columns.add(missing_column)
+                logger.warning(
+                    "Supabase a2a_jobs column %s is unavailable; retrying job metadata write without it. "
+                    "Apply the latest migrations to persist this metadata.",
+                    missing_column,
+                )
+
     @staticmethod
     def _row_to_dict(row: Any) -> Dict[str, Any]:
         result = dict(row)
@@ -435,6 +567,8 @@ class JobMetadataStore:
         payload = _json_loads(result.pop("payload_json", None)) or {}
         result_summary = _json_loads(result.pop("result_summary_json", None))
         source_usage = _json_loads(result.pop("source_usage_json", None)) or {}
+        result["progress_events"] = _json_loads(result.pop("progress_events_json", None)) or []
+        result["error_debug"] = _json_loads(result.pop("error_debug_json", None))
         result["payload"] = payload
         result["result_summary"] = result_summary
         result["source_usage"] = infer_source_usage(
@@ -444,6 +578,16 @@ class JobMetadataStore:
             current={"source_usage": source_usage},
         )
         return result
+
+
+def _missing_optional_supabase_column(exc: Exception) -> Optional[str]:
+    message = str(exc)
+    if "PGRST204" not in message and "Could not find" not in message:
+        return None
+    for column in OPTIONAL_SUPABASE_COLUMNS:
+        if f"'{column}' column" in message or f'"{column}" column' in message or f"'{column}'" in message:
+            return column
+    return None
 
 
 class _LockedConnection:

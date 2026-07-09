@@ -87,6 +87,22 @@ type SceneRelationship = {
   notes?: string;
 };
 
+type CalloutLayoutItem = {
+  refDes: string;
+  label: string;
+  color: string;
+  accent: string;
+  selected: boolean;
+  anchorX: number;
+  anchorY: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  lineStartX: number;
+  lineStartY: number;
+};
+
 const categoryPalette: Record<string, { color: string; accent: string; layer: string }> = {
   microcontroller: { color: "#22d3ee", accent: "#cffafe", layer: "electrical" },
   sensor: { color: "#34d399", accent: "#d1fae5", layer: "electrical" },
@@ -376,6 +392,139 @@ function worldSize(sizeMm: [number, number, number], scale: number): [number, nu
   ];
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function labelSizeForPlacement(selected: boolean) {
+  return selected ? { width: 166, height: 50 } : { width: 92, height: 34 };
+}
+
+function edgePointForLeader(item: Pick<CalloutLayoutItem, "anchorX" | "anchorY" | "x" | "y" | "width" | "height">) {
+  const centerX = item.x + item.width / 2;
+  const centerY = item.y + item.height / 2;
+  const dx = item.anchorX - centerX;
+  const dy = item.anchorY - centerY;
+  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
+    return { x: centerX, y: centerY };
+  }
+
+  const scaleX = Math.abs(dx) > 0.01 ? item.width / 2 / Math.abs(dx) : Number.POSITIVE_INFINITY;
+  const scaleY = Math.abs(dy) > 0.01 ? item.height / 2 / Math.abs(dy) : Number.POSITIVE_INFINITY;
+  const scale = Math.min(scaleX, scaleY);
+  return {
+    x: centerX + dx * scale,
+    y: centerY + dy * scale,
+  };
+}
+
+function placementAnchorScreenPosition(
+  placement: ScenePlacement,
+  scale: number,
+  camera: THREE.Camera,
+  viewport: { width: number; height: number }
+) {
+  const anchor = new THREE.Vector3(...worldPosition(placement.positionMm, scale));
+  anchor.y += 0.1;
+  const projected = anchor.project(camera);
+  if (projected.z < -1 || projected.z > 1) return null;
+
+  const x = (projected.x * 0.5 + 0.5) * viewport.width;
+  const y = (-projected.y * 0.5 + 0.5) * viewport.height;
+  if (x < -120 || x > viewport.width + 120 || y < -120 || y > viewport.height + 120) return null;
+
+  return { x, y };
+}
+
+function buildCalloutLayout(
+  placements: ScenePlacement[],
+  selectedRef: string | null,
+  scale: number,
+  camera: THREE.Camera,
+  viewport: { width: number; height: number }
+): CalloutLayoutItem[] {
+  const padding = 10;
+  const centerX = viewport.width / 2;
+  const centerY = viewport.height / 2;
+  const items = placements
+    .map((placement, index) => {
+      const anchor = placementAnchorScreenPosition(placement, scale, camera, viewport);
+      if (!anchor) return null;
+
+      const selected = placement.refDes === selectedRef;
+      const { width, height } = labelSizeForPlacement(selected);
+      const radialX = anchor.x - centerX;
+      const radialY = anchor.y - centerY;
+      const fallbackAngle = index * 2.399963229728653;
+      const length = Math.hypot(radialX, radialY);
+      const dirX = length > 4 ? radialX / length : Math.cos(fallbackAngle);
+      const dirY = length > 4 ? radialY / length : Math.sin(fallbackAngle);
+      const offset = selected ? 74 : 54 + (index % 3) * 10;
+      const x = clamp(anchor.x + dirX * offset - width / 2, padding, viewport.width - width - padding);
+      const y = clamp(anchor.y + dirY * offset - height / 2, padding, viewport.height - height - padding);
+
+      return {
+        refDes: placement.refDes,
+        label: placement.label,
+        color: placement.color,
+        accent: placement.accent,
+        selected,
+        anchorX: anchor.x,
+        anchorY: anchor.y,
+        x,
+        y,
+        width,
+        height,
+        lineStartX: x + width / 2,
+        lineStartY: y + height / 2,
+      } satisfies CalloutLayoutItem;
+    })
+    .filter(Boolean) as CalloutLayoutItem[];
+
+  for (let pass = 0; pass < 8; pass += 1) {
+    for (let i = 0; i < items.length; i += 1) {
+      for (let j = i + 1; j < items.length; j += 1) {
+        const first = items[i];
+        const second = items[j];
+        const firstCenterX = first.x + first.width / 2;
+        const firstCenterY = first.y + first.height / 2;
+        const secondCenterX = second.x + second.width / 2;
+        const secondCenterY = second.y + second.height / 2;
+        const dx = secondCenterX - firstCenterX || 1;
+        const dy = secondCenterY - firstCenterY || 1;
+        const overlapX = first.width / 2 + second.width / 2 + padding - Math.abs(dx);
+        const overlapY = first.height / 2 + second.height / 2 + padding - Math.abs(dy);
+        if (overlapX <= 0 || overlapY <= 0) continue;
+
+        if (overlapX < overlapY) {
+          const shift = (overlapX / 2) * Math.sign(dx);
+          first.x = clamp(first.x - shift, padding, viewport.width - first.width - padding);
+          second.x = clamp(second.x + shift, padding, viewport.width - second.width - padding);
+        } else {
+          const shift = (overlapY / 2) * Math.sign(dy);
+          first.y = clamp(first.y - shift, padding, viewport.height - first.height - padding);
+          second.y = clamp(second.y + shift, padding, viewport.height - second.height - padding);
+        }
+      }
+    }
+  }
+
+  return items.map((item) => {
+    const lineStart = edgePointForLeader(item);
+    return {
+      ...item,
+      lineStartX: lineStart.x,
+      lineStartY: lineStart.y,
+    };
+  });
+}
+
+function calloutLayoutKey(items: CalloutLayoutItem[]) {
+  return items
+    .map((item) => `${item.refDes}:${Math.round(item.x)}:${Math.round(item.y)}:${Math.round(item.anchorX)}:${Math.round(item.anchorY)}:${item.selected ? 1 : 0}`)
+    .join("|");
+}
+
 function axisColor(axis: "X" | "Y" | "Z") {
   if (axis === "X") return "#f87171";
   if (axis === "Y") return "#22d3ee";
@@ -526,20 +675,95 @@ function ModuleBlock({
         <boxGeometry args={[size[0] * 1.04, size[1] * 1.04, size[2] * 1.04]} />
         <meshBasicMaterial color={selected ? "#ffffff" : spec.accent} wireframe transparent opacity={selected ? 0.72 : 0.34} />
       </mesh>
-      <Html transform sprite center position={[0, size[1] * 0.95 + 0.1, 0]} distanceFactor={9}>
-        <button
-          type="button"
-          onClick={() => onSelect(spec)}
-          className={`pointer-events-auto max-w-[160px] border px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] shadow-lg ${
-            selected ? "border-white bg-white text-black" : "border-white/15 bg-black/85 text-slate-100"
-          }`}
-          title={`${spec.refDes}: ${spec.label}`}
-        >
-          <span className="block truncate">{spec.refDes}</span>
-          {selected && <span className="block truncate text-[8px] opacity-70">{spec.label}</span>}
-        </button>
-      </Html>
     </group>
+  );
+}
+
+function ComponentCallouts({
+  placements,
+  selectedRef,
+  scale,
+  onSelect,
+}: {
+  placements: ScenePlacement[];
+  selectedRef: string | null;
+  scale: number;
+  onSelect: (placement: ScenePlacement) => void;
+}) {
+  const { camera, size } = useThree();
+  const [items, setItems] = useState<CalloutLayoutItem[]>([]);
+  const lastLayoutKeyRef = useRef("");
+  const lastLayoutAtRef = useRef(0);
+  const placementByRef = useMemo(() => new Map(placements.map((placement) => [placement.refDes, placement])), [placements]);
+
+  useFrame(({ clock }) => {
+    if (clock.elapsedTime - lastLayoutAtRef.current < 0.04) return;
+    lastLayoutAtRef.current = clock.elapsedTime;
+    const nextItems = buildCalloutLayout(placements, selectedRef, scale, camera, size);
+    const nextKey = calloutLayoutKey(nextItems);
+    if (nextKey === lastLayoutKeyRef.current) return;
+    lastLayoutKeyRef.current = nextKey;
+    setItems(nextItems);
+  });
+
+  useEffect(() => {
+    lastLayoutKeyRef.current = "";
+    if (!placements.length) setItems([]);
+  }, [placements, selectedRef, scale, size.width, size.height]);
+
+  if (!items.length) return null;
+
+  return (
+    <Html fullscreen zIndexRange={[40, 0]}>
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
+          {items.map((item) => (
+            <g key={`${item.refDes}-leader`}>
+              <line
+                x1={item.lineStartX}
+                y1={item.lineStartY}
+                x2={item.anchorX}
+                y2={item.anchorY}
+                stroke={item.selected ? "#ffffff" : item.color}
+                strokeWidth={item.selected ? 1.5 : 1}
+                strokeOpacity={item.selected ? 0.78 : 0.52}
+              />
+              <circle cx={item.anchorX} cy={item.anchorY} r={item.selected ? 3 : 2.2} fill={item.selected ? "#ffffff" : item.color} fillOpacity={0.9} />
+            </g>
+          ))}
+        </svg>
+
+        {items.map((item) => {
+          const placement = placementByRef.get(item.refDes);
+          return (
+            <button
+              key={item.refDes}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                if (placement) onSelect(placement);
+              }}
+              className={`pointer-events-auto absolute overflow-hidden border px-2 py-1 text-left text-[9px] font-black uppercase tracking-[0.14em] shadow-lg transition ${
+                item.selected ? "border-white bg-white text-black" : "border-white/15 bg-black/85 text-slate-100 hover:border-white/50"
+              }`}
+              style={{
+                left: item.x,
+                top: item.y,
+                width: item.width,
+                minHeight: item.height,
+              }}
+              title={`${item.refDes}: ${item.label}`}
+              aria-label={`Select ${item.refDes}: ${item.label}`}
+            >
+              <span className="block truncate" style={{ color: item.selected ? "#000000" : item.color }}>
+                {item.refDes}
+              </span>
+              {item.selected && <span className="mt-0.5 block truncate text-[8px] opacity-70">{item.label}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </Html>
   );
 }
 
@@ -617,6 +841,10 @@ export default function MechanicalScene({
     () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive)),
     [electricalActive, scenePlacements, toggles]
   );
+  const visibleModulePlacements = useMemo(
+    () => visiblePlacements.filter((placement) => !(placement.layer === "enclosure" || isEnclosureLabel(placement.label))),
+    [visiblePlacements]
+  );
   const visiblePlacementMap = useMemo(() => new Map(visiblePlacements.map((placement) => [placement.refDes, placement])), [visiblePlacements]);
   const sceneRelationships = useMemo(() => normalizeRelationships(relationships, visiblePlacements), [relationships, visiblePlacements]);
   const selectedPlacement = visiblePlacements.find((placement) => placement.refDes === selectedRef) || visiblePlacements[0] || null;
@@ -636,9 +864,7 @@ export default function MechanicalScene({
           {toggles.structural && <gridHelper args={[42, 42, "#2b2f39", "#1f232b"]} position={[0, -dimensions.z_mm / scale / 2 - 0.72, 0]} />}
           {toggles.enclosure && <SceneShell dimensions={dimensions} scale={scale} rotating={Boolean(toggles.bodyRotation)} />}
 
-          {visiblePlacements
-            .filter((placement) => !(placement.layer === "enclosure" || isEnclosureLabel(placement.label)))
-            .map((placement) => (
+          {visibleModulePlacements.map((placement) => (
               <ModuleBlock
                 key={placement.refDes}
                 spec={placement}
@@ -647,6 +873,12 @@ export default function MechanicalScene({
                 onSelect={(nextPlacement) => setSelectedRef(nextPlacement.refDes)}
               />
             ))}
+          <ComponentCallouts
+            placements={visibleModulePlacements}
+            selectedRef={selectedPlacement?.refDes || null}
+            scale={scale}
+            onSelect={(nextPlacement) => setSelectedRef(nextPlacement.refDes)}
+          />
 
           {toggles.structural &&
             sceneRelationships.map((relationship) => (

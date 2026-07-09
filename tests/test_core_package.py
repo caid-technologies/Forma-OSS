@@ -53,10 +53,22 @@ class CorePackageTests(unittest.TestCase):
             )
         self.assertFalse(any(line.startswith(f"{DIST_NAME}==") for line in active_requirements))
 
-    def test_root_requirements_install_local_backend_extra_for_vercel(self) -> None:
-        requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8").splitlines()
+    def test_root_requirements_avoid_local_paths_for_vercel(self) -> None:
+        root_requirements = [
+            line.split("#", 1)[0].strip()
+            for line in (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        ]
+        backend_requirements = [
+            line.split("#", 1)[0].strip()
+            for line in (ROOT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").splitlines()
+        ]
 
-        self.assertEqual([".[backend]"], [line.strip() for line in requirements if line.strip()])
+        root_active = [line for line in root_requirements if line]
+        backend_active = [line for line in backend_requirements if line]
+
+        self.assertEqual(backend_active, root_active)
+        for requirement in root_active:
+            self.assertFalse(requirement.startswith((".", "-e", "file:")))
 
     def test_pyproject_backend_extra_contains_fastapi_service_dependencies(self) -> None:
         pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
@@ -83,10 +95,7 @@ class CorePackageTests(unittest.TestCase):
             self.assertIn("frontend/**", exclude_files)
             self.assertIn("rust/**", exclude_files)
             self.assertIn("*.db", exclude_files)
-        for function_key in ("backend/**/*.py", "main.py"):
-            function_config = vercel_config["functions"][function_key]
-            self.assertEqual("blueprint_core/**", function_config["includeFiles"])
-            self.assertIn("frontend/**", function_config["excludeFiles"])
+        self.assertNotIn("functions", vercel_config)
         self.assertIn(
             {"source": "/api/(.*)", "destination": {"service": "backend"}},
             vercel_config["rewrites"],

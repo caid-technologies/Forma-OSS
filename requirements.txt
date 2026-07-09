@@ -1,1 +1,10 @@
-.[backend]
+# Root installs use the same runtime-only dependency set as the Vercel backend
+# service. Do not add local package paths here; Vercel may resolve this file
+# from a service subdirectory.
+fastapi>=0.124.1
+uvicorn
+websockets>=12.0
+pydantic>=2.12.0
+python-dotenv>=1.0.1
+sqlalchemy==2.0.31
+supabase==2.31.0

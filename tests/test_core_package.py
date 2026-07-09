@@ -27,6 +27,16 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["blueprint_core"])
         self.assertTrue((CORE_DIR / "py.typed").exists())
 
+    def test_backend_requirements_pin_published_core_package(self) -> None:
+        requirements_path = ROOT_DIR / "backend" / "requirements.txt"
+        requirements = requirements_path.read_text(encoding="utf-8").splitlines()
+        requirement = next(
+            (line.split("#", 1)[0].strip() for line in requirements if line.split("#", 1)[0].strip().startswith(f"{DIST_NAME}==")),
+            None,
+        )
+
+        self.assertEqual(f"{DIST_NAME}=={blueprint_core.__version__}", requirement)
+
     def test_installed_distribution_metadata_when_available(self) -> None:
         try:
             version = importlib.metadata.version(DIST_NAME)

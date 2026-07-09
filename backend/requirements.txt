@@ -1,3 +1,6 @@
+# Vercel builds the backend service independently, so install the reusable
+# core package instead of relying on the monorepo root being bundled.
+caid-blueprint-core==0.1.0
 fastapi>=0.124.1
 uvicorn
 websockets>=12.0

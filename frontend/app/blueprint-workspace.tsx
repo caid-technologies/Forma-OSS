@@ -35,6 +35,7 @@ import {
   ArrowLeft,
   PanelLeftClose,
   PanelLeftOpen,
+  Menu,
   Plus,
   Battery,
   Monitor,
@@ -1649,6 +1650,7 @@ export function BlueprintWorkspace({
   const [prompt, setPrompt] = useState("");
   const [activeChatId, setActiveChatId] = useState(() => routeChatId ? safeDecodeChatId(routeChatId) : newBuildChatId());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => initialChatMessages());
   const [pendingHumanContext, setPendingHumanContext] = useState<PendingHumanContext | null>(null);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
@@ -4186,12 +4188,27 @@ export function BlueprintWorkspace({
     );
   }
 
-  if (!projectIR) {
-    return (
-      <div className="h-[100dvh] w-full overflow-hidden bg-[#141519] font-sans text-slate-100">
-        <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${sidebarCollapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
-          <ChatSidebar
-            collapsed={sidebarCollapsed}
+	  if (!projectIR) {
+	    return (
+	      <div className="h-[100dvh] w-full overflow-hidden bg-[#141519] font-sans text-slate-100">
+	        <MobileSidebarDrawer
+	          open={mobileSidebarOpen}
+	          onClose={() => setMobileSidebarOpen(false)}
+	          collapsed={sidebarCollapsed}
+	          onToggle={() => setSidebarCollapsed((value) => !value)}
+	          onHome={goHome}
+	          chats={chatListItems}
+	          activeChatId={activeChatId}
+	          onNewChat={startNewProjectChat}
+	          newChatDisabled={!activeSidebarChatStarted}
+	          onOpenChat={openChatItem}
+	          waitingChatIds={waitingChatIds}
+	          showDeveloperTools={showDeveloperTools}
+	          serverStatus={serverStatus}
+	        />
+	        <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${sidebarCollapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
+	          <ChatSidebar
+	            collapsed={sidebarCollapsed}
             onToggle={() => setSidebarCollapsed((value) => !value)}
             onHome={goHome}
             chats={chatListItems}
@@ -4201,13 +4218,14 @@ export function BlueprintWorkspace({
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             showDeveloperTools={showDeveloperTools}
-            serverStatus={serverStatus}
-          />
-          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
-        <main className={`mx-auto w-full max-w-6xl ${
-          homeView === "chat"
-            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-5 py-4"
-            : "min-h-0 flex-1 overflow-y-auto px-5 py-8"
+	            serverStatus={serverStatus}
+	          />
+	          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+	          <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} serverStatus={serverStatus} />
+	        <main className={`mx-auto w-full max-w-6xl ${
+	          homeView === "chat"
+	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5"
+            : "min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-5 sm:py-8"
         }`}>
           {homeView === "projects" ? (
             <>
@@ -4268,10 +4286,10 @@ export function BlueprintWorkspace({
             <section className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col text-center">
             {!activeSidebarChatStarted && (
               <div className="shrink-0">
-                <h1 className="mt-4 text-4xl font-semibold leading-tight text-white sm:text-6xl">
+                <h1 className="text-3xl font-semibold leading-[1.14] text-white sm:mt-3 sm:text-6xl sm:leading-tight">
                   Turn an idea into a hardware plan.
                 </h1>
-                <p className="mx-auto mt-5 max-w-2xl text-base leading-7 text-slate-400">
+                <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:mt-5 sm:text-base sm:leading-7">
                   Upload a photo, sketch, or short description. Get parts, wiring, cost, and build steps.
                 </p>
               </div>
@@ -4355,64 +4373,66 @@ export function BlueprintWorkspace({
                 </form>
               </div>
             ) : (
-              <div className={`${activeSidebarChatStarted ? "mt-0" : "mt-6"} flex min-h-0 flex-1 flex-col overflow-hidden border border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
-                <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5">
-                  {chatMessages.map((message) => {
-                    const isUser = message.role === "user";
-                    const statusTone =
-                      message.status === "error"
-                        ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
-                        : message.status === "success"
-                          ? "border-emerald-400/35 bg-emerald-950/25 text-emerald-50"
-                          : isUser
-                            ? "border-cyan-300/45 bg-cyan-300/10 text-white"
-                            : "border-[#30333d] bg-[#17181d] text-slate-100";
-                    return (
-                      <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                        <div className={`max-w-[86%] border px-4 py-3 ${statusTone}`}>
-                          <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                            {message.status === "loading" ? (
-                              <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-300" />
-                            ) : message.status === "success" ? (
-                              <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
-                            ) : message.status === "error" ? (
-                              <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
-                            ) : isUser ? (
-                              <ArrowRight className="h-3.5 w-3.5 text-cyan-300" />
-                            ) : (
-                              <Cpu className="h-3.5 w-3.5 text-slate-400" />
+              <div className={`${activeSidebarChatStarted ? "mt-0 flex-1" : "mt-5 sm:mt-6"} flex min-h-0 flex-col overflow-hidden border border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
+                {activeSidebarChatStarted && (
+                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
+                    {chatMessages.map((message) => {
+                      const isUser = message.role === "user";
+                      const statusTone =
+                        message.status === "error"
+                          ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
+                          : message.status === "success"
+                            ? "border-emerald-400/35 bg-emerald-950/25 text-emerald-50"
+                            : isUser
+                              ? "border-cyan-300/45 bg-cyan-300/10 text-white"
+                              : "border-[#30333d] bg-[#17181d] text-slate-100";
+                      return (
+                        <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                          <div className={`max-w-[92%] border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
+                            <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                              {message.status === "loading" ? (
+                                <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-300" />
+                              ) : message.status === "success" ? (
+                                <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
+                              ) : message.status === "error" ? (
+                                <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
+                              ) : isUser ? (
+                                <ArrowRight className="h-3.5 w-3.5 text-cyan-300" />
+                              ) : (
+                                <Cpu className="h-3.5 w-3.5 text-slate-400" />
+                              )}
+                              <span>{isUser ? "You" : "Blueprint"}</span>
+                              <span className="text-slate-700">/</span>
+                              <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
+                            </div>
+                            <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+                            {message.pipelineProgress && (
+                              <AgentPipelineProgressPanel progress={message.pipelineProgress} status={message.status || "idle"} />
                             )}
-                            <span>{isUser ? "You" : "Blueprint"}</span>
-                            <span className="text-slate-700">/</span>
-                            <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
+                            {message.projectId && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (message.projectId) loadOldProject(message.projectId, { syncRoute: false, tab: "chat" });
+                                  syncChatRoute(activeChatId);
+                                }}
+                                className="mt-3 inline-flex h-9 items-center gap-2 border border-emerald-300/40 px-3 text-xs font-black uppercase text-emerald-100 hover:bg-emerald-300 hover:text-black"
+                              >
+                                <Eye className="h-4 w-4" />
+                                Open project
+                              </button>
+                            )}
                           </div>
-                          <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
-                          {message.pipelineProgress && (
-                            <AgentPipelineProgressPanel progress={message.pipelineProgress} status={message.status || "idle"} />
-                          )}
-                          {message.projectId && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (message.projectId) loadOldProject(message.projectId, { syncRoute: false, tab: "chat" });
-                                syncChatRoute(activeChatId);
-                              }}
-                              className="mt-3 inline-flex h-9 items-center gap-2 border border-emerald-300/40 px-3 text-xs font-black uppercase text-emerald-100 hover:bg-emerald-300 hover:text-black"
-                            >
-                              <Eye className="h-4 w-4" />
-                              Open project
-                            </button>
-                          )}
                         </div>
-                      </div>
-                    );
-                  })}
-                  <div ref={chatEndRef} />
-                </div>
+                      );
+                    })}
+                    <div ref={chatEndRef} />
+                  </div>
+                )}
 
                 {!activeSidebarChatStarted && (
-                  <div className="shrink-0 border-t border-[#2c2f37] bg-[#111216] px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
+                  <div className="shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4">
+                    <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
                       {samplePrompts.map((example) => (
                         <button
                           key={example}
@@ -4422,7 +4442,7 @@ export function BlueprintWorkspace({
                             setPendingHumanContext(null);
                             setPrompt(example);
                           }}
-                          className="border border-[#2c2f37] bg-[#17181d] px-3 py-2 text-[11px] leading-5 text-slate-400 hover:border-slate-500 hover:text-white"
+                          className="min-w-[260px] snap-start border border-[#2c2f37] bg-[#17181d] px-3 py-2 text-left text-[11px] leading-5 text-slate-400 hover:border-slate-500 hover:text-white sm:min-w-0"
                         >
                           {example}
                         </button>
@@ -4431,7 +4451,7 @@ export function BlueprintWorkspace({
                   </div>
                 )}
 
-                <form onSubmit={handleGenerate} className="sticky bottom-0 z-20 shrink-0 border-t border-[#2c2f37] bg-[#141519]/95 p-3 backdrop-blur">
+                <form onSubmit={handleGenerate} className="sticky bottom-0 z-20 shrink-0 border-t border-[#2c2f37] bg-[#141519]/95 p-3 backdrop-blur sm:p-4">
                   {pendingHumanContext && (
                     <div className="mb-3 border border-cyan-300/25 bg-cyan-300/5 p-4">
                       <div className="flex flex-wrap items-center gap-2">
@@ -4536,12 +4556,12 @@ export function BlueprintWorkspace({
                       }
                       aria-invalid={Boolean(visibleGenerationInputNotice)}
                       aria-describedby={visibleGenerationInputNotice ? "generation-input-notice" : undefined}
-                      className="min-h-[104px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-4 pr-16 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300"
+                      className="min-h-[98px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-3 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:min-h-[104px] sm:p-4 sm:pr-16 sm:leading-7"
                     />
                     <button
                       type="submit"
                       disabled={isLoading || !hasGenerationInput}
-                      className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
                       aria-label={generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
                       title={generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
                     >
@@ -4550,7 +4570,7 @@ export function BlueprintWorkspace({
                   </div>
 
                   <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="grid w-full grid-cols-[2.5rem_minmax(0,1fr)] gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center">
                       <input ref={fileInputRefCenter} type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
                       <button
                         type="button"
@@ -4560,7 +4580,7 @@ export function BlueprintWorkspace({
                       >
                         <Paperclip className="h-4 w-4" />
                       </button>
-                      <div className="inline-flex h-10 max-w-full overflow-hidden border border-[#2c2f37]">
+                      <div className="grid h-10 min-w-0 grid-cols-2 overflow-hidden border border-[#2c2f37] sm:inline-flex sm:max-w-full">
                         {generationWorkflows.map((workflow) => {
                           const selected = generationWorkflow === workflow.id;
                           const Icon = workflow.uses_external_sources || workflow.uses_firecrawl_mcp ? Sparkles : Database;
@@ -4570,7 +4590,7 @@ export function BlueprintWorkspace({
                               type="button"
                               disabled={isLoading}
                               onClick={() => setGenerationWorkflow(workflow.id)}
-                              className={`inline-flex min-w-0 items-center gap-2 border-r border-[#2c2f37] px-3 text-xs font-black uppercase last:border-r-0 ${
+                              className={`inline-flex min-w-0 items-center justify-center gap-1.5 border-r border-[#2c2f37] px-1.5 text-[10px] font-black uppercase last:border-r-0 sm:justify-start sm:gap-2 sm:px-3 sm:text-xs ${
                                 selected ? "bg-white text-black" : "bg-[#17181d] text-slate-400 hover:text-white"
                               } disabled:cursor-not-allowed disabled:opacity-50`}
                               title={workflow.description || workflow.label}
@@ -4583,7 +4603,7 @@ export function BlueprintWorkspace({
                         })}
                       </div>
                       {selectedWorkflowUsesExternalSources && (
-                        <div className="inline-flex h-10 max-w-full overflow-hidden border border-[#2c2f37]">
+                        <div className="col-span-2 grid h-10 max-w-full grid-cols-2 overflow-hidden border border-[#2c2f37] sm:inline-flex">
                           {externalSourceProviderOptions.map((option) => {
                             const selected = externalSourceProvider === option.id;
                             return (
@@ -4592,7 +4612,7 @@ export function BlueprintWorkspace({
                                 type="button"
                                 disabled={isLoading}
                                 onClick={() => setExternalSourceProvider(option.id)}
-                                className={`inline-flex min-w-0 items-center gap-2 border-r border-[#2c2f37] px-3 text-xs font-black uppercase last:border-r-0 ${
+                                className={`inline-flex min-w-0 items-center justify-center gap-1.5 border-r border-[#2c2f37] px-1.5 text-[10px] font-black uppercase last:border-r-0 sm:justify-start sm:gap-2 sm:px-3 sm:text-xs ${
                                   selected ? "bg-white text-black" : "bg-[#17181d] text-slate-400 hover:text-white"
                                 } disabled:cursor-not-allowed disabled:opacity-50`}
                                 title={option.label}
@@ -4605,13 +4625,13 @@ export function BlueprintWorkspace({
                           })}
                         </div>
                       )}
-                      <label className="inline-flex h-10 max-w-full items-center gap-2 border border-[#2c2f37] bg-[#17181d] px-3 text-xs font-black uppercase text-slate-400">
+                      <label className="col-span-2 inline-flex h-10 max-w-full items-center gap-2 border border-[#2c2f37] bg-[#17181d] px-3 text-xs font-black uppercase text-slate-400 sm:col-span-1">
                         <Cpu className="h-4 w-4 shrink-0 text-cyan-300" />
                         <select
                           value={generationLlmKeyValue}
                           onChange={(event) => setGenerationLlmKeyValue(event.target.value)}
                           disabled={isLoading}
-                          className="max-w-[220px] bg-transparent text-xs font-black uppercase text-white outline-none disabled:cursor-not-allowed disabled:opacity-50"
+                          className="min-w-0 flex-1 bg-transparent text-xs font-black uppercase text-white outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-[220px]"
                           aria-label="Generation LLM"
                           title="Generation LLM"
                         >
@@ -4622,7 +4642,7 @@ export function BlueprintWorkspace({
                           ))}
                         </select>
                       </label>
-                      <label className="inline-flex h-10 cursor-pointer items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white">
+                      <label className="col-span-2 inline-flex h-10 cursor-pointer items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white sm:col-span-1 sm:justify-start">
                         <input
                           type="checkbox"
                           checked={generateProductImage}
@@ -4651,11 +4671,26 @@ export function BlueprintWorkspace({
     );
   }
 
-  return (
-    <div className="h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-200">
-      <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${sidebarCollapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
-        <ChatSidebar
-          collapsed={sidebarCollapsed}
+	  return (
+	    <div className="h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-200">
+	      <MobileSidebarDrawer
+	        open={mobileSidebarOpen}
+	        onClose={() => setMobileSidebarOpen(false)}
+	        collapsed={sidebarCollapsed}
+	        onToggle={() => setSidebarCollapsed((value) => !value)}
+	        onHome={goHome}
+	        chats={chatListItems}
+	        activeChatId={currentProjectChatId || activeChatId}
+	        onNewChat={startNewProjectChat}
+	        newChatDisabled={!activeSidebarChatStarted}
+	        onOpenChat={openChatItem}
+	        waitingChatIds={waitingChatIds}
+	        showDeveloperTools={showDeveloperTools}
+	        serverStatus={serverStatus}
+	      />
+	      <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${sidebarCollapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
+	        <ChatSidebar
+	          collapsed={sidebarCollapsed}
           onToggle={() => setSidebarCollapsed((value) => !value)}
           onHome={goHome}
           chats={chatListItems}
@@ -4667,10 +4702,11 @@ export function BlueprintWorkspace({
           showDeveloperTools={showDeveloperTools}
           serverStatus={serverStatus}
         />
-        <div className="grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden">
-        <main className="flex min-h-0 min-w-0 flex-col">
-          <header className="flex min-h-[78px] min-w-0 items-center gap-2 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 sm:gap-3 sm:px-4">
-            <input ref={fileInputRefVideo} type="file" accept="image/*" onChange={handleVideoImageChange} className="hidden" />
+	        <div className="grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden">
+	        <main className="flex min-h-0 min-w-0 flex-col">
+	          <header className="flex min-h-[78px] min-w-0 items-center gap-2 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 sm:gap-3 sm:px-4">
+	            <MobileSidebarButton onClick={() => setMobileSidebarOpen(true)} />
+	            <input ref={fileInputRefVideo} type="file" accept="image/*" onChange={handleVideoImageChange} className="hidden" />
 
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</div>
@@ -4798,29 +4834,11 @@ function WorkspacePageHeading({
   );
 }
 
-function ChatSidebar({
-  collapsed,
-  onToggle,
-  onHome,
-  chats,
-  activeChatId,
-  onNewChat,
-  newChatDisabled,
-  onOpenChat,
-  waitingChatIds,
-  showDeveloperTools,
+function MobileWorkspaceBar({
+  onOpenSidebar,
   serverStatus = "disconnected",
 }: {
-  collapsed: boolean;
-  onToggle: () => void;
-  onHome: () => void;
-  chats: ChatListItem[];
-  activeChatId: string | null;
-  onNewChat: () => void;
-  newChatDisabled: boolean;
-  onOpenChat: (item: ChatListItem) => void;
-  waitingChatIds: Set<string>;
-  showDeveloperTools: boolean;
+  onOpenSidebar: () => void;
   serverStatus?: "connected" | "disconnected";
 }) {
   const ApiStatusIcon = serverStatus === "connected" ? Wifi : WifiOff;
@@ -4831,19 +4849,161 @@ function ChatSidebar({
       : "border-orange-500/30 bg-orange-950/20 text-orange-300";
 
   return (
-    <aside className="hidden h-full min-h-0 flex-col border-r border-[#292b31] bg-[#141519] text-slate-100 md:flex">
+    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
+      <MobileSidebarButton onClick={onOpenSidebar} />
+      <div className="min-w-0 flex flex-1 items-center gap-2">
+        <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Blueprint</span>
+        <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
+      </div>
+      <span
+        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center border ${apiStatusTone}`}
+        title={apiStatusLabel}
+        aria-label={apiStatusLabel}
+      >
+        <ApiStatusIcon className="h-4 w-4" />
+      </span>
+    </header>
+  );
+}
+
+function MobileSidebarButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black md:hidden"
+      aria-label="Open sidebar"
+      title="Open sidebar"
+    >
+      <Menu className="h-4 w-4" />
+    </button>
+  );
+}
+
+function MobileSidebarDrawer({
+  open,
+  onClose,
+  collapsed,
+  onToggle,
+  onHome,
+  chats,
+  activeChatId,
+  onNewChat,
+  newChatDisabled,
+  onOpenChat,
+  waitingChatIds,
+  showDeveloperTools,
+  serverStatus,
+}: {
+  open: boolean;
+  onClose: () => void;
+  collapsed: boolean;
+  onToggle: () => void;
+  onHome: () => void;
+  chats: ChatListItem[];
+  activeChatId: string | null;
+  onNewChat: () => void;
+  newChatDisabled: boolean;
+  onOpenChat: (item: ChatListItem) => void;
+  waitingChatIds: Set<string>;
+  showDeveloperTools: boolean;
+  serverStatus: "connected" | "disconnected";
+}) {
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Sidebar">
+      <button
+        type="button"
+        className="absolute inset-0 h-full w-full bg-black/65"
+        onClick={onClose}
+        aria-label="Close sidebar"
+      />
+      <div className="relative h-full">
+        <ChatSidebar
+          mode="drawer"
+          collapsed={collapsed}
+          onToggle={onToggle}
+          onClose={onClose}
+          onNavigate={onClose}
+          onHome={onHome}
+          chats={chats}
+          activeChatId={activeChatId}
+          onNewChat={onNewChat}
+          newChatDisabled={newChatDisabled}
+          onOpenChat={onOpenChat}
+          waitingChatIds={waitingChatIds}
+          showDeveloperTools={showDeveloperTools}
+          serverStatus={serverStatus}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ChatSidebar({
+  collapsed,
+  onToggle,
+  onClose,
+  onNavigate,
+  onHome,
+  chats,
+  activeChatId,
+  onNewChat,
+  newChatDisabled,
+  onOpenChat,
+  waitingChatIds,
+  showDeveloperTools,
+  serverStatus = "disconnected",
+  mode = "desktop",
+}: {
+  collapsed: boolean;
+  onToggle: () => void;
+  onClose?: () => void;
+  onNavigate?: () => void;
+  onHome: () => void;
+  chats: ChatListItem[];
+  activeChatId: string | null;
+  onNewChat: () => void;
+  newChatDisabled: boolean;
+  onOpenChat: (item: ChatListItem) => void;
+  waitingChatIds: Set<string>;
+  showDeveloperTools: boolean;
+  serverStatus?: "connected" | "disconnected";
+  mode?: "desktop" | "drawer";
+}) {
+  const isDrawer = mode === "drawer";
+  const compact = !isDrawer && collapsed;
+  const ApiStatusIcon = serverStatus === "connected" ? Wifi : WifiOff;
+  const apiStatusLabel = serverStatus === "connected" ? "API connected" : "API disconnected";
+  const apiStatusTone =
+    serverStatus === "connected"
+      ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
+      : "border-orange-500/30 bg-orange-950/20 text-orange-300";
+
+  return (
+    <aside
+      className={
+        isDrawer
+          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col border-r border-[#292b31] bg-[#141519] text-slate-100 shadow-2xl shadow-black/50"
+          : "hidden h-full min-h-0 flex-col border-r border-[#292b31] bg-[#141519] text-slate-100 md:flex"
+      }
+    >
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className={`flex shrink-0 items-center border-b border-[#292b31] ${collapsed ? "h-20 flex-col justify-center gap-2 px-0" : "h-16 gap-3 px-4"}`}>
+        <div className={`flex shrink-0 items-center border-b border-[#292b31] ${compact ? "h-20 flex-col justify-center gap-2 px-0" : "h-16 gap-3 px-4"}`}>
           <button
             type="button"
-            onClick={onHome}
+            onClick={() => {
+              onHome();
+              onNavigate?.();
+            }}
             className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black"
             aria-label="Home"
             title="Home"
           >
             <Cpu className="h-4 w-4" />
           </button>
-          {!collapsed && (
+          {!compact && (
             <div className="min-w-0 flex items-center gap-2">
               <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Blueprint</span>
               <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
@@ -4858,37 +5018,40 @@ function ChatSidebar({
           )}
           <button
             type="button"
-            onClick={onToggle}
-            className={`${collapsed ? "h-7 w-7" : "ml-auto h-8 w-8"} inline-flex shrink-0 items-center justify-center border border-transparent text-slate-500 transition hover:border-[#2c2f37] hover:text-cyan-100`}
-            aria-label={collapsed ? "Expand chat sidebar" : "Collapse chat sidebar"}
-            title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+            onClick={isDrawer ? onClose : onToggle}
+            className={`${compact ? "h-7 w-7" : "ml-auto h-8 w-8"} inline-flex shrink-0 items-center justify-center border border-transparent text-slate-500 transition hover:border-[#2c2f37] hover:text-cyan-100`}
+            aria-label={isDrawer ? "Close sidebar" : compact ? "Expand chat sidebar" : "Collapse chat sidebar"}
+            title={isDrawer ? "Close sidebar" : compact ? "Expand sidebar" : "Collapse sidebar"}
           >
-            {collapsed ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+            {isDrawer ? <X className="h-4 w-4" /> : compact ? <PanelLeftOpen className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
         </div>
 
         <div className="px-4 pb-4">
           <button
             type="button"
-            onClick={onNewChat}
+            onClick={() => {
+              onNewChat();
+              if (!newChatDisabled) onNavigate?.();
+            }}
             disabled={newChatDisabled}
             className={`group flex h-11 w-full items-center border text-sm font-semibold ${
               newChatDisabled
                 ? "cursor-not-allowed border-[#242832] bg-[#101116] text-slate-600"
                 : "border-[#2c2f37] bg-[#17181d] text-white hover:bg-white hover:text-black"
             } ${
-              collapsed ? "justify-center px-0" : "gap-3 px-3"
+              compact ? "justify-center px-0" : "gap-3 px-3"
             }`}
             aria-label="New project"
             title={newChatDisabled ? "Send a message before starting another project" : "New project"}
           >
             <Plus className={`h-5 w-5 shrink-0 ${newChatDisabled ? "text-slate-700" : "text-slate-500 group-hover:text-black"}`} />
-            {!collapsed && <span className="truncate">New project</span>}
+            {!compact && <span className="truncate">New project</span>}
           </button>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-          {!collapsed && <div className="mb-3 text-sm text-slate-500">Chats</div>}
+          {!compact && <div className="mb-3 text-sm text-slate-500">Chats</div>}
           <div className="space-y-1">
             {chats.length ? (
               chats.map((chat) => {
@@ -4899,14 +5062,17 @@ function ChatSidebar({
                   <button
                     key={chat.chatId}
                     type="button"
-                    onClick={() => onOpenChat(chat)}
+                    onClick={() => {
+                      onOpenChat(chat);
+                      onNavigate?.();
+                    }}
                     className={`flex w-full min-w-0 items-center gap-3 px-2 py-2 text-left text-sm transition ${
                       active ? "border border-cyan-300/25 bg-cyan-300/10 text-cyan-100" : "border border-transparent text-slate-100 hover:bg-[#17181d]"
-                    } ${collapsed ? "justify-center" : ""}`}
+                    } ${compact ? "justify-center" : ""}`}
                     title={waiting ? `${chat.title} is waiting` : chat.title}
                     aria-label={`Open chat ${chat.title}${waiting ? " (waiting)" : ""}`}
                   >
-                    {collapsed ? (
+                    {compact ? (
                       waiting ? (
                         <RefreshCw className={`h-5 w-5 animate-spin ${active ? "text-cyan-300" : "text-slate-500"}`} />
                       ) : (
@@ -4930,68 +5096,74 @@ function ChatSidebar({
                 );
               })
             ) : (
-              !collapsed && <div className="px-2 py-2 text-xs leading-5 text-slate-500">No saved chats yet.</div>
+              !compact && <div className="px-2 py-2 text-xs leading-5 text-slate-500">No saved chats yet.</div>
             )}
           </div>
         </div>
       </div>
 
       <div className="border-t border-[#292b31] px-4 py-5">
-        {!collapsed && <div className="mb-3 text-sm text-slate-500">Workspace</div>}
+        {!compact && <div className="mb-3 text-sm text-slate-500">Workspace</div>}
         <div className="space-y-1">
           <Link
             href="/projects"
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${collapsed ? "justify-center" : ""}`}
+            onClick={onNavigate}
+            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
             title="Projects"
           >
             <Layers className="h-5 w-5 text-slate-500" />
-            {!collapsed && <span className="truncate">Projects</span>}
+            {!compact && <span className="truncate">Projects</span>}
           </Link>
           <Link
             href="/jobs"
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${collapsed ? "justify-center" : ""}`}
+            onClick={onNavigate}
+            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
             title="Jobs"
           >
             <History className="h-5 w-5 text-slate-500" />
-            {!collapsed && <span className="truncate">Jobs</span>}
+            {!compact && <span className="truncate">Jobs</span>}
           </Link>
           {showDeveloperTools && (
             <Link
               href="/backend-logs"
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${collapsed ? "justify-center" : ""}`}
+              onClick={onNavigate}
+              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
               title="Backend logs"
             >
               <Terminal className="h-5 w-5 text-slate-500" />
-              {!collapsed && <span className="truncate">Backend logs</span>}
+              {!compact && <span className="truncate">Backend logs</span>}
             </Link>
           )}
           {showDeveloperTools && (
             <Link
               href="/listening-jobs"
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${collapsed ? "justify-center" : ""}`}
+              onClick={onNavigate}
+              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
               title="Listening jobs"
             >
               <Terminal className="h-5 w-5 text-slate-500" />
-              {!collapsed && <span className="truncate">Listening jobs</span>}
+              {!compact && <span className="truncate">Listening jobs</span>}
             </Link>
           )}
           {showDeveloperTools && (
             <Link
               href="/user"
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${collapsed ? "justify-center" : ""}`}
+              onClick={onNavigate}
+              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
               title="User integrations"
             >
               <KeyRound className="h-5 w-5 text-slate-500" />
-              {!collapsed && <span className="truncate">Keys</span>}
+              {!compact && <span className="truncate">Keys</span>}
             </Link>
           )}
           <Link
             href="/about"
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${collapsed ? "justify-center" : ""}`}
+            onClick={onNavigate}
+            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
             title="About us"
           >
             <Handshake className="h-5 w-5 text-slate-500" />
-            {!collapsed && <span className="truncate">About us</span>}
+            {!compact && <span className="truncate">About us</span>}
           </Link>
         </div>
       </div>
@@ -5337,9 +5509,25 @@ function ChatRouteFallback({
   transition: ChatRouteTransition;
   onHome: () => void;
 }) {
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const hasProjectTarget = Boolean(transition.projectId);
   return (
     <div className="h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-200">
+      <MobileSidebarDrawer
+        open={mobileSidebarOpen}
+        onClose={() => setMobileSidebarOpen(false)}
+        collapsed={collapsed}
+        onToggle={onToggle}
+        onHome={onHome}
+        chats={chats}
+        activeChatId={activeChatId}
+        onNewChat={onNewChat}
+        newChatDisabled={newChatDisabled}
+        onOpenChat={onOpenChat}
+        waitingChatIds={waitingChatIds}
+        showDeveloperTools={showDeveloperTools}
+        serverStatus={serverStatus}
+      />
       <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${collapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
         <ChatSidebar
           collapsed={collapsed}
@@ -5356,6 +5544,7 @@ function ChatRouteFallback({
         />
         <main className="flex min-h-0 min-w-0 flex-col">
           <header className="flex min-h-[78px] min-w-0 items-center gap-2 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 sm:gap-3 sm:px-4">
+            <MobileSidebarButton onClick={() => setMobileSidebarOpen(true)} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-sm font-black uppercase tracking-[0.16em] text-white">{transition.title || "Opening chat"}</div>
               <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-mono text-slate-600">

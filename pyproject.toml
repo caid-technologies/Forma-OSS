@@ -35,6 +35,9 @@ Homepage = "https://github.com/caid-technologies/Blueprint-OSS"
 Repository = "https://github.com/caid-technologies/Blueprint-OSS"
 Documentation = "https://github.com/caid-technologies/Blueprint-OSS#readme"
 
+[tool.vercel]
+entrypoint = "backend.main:app"
+
 [project.optional-dependencies]
 gemini = ["google-genai>=0.1.0"]
 huggingface = ["huggingface-hub>=0.34.0"]

@@ -11,6 +11,9 @@
             "functions": {
                 "backend.main:app": {
                     "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
+                },
+                "main.py": {
+                    "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
                 }
             }
         }

@@ -23,6 +23,7 @@ class CorePackageTests(unittest.TestCase):
 
         self.assertEqual(DIST_NAME, pyproject["project"]["name"])
         self.assertEqual(["version"], pyproject["project"]["dynamic"])
+        self.assertEqual("backend.main:app", pyproject["tool"]["vercel"]["entrypoint"])
         self.assertEqual("blueprint_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
         self.assertIn("blueprint_core.*", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
         self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["blueprint_core"])
@@ -65,10 +66,20 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("frontend/**", exclude_files)
         self.assertIn("rust/**", exclude_files)
         self.assertIn("*.db", exclude_files)
+        legacy_exclude_files = backend["functions"]["main.py"]["excludeFiles"]
+        self.assertIn("frontend/**", legacy_exclude_files)
+        self.assertIn("rust/**", legacy_exclude_files)
         self.assertIn(
             {"source": "/api/(.*)", "destination": {"service": "backend"}},
             vercel_config["rewrites"],
         )
+
+    def test_root_main_shim_exports_backend_app_for_legacy_vercel_detection(self) -> None:
+        import backend.main as backend_main
+        import main as root_main
+
+        self.assertIs(root_main.app, backend_main.app)
+        self.assertIs(root_main.application, backend_main.app)
 
     def test_installed_distribution_metadata_when_available(self) -> None:
         try:

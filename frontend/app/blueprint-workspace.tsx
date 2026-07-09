@@ -4220,11 +4220,11 @@ export function BlueprintWorkspace({
             showDeveloperTools={showDeveloperTools}
 	            serverStatus={serverStatus}
 	          />
-	          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
+	          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden pt-12 md:pt-0">
 	          <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} serverStatus={serverStatus} />
-	        <main className={`mx-auto w-full max-w-6xl ${
+	        <main className={`mx-auto w-full ${homeView === "chat" ? "max-w-none" : "max-w-6xl"} ${
 	          homeView === "chat"
-	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-4 py-4 sm:px-5 sm:py-5"
+	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-3 sm:pt-4"
             : "min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-5 sm:py-8"
         }`}>
           {homeView === "projects" ? (
@@ -4283,13 +4283,19 @@ export function BlueprintWorkspace({
             </>
           ) : (
             <>
-            <section className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col text-center">
+            <section
+              className={`${
+                !activeSidebarChatStarted && !alphaGateActive
+                  ? "fixed bottom-[276px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none"
+                  : "w-full max-w-none"
+              } flex min-h-0 flex-1 flex-col text-center`}
+            >
             {!activeSidebarChatStarted && (
               <div className="shrink-0">
-                <h1 className="text-3xl font-semibold leading-[1.14] text-white sm:mt-3 sm:text-6xl sm:leading-tight">
+                <h1 className="text-2xl font-semibold leading-tight text-white sm:mt-1 sm:text-4xl sm:leading-tight">
                   Turn an idea into a hardware plan.
                 </h1>
-                <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-slate-400 sm:mt-5 sm:text-base sm:leading-7">
+                <p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-slate-400 sm:mt-3 sm:text-sm sm:leading-6">
                   Upload a photo, sketch, or short description. Get parts, wiring, cost, and build steps.
                 </p>
               </div>
@@ -4373,7 +4379,7 @@ export function BlueprintWorkspace({
                 </form>
               </div>
             ) : (
-              <div className={`${activeSidebarChatStarted ? "mt-0 flex-1" : "mt-5 sm:mt-6"} flex min-h-0 flex-col overflow-hidden border border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
+              <div className={`${activeSidebarChatStarted ? "mt-0" : "mt-4 sm:mt-5"} flex min-h-0 flex-1 flex-col overflow-hidden border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
                 {activeSidebarChatStarted && (
                   <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
                     {chatMessages.map((message) => {
@@ -4431,7 +4437,7 @@ export function BlueprintWorkspace({
                 )}
 
                 {!activeSidebarChatStarted && (
-                  <div className="shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4">
+                  <div className="mt-auto shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4">
                     <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
                       {samplePrompts.map((example) => (
                         <button
@@ -4451,7 +4457,7 @@ export function BlueprintWorkspace({
                   </div>
                 )}
 
-                <form onSubmit={handleGenerate} className="sticky bottom-0 z-20 shrink-0 border-t border-[#2c2f37] bg-[#141519]/95 p-3 backdrop-blur sm:p-4">
+                <form onSubmit={handleGenerate} className="fixed bottom-0 left-0 right-0 z-30 shrink-0 border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:border-b-0 md:pb-4">
                   {pendingHumanContext && (
                     <div className="mb-3 border border-cyan-300/25 bg-cyan-300/5 p-4">
                       <div className="flex flex-wrap items-center gap-2">
@@ -4658,6 +4664,7 @@ export function BlueprintWorkspace({
                     </div>
                   </div>
                 </form>
+                {activeSidebarChatStarted && <div className="h-[276px] shrink-0 md:hidden" aria-hidden="true" />}
 
               </div>
             )}
@@ -4849,7 +4856,7 @@ function MobileWorkspaceBar({
       : "border-orange-500/30 bg-orange-950/20 text-orange-300";
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
+    <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
       <div className="min-w-0 flex flex-1 items-center gap-2">
         <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Blueprint</span>
@@ -6920,13 +6927,13 @@ function ProjectChatPanel({
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#141519]">
-      <div className="flex min-h-[74px] flex-wrap items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-4">
+      <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <MessageSquare className="h-4 w-4 text-cyan-300" />
             <h2 className="truncate text-sm font-black uppercase tracking-[0.18em] text-white">Build Chat</h2>
           </div>
-          <div className="mt-2 truncate text-xs text-slate-500">Active project item: {projectTitle}</div>
+          <div className="mt-1 truncate text-[11px] text-slate-500">Active project item: {projectTitle}</div>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
           <button
@@ -7032,7 +7039,7 @@ function ProjectChatPanel({
             </div>
           </div>
 
-          <form onSubmit={onSubmit} className="sticky bottom-0 z-20 shrink-0 border-t border-[#2a2c33] bg-[#111216]/95 p-4 backdrop-blur">
+          <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 z-30 shrink-0 border-y border-[#2a2c33] bg-[#111216]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:border-b-0 md:pb-4">
             <div className="mx-auto max-w-3xl">
               <div className="relative">
                 <textarea
@@ -7059,6 +7066,7 @@ function ProjectChatPanel({
               </div>
             </div>
           </form>
+          <div className="h-[172px] shrink-0 md:hidden" aria-hidden="true" />
         </div>
         )}
 

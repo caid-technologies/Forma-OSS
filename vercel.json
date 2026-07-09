@@ -1,14 +1,28 @@
 {
-    "experimentalServices": {
+    "services": {
         "frontend": {
-            "entrypoint": "frontend",
-            "routePrefix": "/",
+            "root": "frontend/",
             "framework": "nextjs"
         },
         "backend": {
-            "entrypoint": "backend/main.py",
-            "routePrefix": "/api",
-            "framework": "fastapi"
+            "root": ".",
+            "framework": "fastapi",
+            "entrypoint": "backend.main:app",
+            "installCommand": "python -m pip install . -r backend/requirements.txt"
         }
-    }
+    },
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": {
+                "service": "backend"
+            }
+        },
+        {
+            "source": "/(.*)",
+            "destination": {
+                "service": "frontend"
+            }
+        }
+    ]
 }

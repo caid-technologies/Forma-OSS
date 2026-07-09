@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import json
 import pathlib
 import tomllib
 import unittest
@@ -36,6 +37,20 @@ class CorePackageTests(unittest.TestCase):
         )
 
         self.assertEqual(f"{DIST_NAME}=={blueprint_core.__version__}", requirement)
+
+    def test_vercel_backend_installs_local_core_package(self) -> None:
+        vercel_config = json.loads((ROOT_DIR / "vercel.json").read_text(encoding="utf-8"))
+
+        self.assertNotIn("experimentalServices", vercel_config)
+        backend = vercel_config["services"]["backend"]
+        self.assertEqual(".", backend["root"])
+        self.assertEqual("fastapi", backend["framework"])
+        self.assertEqual("backend.main:app", backend["entrypoint"])
+        self.assertEqual("python -m pip install . -r backend/requirements.txt", backend["installCommand"])
+        self.assertIn(
+            {"source": "/api/(.*)", "destination": {"service": "backend"}},
+            vercel_config["rewrites"],
+        )
 
     def test_installed_distribution_metadata_when_available(self) -> None:
         try:

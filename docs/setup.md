@@ -45,10 +45,11 @@ pip install -r backend/requirements.txt
 ```
 
 `backend/requirements.txt` intentionally pins the published `caid-blueprint-core`
-distribution so Vercel service builds can import `blueprint_core` even when the
-backend is built independently from the monorepo root. When changing
-`blueprint_core` for production deployment, publish the matching package version
-and update the backend requirement pin in the same change.
+distribution for package-based backend installs. Vercel uses the service
+`installCommand` in `vercel.json` to install the checked-out monorepo root package
+first (`python -m pip install . -r backend/requirements.txt`), so deployment builds
+can import the current `blueprint_core` code even when the backend service is built
+independently.
 
 ### Environment variables
 Recommended: create a repo-root `.env` (see `.env.example`).

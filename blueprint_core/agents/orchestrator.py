@@ -968,7 +968,10 @@ class HardwarePipelineOrchestrator:
         except Exception as e:
             if deployment_mode_enabled():
                 logger.error("Pipeline execution encountered an error in deployment mode: %s", e)
-                raise AlphaGenerationUnavailableError(generation_unavailable_message(self.get_debug_config())) from e
+                debug_config = self.get_debug_config()
+                if not debug_config.get("live_generation_enabled"):
+                    raise AlphaGenerationUnavailableError(generation_unavailable_message(debug_config)) from e
+                raise
             if _generation_fallback_disabled():
                 logger.error("Pipeline execution failed and fallback is disabled: %s", e)
                 raise

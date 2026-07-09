@@ -10,12 +10,28 @@
             "entrypoint": "backend.main:app",
             "functions": {
                 "backend.main:app": {
+                    "includeFiles": "blueprint_core/**",
+                    "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
+                },
+                "backend/main.py": {
+                    "includeFiles": "blueprint_core/**",
                     "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
                 },
                 "main.py": {
+                    "includeFiles": "blueprint_core/**",
                     "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
                 }
             }
+        }
+    },
+    "functions": {
+        "backend/**/*.py": {
+            "includeFiles": "blueprint_core/**",
+            "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
+        },
+        "main.py": {
+            "includeFiles": "blueprint_core/**",
+            "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
         }
     },
     "rewrites": [

@@ -20,13 +20,12 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /data \
     && chown -R appuser:appuser /data /app
 
-COPY pyproject.toml README.md LICENSE ./
-COPY blueprint_core ./blueprint_core
 COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --upgrade pip \
     && pip install -r backend/requirements.txt
 
 COPY backend ./backend
+COPY blueprint_core ./blueprint_core
 RUN chown -R appuser:appuser /app
 
 USER appuser

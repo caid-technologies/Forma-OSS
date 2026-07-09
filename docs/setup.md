@@ -44,13 +44,14 @@ source .venv/bin/activate
 pip install -r backend/requirements.txt
 ```
 
-The repo-root and backend `requirements.txt` files are intentionally tiny: they
-install the checked-out monorepo package with the `backend` extra (`.[backend]`).
-Vercel reads `backend/requirements.txt` for the backend service, so this keeps
-deployments on the current `blueprint_core` source instead of a stale PyPI wheel
-while still allowing normal Python bundle optimization. `vercel.json` also
-excludes local databases, logs, frontend artifacts, Rust build output, examples,
-docs, and tests from the backend function bundle.
+The repo-root `requirements.txt` installs the checked-out monorepo package for
+local root installs. Vercel reads `backend/requirements.txt` for the backend
+service, so that file lists only third-party runtime dependencies. The
+`blueprint_core` source is bundled into the backend function through
+`vercel.json` `includeFiles`, which keeps deployments on the current monorepo
+source without relying on a stale PyPI wheel. `vercel.json` also excludes local
+databases, logs, frontend artifacts, Rust build output, examples, docs, and tests
+from the backend function bundle.
 
 ### Environment variables
 Recommended: create a repo-root `.env` (see `.env.example`).

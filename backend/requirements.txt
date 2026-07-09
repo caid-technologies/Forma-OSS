@@ -1,4 +1,9 @@
-# Vercel reads this file for the backend service. Install the checked-out
-# monorepo package instead of a published wheel so deploys cannot use a stale
-# caid-blueprint-core build.
-.[backend]
+# Third-party backend runtime dependencies. The monorepo's blueprint_core source
+# is bundled by vercel.json includeFiles instead of installed from PyPI.
+fastapi>=0.124.1
+uvicorn
+websockets>=12.0
+pydantic>=2.12.0
+python-dotenv>=1.0.1
+sqlalchemy==2.0.31
+supabase==2.31.0

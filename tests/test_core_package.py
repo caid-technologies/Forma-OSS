@@ -29,14 +29,23 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["blueprint_core"])
         self.assertTrue((CORE_DIR / "py.typed").exists())
 
-    def test_backend_requirements_install_local_backend_extra_for_vercel(self) -> None:
+    def test_backend_requirements_use_third_party_dependencies_for_vercel(self) -> None:
         requirements_path = ROOT_DIR / "backend" / "requirements.txt"
         requirements = [
             line.split("#", 1)[0].strip()
             for line in requirements_path.read_text(encoding="utf-8").splitlines()
         ]
+        active_requirements = [line for line in requirements if line]
 
-        self.assertEqual([".[backend]"], [line for line in requirements if line])
+        self.assertIn("fastapi>=0.124.1", active_requirements)
+        self.assertIn("uvicorn", active_requirements)
+        self.assertIn("websockets>=12.0", active_requirements)
+        self.assertIn("pydantic>=2.12.0", active_requirements)
+        self.assertIn("python-dotenv>=1.0.1", active_requirements)
+        self.assertIn("sqlalchemy==2.0.31", active_requirements)
+        self.assertIn("supabase==2.31.0", active_requirements)
+        self.assertNotIn(".[backend]", active_requirements)
+        self.assertFalse(any(line.startswith(f"{DIST_NAME}==") for line in active_requirements))
 
     def test_root_requirements_install_local_backend_extra_for_vercel(self) -> None:
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8").splitlines()
@@ -61,13 +70,17 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual("fastapi", backend["framework"])
         self.assertEqual("backend.main:app", backend["entrypoint"])
         self.assertNotIn("installCommand", backend)
-        exclude_files = backend["functions"]["backend.main:app"]["excludeFiles"]
-        self.assertIn("frontend/**", exclude_files)
-        self.assertIn("rust/**", exclude_files)
-        self.assertIn("*.db", exclude_files)
-        legacy_exclude_files = backend["functions"]["main.py"]["excludeFiles"]
-        self.assertIn("frontend/**", legacy_exclude_files)
-        self.assertIn("rust/**", legacy_exclude_files)
+        for function_key in ("backend.main:app", "backend/main.py", "main.py"):
+            function_config = backend["functions"][function_key]
+            self.assertEqual("blueprint_core/**", function_config["includeFiles"])
+            exclude_files = function_config["excludeFiles"]
+            self.assertIn("frontend/**", exclude_files)
+            self.assertIn("rust/**", exclude_files)
+            self.assertIn("*.db", exclude_files)
+        for function_key in ("backend/**/*.py", "main.py"):
+            function_config = vercel_config["functions"][function_key]
+            self.assertEqual("blueprint_core/**", function_config["includeFiles"])
+            self.assertIn("frontend/**", function_config["excludeFiles"])
         self.assertIn(
             {"source": "/api/(.*)", "destination": {"service": "backend"}},
             vercel_config["rewrites"],

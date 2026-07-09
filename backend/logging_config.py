@@ -1,3 +1,4 @@
+import errno
 import logging
 import os
 import re
@@ -13,6 +14,7 @@ from blueprint_core.logs import resolve_backend_log_path
 DEFAULT_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
 DEFAULT_LOG_MAX_BYTES = 10_000_000
 DEFAULT_LOG_BACKUP_COUNT = 5
+SERVERLESS_ENV_VARS = ("VERCEL", "AWS_LAMBDA_FUNCTION_NAME", "AWS_EXECUTION_ENV")
 
 
 class _LoggerNamespaceFilter(logging.Filter):
@@ -42,6 +44,36 @@ def _env_int(name: str, default: int) -> int:
         return int(raw_value)
     except ValueError:
         return default
+
+
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _serverless_runtime_detected() -> bool:
+    return any(os.getenv(name) for name in SERVERLESS_ENV_VARS)
+
+
+def _tmp_log_fallback_path(path: Path) -> Optional[Path]:
+    if not _env_bool("BACKEND_LOG_TMP_FALLBACK", True):
+        return None
+
+    tmp_dir = Path(os.getenv("TMPDIR") or "/tmp").expanduser()
+    try:
+        resolved_tmp_dir = tmp_dir.resolve()
+        resolved_path = path.resolve()
+    except OSError:
+        resolved_tmp_dir = tmp_dir
+        resolved_path = path
+
+    if resolved_path.parent == resolved_tmp_dir:
+        return None
+    if not _serverless_runtime_detected():
+        return None
+    return (resolved_tmp_dir / path.name).resolve()
 
 
 def _log_namespaces() -> Tuple[str, ...]:
@@ -93,6 +125,66 @@ def _build_file_handler(
     return handler
 
 
+def _attach_file_handlers(
+    log_path: Path,
+    level: int,
+    formatter: logging.Formatter,
+    namespaces: Tuple[str, ...],
+) -> None:
+    # Uvicorn child loggers do not consistently propagate to root under uvicorn's
+    # own logging config. Attach directly to the child loggers, but not to the
+    # parent "uvicorn" logger; otherwise startup lines can be duplicated.
+    uvicorn_error_logger = logging.getLogger("uvicorn.error")
+    uvicorn_access_logger = logging.getLogger("uvicorn.access")
+    uvicorn_error_logger.propagate = False
+    uvicorn_access_logger.propagate = False
+    target_loggers = [
+        logging.getLogger(),
+        uvicorn_error_logger,
+        uvicorn_access_logger,
+    ]
+    for logger in target_loggers:
+        logger.setLevel(level)
+        if _handler_for_path(logger, log_path) is None:
+            logger.addHandler(_build_file_handler(log_path, level, formatter, namespaces))
+
+
+def _configure_file_logging(
+    log_path: Path,
+    level: int,
+    formatter: logging.Formatter,
+    namespaces: Tuple[str, ...],
+) -> Optional[Path]:
+    try:
+        _attach_file_handlers(log_path, level, formatter, namespaces)
+        return log_path
+    except OSError as exc:
+        logger = logging.getLogger(__name__)
+        fallback_path = _tmp_log_fallback_path(log_path)
+        if fallback_path is not None:
+            logger.warning(
+                "Backend log file %s is not writable (%s); falling back to %s.",
+                log_path,
+                exc,
+                fallback_path,
+            )
+            os.environ["BACKEND_LOG_FILE"] = str(fallback_path)
+            try:
+                _attach_file_handlers(fallback_path, level, formatter, namespaces)
+                return fallback_path
+            except OSError as fallback_exc:
+                logger.warning(
+                    "Backend log file fallback %s is not writable (%s); file logging disabled.",
+                    fallback_path,
+                    fallback_exc,
+                )
+                return None
+
+        reason = "read-only filesystem" if exc.errno == errno.EROFS else str(exc)
+        logger.warning("Backend log file %s is not writable (%s); file logging disabled.", log_path, reason)
+        return None
+
+
 def _ensure_console_handler(
     root_logger: logging.Logger,
     level: int,
@@ -125,26 +217,13 @@ def configure_backend_logging() -> None:
     if log_path is None:
         return
 
-    # Uvicorn child loggers do not consistently propagate to root under uvicorn's
-    # own logging config. Attach directly to the child loggers, but not to the
-    # parent "uvicorn" logger; otherwise startup lines can be duplicated.
-    uvicorn_error_logger = logging.getLogger("uvicorn.error")
-    uvicorn_access_logger = logging.getLogger("uvicorn.access")
-    uvicorn_error_logger.propagate = False
-    uvicorn_access_logger.propagate = False
-    target_loggers = [
-        root_logger,
-        uvicorn_error_logger,
-        uvicorn_access_logger,
-    ]
-    for logger in target_loggers:
-        logger.setLevel(level)
-        if _handler_for_path(logger, log_path) is None:
-            logger.addHandler(_build_file_handler(log_path, level, formatter, namespaces))
+    configured_log_path = _configure_file_logging(log_path, level, formatter, namespaces)
+    if configured_log_path is None:
+        return
 
     logging.getLogger(__name__).info(
         "Backend logging configured; file=%s level=%s namespaces=%s",
-        log_path,
+        configured_log_path,
         logging.getLevelName(level),
         ",".join(namespaces) if namespaces else "*",
     )

@@ -45,6 +45,12 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("sqlalchemy==2.0.31", active_requirements)
         self.assertIn("supabase==2.31.0", active_requirements)
         self.assertNotIn(".[backend]", active_requirements)
+        for requirement in active_requirements:
+            self.assertFalse(
+                requirement.startswith((".", "-e", "file:")),
+                "backend/requirements.txt is resolved from backend/ on Vercel; "
+                f"local project requirement {requirement!r} would point at backend/backend.",
+            )
         self.assertFalse(any(line.startswith(f"{DIST_NAME}==") for line in active_requirements))
 
     def test_root_requirements_install_local_backend_extra_for_vercel(self) -> None:

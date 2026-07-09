@@ -29,15 +29,14 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["blueprint_core"])
         self.assertTrue((CORE_DIR / "py.typed").exists())
 
-    def test_backend_requirements_pin_published_core_package(self) -> None:
+    def test_backend_requirements_install_local_backend_extra_for_vercel(self) -> None:
         requirements_path = ROOT_DIR / "backend" / "requirements.txt"
-        requirements = requirements_path.read_text(encoding="utf-8").splitlines()
-        requirement = next(
-            (line.split("#", 1)[0].strip() for line in requirements if line.split("#", 1)[0].strip().startswith(f"{DIST_NAME}==")),
-            None,
-        )
+        requirements = [
+            line.split("#", 1)[0].strip()
+            for line in requirements_path.read_text(encoding="utf-8").splitlines()
+        ]
 
-        self.assertEqual(f"{DIST_NAME}=={blueprint_core.__version__}", requirement)
+        self.assertEqual([".[backend]"], [line for line in requirements if line])
 
     def test_root_requirements_install_local_backend_extra_for_vercel(self) -> None:
         requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8").splitlines()
@@ -83,11 +82,16 @@ class CorePackageTests(unittest.TestCase):
 
     def test_installed_distribution_metadata_when_available(self) -> None:
         try:
-            version = importlib.metadata.version(DIST_NAME)
+            distribution = importlib.metadata.distribution(DIST_NAME)
         except importlib.metadata.PackageNotFoundError:
             self.skipTest(f"{DIST_NAME} is not installed in this interpreter")
 
-        self.assertEqual(blueprint_core.__version__, version)
+        import_path = pathlib.Path(blueprint_core.__file__).resolve()
+        distribution_root = pathlib.Path(distribution.locate_file("")).resolve()
+        if not import_path.is_relative_to(distribution_root):
+            self.skipTest(f"{DIST_NAME} distribution metadata belongs to {distribution_root}, but source import is {import_path}")
+
+        self.assertEqual(blueprint_core.__version__, distribution.version)
 
     def test_blueprint_core_does_not_import_backend_modules(self) -> None:
         offenders: list[str] = []

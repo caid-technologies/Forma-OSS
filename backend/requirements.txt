@@ -1,16 +1,4 @@
-# Vercel builds the backend service independently, so install the reusable
-# core package instead of relying on the monorepo root being bundled.
-caid-blueprint-core==0.1.1
-fastapi>=0.124.1
-uvicorn
-websockets>=12.0
-pydantic>=2.12.0
-# google-adk==2.0.0a2
-# google-genai>=0.1.0
-sqlalchemy==2.0.31
-supabase==2.31.0
-boto3==1.35.99
-python-dotenv==1.0.1
-langfuse>=4.0.0
-huggingface-hub>=0.34.0
-tavily-python>=0.5.0
+# Vercel reads this file for the backend service. Install the checked-out
+# monorepo package instead of a published wheel so deploys cannot use a stale
+# caid-blueprint-core build.
+.[backend]

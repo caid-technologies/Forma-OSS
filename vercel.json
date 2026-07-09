@@ -8,7 +8,11 @@
             "root": ".",
             "framework": "fastapi",
             "entrypoint": "backend.main:app",
-            "installCommand": "python -m pip install . -r backend/requirements.txt"
+            "functions": {
+                "backend.main:app": {
+                    "excludeFiles": "{frontend/**,rust/**,docs/**,tests/**,benchmarks/**,examples/**,scripts/**,dist/**,tmp/**,.logs/**,.spacebase/**,.vscode/**,supabase/**,*.db,*.log,__pycache__/**,**/__pycache__/**,**/*.pyc,**/*.pyo,**/*.tsbuildinfo}"
+                }
+            }
         }
     },
     "rewrites": [

@@ -38,7 +38,21 @@ class CorePackageTests(unittest.TestCase):
 
         self.assertEqual(f"{DIST_NAME}=={blueprint_core.__version__}", requirement)
 
-    def test_vercel_backend_installs_local_core_package(self) -> None:
+    def test_root_requirements_install_local_backend_extra_for_vercel(self) -> None:
+        requirements = (ROOT_DIR / "requirements.txt").read_text(encoding="utf-8").splitlines()
+
+        self.assertEqual([".[backend]"], [line.strip() for line in requirements if line.strip()])
+
+    def test_pyproject_backend_extra_contains_fastapi_service_dependencies(self) -> None:
+        pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
+        backend_deps = set(pyproject["project"]["optional-dependencies"]["backend"])
+
+        self.assertIn("fastapi>=0.124.1", backend_deps)
+        self.assertIn("uvicorn", backend_deps)
+        self.assertIn("websockets>=12.0", backend_deps)
+        self.assertIn("supabase==2.31.0", backend_deps)
+
+    def test_vercel_backend_uses_standard_dependency_discovery(self) -> None:
         vercel_config = json.loads((ROOT_DIR / "vercel.json").read_text(encoding="utf-8"))
 
         self.assertNotIn("experimentalServices", vercel_config)
@@ -46,7 +60,11 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual(".", backend["root"])
         self.assertEqual("fastapi", backend["framework"])
         self.assertEqual("backend.main:app", backend["entrypoint"])
-        self.assertEqual("python -m pip install . -r backend/requirements.txt", backend["installCommand"])
+        self.assertNotIn("installCommand", backend)
+        exclude_files = backend["functions"]["backend.main:app"]["excludeFiles"]
+        self.assertIn("frontend/**", exclude_files)
+        self.assertIn("rust/**", exclude_files)
+        self.assertIn("*.db", exclude_files)
         self.assertIn(
             {"source": "/api/(.*)", "destination": {"service": "backend"}},
             vercel_config["rewrites"],

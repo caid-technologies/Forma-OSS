@@ -18,6 +18,7 @@ __pycache__/
 
 # Local database & secrets
 *.db
+/data/
 .env
 .env.local
 .env.development.local
@@ -41,3 +42,4 @@ tmp/
 *.njsproj
 *.sln
 *.swp
+.vercel

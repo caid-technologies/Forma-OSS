@@ -35,6 +35,10 @@ Homepage = "https://github.com/caid-technologies/Blueprint-OSS"
 Repository = "https://github.com/caid-technologies/Blueprint-OSS"
 Documentation = "https://github.com/caid-technologies/Blueprint-OSS#readme"
 
+[project.scripts]
+fabricator = "fabricator.main:main"
+fibricator = "fibricator.main:main"
+
 [tool.vercel]
 entrypoint = "backend.main:app"
 
@@ -72,10 +76,18 @@ dev = [
 include-package-data = true
 
 [tool.setuptools.packages.find]
-include = ["blueprint_core", "blueprint_core.*"]
+include = [
+    "blueprint_core",
+    "blueprint_core.*",
+    "fabricator",
+    "fabricator.*",
+    "fibricator",
+    "fibricator.*",
+]
 
 [tool.setuptools.package-data]
 blueprint_core = ["py.typed"]
+fabricator = ["py.typed"]
 
 [tool.setuptools.dynamic]
 version = { attr = "blueprint_core._version.__version__" }

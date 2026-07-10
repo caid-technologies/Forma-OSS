@@ -28,7 +28,6 @@ from blueprint_core.external_sources import (
     ExternalSourceProvider,
     ExternalSourceProviderConfig,
     ExternalSourceRecord,
-    TavilyExternalSourceProvider,
     build_external_source_provider,
 )
 from blueprint_core.providers import (
@@ -45,6 +44,23 @@ from blueprint_core.providers import (
     ProviderSpec,
     model_name_for_provider,
     normalize_provider_name,
+)
+from blueprint_core.lattice import (
+    LatticeAgentCard,
+    LatticeCapability,
+    LatticeRegistry,
+    LatticeRunRecord,
+    LatticeSchemaContract,
+    schema_from_model,
+)
+from blueprint_core.lattice_agents import (
+    NamespaceAgentQuestion,
+    NamespaceAgentResult,
+    default_namespace_agent_cards,
+    namespace_action,
+    namespace_agent_card,
+    namespace_agent_id,
+    namespace_contract_id,
 )
 from blueprint_core.continuous_agents import (
     AgentOutputEvent,
@@ -138,7 +154,14 @@ __all__ = [
     "HuggingFaceUploadResult",
     "IntegrationDefinition",
     "IntegrationFieldDefinition",
+    "LatticeAgentCard",
+    "LatticeCapability",
+    "LatticeRegistry",
+    "LatticeRunRecord",
+    "LatticeSchemaContract",
     "LLMSelector",
+    "NamespaceAgentQuestion",
+    "NamespaceAgentResult",
     "ExternalSourceLibrary",
     "ExternalSourceProvider",
     "ExternalSourceProviderConfig",
@@ -203,7 +226,6 @@ __all__ = [
     "StoredIntegration",
     "StoredIntegrationField",
     "StreamEvent",
-    "TavilyExternalSourceProvider",
     "TerminalImageRenderConfig",
     "TerminalImageRenderer",
     "UserIntegrationConfig",
@@ -219,6 +241,7 @@ __all__ = [
     "build_project_object",
     "candidate_image_strings",
     "default_prompt_seeds",
+    "default_namespace_agent_cards",
     "default_user_integrations_path",
     "extract_image_paths",
     "firecrawl_usage_from_result",
@@ -231,10 +254,15 @@ __all__ = [
     "list_project_namespaces",
     "model_name_for_provider",
     "normalize_provider_name",
+    "namespace_action",
+    "namespace_agent_card",
+    "namespace_agent_id",
+    "namespace_contract_id",
     "openai_chunk_from_sse",
     "parse_llm_selector",
     "prepare_video_for_fireworks_native_review",
     "render_images",
     "sample_video_frames",
+    "schema_from_model",
     "upload_artifacts_to_huggingface",
 ]

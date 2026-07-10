@@ -40,7 +40,9 @@ def source_usage_for_workflow(
     uses_catalog = workflow == DEFAULT_WORKFLOW_ID
     uses_web_research = workflow == WEB_RESEARCH_WORKFLOW_ID
     normalized_provider = (external_provider or "").strip().lower()
-    if normalized_provider not in {"tavily", "firecrawl"}:
+    if uses_web_research:
+        normalized_provider = "firecrawl"
+    elif normalized_provider not in {"tavily", "firecrawl"}:
         normalized_provider = ""
     return _source_usage_payload(
         workflow,

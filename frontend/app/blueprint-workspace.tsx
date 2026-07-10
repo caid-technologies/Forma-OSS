@@ -61,6 +61,9 @@ const DEFAULT_SHOW_DEVELOPER_TOOLS =
   process.env.NODE_ENV === "development" ||
   isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEBUG) ||
   isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEV_MODE);
+const DEFAULT_WORKFLOW_ID = "default";
+const WEB_RESEARCH_WORKFLOW_ID = "web_research";
+const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
 const JOB_POLL_INTERVAL_MS = 5000;
 const VIDEO_POLL_INTERVAL_MS = 4000;
 const VIDEO_PROMPT_MAX_CHARS = 2500;
@@ -88,8 +91,6 @@ type GenerationLlmOption = {
   model: string;
   label: string;
 };
-
-type ExternalSourceProviderId = "tavily" | "firecrawl";
 
 type AgentPipelineStep = {
   id: string;
@@ -146,19 +147,25 @@ type PendingHumanContext = {
 };
 
 const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
-  { id: "default", label: "Catalog", description: "Catalog workflow", uses_catalog: true },
-  { id: "web_research", label: "Web Research", description: "External source workflow", uses_web_research: true, uses_external_sources: true },
+  { id: DEFAULT_WORKFLOW_ID, label: "Catalog", description: "Catalog workflow", uses_catalog: true },
+  { id: WEB_RESEARCH_WORKFLOW_ID, label: "Web Research", description: "Firecrawl research workflow", uses_web_research: true, uses_firecrawl_mcp: true, uses_external_sources: true },
 ];
 
-const externalSourceProviderOptions: Array<{ id: ExternalSourceProviderId; label: string }> = [
-  { id: "tavily", label: "Tavily" },
-  { id: "firecrawl", label: "Firecrawl" },
-];
+const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
+const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
+const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
+
+const localOnlyGenerationLlms: GenerationLlmOption[] =
+  process.env.NODE_ENV === "development"
+    ? [{ provider: "baseten", model: BASETEN_DEEPSEEK_MODEL, label: "Baseten DeepSeek V4 Pro" }]
+    : [];
 
 const defaultGenerationLlms: GenerationLlmOption[] = [
   { provider: "openai", model: "gpt-5.5", label: "OpenAI GPT-5.5" },
-  { provider: "runpod", model: "caid-technologies/parti-base", label: "Runpod Parti Base" },
-  { provider: "baseten", model: "deepseek-ai/DeepSeek-V4-Pro", label: "Baseten DeepSeek V4 Pro" },
+  { provider: "runpod", model: RUNPOD_PARTI_BASE_MODEL, label: "Runpod Parti Base" },
+  { provider: "runpod-serverless", model: RUNPOD_PARTI_BASE_MODEL, label: "Runpod Serverless Parti Base" },
+  { provider: "baseten", model: BASETEN_GLM_MODEL, label: "Baseten GLM 5.2" },
+  ...localOnlyGenerationLlms,
   { provider: "gmi", model: "anthropic/claude-fable-5", label: "GMI Claude Fable 5" },
   { provider: "nvidia", model: "meta/llama-3.1-8b-instruct", label: "NVIDIA Llama 3.1 8B" },
 ];
@@ -247,6 +254,13 @@ const optionalImagePipelineStep: AgentPipelineStep = {
 
 function generationLlmKey(option: Pick<GenerationLlmOption, "provider" | "model">) {
   return `${option.provider}/${option.model}`;
+}
+
+function generationLlmLabel(provider: string, model: string) {
+  if (provider === "runpod-serverless" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Serverless Parti Base";
+  if (provider === "runpod" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Parti Base";
+  if (provider === "simulation") return "Local Simulation";
+  return `${provider} ${model}`.trim();
 }
 
 function normalizeApiUrl(value: string) {
@@ -633,6 +647,29 @@ function initialProjectChatMessages(projectId: string, title: string, sourceProm
   return messages;
 }
 
+function missingProjectNotice(projectId: string) {
+  return `This chat pointed at project ${projectId}, but that project is not in the current local Supabase. The chat history is still here; generate again to create a new local project.`;
+}
+
+function messagesWithoutMissingProject(messages: ChatMessage[], projectId: string): ChatMessage[] {
+  const notice = missingProjectNotice(projectId);
+  const normalizedMessages = messages.map((message) =>
+    message.projectId === projectId ? { ...message, projectId: null } : message
+  );
+  if (normalizedMessages.some((message) => message.role === "assistant" && message.content === notice)) {
+    return normalizedMessages;
+  }
+  const noticeMessage: ChatMessage = {
+    id: newChatMessageId(),
+    role: "assistant",
+    content: notice,
+    status: "error",
+    timestamp: chatTimestamp(),
+    projectId: null,
+  };
+  return [...normalizedMessages, noticeMessage].slice(-MAX_PROJECT_CHAT_MESSAGES);
+}
+
 function automaticHumanContextPromptSection(basePrompt: string) {
   const inferredQuestions = humanContextQuestionsForPrompt(basePrompt);
   return [
@@ -1006,7 +1043,6 @@ const workspaceTabs = [
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
   { id: "assembly", label: "DOCS", icon: Info },
-  { id: "svg", label: "SVG", icon: Layers },
   { id: "video", label: "VIDEO", icon: Film },
 ];
 
@@ -1017,7 +1053,6 @@ const workspaceTabNamespaces: Record<string, string> = {
   mechanical: "product.mech",
   schematic: "product.electrical",
   assembly: "project.docs",
-  svg: "product.electrical.svg",
   video: "product.visuals.video",
   jobs: "project.history.jobs",
   logs: "project.runtime.logs",
@@ -1656,6 +1691,11 @@ function chatIdFromIR(ir: any) {
   return ir?.assembly_metadata?.chat_id || null;
 }
 
+function chatIdFromJob(job: A2AJob) {
+  const rawChatId = job.payload?.chat_id || job.result_summary?.chat_id;
+  return typeof rawChatId === "string" ? rawChatId.trim() : "";
+}
+
 function projectRoute(projectId: string) {
   return `/project/${encodeURIComponent(projectId)}`;
 }
@@ -1779,8 +1819,7 @@ export function BlueprintWorkspace({
   const [alphaSignupStatus, setAlphaSignupStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
   const [alphaSignupMessage, setAlphaSignupMessage] = useState<string | null>(null);
   const [generateProductImage, setGenerateProductImage] = useState(false);
-  const [generationWorkflow, setGenerationWorkflow] = useState("default");
-  const [externalSourceProvider, setExternalSourceProvider] = useState<ExternalSourceProviderId>("tavily");
+  const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
   const [agentPipelineSteps, setAgentPipelineSteps] = useState<AgentPipelineStep[]>(defaultAgentPipelineSteps);
   const [generationLlms, setGenerationLlms] = useState<GenerationLlmOption[]>(defaultGenerationLlms);
@@ -1830,13 +1869,15 @@ export function BlueprintWorkspace({
     () => generationWorkflows.find((workflow) => workflow.id === generationWorkflow) || generationWorkflows[0] || defaultGenerationWorkflows[0],
     [generationWorkflow, generationWorkflows]
   );
+  const webResearchEnabled = generationWorkflow === WEB_RESEARCH_WORKFLOW_ID;
   const selectedWorkflowUsesExternalSources = Boolean(
-    selectedGenerationWorkflow?.uses_external_sources ||
-    selectedGenerationWorkflow?.uses_web_research ||
-    selectedGenerationWorkflow?.uses_firecrawl_mcp
+    webResearchEnabled &&
+    (
+      selectedGenerationWorkflow?.uses_external_sources ||
+      selectedGenerationWorkflow?.uses_web_research ||
+      selectedGenerationWorkflow?.uses_firecrawl_mcp
+    )
   );
-  const externalSourceProviderLabel =
-    externalSourceProviderOptions.find((option) => option.id === externalSourceProvider)?.label || externalSourceProvider;
   const selectedGenerationLlm = useMemo(
     () => generationLlms.find((option) => generationLlmKey(option) === generationLlmKeyValue) || generationLlms[0] || defaultGenerationLlms[0],
     [generationLlmKeyValue, generationLlms]
@@ -1977,6 +2018,29 @@ export function BlueprintWorkspace({
   const rememberChatItem = (item: Partial<ChatListItem> & { chatId: string }) => {
     setLocalChatItems((current) => {
       const nextItems = upsertChatListItem(current, item);
+      writeStoredChatIndex(nextItems);
+      return nextItems;
+    });
+  };
+
+  const detachMissingProjectFromChat = (chatId: string, projectId: string, title?: string | null) => {
+    if (!chatId || !projectId) return;
+    setLocalChatItems((current) => {
+      const existing = current.find((item) => item.chatId === chatId);
+      const nextItem: ChatListItem = {
+        chatId,
+        title: existing?.title?.trim() || title?.trim() || NEW_PROJECT_TITLE,
+        projectId: "",
+        createdAt: existing?.createdAt || chatTimestamp(),
+        projectCount: 0,
+      };
+      const nextItems = [nextItem, ...current.filter((item) => item.chatId !== chatId)]
+        .sort((left, right) => {
+          const leftTime = Date.parse(left.createdAt || "");
+          const rightTime = Date.parse(right.createdAt || "");
+          return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+        })
+        .slice(0, MAX_CHAT_INDEX_ITEMS);
       writeStoredChatIndex(nextItems);
       return nextItems;
     });
@@ -2136,7 +2200,7 @@ export function BlueprintWorkspace({
 
   const checkServerStatus = async () => {
     try {
-      const res = await fetch(API_URL);
+      const res = await fetch(`${API_URL}/`);
       setServerStatus(res.ok ? "connected" : "disconnected");
     } catch {
       setServerStatus("disconnected");
@@ -2170,17 +2234,24 @@ export function BlueprintWorkspace({
       }
       const runtime = config.runtime || {};
       const allowedProviders = Array.isArray(runtime.allowed_providers) ? runtime.allowed_providers.map((item: any) => String(item)) : null;
+      const configuredProviders = Array.isArray(runtime.configured_providers) ? runtime.configured_providers.map((item: any) => String(item)) : null;
       const runtimeProvider = typeof runtime.runtime_provider === "string" ? runtime.runtime_provider : null;
       const runtimeModel = typeof runtime.runtime_model === "string" ? runtime.runtime_model : null;
-      const filteredLlms = allowedProviders
-        ? defaultGenerationLlms.filter((option) => allowedProviders.includes(option.provider))
-        : defaultGenerationLlms;
+      const providerCanAppear = (provider: string) =>
+        (!allowedProviders || allowedProviders.includes(provider)) &&
+        (!configuredProviders || configuredProviders.includes(provider));
+      const filteredLlms = defaultGenerationLlms.filter((option) => providerCanAppear(option.provider));
       const nextLlms = [...filteredLlms];
-      if (runtimeProvider && runtimeModel && !nextLlms.some((option) => option.provider === runtimeProvider && option.model === runtimeModel)) {
+      if (
+        runtimeProvider &&
+        runtimeModel &&
+        providerCanAppear(runtimeProvider) &&
+        !nextLlms.some((option) => option.provider === runtimeProvider && option.model === runtimeModel)
+      ) {
         nextLlms.unshift({
           provider: runtimeProvider,
           model: runtimeModel,
-          label: `${runtimeProvider} ${runtimeModel}`,
+          label: generationLlmLabel(runtimeProvider, runtimeModel),
         });
       }
       if (nextLlms.length > 0) {
@@ -3089,7 +3160,7 @@ export function BlueprintWorkspace({
           appendChatMessage({
             role: "assistant",
             content: [
-              "Context Clarifier Agent has a few questions before I build.",
+              "A few quick questions before I build.",
               "",
               ...clarification.questions.map((question) => `- ${question.label}: ${question.question}`),
             ].join("\n"),
@@ -3098,7 +3169,7 @@ export function BlueprintWorkspace({
           appendThreadMessage(requestChatId, {
             role: "assistant",
             content: [
-              "Context Clarifier Agent has a few questions before I build.",
+              "A few quick questions before I build.",
               "",
               ...clarification.questions.map((question) => `- ${question.label}: ${question.question}`),
             ].join("\n"),
@@ -3131,9 +3202,9 @@ export function BlueprintWorkspace({
     const userMessageId = newChatMessageId();
     const assistantMessageId = newChatMessageId();
     const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? externalSourceProvider : null;
+    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
     const workflowLabel = selectedGenerationWorkflow?.label || generationWorkflow;
-    const providerSuffix = externalSourceProviderForRequest ? ` via ${externalSourceProviderLabel}` : "";
+    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
     const loadingMessage = `Running ${workflowLabel}${providerSuffix} with ${selectedGenerationLlm.label}.`;
     let progressPollId: number | null = null;
     const syncProgressFromJob = async () => {
@@ -3388,8 +3459,8 @@ export function BlueprintWorkspace({
       status: "idle",
     });
     const frontendJobId = newFrontendJobId();
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? externalSourceProvider : null;
-    const providerSuffix = externalSourceProviderForRequest ? ` via ${externalSourceProviderLabel}` : "";
+    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
+    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
     const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
     const assistantMessageId = appendThreadMessage(sourceChatId, {
       role: "assistant",
@@ -3759,12 +3830,18 @@ export function BlueprintWorkspace({
       setMermaidCode("");
       setSvgSchematic("");
       setActiveTab("chat");
-      setChatRouteTransition({
-        chatId,
-        title: chatItem.title || "Opening chat",
-        projectId: chatItem.projectId,
-        error: "Could not load the active project for this chat.",
-      });
+      const nextMessages = messagesWithoutMissingProject(
+        storedMessages.length ? storedMessages : initialChatMessages(),
+        chatItem.projectId
+      );
+      setChatThreads((current) => ({
+        ...current,
+        [chatId]: nextMessages,
+      }));
+      setChatMessages(nextMessages);
+      writeStoredChatThread(chatId, nextMessages);
+      detachMissingProjectFromChat(chatId, chatItem.projectId, chatItem.title);
+      setChatRouteTransition(null);
     });
 
     return () => {
@@ -3791,8 +3868,28 @@ export function BlueprintWorkspace({
     }) || null;
   };
 
+  const chatItemForJob = (job: A2AJob, project: any = findProjectForJob(job)): ChatListItem | null => {
+    const chatId = chatIdFromJob(job);
+    if (!chatId) return null;
+
+    const existing = chatListItems.find((item) => item.chatId === chatId);
+    const projectId = String(project?.project_id || job.result_summary?.project_id || existing?.projectId || "").trim();
+    return {
+      chatId,
+      title: existing?.title || job.result_summary?.title || job.payload?.prompt || job.action || NEW_PROJECT_TITLE,
+      projectId,
+      createdAt: existing?.createdAt || job.created_at || chatTimestamp(),
+      projectCount: projectId ? 1 : existing?.projectCount || 0,
+    };
+  };
+
   const loadProjectForJob = async (job: A2AJob) => {
     const project = findProjectForJob(job);
+    const chatItem = chatItemForJob(job, project);
+    if (chatItem) {
+      openChatItem(chatItem);
+      return;
+    }
     if (!project?.project_id) return;
     await loadOldProject(project.project_id);
   };
@@ -3998,12 +4095,6 @@ export function BlueprintWorkspace({
         );
       case "assembly":
         return <AssemblyPanel assembly={assembly} issues={issues} onDownload={downloadJSONIR} />;
-      case "svg":
-        return (
-          <div className="h-full overflow-auto bg-[#141519] p-4 sm:p-6">
-            <div className="schematic-svg-wrap mx-auto max-w-5xl border border-[#2a2c33] bg-[#17181d] p-3 sm:p-5" dangerouslySetInnerHTML={{ __html: svgSchematic }} />
-          </div>
-        );
       case "video":
         return (
           <VideoPanel
@@ -4465,9 +4556,6 @@ export function BlueprintWorkspace({
                               <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                             </div>
                             <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
-                            {message.pipelineProgress && (
-                              <AgentPipelineProgressPanel progress={message.pipelineProgress} status={message.status || "idle"} />
-                            )}
                             {message.projectId && (
                               <button
                                 type="button"
@@ -4639,51 +4727,23 @@ export function BlueprintWorkspace({
                       >
                         <Paperclip className="h-4 w-4" />
                       </button>
-                      <div className="grid h-10 min-w-0 grid-cols-2 overflow-hidden border border-[#2c2f37] sm:inline-flex sm:max-w-full">
-                        {generationWorkflows.map((workflow) => {
-                          const selected = generationWorkflow === workflow.id;
-                          const Icon = workflow.uses_external_sources || workflow.uses_firecrawl_mcp ? Sparkles : Database;
-                          return (
-                            <button
-                              key={workflow.id}
-                              type="button"
-                              disabled={isLoading}
-                              onClick={() => setGenerationWorkflow(workflow.id)}
-                              className={`inline-flex min-w-0 items-center justify-center gap-1.5 border-r border-[#2c2f37] px-1.5 text-[10px] font-black uppercase last:border-r-0 sm:justify-start sm:gap-2 sm:px-3 sm:text-xs ${
-                                selected ? "bg-white text-black" : "bg-[#17181d] text-slate-400 hover:text-white"
-                              } disabled:cursor-not-allowed disabled:opacity-50`}
-                              title={workflow.description || workflow.label}
-                              aria-pressed={selected}
-                            >
-                              <Icon className="h-4 w-4 shrink-0" />
-                              <span className="truncate">{workflow.label}</span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {selectedWorkflowUsesExternalSources && (
-                        <div className="col-span-2 grid h-10 max-w-full grid-cols-2 overflow-hidden border border-[#2c2f37] sm:inline-flex">
-                          {externalSourceProviderOptions.map((option) => {
-                            const selected = externalSourceProvider === option.id;
-                            return (
-                              <button
-                                key={option.id}
-                                type="button"
-                                disabled={isLoading}
-                                onClick={() => setExternalSourceProvider(option.id)}
-                                className={`inline-flex min-w-0 items-center justify-center gap-1.5 border-r border-[#2c2f37] px-1.5 text-[10px] font-black uppercase last:border-r-0 sm:justify-start sm:gap-2 sm:px-3 sm:text-xs ${
-                                  selected ? "bg-white text-black" : "bg-[#17181d] text-slate-400 hover:text-white"
-                                } disabled:cursor-not-allowed disabled:opacity-50`}
-                                title={option.label}
-                                aria-pressed={selected}
-                              >
-                                <Sparkles className="h-4 w-4 shrink-0" />
-                                <span className="truncate">{option.label}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                      <label
+                        className="inline-flex h-10 cursor-pointer items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white sm:justify-start"
+                        title="Use Firecrawl web research"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={webResearchEnabled}
+                          onChange={(event) => setGenerationWorkflow(event.target.checked ? WEB_RESEARCH_WORKFLOW_ID : DEFAULT_WORKFLOW_ID)}
+                          disabled={isLoading}
+                          className="peer sr-only"
+                        />
+                        <Sparkles className={`h-4 w-4 shrink-0 ${webResearchEnabled ? "text-cyan-300" : "text-slate-500"}`} />
+                        <span>Web Research</span>
+                        <span className={`h-4 w-7 border transition ${webResearchEnabled ? "border-cyan-300 bg-cyan-300" : "border-[#3a3d46] bg-black"}`}>
+                          <span className={`block h-full w-3.5 bg-white transition ${webResearchEnabled ? "translate-x-3" : "translate-x-0"}`} />
+                        </span>
+                      </label>
                       <label className="col-span-2 inline-flex h-10 max-w-full items-center gap-2 border border-[#2c2f37] bg-[#17181d] px-3 text-xs font-black uppercase text-slate-400 sm:col-span-1">
                         <Cpu className="h-4 w-4 shrink-0 text-cyan-300" />
                         <select
@@ -6855,90 +6915,6 @@ function VideoGalleryItem({
   );
 }
 
-function AgentPipelineProgressPanel({
-  progress,
-  status,
-}: {
-  progress: AgentPipelineProgress;
-  status: ChatMessage["status"];
-}) {
-  const steps = progress.steps.length ? progress.steps : defaultAgentPipelineSteps;
-  const safeCurrentIndex = Math.min(Math.max(progress.currentStepIndex, 0), steps.length - 1);
-  const currentStep = steps[safeCurrentIndex];
-  const finalSuccess = status === "success";
-  const finalError = status === "error";
-
-  return (
-    <div className="mt-3 border border-cyan-300/20 bg-black/20 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex min-w-0 items-center gap-2">
-          {finalSuccess ? (
-            <CheckCircle className="h-4 w-4 shrink-0 text-emerald-300" />
-          ) : finalError ? (
-            <AlertTriangle className="h-4 w-4 shrink-0 text-rose-300" />
-          ) : (
-            <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-cyan-300" />
-          )}
-          <span className="truncate text-[11px] font-black uppercase tracking-[0.14em] text-cyan-100">Agent pipeline</span>
-        </div>
-        {!finalSuccess && !finalError && (
-          <span className="border border-cyan-300/20 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-            {progress.synced ? `Core synced${progress.events?.length ? ` / ${progress.events.length} events` : ""}` : "Estimated"}
-          </span>
-        )}
-      </div>
-
-      {currentStep && !finalSuccess && !finalError && (
-        <div className="mt-3 border border-[#2a2c33] bg-[#111216] px-3 py-2">
-          <div className="truncate text-xs font-black text-white">{currentStep.agent}</div>
-          <div className="mt-1 break-words text-xs leading-5 text-slate-400">{currentStep.label}</div>
-        </div>
-      )}
-
-      <ol className="mt-3 space-y-2">
-        {steps.map((step, index) => {
-          const complete = finalSuccess || index < safeCurrentIndex;
-          const active = !finalSuccess && !finalError && index === safeCurrentIndex;
-          const failed = finalError && index === safeCurrentIndex;
-          return (
-            <li key={`${step.id}-${index}`} className="grid grid-cols-[18px_minmax(0,1fr)] gap-2">
-              <span
-                className={`mt-0.5 flex h-4 w-4 items-center justify-center border ${
-                  complete
-                    ? "border-emerald-300/40 bg-emerald-300/15 text-emerald-200"
-                    : failed
-                      ? "border-rose-300/40 bg-rose-300/10 text-rose-200"
-                      : active
-                        ? "border-cyan-300/50 bg-cyan-300/10 text-cyan-200"
-                        : "border-slate-700 text-slate-600"
-                }`}
-              >
-                {complete ? (
-                  <CheckCircle className="h-3 w-3" />
-                ) : failed ? (
-                  <AlertTriangle className="h-3 w-3" />
-                ) : active ? (
-                  <RefreshCw className="h-3 w-3 animate-spin" />
-                ) : (
-                  <span className="h-1.5 w-1.5 bg-current" />
-                )}
-              </span>
-              <span className="min-w-0">
-                <span className={`block truncate text-xs font-semibold ${complete || active ? "text-slate-100" : failed ? "text-rose-100" : "text-slate-500"}`}>
-                  {step.label}
-                </span>
-                {(active || failed) && step.description && (
-                  <span className="mt-0.5 block break-words text-[11px] leading-4 text-slate-500">{step.description}</span>
-                )}
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
 function ProjectChatPanel({
   projectId,
   chatId,
@@ -7066,9 +7042,6 @@ function ProjectChatPanel({
                           {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
                         </div>
                         <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
-                        {message.pipelineProgress && (
-                          <AgentPipelineProgressPanel progress={message.pipelineProgress} status={message.status || "idle"} />
-                        )}
                         {message.projectId && message.projectId !== projectId && (
                           <button
                             type="button"
@@ -7455,7 +7428,9 @@ function JobRow({
   const sourceUsage = getJobSourceUsage(job);
   const sourceLabel = formatSourceUsageLabel(sourceUsage);
   const SourceIcon = sourceUsage.web_research || sourceUsage.firecrawl ? Sparkles : Database;
-  const isOpenable = Boolean(project?.project_id);
+  const hasChatTarget = Boolean(chatIdFromJob(job));
+  const hasProjectTarget = Boolean(project?.project_id);
+  const isOpenable = hasChatTarget || hasProjectTarget;
   const imageStatusLabel = formatJobImageStatus(summary);
   const operations = getJobOperations(summary);
 
@@ -7487,7 +7462,7 @@ function JobRow({
           className="inline-flex h-10 shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-35"
         >
           <Eye className="h-4 w-4" />
-          Open
+          {hasChatTarget ? "Open chat" : "Open"}
         </button>
       </div>
 
@@ -7503,7 +7478,7 @@ function JobRow({
         </div>
       )}
 
-      <JobPipelineEventList events={job.progress_events || []} compact={compact} />
+      <JobPipelineEventList events={job.progress_events || []} jobStatus={job.status} compact={compact} />
 
       <OperationStatusList operations={operations} compact={compact} />
 
@@ -7556,10 +7531,19 @@ function pipelineEventTone(status: string) {
   return "border-cyan-500/25 bg-cyan-950/15 text-cyan-300";
 }
 
-function JobPipelineEventList({ events, compact = false }: { events: AgentPipelineEvent[]; compact?: boolean }) {
+function JobPipelineEventList({
+  events,
+  jobStatus,
+  compact = false,
+}: {
+  events: AgentPipelineEvent[];
+  jobStatus: string;
+  compact?: boolean;
+}) {
   const normalizedEvents = normalizeAgentPipelineEvents(events);
   if (!normalizedEvents.length) return null;
   const visibleEvents = compact ? normalizedEvents.slice(-3) : normalizedEvents.slice(-12);
+  const jobIsTerminal = isTerminalJobStatus(jobStatus);
 
   return (
     <div className={`${compact ? "mt-3" : "mt-4"} border border-[#25272e] bg-black/20 p-3`}>
@@ -7571,9 +7555,10 @@ function JobPipelineEventList({ events, compact = false }: { events: AgentPipeli
         {visibleEvents.map((event, index) => {
           const label = event.label || event.step_id;
           const time = event.observed_at ? formatJobTime(event.observed_at) : "";
+          const isActiveStartedEvent = event.status === "started" && !jobIsTerminal;
           return (
             <span key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className={`inline-flex max-w-full items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${pipelineEventTone(String(event.status))}`}>
-              {event.status === "completed" ? <CheckCircle className="h-3 w-3 shrink-0" /> : event.status === "failed" ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <RefreshCw className={`h-3 w-3 shrink-0 ${event.status === "started" ? "animate-spin" : ""}`} />}
+              {event.status === "completed" ? <CheckCircle className="h-3 w-3 shrink-0" /> : event.status === "failed" ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <RefreshCw className={`h-3 w-3 shrink-0 ${isActiveStartedEvent ? "animate-spin" : ""}`} />}
               <span className="truncate">{label}</span>
               <span className="text-slate-500">{String(event.status).replace(/_/g, " ")}</span>
               {time && !compact && <span className="text-slate-600">{time}</span>}
@@ -7702,6 +7687,10 @@ function statusTone(status: string) {
   if (status === "running" || status === "loading" || status === "reviewing") return "border-cyan-500/30 bg-cyan-950/25 text-cyan-300";
   if (status === "queued") return "border-amber-500/30 bg-amber-950/25 text-amber-300";
   return "border-slate-500/30 bg-slate-900 text-slate-300";
+}
+
+function isTerminalJobStatus(status: string) {
+  return ["succeeded", "success", "completed", "complete", "done", "failed", "failure", "error", "cancelled", "canceled"].includes(status);
 }
 
 function isFinalVideoStatus(status: string) {

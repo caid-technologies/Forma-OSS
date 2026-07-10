@@ -211,14 +211,15 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `blueprint`.
-- `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`: `auto`, `tavily`, `firecrawl`, or `none`. `auto` prefers Tavily when `TAVILY_API_KEY` is set.
-- `TAVILY_API_KEY`: Tavily API key for external source research.
-- `TAVILY_SEARCH_LIMIT` / `TAVILY_SEARCH_DEPTH` / `TAVILY_INCLUDE_ANSWER` / `TAVILY_INCLUDE_RAW_CONTENT`: Tavily search controls for the web research workflow.
+- `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
+- `FIRECRAWL_API_KEY` / `FIRECRAWL_MCP_COMMAND`: Enable Firecrawl MCP search and page extraction for the web research workflow.
+- `FIRECRAWL_SEARCH_LIMIT` / `FIRECRAWL_MCP_TIMEOUT_SECONDS`: Firecrawl search controls for the web research workflow.
 - `NVIDIA_API_KEY` / `NVIDIA_BASE_URL`: NVIDIA Build/NIM configuration when `LLM_PROVIDER=nvidia` or a request uses `provider=nvidia`. `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL`: NVIDIA model slug, for example `meta/llama-3.1-8b-instruct`.
 - `RUNPOD_API_KEY` / `RUNPOD_OPENAI_BASE_URL`: Runpod OpenAI-compatible/vLLM configuration when `LLM_PROVIDER=runpod` or a request uses `provider=runpod`.
 - `RUNPOD_ENDPOINT_ID` / `RUNPOD_ENDPOINT_URL`: Runpod Serverless queue configuration when `LLM_PROVIDER=runpod-serverless` or a request uses `provider=runpod-serverless`.
 - `RUNPOD_MODEL_ENDPOINTS`: Optional JSON mapping of Runpod model IDs to endpoint IDs or endpoint URLs when each model uses a different Serverless endpoint.
+- A plain Runpod queue URL such as `https://api.runpod.ai/v2/<endpoint-id>` belongs in `RUNPOD_ENDPOINT_URL` with `LLM_PROVIDER=runpod-serverless`; `LLM_PROVIDER=runpod` requires the OpenAI-compatible base URL ending in `/openai/v1`.
 - `RUNPOD_TIMEOUT_SECONDS`: Runpod HTTP read timeout. Defaults to `1200` so 10-15 minute cold starts or long generations can finish.
 - `RUNPOD_POLL_TIMEOUT_SECONDS`: Runpod Serverless `/status` polling timeout. Defaults to `1200`.
 - `RUNPOD_EXECUTION_TIMEOUT_MS` / `RUNPOD_TTL_MS`: Runpod Serverless job policy values. Use `1200000` for 20-minute generation windows.

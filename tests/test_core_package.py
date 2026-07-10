@@ -25,9 +25,16 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual(["version"], pyproject["project"]["dynamic"])
         self.assertEqual("backend.main:app", pyproject["tool"]["vercel"]["entrypoint"])
         self.assertEqual("blueprint_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
+        self.assertEqual("fabricator.main:main", pyproject["project"]["scripts"]["fabricator"])
+        self.assertEqual("fibricator.main:main", pyproject["project"]["scripts"]["fibricator"])
+        self.assertIn("blueprint_core", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
         self.assertIn("blueprint_core.*", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
+        self.assertIn("fabricator", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
+        self.assertIn("fibricator", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
         self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["blueprint_core"])
+        self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["fabricator"])
         self.assertTrue((CORE_DIR / "py.typed").exists())
+        self.assertTrue((ROOT_DIR / "fabricator" / "py.typed").exists())
 
     def test_backend_requirements_use_third_party_dependencies_for_vercel(self) -> None:
         requirements_path = ROOT_DIR / "backend" / "requirements.txt"

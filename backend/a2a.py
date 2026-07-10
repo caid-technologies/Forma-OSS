@@ -164,6 +164,14 @@ class A2AHub:
 A2A_HUB = A2AHub()
 
 
+def _lattice_registry():
+    from blueprint_core.lattice import LatticeRegistry
+    from blueprint_core.lattice_agents import default_namespace_agent_cards
+    from fabricator import fabricator_lattice_card
+
+    return LatticeRegistry([*default_namespace_agent_cards(), fabricator_lattice_card()])
+
+
 def get_a2a_capabilities() -> Dict[str, Any]:
     try:
         llm_runtime = get_llm_runtime_debug_config()
@@ -197,6 +205,8 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                     "blueprint.a2a.poll_events",
                     "blueprint.a2a.get_job",
                     "blueprint.a2a.list_jobs",
+                    "blueprint.lattice.list_agents",
+                    "blueprint.lattice.get_agent_card",
                 ],
             },
         },
@@ -213,8 +223,11 @@ def get_a2a_capabilities() -> Dict[str, Any]:
             "blueprint.a2a.capabilities",
             "blueprint.a2a.get_job",
             "blueprint.a2a.list_jobs",
+            "blueprint.lattice.list_agents",
+            "blueprint.lattice.get_agent_card",
             "a2a.ping",
         ],
+        "lattice": _lattice_registry().manifest(),
         "hub": A2A_HUB.snapshot(),
     }
 
@@ -1024,7 +1037,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     "generate_image": {"type": "boolean", "default": False},
                     "external_source_provider": {
                         "type": "string",
-                        "enum": ["auto", "tavily", "firecrawl"],
+                        "enum": ["firecrawl"],
                         "description": "Optional provider for web_research workflow.",
                     },
                 },
@@ -1085,6 +1098,28 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     "status": {"type": "string"},
                     "limit": {"type": "integer", "default": 50},
                 },
+            },
+        },
+        {
+            "name": "blueprint.lattice.list_agents",
+            "description": "List Lattice domain-agent cards registered with Blueprint.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "namespace": {"type": "string", "description": "Optional namespace filter, such as product.mech."},
+                    "domain": {"type": "string", "description": "Optional domain text filter."},
+                    "capability": {"type": "string", "description": "Optional capability id or label filter."},
+                    "tool": {"type": "string", "description": "Optional needed-tool text filter."},
+                },
+            },
+        },
+        {
+            "name": "blueprint.lattice.get_agent_card",
+            "description": "Fetch one Lattice domain-agent card by agent id.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {"agent_id": {"type": "string", "default": "fabricator"}},
+                "required": ["agent_id"],
             },
         },
     ]
@@ -1160,5 +1195,22 @@ async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str,
                 limit=int(arguments.get("limit", 50)),
             )
         }
+
+    if tool_name == "blueprint.lattice.list_agents":
+        registry = _lattice_registry()
+        agents = registry.find(
+            namespace=arguments.get("namespace"),
+            domain=arguments.get("domain"),
+            capability=arguments.get("capability"),
+            tool=arguments.get("tool"),
+        )
+        return {
+            "name": "Lattice",
+            "agents": [agent.model_dump(mode="json") for agent in agents],
+        }
+
+    if tool_name == "blueprint.lattice.get_agent_card":
+        registry = _lattice_registry()
+        return {"agent": registry.get(arguments.get("agent_id", "fabricator")).model_dump(mode="json")}
 
     return await call_blueprint_action(tool_name, arguments)

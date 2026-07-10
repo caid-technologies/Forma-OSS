@@ -293,7 +293,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--generate-image", action="store_true", help="Request a product concept image.")
     generate.add_argument(
         "--external-source-provider",
-        choices=["auto", "tavily", "firecrawl"],
+        choices=["firecrawl"],
         help="Provider for the web_research workflow.",
     )
     generate.add_argument("--llm", help="Runtime LLM selector in provider/model form, for example openai/gpt-5.5.")

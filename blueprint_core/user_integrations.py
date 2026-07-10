@@ -166,7 +166,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
             IntegrationFieldDefinition("llm_model", "LLM model", ("LLM_MODEL",), placeholder="gpt-5.5"),
             IntegrationFieldDefinition("image_provider", "Image provider", ("IMAGE_PROVIDER",), placeholder="openai"),
             IntegrationFieldDefinition("image_model", "Image model", ("IMAGE_MODEL", "OPENAI_IMAGE_MODEL"), placeholder="gpt-image-2"),
-            IntegrationFieldDefinition("external_source_provider", "Search provider", ("EXTERNAL_SOURCE_PROVIDER",), placeholder="auto"),
+            IntegrationFieldDefinition("external_source_provider", "Search provider", ("EXTERNAL_SOURCE_PROVIDER",), placeholder="firecrawl"),
         ),
     ),
     IntegrationDefinition(
@@ -251,17 +251,6 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
             IntegrationFieldDefinition("api_key", "API key", ("GEMINI_API_KEY", "GOOGLE_API_KEY"), secret=True, placeholder="AIza..."),
             IntegrationFieldDefinition("model", "Default model", ("GEMINI_MODEL",), placeholder="gemini-3.5-flash"),
             IntegrationFieldDefinition("fallback_model", "Fallback model", ("GEMINI_FALLBACK_MODEL",), placeholder="gemini-2.5-flash"),
-        ),
-    ),
-    IntegrationDefinition(
-        id="tavily",
-        label="Tavily",
-        description="External web search and research context.",
-        fields=(
-            IntegrationFieldDefinition("api_key", "API key", ("TAVILY_API_KEY",), secret=True, placeholder="tvly-..."),
-            IntegrationFieldDefinition("search_limit", "Search limit", ("TAVILY_SEARCH_LIMIT", "EXTERNAL_SOURCE_SEARCH_LIMIT"), placeholder="3"),
-            IntegrationFieldDefinition("search_depth", "Search depth", ("TAVILY_SEARCH_DEPTH",), placeholder="basic"),
-            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("TAVILY_TIMEOUT_SECONDS", "EXTERNAL_SOURCE_TIMEOUT_SECONDS"), placeholder="45"),
         ),
     ),
     IntegrationDefinition(

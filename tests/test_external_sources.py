@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import os
-import sys
-import types
 import unittest
 from contextlib import contextmanager
 from typing import Iterator
 
+from blueprint_core.agents.firecrawl_mcp import FirecrawlResearchResult, FirecrawlSearchHit
 from blueprint_core.external_sources import (
     ExternalSourceLibrary,
     ExternalSourceProviderConfig,
     ExternalSourceRecord,
-    TavilyExternalSourceProvider,
+    FirecrawlExternalSourceProvider,
     build_external_source_provider,
 )
 from blueprint_core.job_source_usage import infer_source_usage, normalize_source_usage
@@ -49,71 +48,60 @@ def isolated_external_source_env(**overrides: str) -> Iterator[None]:
                 os.environ[key] = old_values[key] or ""
 
 
-class FakeTavilyClient:
-    calls: list[dict] = []
+class FakeFirecrawlClient:
+    queries: list[list[str]] = []
 
-    def __init__(self, api_key: str) -> None:
-        self.api_key = api_key
-
-    def search(self, **kwargs):
-        self.calls.append(kwargs)
-        return {
-            "answer": "Use a low-voltage MCU and a sourced sensor module.",
-            "results": [
-                {
-                    "title": "Sensor module datasheet",
-                    "url": "https://example.com/sensor",
-                    "content": "A maker sensor module with I2C pins.",
-                    "score": 0.91,
-                }
+    def research(self, queries):
+        query_list = list(queries)
+        self.queries.append(query_list)
+        return FirecrawlResearchResult(
+            configured=True,
+            searches_attempted=len(query_list),
+            hits=[
+                FirecrawlSearchHit(
+                    title="Sensor module datasheet",
+                    url="https://example.com/sensor",
+                    content="A maker sensor module with I2C pins.",
+                )
             ],
-        }
+            tool_name="firecrawl_search",
+        )
 
 
 class ExternalSourceTests(unittest.TestCase):
-    def test_auto_provider_selects_tavily_when_key_is_present(self) -> None:
-        with isolated_external_source_env(TAVILY_API_KEY="tvly_test"):
+    def test_auto_provider_selects_firecrawl_even_when_tavily_key_is_present(self) -> None:
+        with isolated_external_source_env(FIRECRAWL_API_KEY="fc_test", TAVILY_API_KEY="tvly_test"):
             provider = build_external_source_provider()
 
-        self.assertIsInstance(provider, TavilyExternalSourceProvider)
-        self.assertEqual("tavily", provider.provider_name)
+        self.assertIsInstance(provider, FirecrawlExternalSourceProvider)
+        self.assertEqual("firecrawl", provider.provider_name)
         self.assertTrue(provider.config.enabled)
 
-    def test_explicit_provider_override_beats_env_default(self) -> None:
-        with isolated_external_source_env(EXTERNAL_SOURCE_PROVIDER="firecrawl", TAVILY_API_KEY="tvly_test"):
+    def test_legacy_tavily_provider_override_resolves_to_firecrawl(self) -> None:
+        with isolated_external_source_env(FIRECRAWL_API_KEY="fc_test", EXTERNAL_SOURCE_PROVIDER="firecrawl", TAVILY_API_KEY="tvly_test"):
             provider = build_external_source_provider(provider="tavily")
 
-        self.assertIsInstance(provider, TavilyExternalSourceProvider)
-        self.assertEqual("tavily", provider.provider_name)
+        self.assertIsInstance(provider, FirecrawlExternalSourceProvider)
+        self.assertEqual("firecrawl", provider.provider_name)
 
-    def test_tavily_provider_maps_search_results_to_source_objects(self) -> None:
-        fake_module = types.ModuleType("tavily")
-        fake_module.TavilyClient = FakeTavilyClient
-        previous_module = sys.modules.get("tavily")
-        sys.modules["tavily"] = fake_module
-        FakeTavilyClient.calls.clear()
-
-        try:
-            with isolated_external_source_env(TAVILY_API_KEY="tvly_test", TAVILY_SEARCH_LIMIT="1"):
-                provider = TavilyExternalSourceProvider(ExternalSourceProviderConfig.from_env())
-                library = provider.research(["blue sensor module"])
-        finally:
-            if previous_module is None:
-                sys.modules.pop("tavily", None)
-            else:
-                sys.modules["tavily"] = previous_module
+    def test_firecrawl_provider_maps_search_results_to_source_objects(self) -> None:
+        with isolated_external_source_env(FIRECRAWL_API_KEY="fc_test", FIRECRAWL_SEARCH_LIMIT="1"):
+            provider = FirecrawlExternalSourceProvider(ExternalSourceProviderConfig.from_env())
+            fake_client = FakeFirecrawlClient()
+            provider.client = fake_client
+            library = provider.research(["blue sensor module"])
 
         self.assertTrue(library.configured)
-        self.assertEqual("tavily", library.provider)
+        self.assertEqual("firecrawl", library.provider)
         self.assertEqual(1, library.searches_attempted)
         self.assertEqual("Sensor module datasheet", library.sources[0].title)
         self.assertEqual("https://example.com/sensor", library.sources[0].url)
-        self.assertEqual(0.91, library.sources[0].score)
-        self.assertEqual(1, FakeTavilyClient.calls[0]["max_results"])
+        self.assertIsNone(library.sources[0].score)
+        self.assertEqual(["blue sensor module"], fake_client.queries[0])
 
     def test_external_source_library_builds_prompt_context(self) -> None:
         library = ExternalSourceLibrary(
-            provider="tavily",
+            provider="firecrawl",
             configured=True,
             answer="Short answer.",
             sources=[
@@ -121,7 +109,7 @@ class ExternalSourceTests(unittest.TestCase):
                     title="Example",
                     url="https://example.com",
                     content="Useful sourced text.",
-                    provider="tavily",
+                    provider="firecrawl",
                 )
             ],
         )
@@ -129,7 +117,7 @@ class ExternalSourceTests(unittest.TestCase):
         context = library.as_prompt_context()
 
         self.assertIn("Short answer.", context)
-        self.assertIn("Provider: tavily", context)
+        self.assertIn("Provider: firecrawl", context)
         self.assertIn("Useful sourced text.", context)
 
     def test_source_usage_records_tavily_provider(self) -> None:

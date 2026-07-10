@@ -157,8 +157,8 @@ Notes:
 - `HUGGINGFACE_MODEL` selects the Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
 - `NVIDIA_API_KEY` enables NVIDIA Build/NIM APIs when `LLM_PROVIDER=nvidia`; `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL` selects the NVIDIA model slug, for example `meta/llama-3.1-8b-instruct`.
-- `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`: `auto`, `tavily`, `firecrawl`, or `none`. `auto` prefers Tavily when `TAVILY_API_KEY` is set and falls back to Firecrawl when configured.
-- `TAVILY_API_KEY` enables Tavily research. `TAVILY_SEARCH_LIMIT`, `TAVILY_SEARCH_DEPTH`, `TAVILY_INCLUDE_ANSWER`, and `TAVILY_INCLUDE_RAW_CONTENT` tune search behavior.
+- `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
+- `FIRECRAWL_API_KEY` or `FIRECRAWL_MCP_COMMAND` enables Firecrawl research. `FIRECRAWL_SEARCH_LIMIT` and `FIRECRAWL_MCP_TIMEOUT_SECONDS` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
 - `IMAGE_OUTPUT_ENABLED=true` makes generated product concept images the default. Leave it `false` and use the UI checkbox or `generate_image=true` API flag to opt in per job.
 - `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, or `none`.

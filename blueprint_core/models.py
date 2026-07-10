@@ -212,7 +212,7 @@ class GenerateProjectRequest(BaseModel):
     )
     external_source_provider: Optional[str] = Field(
         None,
-        description="Optional web research provider override: tavily, firecrawl, or auto."
+        description="Optional web research provider override. Firecrawl is the only active provider."
     )
 
     @field_validator("provider", "model", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
@@ -238,9 +238,9 @@ class GenerateProjectRequest(BaseModel):
         if value is None:
             return None
         normalized = value.strip().lower().replace("_", "-")
-        if normalized not in {"auto", "tavily", "firecrawl"}:
-            raise ValueError("external_source_provider must be one of: auto, tavily, firecrawl.")
-        return normalized
+        if normalized in {"auto", "tavily", "firecrawl"}:
+            return "firecrawl"
+        raise ValueError("external_source_provider must be firecrawl.")
 
 
 class ClarifyingQuestion(BaseModel):

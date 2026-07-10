@@ -129,6 +129,7 @@ class LLMRuntimeConfig:
     model_overridden: bool = False
     allowed_providers: Optional[List[str]] = None
     allowed_models: Optional[List[str]] = None
+    configured_providers: Optional[List[str]] = None
 
     def as_debug_dict(self) -> Dict[str, Any]:
         return {
@@ -140,6 +141,7 @@ class LLMRuntimeConfig:
             "model_overridden": self.model_overridden,
             "allowed_providers": self.allowed_providers,
             "allowed_models": self.allowed_models,
+            "configured_providers": self.configured_providers,
         }
 
 
@@ -178,6 +180,65 @@ def _parse_json_mapping_env(names: List[str]) -> Dict[str, Any]:
     if not isinstance(parsed, dict):
         raise LLMProviderConfigError(f"{names[0]} must be a JSON object mapping model names to endpoint ids or URLs.")
     return parsed
+
+
+def _is_runpod_serverless_endpoint_url(value: Optional[str]) -> bool:
+    if not value:
+        return False
+
+    parsed = urllib.parse.urlparse(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return False
+    if parsed.netloc.lower() != "api.runpod.ai":
+        return False
+
+    path_parts = [urllib.parse.unquote(part).lower() for part in parsed.path.split("/") if part]
+    if len(path_parts) < 2 or path_parts[0] != "v2":
+        return False
+    return "openai" not in path_parts[2:]
+
+
+def _runpod_base_url_env_names(*, include_generic: bool) -> List[str]:
+    names = ["RUNPOD_OPENAI_BASE_URL", "RUNPOD_BASE_URL"]
+    if include_generic:
+        names.append("LLM_BASE_URL")
+    return names
+
+
+def _runpod_serverless_endpoint_url_from_env(*, include_generic: bool = True) -> Optional[str]:
+    endpoint_url = _first_env(["RUNPOD_ENDPOINT_URL"])
+    if endpoint_url:
+        return endpoint_url
+
+    for name in _runpod_base_url_env_names(include_generic=include_generic):
+        value = _env(name)
+        if _is_runpod_serverless_endpoint_url(value):
+            return value
+    return None
+
+
+def _runpod_openai_base_url_from_env(*, include_generic: bool = True) -> Optional[str]:
+    for name in _runpod_base_url_env_names(include_generic=include_generic):
+        value = _env(name)
+        if value and not _is_runpod_serverless_endpoint_url(value):
+            return value
+    return None
+
+
+def _runpod_serverless_url_env_name(*, include_generic: bool = True) -> Optional[str]:
+    for name in _runpod_base_url_env_names(include_generic=include_generic):
+        if _is_runpod_serverless_endpoint_url(_env(name)):
+            return name
+    return None
+
+
+def _runpod_serverless_url_misconfiguration_message(env_name: str) -> str:
+    return (
+        f"{env_name} points at a Runpod Serverless queue endpoint, but LLM_PROVIDER=runpod uses the "
+        "OpenAI-compatible /chat/completions API. Set LLM_PROVIDER=runpod-serverless and put that URL in "
+        "RUNPOD_ENDPOINT_URL, or set RUNPOD_OPENAI_BASE_URL to "
+        "https://api.runpod.ai/v2/<endpoint-id>/openai/v1."
+    )
 
 
 def normalize_llm_provider_name(value: Optional[str]) -> Optional[str]:
@@ -259,9 +320,14 @@ def _default_provider_name() -> str:
     provider_name = normalize_llm_provider_name(_env("LLM_PROVIDER"))
     if provider_name:
         return provider_name
-    if _first_env(["RUNPOD_API_KEY"]) and _first_env(["RUNPOD_OPENAI_BASE_URL", "RUNPOD_BASE_URL"]):
+    runpod_api_key = _first_env(["RUNPOD_API_KEY"])
+    runpod_openai_base_url = _runpod_openai_base_url_from_env(include_generic=False)
+    runpod_serverless_endpoint = _first_env(["RUNPOD_ENDPOINT_ID"]) or _runpod_serverless_endpoint_url_from_env(include_generic=False)
+    if runpod_api_key and runpod_serverless_endpoint and not runpod_openai_base_url:
+        return "runpod-serverless"
+    if runpod_api_key and runpod_openai_base_url:
         return "runpod"
-    if _first_env(["RUNPOD_API_KEY"]) and _first_env(["RUNPOD_ENDPOINT_ID", "RUNPOD_ENDPOINT_URL"]):
+    if runpod_api_key and runpod_serverless_endpoint:
         return "runpod-serverless"
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         return "gemini"
@@ -308,9 +374,9 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         DEFAULT_NVIDIA_BASE_URL,
     ):
         providers.add("nvidia")
-    if _first_env(["RUNPOD_API_KEY"]) and _first_env(["RUNPOD_OPENAI_BASE_URL", "RUNPOD_BASE_URL", "LLM_BASE_URL"]):
+    if _first_env(["RUNPOD_API_KEY"]) and _runpod_openai_base_url_from_env():
         providers.add("runpod")
-    if _first_env(["RUNPOD_API_KEY"]) and _first_env(["RUNPOD_ENDPOINT_ID", "RUNPOD_ENDPOINT_URL"]):
+    if _first_env(["RUNPOD_API_KEY"]) and (_first_env(["RUNPOD_ENDPOINT_ID"]) or _runpod_serverless_endpoint_url_from_env()):
         providers.add("runpod-serverless")
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         providers.add("gemini")
@@ -354,7 +420,10 @@ def _default_model_for_provider(provider_name: str) -> str:
     if provider_name == "runpod":
         return _first_env(["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL"], "runpod-default") or "runpod-default"
     if provider_name == "runpod-serverless":
-        return _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "LLM_MODEL"], "runpod-serverless") or "runpod-serverless"
+        return (
+            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", "LLM_MODEL"], "runpod-serverless")
+            or "runpod-serverless"
+        )
     return "simulation"
 
 
@@ -454,6 +523,7 @@ def resolve_llm_runtime_config(
             f"{', '.join(sorted(SUPPORTED_LLM_PROVIDERS))}."
         )
 
+    configured_providers = _configured_provider_names(default_provider)
     allowed_providers = _allowed_provider_names(default_provider)
     if allowed_providers is not None and provider not in allowed_providers:
         raise LLMProviderConfigError(
@@ -481,6 +551,7 @@ def resolve_llm_runtime_config(
         model_overridden=bool(requested_model),
         allowed_providers=allowed_providers,
         allowed_models=allowed_models,
+        configured_providers=configured_providers,
     )
 
 
@@ -802,6 +873,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             self.provider_name = normalized_provider
         else:
             self.provider_name = "openai-compatible"
+        self.configuration_error: Optional[str] = None
         if self.provider_name == "baseten":
             api_key_names = ["BASETEN_API_KEY", "LLM_API_KEY"]
             base_url_names = ["BASETEN_BASE_URL", "LLM_BASE_URL"]
@@ -918,7 +990,12 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.api_key = _first_env(api_key_names)
         self.organization_id = _first_env(["OPENAI_ORG_ID", "OPENAI_ORGANIZATION", "OPENAI_ORGANIZATION_ID"])
         self.project_id = _first_env(["OPENAI_PROJECT_ID", "OPENAI_PROJECT"])
-        configured_base_url = _first_env(base_url_names)
+        configured_base_url = _runpod_openai_base_url_from_env() if self.provider_name == "runpod" else _first_env(base_url_names)
+        if self.provider_name == "runpod" and configured_base_url is None:
+            runpod_serverless_url_env_name = _runpod_serverless_url_env_name()
+            if runpod_serverless_url_env_name:
+                configured_base_url = _env(runpod_serverless_url_env_name)
+                self.configuration_error = _runpod_serverless_url_misconfiguration_message(runpod_serverless_url_env_name)
         self.base_url = (configured_base_url or default_base_url or "").rstrip("/")
         self.requested_model = _normalize_model_for_provider(
             self.provider_name,
@@ -981,7 +1058,10 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"{self.provider_name} request failed with HTTP {exc.code}: {detail[:500]}") from exc
+            raise RuntimeError(
+                f"{self.provider_name} request failed with HTTP {exc.code}: {detail[:500]}"
+                f"{self._http_error_hint(exc.code, path)}"
+            ) from exc
         except (socket.timeout, TimeoutError) as exc:
             timeout_hint = self._timeout_hint()
             raise RuntimeError(
@@ -1000,6 +1080,15 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         if not body.strip():
             return {}
         return json.loads(body)
+
+    def _http_error_hint(self, status_code: int, path: str) -> str:
+        if self.provider_name == "runpod" and status_code == 404 and path.lstrip("/") == "chat/completions":
+            return (
+                " Check RUNPOD_OPENAI_BASE_URL: runpod requires an OpenAI-compatible URL like "
+                "https://api.runpod.ai/v2/<endpoint-id>/openai/v1. For queue-style Serverless endpoints, "
+                "use LLM_PROVIDER=runpod-serverless with RUNPOD_ENDPOINT_ID or RUNPOD_ENDPOINT_URL instead."
+            )
+        return ""
 
     def _timeout_hint(self) -> str:
         if self.provider_name == "baseten":
@@ -1049,6 +1138,22 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         if self._validation:
             if raise_on_strict and self._validation.validation_error and self.strict_mode:
                 raise LLMProviderConfigError(self._validation.validation_error)
+            return self._validation
+
+        if self.configuration_error:
+            self._validation = LLMProviderValidation(
+                provider=self.provider_name,
+                requested_model=self.requested_model,
+                actual_model=None,
+                requested_model_available=False,
+                strict_mode=self.strict_mode,
+                fallback_active=False,
+                fallback_model=self.fallback_model,
+                validation_error=self.configuration_error,
+                live_generation_enabled=False,
+            )
+            if self.strict_mode and raise_on_strict:
+                raise LLMProviderConfigError(self.configuration_error)
             return self._validation
 
         if not self.is_configured:
@@ -1258,7 +1363,11 @@ class RunpodServerlessProvider(StructuredLLMProvider):
 
     def __init__(self, model_name: Optional[str] = None):
         self.api_key = _first_env(["RUNPOD_API_KEY"])
-        self.requested_model = model_name or _first_env(["RUNPOD_MODEL", "LLM_MODEL"], "runpod-default") or "runpod-default"
+        self.requested_model = (
+            model_name
+            or _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", "LLM_MODEL"], "runpod-default")
+            or "runpod-default"
+        )
         self.fallback_model = _first_env(["RUNPOD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
         self.strict_mode = _first_env_bool(["STRICT_RUNPOD", "STRICT_LLM"], default=True)
         self.timeout_seconds = _first_env_float(["RUNPOD_TIMEOUT_SECONDS"], DEFAULT_RUNPOD_TIMEOUT_SECONDS)
@@ -1294,7 +1403,7 @@ class RunpodServerlessProvider(StructuredLLMProvider):
             endpoint_url = str(raw_url) if raw_url else None
             endpoint_id = str(raw_id) if raw_id else None
 
-        endpoint_url = endpoint_url or _first_env(["RUNPOD_ENDPOINT_URL"])
+        endpoint_url = endpoint_url or _runpod_serverless_endpoint_url_from_env()
         endpoint_id = endpoint_id or _first_env(["RUNPOD_ENDPOINT_ID"])
 
         if endpoint_url:

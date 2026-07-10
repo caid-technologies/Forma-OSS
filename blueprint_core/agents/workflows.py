@@ -35,7 +35,7 @@ WORKFLOW_DESCRIPTORS = [
     WorkflowDescriptor(
         id=WEB_RESEARCH_WORKFLOW_ID,
         label="Web Research",
-        description="External source research pipeline that sources components from Tavily or Firecrawl before validation.",
+        description="Firecrawl-backed source research pipeline that gathers component context before validation.",
         uses_web_research=True,
         uses_firecrawl_mcp=True,
         uses_external_sources=True,

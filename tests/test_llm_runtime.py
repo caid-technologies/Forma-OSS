@@ -170,6 +170,56 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("caid-technologies/parti-base", runtime.model)
         self.assertIn("caid-technologies/parti-base", runtime.allowed_models or [])
 
+    def test_runpod_queue_base_url_autodetects_serverless_provider(self) -> None:
+        with isolated_llm_env(
+            RUNPOD_API_KEY="rpa_test",
+            RUNPOD_BASE_URL="https://api.runpod.ai/v2/endpoint-test",
+            RUNPOD_OPENAI_MODEL="caid-technologies/parti-base",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("runpod-serverless", runtime.provider)
+        self.assertEqual("caid-technologies/parti-base", runtime.model)
+        self.assertEqual("https://api.runpod.ai/v2/endpoint-test", provider.endpoint_base_url)
+        self.assertTrue(provider.is_configured)
+
+    def test_runpod_queue_url_is_not_reported_as_configured_openai_runpod(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="runpod-serverless",
+            LLM_ALLOWED_PROVIDERS="openai,runpod,runpod-serverless,simulation",
+            RUNPOD_API_KEY="rpa_test",
+            RUNPOD_OPENAI_BASE_URL="https://api.runpod.ai/v2/endpoint-test",
+            RUNPOD_ENDPOINT_ID="endpoint-test",
+            RUNPOD_MODEL="caid-technologies/parti-base",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("runpod-serverless", runtime.provider)
+        self.assertIn("runpod-serverless", runtime.configured_providers or [])
+        self.assertNotIn("runpod", runtime.configured_providers or [])
+        self.assertIn("runpod", runtime.allowed_providers or [])
+
+    def test_explicit_runpod_rejects_queue_endpoint_base_url(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="runpod",
+            LLM_ALLOWED_PROVIDERS="runpod,simulation",
+            RUNPOD_API_KEY="rpa_test",
+            RUNPOD_BASE_URL="https://api.runpod.ai/v2/endpoint-test",
+            RUNPOD_OPENAI_MODEL="caid-technologies/parti-base",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+            validation = provider.validate_configured_model(raise_on_strict=False)
+
+            with self.assertRaises(LLMProviderConfigError):
+                provider.validate_configured_model()
+
+        self.assertEqual("runpod", runtime.provider)
+        self.assertEqual("runpod", provider.provider_name)
+        self.assertFalse(validation.live_generation_enabled)
+        self.assertIn("LLM_PROVIDER=runpod-serverless", validation.validation_error or "")
+
     def test_huggingface_runtime_uses_qwen_default(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="huggingface",

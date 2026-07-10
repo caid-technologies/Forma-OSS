@@ -648,7 +648,7 @@ function initialProjectChatMessages(projectId: string, title: string, sourceProm
 }
 
 function missingProjectNotice(projectId: string) {
-  return `This chat pointed at project ${projectId}, but that project is not in the current local Supabase. The chat history is still here; generate again to create a new local project.`;
+  return `This chat pointed at project ${projectId}, but that project is no longer available in the project database. The chat history is still here; generate again to create a new project.`;
 }
 
 function messagesWithoutMissingProject(messages: ChatMessage[], projectId: string): ChatMessage[] {

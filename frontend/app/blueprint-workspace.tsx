@@ -256,6 +256,8 @@ const optionalImagePipelineStep: AgentPipelineStep = {
   optional: true,
 };
 
+const CHAT_DIAGNOSTIC_CHARACTER_LIMIT = 420;
+
 function generationLlmKey(option: Pick<GenerationLlmOption, "provider" | "model">) {
   return `${option.provider}/${option.model}`;
 }
@@ -500,6 +502,40 @@ function failedPipelineEvent(events: AgentPipelineEvent[] | undefined) {
   return [...normalizedEvents].reverse().find((event) => isFailedPipelineStatus(event.status)) || null;
 }
 
+function compactDiagnosticText(value: any, limit: number = CHAT_DIAGNOSTIC_CHARACTER_LIMIT) {
+  const original = String(value || "").trim();
+  if (!original) return "";
+
+  const normalized = original
+    .replace(/\r\n/g, "\n")
+    .replace(/https:\/\/errors\.pydantic\.dev\/\S+/g, "")
+    .replace(/,\s*input_value=(?:'[^']*'|"[^"]*"|[^\]\n]*)/g, "")
+    .replace(/,\s*input_type=[^\]\n]+/g, "")
+    .replace(/\[type=([^,\]\s]+)[^\]]*\]/g, "[type=$1]");
+
+  const lines = normalized
+    .split("\n")
+    .map((line) => line.replace(/[ \t]+/g, " ").trim())
+    .filter(Boolean)
+    .filter((line) => !/^for further information visit/i.test(line))
+    .filter((line) => !/^input_(value|type)=/i.test(line));
+  const text = lines.join("\n") || original;
+
+  if (text.length <= limit) return text;
+  const clipped = text.slice(0, limit).replace(/\s+\S*$/, "").trimEnd();
+  return `${clipped || text.slice(0, limit).trimEnd()}...`;
+}
+
+function generationFailureChatMessage(message: string, includeJobsHint = false) {
+  const compact = compactDiagnosticText(message);
+  const content = compact
+    ? /^generation failed\b/i.test(compact)
+      ? compact
+      : `Generation failed: ${compact}`
+    : "Generation failed.";
+  return includeJobsHint ? `${content}\nFull diagnostics are available in Jobs.` : content;
+}
+
 function jobFailureMessage(job: A2AJob) {
   const event = failedPipelineEvent(job.progress_events);
   const eventDetails = event?.details || {};
@@ -513,7 +549,7 @@ function terminalJobMessagePatch(job: A2AJob, message: ChatMessage): Partial<Omi
   if (message.status !== "loading") return null;
   if (job.status === "failed") {
     return {
-      content: `Generation failed: ${jobFailureMessage(job)}`,
+      content: generationFailureChatMessage(jobFailureMessage(job), true),
       status: "error",
     };
   }
@@ -3480,26 +3516,27 @@ export function BlueprintWorkspace({
           console.error("Blueprint API debug trace", apiError);
         }
         const errorMessage = apiError.message;
+        const displayErrorMessage = compactDiagnosticText(errorMessage) || errorMessage;
         if (res.status === 400) {
-          setGenerationInputNotice(errorMessage);
+          setGenerationInputNotice(displayErrorMessage);
           updateChatMessage(assistantMessageId, {
-            content: errorMessage,
+            content: displayErrorMessage,
             status: "error",
           });
           updateThreadMessage(requestChatId, assistantMessageId, {
-            content: errorMessage,
+            content: displayErrorMessage,
             status: "error",
           });
           return;
         }
         if (apiError.code === "llm_output_invalid" || apiError.code === "llm_generation_unavailable") {
-          setGenerationInputNotice(errorMessage);
+          setGenerationInputNotice(displayErrorMessage);
           updateChatMessage(assistantMessageId, {
-            content: errorMessage,
+            content: displayErrorMessage,
             status: "error",
           });
           updateThreadMessage(requestChatId, assistantMessageId, {
-            content: errorMessage,
+            content: displayErrorMessage,
             status: "error",
           });
           return;
@@ -3508,13 +3545,13 @@ export function BlueprintWorkspace({
           if (apiError.code === "alpha_generation_unavailable") {
             setAlphaGateConfig({ gateActive: true });
           }
-          setGenerationInputNotice(errorMessage);
+          setGenerationInputNotice(displayErrorMessage);
           updateChatMessage(assistantMessageId, {
-            content: errorMessage,
+            content: displayErrorMessage,
             status: "error",
           });
           updateThreadMessage(requestChatId, assistantMessageId, {
-            content: errorMessage,
+            content: displayErrorMessage,
             status: "error",
           });
           return;
@@ -3607,7 +3644,7 @@ export function BlueprintWorkspace({
         generatedProject = true;
       } catch (fallbackError) {
         const message = fallbackError instanceof Error ? fallbackError.message : "Local example fallback failed.";
-        const errorMessage = `Generation failed and local fallback was unavailable: ${message}`;
+        const errorMessage = generationFailureChatMessage(`Generation failed and local fallback was unavailable: ${message}`);
         setGenerationInputNotice(errorMessage);
         updateChatMessage(assistantMessageId, {
           content: errorMessage,
@@ -3708,7 +3745,7 @@ export function BlueprintWorkspace({
         if (res.status === 503 && apiError.code === "alpha_generation_unavailable") {
           setAlphaGateConfig({ gateActive: true });
         }
-        throw new Error(apiError.message);
+        throw new Error(compactDiagnosticText(apiError.message) || apiError.message);
       }
 
       const data = await res.json();
@@ -4723,7 +4760,7 @@ export function BlueprintWorkspace({
             ) : (
               <div className={`${activeSidebarChatStarted ? "mt-0" : "mt-4 sm:mt-5"} flex min-h-0 flex-1 flex-col overflow-hidden border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
                 {activeSidebarChatStarted && (
-                  <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
+                  <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
                     {chatMessages.map((message) => {
                       const isUser = message.role === "user";
                       const statusTone =
@@ -4735,9 +4772,9 @@ export function BlueprintWorkspace({
                               ? "border-cyan-300/45 bg-cyan-300/10 text-white"
                               : "border-[#30333d] bg-[#17181d] text-slate-100";
                       return (
-                        <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-                          <div className={`max-w-[92%] border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
-                            <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                        <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
+                          <div className={`min-w-0 max-w-[92%] overflow-hidden border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
+                            <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
                               {message.status === "loading" ? (
                                 <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-300" />
                               ) : message.status === "success" ? (
@@ -4753,7 +4790,7 @@ export function BlueprintWorkspace({
                               <span className="text-slate-700">/</span>
                               <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                             </div>
-                            <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+                            <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                             <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
                             {message.projectId && (
                               <button
@@ -4797,29 +4834,29 @@ export function BlueprintWorkspace({
                   </div>
                 )}
 
-                <form onSubmit={handleGenerate} className="fixed bottom-0 left-0 right-0 z-30 shrink-0 border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:border-b-0 md:pb-4">
+                <form onSubmit={handleGenerate} className="fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4">
                   {pendingHumanContext && (
-                    <div className="mb-3 border border-cyan-300/25 bg-cyan-300/5 p-4">
-                      <div className="flex flex-wrap items-center gap-2">
+                    <div className="mb-3 border border-cyan-300/25 bg-cyan-300/5 p-3 sm:p-4">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <div className="inline-flex h-8 items-center gap-2 border border-cyan-300/30 bg-cyan-300/10 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-100">
                           <Info className="h-3.5 w-3.5" />
                           Human Context Checkpoint
                         </div>
-                        <div className="text-xs leading-5 text-slate-500">Answer what matters. Blank answers are recorded as unspecified.</div>
+                        <div className="min-w-0 break-anywhere text-xs leading-5 text-slate-500">Answer what matters. Blank answers are recorded as unspecified.</div>
                       </div>
-                      <div className="mt-3 border border-[#2c2f37] bg-[#0f1014] px-3 py-2 text-xs leading-5 text-slate-400">
+                      <div className="break-anywhere mt-3 max-h-24 overflow-y-auto border border-[#2c2f37] bg-[#0f1014] px-3 py-2 text-xs leading-5 text-slate-400">
                         {pendingHumanContext.basePrompt}
                       </div>
-                      <div className="mt-3 grid gap-3 md:grid-cols-3">
+                      <div className="mt-3 grid max-h-[42dvh] gap-3 overflow-y-auto pr-1 md:max-h-none md:grid-cols-3 md:overflow-visible md:pr-0">
                         {pendingHumanContext.questions.map((question) => (
-                          <label key={question.id} className="block border border-[#2c2f37] bg-[#111216] p-3">
-                            <span className="text-[10px] font-black uppercase tracking-[0.16em] text-cyan-200">{question.label}</span>
-                            <span className="mt-2 block text-xs leading-5 text-slate-300">{question.question}</span>
+                          <label key={question.id} className="block min-w-0 border border-[#2c2f37] bg-[#111216] p-3">
+                            <span className="break-anywhere text-[10px] font-black uppercase tracking-[0.16em] text-cyan-200">{question.label}</span>
+                            <span className="break-anywhere mt-2 block text-xs leading-5 text-slate-300">{question.question}</span>
                             <textarea
                               value={pendingHumanContext.answers[question.id] || ""}
                               onChange={(event) => updateHumanContextAnswer(question.id, event.target.value)}
                               placeholder={question.placeholder}
-                              className="mt-3 min-h-[92px] w-full resize-none border border-[#2c2f37] bg-black px-3 py-2 text-xs leading-5 text-white outline-none placeholder:text-slate-700 focus:border-cyan-300"
+                              className="mt-3 min-h-[72px] w-full resize-none border border-[#2c2f37] bg-black px-3 py-2 text-xs leading-5 text-white outline-none placeholder:text-slate-700 focus:border-cyan-300 sm:min-h-[92px]"
                             />
                             <div className="mt-2 flex flex-wrap gap-1.5">
                               {question.suggestions.map((suggestion) => (
@@ -4827,7 +4864,7 @@ export function BlueprintWorkspace({
                                   key={suggestion}
                                   type="button"
                                   onClick={() => updateHumanContextAnswer(question.id, suggestion)}
-                                  className="border border-[#2c2f37] px-2 py-1 text-[10px] font-bold text-slate-500 hover:border-cyan-300 hover:text-cyan-100"
+                                  className="break-anywhere max-w-full border border-[#2c2f37] px-2 py-1 text-left text-[10px] font-bold text-slate-500 hover:border-cyan-300 hover:text-cyan-100"
                                 >
                                   {suggestion}
                                 </button>
@@ -4836,11 +4873,11 @@ export function BlueprintWorkspace({
                           </label>
                         ))}
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                         <button
                           type="submit"
                           disabled={isLoading}
-                          className="inline-flex h-10 items-center gap-2 bg-white px-4 text-xs font-black uppercase text-black hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex h-10 items-center justify-center gap-2 bg-white px-4 text-xs font-black uppercase text-black hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                           Build with context
@@ -4849,7 +4886,7 @@ export function BlueprintWorkspace({
                           type="button"
                           disabled={isLoading}
                           onClick={clearHumanContextCheckpoint}
-                          className="inline-flex h-10 items-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase text-slate-400 hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex h-10 items-center justify-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase text-slate-400 hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <ArrowLeft className="h-4 w-4" />
                           Edit request
@@ -4878,7 +4915,7 @@ export function BlueprintWorkspace({
                       className="mb-3 flex items-start gap-2 border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100"
                     >
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                      <span>{visibleGenerationInputNotice}</span>
+                      <span className="break-anywhere min-w-0">{visibleGenerationInputNotice}</span>
                     </div>
                   )}
 
@@ -4902,7 +4939,7 @@ export function BlueprintWorkspace({
                       }
                       aria-invalid={Boolean(visibleGenerationInputNotice)}
                       aria-describedby={visibleGenerationInputNotice ? "generation-input-notice" : undefined}
-                      className="min-h-[98px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-3 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:min-h-[104px] sm:p-4 sm:pr-16 sm:leading-7"
+                      className={`${pendingHumanContext ? "min-h-[72px] sm:min-h-[96px]" : "min-h-[98px] sm:min-h-[104px]"} w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-3 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:p-4 sm:pr-16 sm:leading-7`}
                     />
                     <button
                       type="submit"
@@ -7154,7 +7191,7 @@ function ProjectChatPanel({
   onOpenProject: (projectId: string) => void;
 }) {
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#141519]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
       <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -7215,16 +7252,16 @@ function ProjectChatPanel({
       }`}>
         {chatVisible && (
         <div className="flex min-h-[520px] min-w-0 flex-col overflow-hidden xl:min-h-0">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 pb-6">
-            <div className="mx-auto flex max-w-3xl flex-col gap-3">
+          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 pb-6">
+            <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-3">
               {messages.length ? (
                 messages.map((message) => {
                   const isUser = message.role === "user";
                   const isSystem = message.role === "system";
                   return (
-                    <div key={message.id} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+                    <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
                       <div
-                        className={`max-w-[92%] border px-4 py-3 ${
+                        className={`min-w-0 max-w-[92%] overflow-hidden border px-4 py-3 ${
                           isUser
                             ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-50"
                             : message.status === "error"
@@ -7240,7 +7277,7 @@ function ProjectChatPanel({
                           <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                           {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
                         </div>
-                        <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+                        <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                         <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
                         {message.projectId && message.projectId !== projectId && (
                           <button
@@ -7837,13 +7874,13 @@ function JobRow({
       <OperationStatusList operations={operations} compact={compact} />
 
       {summary.image_output_failed && summary.image_output_error && (
-        <div className="mt-3 break-words border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
+        <div className="break-anywhere mt-3 border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
           Image generation failed: {summary.image_output_error}
         </div>
       )}
 
       {job.error && (
-        <div className="mt-3 break-words border border-rose-500/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-300">
+        <div className="break-anywhere mt-3 border border-rose-500/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-300">
           {job.error}
         </div>
       )}
@@ -7854,15 +7891,15 @@ function JobRow({
             Debug trace{job.error_debug.error_type ? `: ${job.error_debug.error_type}` : ""}
           </summary>
           {job.error_debug.error && (
-            <div className="mt-3 break-words text-rose-200">{String(job.error_debug.error)}</div>
+            <div className="break-anywhere mt-3 text-rose-200">{String(job.error_debug.error)}</div>
           )}
           {job.error_debug.context && (
-            <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words border border-white/10 bg-black/30 p-3 text-[11px] leading-4 text-slate-300">
+            <pre className="break-anywhere mt-3 max-h-48 overflow-auto whitespace-pre-wrap border border-white/10 bg-black/30 p-3 text-[11px] leading-4 text-slate-300">
               {JSON.stringify(job.error_debug.context, null, 2)}
             </pre>
           )}
           {job.error_debug.traceback && (
-            <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap break-words border border-white/10 bg-black/30 p-3 text-[11px] leading-4 text-slate-300">
+            <pre className="break-anywhere mt-3 max-h-64 overflow-auto whitespace-pre-wrap border border-white/10 bg-black/30 p-3 text-[11px] leading-4 text-slate-300">
               {String(job.error_debug.traceback)}
             </pre>
           )}
@@ -7996,7 +8033,7 @@ function OperationStatusList({ operations, compact = false }: { operations: Reco
               <div className="mt-1 truncate font-mono text-[10px] opacity-80">{providerModel}</div>
             )}
             {error && (
-              <div className="mt-2 line-clamp-3 break-words text-[11px] leading-4 opacity-90">
+              <div className="break-anywhere mt-2 line-clamp-3 text-[11px] leading-4 opacity-90">
                 {String(error)}
               </div>
             )}

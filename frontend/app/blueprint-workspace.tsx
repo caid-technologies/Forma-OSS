@@ -158,6 +158,8 @@ const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
 const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
+const NVIDIA_QWEN_CODER_32B_MODEL = "qwen/qwen2.5-coder-32b-instruct";
+const NVIDIA_LLAMA_8B_MODEL = "meta/llama-3.1-8b-instruct";
 
 const localOnlyGenerationLlms: GenerationLlmOption[] =
   process.env.NODE_ENV === "development"
@@ -171,7 +173,8 @@ const defaultGenerationLlms: GenerationLlmOption[] = [
   { provider: "baseten", model: BASETEN_GLM_MODEL, label: "Baseten GLM 5.2" },
   ...localOnlyGenerationLlms,
   { provider: "gmi", model: "anthropic/claude-fable-5", label: "GMI Claude Fable 5" },
-  { provider: "nvidia", model: "meta/llama-3.1-8b-instruct", label: "NVIDIA Llama 3.1 8B" },
+  { provider: "nvidia", model: NVIDIA_QWEN_CODER_32B_MODEL, label: "NVIDIA Qwen2.5 Coder 32B" },
+  { provider: "nvidia", model: NVIDIA_LLAMA_8B_MODEL, label: "NVIDIA Llama 3.1 8B" },
 ];
 
 const defaultAgentPipelineSteps: AgentPipelineStep[] = [
@@ -268,7 +271,8 @@ function generationLlmLabel(provider: string, model: string) {
   if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "Baseten GLM 5.2";
   if (provider === "baseten" && model === BASETEN_DEEPSEEK_MODEL) return "Baseten DeepSeek V4 Pro";
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
-  if (provider === "nvidia" && model === "meta/llama-3.1-8b-instruct") return "NVIDIA Llama 3.1 8B";
+  if (provider === "nvidia" && model === NVIDIA_QWEN_CODER_32B_MODEL) return "NVIDIA Qwen2.5 Coder 32B";
+  if (provider === "nvidia" && model === NVIDIA_LLAMA_8B_MODEL) return "NVIDIA Llama 3.1 8B";
   if (provider === "simulation") return "Local Simulation";
   return `${provider} ${model}`.trim();
 }

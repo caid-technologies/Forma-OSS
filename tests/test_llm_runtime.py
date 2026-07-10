@@ -249,6 +249,23 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("https://router.huggingface.co/v1", provider.base_url)
         self.assertTrue(provider.is_configured)
 
+    def test_nvidia_runtime_allows_qwen_coder_32b_instruct(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nvidia",
+            LLM_ALLOWED_PROVIDERS="nvidia,simulation",
+            NVIDIA_API_KEY="nvapi_test",
+            NVIDIA_ALLOWED_MODELS="qwen/qwen2.5-coder-32b-instruct,meta/llama-3.1-8b-instruct",
+        ):
+            runtime = resolve_llm_runtime_config("nvidia", "qwen/qwen2.5-coder-32b-instruct")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("nvidia", runtime.provider)
+        self.assertEqual("qwen/qwen2.5-coder-32b-instruct", runtime.model)
+        self.assertIn("qwen/qwen2.5-coder-32b-instruct", runtime.allowed_models or [])
+        self.assertEqual("qwen/qwen2.5-coder-32b-instruct", provider.requested_model)
+        self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
+        self.assertTrue(provider.is_configured)
+
     def test_gmi_runtime_uses_fable_default_and_aliases(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="gemicloud",

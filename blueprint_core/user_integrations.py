@@ -239,7 +239,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"), secret=True, placeholder="nvapi-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"), placeholder="https://integrate.api.nvidia.com/v1"),
-            IntegrationFieldDefinition("model", "Default model", ("NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL"), placeholder="meta/llama-3.1-8b-instruct"),
+            IntegrationFieldDefinition("model", "Default model", ("NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL"), placeholder="qwen/qwen2.5-coder-32b-instruct"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NVIDIA_TIMEOUT_SECONDS", "NVIDIA_NIM_TIMEOUT_SECONDS", "NIM_TIMEOUT_SECONDS"), placeholder="1200"),
         ),
     ),

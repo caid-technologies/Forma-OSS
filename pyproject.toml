@@ -25,6 +25,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "json-repair>=0.30.0",
     "pydantic>=2.12.0",
     "python-dotenv>=1.0.1",
     "sqlalchemy==2.0.31",

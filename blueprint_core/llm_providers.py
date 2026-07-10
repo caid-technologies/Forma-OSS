@@ -41,6 +41,20 @@ DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_HTTP_USER_AGENT = "Blueprint-OSS/0.1"
 
+# Structured-output token budgets. The fine-tuned parti-base emits large JSON
+# records (MechanicalNotes runs ~9k+ chars); a low or unset max_tokens truncates
+# the completion mid-string and the pydantic parse fails. These bound the budget
+# that is ALWAYS sent for structured calls plus the one-retry escalation.
+DEFAULT_STRUCTURED_MAX_TOKENS = 8192  # sent when no *_MAX_TOKENS env is set
+STRUCTURED_MAX_TOKENS_FLOOR = 6000  # parti-base card minimum for large records
+STRUCTURED_MAX_TOKENS_CEILING = 16384  # retry cap; Qwen2.5-3B context is 32k
+LARGE_SCHEMA_CHAR_THRESHOLD = 2000  # MechanicalNotes=6656 chars, ProjectOverview=721
+
+# json_repair is imported lazily inside _salvage_json_text so the dependency is
+# only required when salvage actually runs. This flag makes the ImportError log
+# fire exactly once instead of on every truncated response.
+_json_repair_import_warned = False
+
 
 class LLMProviderConfigError(RuntimeError):
     """Raised when provider configuration prevents live generation."""
@@ -599,6 +613,66 @@ def _extract_json_document(text: str) -> Optional[str]:
     return None
 
 
+def _salvage_json_text(text: str) -> tuple[Optional[dict], List[str]]:
+    """Repair a truncated/malformed JSON object from the first '{' onward.
+
+    Uses json_repair to close unbalanced structure left behind when the model
+    hits its token budget mid-object. It only closes brackets/quotes and drops
+    trailing garbage; it never invents field content, so a semantically wrong
+    record still fails the pydantic validation that gates the result.
+
+    Returns (object-or-None, notes). json_repair is imported lazily so the
+    dependency is only needed when salvage runs; on ImportError we log once and
+    return (None, [note]).
+    """
+    global _json_repair_import_warned
+    start = text.find("{")
+    if start == -1:
+        return None, ["no JSON object found to salvage"]
+    try:
+        import json_repair
+    except ImportError:
+        if not _json_repair_import_warned:
+            logger.warning(
+                "json_repair is not installed; truncated structured output cannot be salvaged. "
+                "Install json-repair>=0.30.0 to enable JSON salvage."
+            )
+            _json_repair_import_warned = True
+        return None, ["json_repair unavailable"]
+    obj = json_repair.loads(text[start:])
+    if not isinstance(obj, dict):
+        return None, [f"salvage produced {type(obj).__name__}, not an object"]
+    return obj, ["closed truncated/malformed JSON structure"]
+
+
+def _prune_truncated_tail(obj: Any) -> tuple[Any, List[str]]:
+    """Drop the half-written trailing list item truncation leaves behind.
+
+    After json_repair closes a truncated record, the LAST element of the list
+    that was being written is usually incomplete (a dict missing keys its
+    siblings all have). Detect exactly that - last item of a list of >= 2 dicts,
+    key set a proper subset of the first item's - and drop it. Only the tail of
+    each list is considered, so legitimately sparse items elsewhere are kept.
+    """
+    notes: List[str] = []
+
+    def _prune(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            for k, v in node.items():
+                _prune(v, f"{path}.{k}" if path else k)
+        elif isinstance(node, list) and len(node) >= 2:
+            first, last = node[0], node[-1]
+            if (isinstance(first, dict) and isinstance(last, dict)
+                    and set(last) < set(first)):
+                node.pop()
+                notes.append(f"dropped incomplete trailing item in {path}")
+            for i, v in enumerate(node):
+                _prune(v, f"{path}[{i}]")
+
+    _prune(obj, "")
+    return obj, notes
+
+
 def _validate_structured_json(response_text: str, schema_class: Any) -> Any:
     try:
         return schema_class.model_validate_json(response_text)
@@ -614,6 +688,26 @@ def _validate_structured_json(response_text: str, schema_class: Any) -> Any:
         if extracted:
             try:
                 return schema_class.model_validate_json(extracted)
+            except Exception:
+                pass
+
+        # Fourth attempt: salvage a truncated completion. json_repair closes the
+        # structure, the pruner deletes the half-written trailing item, and full
+        # pydantic validation still gates the result - salvage cannot invent
+        # content, only recover a record the model finished but got cut off.
+        salvaged, notes = _salvage_json_text(cleaned)
+        if salvaged is not None:
+            salvaged, prune_notes = _prune_truncated_tail(salvaged)
+            notes = notes + prune_notes
+            try:
+                result = schema_class.model_validate(salvaged)
+                logger.warning(
+                    "Structured output for %s required JSON salvage (%d chars): %s",
+                    _schema_name(schema_class),
+                    len(response_text),
+                    "; ".join(notes) or "no changes",
+                )
+                return result
             except Exception:
                 pass
 
@@ -1296,6 +1390,28 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             {"type": "image_url", "image_url": {"url": f"data:{image_mime_type};base64,{data}"}},
         ]
 
+    def _structured_max_tokens(self, schema_class: Any) -> int:
+        """Token budget always sent for a structured call.
+
+        Uses the configured max_tokens, or DEFAULT_STRUCTURED_MAX_TOKENS when no
+        *_MAX_TOKENS env is set. Large schemas (MechanicalNotes=6656 chars) whose
+        configured budget sits below the parti-base floor are raised to the floor
+        so big records are not truncated; small schemas keep the configured value.
+        """
+        budget = self.max_tokens or DEFAULT_STRUCTURED_MAX_TOKENS
+        schema_chars = len(json.dumps(schema_class.model_json_schema()))
+        if schema_chars >= LARGE_SCHEMA_CHAR_THRESHOLD and budget < STRUCTURED_MAX_TOKENS_FLOOR:
+            logger.warning(
+                "Raising max_tokens for %s from %d to floor %d (schema is %d chars; "
+                "large records truncate below the floor)",
+                _schema_name(schema_class),
+                budget,
+                STRUCTURED_MAX_TOKENS_FLOOR,
+                schema_chars,
+            )
+            return STRUCTURED_MAX_TOKENS_FLOOR
+        return budget
+
     def generate_structured(
         self,
         prompt: str,
@@ -1325,12 +1441,6 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         if self.reasoning_effort:
             payload["reasoning_effort"] = self.reasoning_effort
 
-        if self.max_tokens:
-            if self.provider_name == "openai":
-                payload["max_completion_tokens"] = self.max_tokens
-            else:
-                payload["max_tokens"] = self.max_tokens
-
         if self.response_format == "json_schema":
             payload["response_format"] = {
                 "type": "json_schema",
@@ -1343,19 +1453,66 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         elif self.response_format != "none":
             payload["response_format"] = {"type": "json_object"}
 
-        response = self._request_json("chat/completions", method="POST", payload=payload)
-        choices = response.get("choices") or []
-        if not choices:
-            raise RuntimeError(f"{self.provider_name} response did not include any choices.")
+        # A token budget is ALWAYS sent for structured calls (see Layer A). An
+        # unset or too-small budget truncated large records mid-string and the
+        # pydantic parse failed with a user-facing 500.
+        tokens_key = "max_completion_tokens" if self.provider_name == "openai" else "max_tokens"
+        budget = self._structured_max_tokens(schema_class)
 
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        if isinstance(content, list):
-            content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
-        if not isinstance(content, str) or not content.strip():
-            raise RuntimeError(f"{self.provider_name} response did not include text content.")
+        # Exactly two attempts: the first at the computed budget, and on a
+        # validation failure one retry at a larger budget. Transport/HTTP errors
+        # from _request_json are NOT retried here - they raise immediately,
+        # preserving current behavior.
+        last_error: Optional[Exception] = None
+        finish_reason: Optional[str] = None
+        for attempt in range(2):
+            payload[tokens_key] = budget
+            response = self._request_json("chat/completions", method="POST", payload=payload)
+            choices = response.get("choices") or []
+            if not choices:
+                raise RuntimeError(f"{self.provider_name} response did not include any choices.")
 
-        return _validate_structured_json(content, schema_class)
+            finish_reason = choices[0].get("finish_reason")
+            message = choices[0].get("message") or {}
+            content = message.get("content")
+            if isinstance(content, list):
+                content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+            if not isinstance(content, str) or not content.strip():
+                raise RuntimeError(f"{self.provider_name} response did not include text content.")
+
+            try:
+                result = _validate_structured_json(content, schema_class)
+                if finish_reason == "length":
+                    logger.warning(
+                        "%s output for %s hit the token cap (max_tokens=%d, finish_reason=length) "
+                        "but was salvaged into a valid record.",
+                        self.provider_name,
+                        _schema_name(schema_class),
+                        budget,
+                    )
+                return result
+            except Exception as validation_error:
+                last_error = validation_error
+                if attempt == 0:
+                    budget = min(
+                        max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
+                        STRUCTURED_MAX_TOKENS_CEILING,
+                    )
+                    logger.warning(
+                        "%s produced unusable %s (finish_reason=%s, content=%d chars); "
+                        "retrying once with max_tokens=%d.",
+                        self.provider_name,
+                        _schema_name(schema_class),
+                        finish_reason,
+                        len(content),
+                        budget,
+                    )
+
+        raise LLMProviderOutputError(
+            f"{self.provider_name} returned unusable structured output for "
+            f"{_schema_name(schema_class)} after retry (finish_reason={finish_reason}, "
+            f"max_tokens={budget}): {last_error}"
+        ) from last_error
 
 
 class RunpodServerlessProvider(StructuredLLMProvider):

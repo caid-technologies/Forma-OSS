@@ -30,7 +30,7 @@ ENV_FILE = ".env"
 OUTPUT_DIR = "examples/results"
 TIMEOUT_SECONDS = 1200.0
 TEMPERATURE = 0.2
-MAX_TOKENS = 500
+MAX_TOKENS = 8192
 USER_PROJECT_PROMPT = (
     "Design a compact blue desktop environmental monitor with an OLED display, "
     "temperature and humidity sensing, USB-C power, and optional battery operation."

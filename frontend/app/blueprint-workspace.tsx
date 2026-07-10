@@ -65,6 +65,9 @@ const DEFAULT_WORKFLOW_ID = "default";
 const WEB_RESEARCH_WORKFLOW_ID = "web_research";
 const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
 const JOB_POLL_INTERVAL_MS = 5000;
+const ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS = 1200;
+const PIPELINE_UI_HEARTBEAT_MS = 5000;
+const PIPELINE_STALE_AFTER_MS = 30000;
 const VIDEO_POLL_INTERVAL_MS = 4000;
 const VIDEO_PROMPT_MAX_CHARS = 2500;
 const LOG_POLL_INTERVAL_MS = 5000;
@@ -120,6 +123,7 @@ type AgentPipelineProgress = {
   synced?: boolean;
   jobId?: string | null;
   events?: AgentPipelineEvent[];
+  uiUpdatedAt?: string;
 };
 
 type ChatMessage = {
@@ -259,6 +263,10 @@ function generationLlmKey(option: Pick<GenerationLlmOption, "provider" | "model"
 function generationLlmLabel(provider: string, model: string) {
   if (provider === "runpod-serverless" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Serverless Parti Base";
   if (provider === "runpod" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Parti Base";
+  if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "Baseten GLM 5.2";
+  if (provider === "baseten" && model === BASETEN_DEEPSEEK_MODEL) return "Baseten DeepSeek V4 Pro";
+  if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
+  if (provider === "nvidia" && model === "meta/llama-3.1-8b-instruct") return "NVIDIA Llama 3.1 8B";
   if (provider === "simulation") return "Local Simulation";
   return `${provider} ${model}`.trim();
 }
@@ -386,6 +394,7 @@ function normalizeAgentPipelineProgress(value: any): AgentPipelineProgress | nul
     synced: Boolean(value.synced),
     jobId: typeof value.jobId === "string" ? value.jobId : null,
     events,
+    uiUpdatedAt: typeof value.uiUpdatedAt === "string" && value.uiUpdatedAt ? value.uiUpdatedAt : chatTimestamp(),
   };
 }
 
@@ -431,7 +440,13 @@ function createAgentPipelineProgress(
     synced: false,
     jobId,
     events: [],
+    uiUpdatedAt: startedAt,
   };
+}
+
+function shouldPulsePipelineUi(progress: AgentPipelineProgress, nowMs: number) {
+  const lastUiMs = timestampMs(progress.uiUpdatedAt);
+  return lastUiMs === null || nowMs - lastUiMs >= PIPELINE_UI_HEARTBEAT_MS;
 }
 
 function agentPipelineStepIndex(progress: AgentPipelineProgress, nowMs: number) {
@@ -446,9 +461,18 @@ function agentPipelineStepIndex(progress: AgentPipelineProgress, nowMs: number) 
 }
 
 function advanceAgentPipelineProgress(progress: AgentPipelineProgress, nowMs: number): AgentPipelineProgress {
-  if (progress.synced || progress.estimated === false) return progress;
+  if (progress.synced || progress.estimated === false) {
+    return shouldPulsePipelineUi(progress, nowMs)
+      ? { ...progress, uiUpdatedAt: new Date(nowMs).toISOString() }
+      : progress;
+  }
   const currentStepIndex = agentPipelineStepIndex(progress, nowMs);
-  return currentStepIndex === progress.currentStepIndex ? progress : { ...progress, currentStepIndex };
+  if (currentStepIndex !== progress.currentStepIndex) {
+    return { ...progress, currentStepIndex, uiUpdatedAt: new Date(nowMs).toISOString() };
+  }
+  return shouldPulsePipelineUi(progress, nowMs)
+    ? { ...progress, uiUpdatedAt: new Date(nowMs).toISOString() }
+    : progress;
 }
 
 function pipelineEventCursor(events: AgentPipelineEvent[] | undefined) {
@@ -460,6 +484,54 @@ function pipelineEventCursor(events: AgentPipelineEvent[] | undefined) {
     lastEvent?.step_id || "",
     lastEvent?.status || "",
   ].join(":");
+}
+
+function isFailedPipelineStatus(status: any) {
+  return String(status || "").toLowerCase().includes("failed");
+}
+
+function isCompletedPipelineStatus(status: any) {
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "completed" || normalized === "provider_response_received";
+}
+
+function failedPipelineEvent(events: AgentPipelineEvent[] | undefined) {
+  const normalizedEvents = normalizeAgentPipelineEvents(events);
+  return [...normalizedEvents].reverse().find((event) => isFailedPipelineStatus(event.status)) || null;
+}
+
+function jobFailureMessage(job: A2AJob) {
+  const event = failedPipelineEvent(job.progress_events);
+  const eventDetails = event?.details || {};
+  const reason = job.error || eventDetails.error || eventDetails.reason || eventDetails.message;
+  if (reason) return String(reason);
+  if (event?.label) return `${event.label} failed.`;
+  return "Generation failed.";
+}
+
+function terminalJobMessagePatch(job: A2AJob, message: ChatMessage): Partial<Omit<ChatMessage, "id">> | null {
+  if (message.status !== "loading") return null;
+  if (job.status === "failed") {
+    return {
+      content: `Generation failed: ${jobFailureMessage(job)}`,
+      status: "error",
+    };
+  }
+  if (job.status === "succeeded") {
+    const title = job.result_summary?.title || "Project";
+    const projectId = typeof job.result_summary?.project_id === "string" ? job.result_summary.project_id : null;
+    return {
+      content: `${title} is ready. Loading project output...`,
+      status: "success",
+      projectId,
+    };
+  }
+  return null;
+}
+
+function patchChangesMessage(message: ChatMessage, patch: Partial<Omit<ChatMessage, "id">> | null) {
+  if (!patch) return false;
+  return Object.entries(patch).some(([key, value]) => (message as any)[key] !== value);
 }
 
 function sameAgentPipelineProgress(left: AgentPipelineProgress | null | undefined, right: AgentPipelineProgress | null | undefined) {
@@ -489,7 +561,7 @@ function progressFromJobEvents(
   for (const event of events) {
     const eventIndex = indexByStep.get(event.step_id);
     if (eventIndex === undefined) continue;
-    if (event.status === "completed" || event.status === "skipped") {
+    if (isCompletedPipelineStatus(event.status) || event.status === "skipped") {
       currentStepIndex = Math.min(eventIndex + 1, Math.max(steps.length - 1, 0));
     } else {
       currentStepIndex = eventIndex;
@@ -507,6 +579,7 @@ function progressFromJobEvents(
     synced: true,
     jobId: job?.job_id || fallback.jobId || null,
     events,
+    uiUpdatedAt: chatTimestamp(),
   };
 }
 
@@ -517,12 +590,39 @@ function mergeMessagePipelineProgressFromJob(
   includeImage: boolean
 ) {
   const nextProgress = progressFromJobEvents(job, message.pipelineProgress || seedProgress, includeImage);
-  if (!nextProgress || sameAgentPipelineProgress(message.pipelineProgress, nextProgress)) return message;
+  const terminalPatch = terminalJobMessagePatch(job, message);
+  const progressChanged = Boolean(nextProgress && !sameAgentPipelineProgress(message.pipelineProgress, nextProgress));
+  const patchChanged = patchChangesMessage(message, terminalPatch);
+  if (!progressChanged && !patchChanged) return message;
   return {
     ...message,
-    pipelineProgress: nextProgress,
+    ...(terminalPatch || {}),
+    pipelineProgress: nextProgress || message.pipelineProgress || null,
     timestamp: chatTimestamp(),
   };
+}
+
+function progressIncludesImageStep(progress: AgentPipelineProgress | null | undefined) {
+  return Boolean(progress?.steps?.some((step) => step.id === optionalImagePipelineStep.id || step.optional));
+}
+
+function mergeMessagesWithJobs(
+  messages: ChatMessage[],
+  jobsById: Map<string, A2AJob>,
+  includeImageDefault: boolean
+) {
+  let changed = false;
+  const nextMessages = messages.map((message) => {
+    const jobId = message.pipelineProgress?.jobId;
+    if (!jobId) return message;
+    const job = jobsById.get(jobId);
+    if (!job || !message.pipelineProgress) return message;
+    const includeImage = includeImageDefault || progressIncludesImageStep(message.pipelineProgress);
+    const nextMessage = mergeMessagePipelineProgressFromJob(message, job, message.pipelineProgress, includeImage);
+    if (nextMessage !== message) changed = true;
+    return nextMessage;
+  });
+  return changed ? nextMessages : messages;
 }
 
 function advancePipelineMessages(messages: ChatMessage[], nowMs: number) {
@@ -535,6 +635,84 @@ function advancePipelineMessages(messages: ChatMessage[], nowMs: number) {
     return { ...message, pipelineProgress: nextProgress };
   });
   return changed ? nextMessages : messages;
+}
+
+function pipelineEventTimestampMs(event: AgentPipelineEvent | null | undefined): number | null {
+  return timestampMs(event?.observed_at);
+}
+
+function latestPipelineEvent(events: AgentPipelineEvent[]) {
+  const normalizedEvents = normalizeAgentPipelineEvents(events);
+  return normalizedEvents[normalizedEvents.length - 1] || null;
+}
+
+function pipelineStepForEvent(progress: AgentPipelineProgress, event: AgentPipelineEvent | null | undefined) {
+  if (!event) return null;
+  return progress.steps.find((step) => step.id === event.step_id) || null;
+}
+
+function activePipelineStep(progress: AgentPipelineProgress) {
+  const events = normalizeAgentPipelineEvents(progress.events);
+  const lastEvent = latestPipelineEvent(events);
+  const stepFromEvent = pipelineStepForEvent(progress, lastEvent);
+  if (lastEvent && !isCompletedPipelineStatus(lastEvent.status) && lastEvent.status !== "skipped") {
+    return stepFromEvent || progress.steps[progress.currentStepIndex] || progress.steps[0] || null;
+  }
+  return progress.steps[progress.currentStepIndex] || stepFromEvent || progress.steps[0] || null;
+}
+
+function completedPipelineStepCount(progress: AgentPipelineProgress) {
+  const completed = new Set<string>();
+  normalizeAgentPipelineEvents(progress.events).forEach((event) => {
+    if (isCompletedPipelineStatus(event.status) || event.status === "skipped") completed.add(event.step_id);
+    if (isFailedPipelineStatus(event.status)) completed.delete(event.step_id);
+  });
+  if (completed.size) return completed.size;
+  return progress.estimated ? Math.max(0, progress.currentStepIndex) : 0;
+}
+
+function pipelineStepStatus(progress: AgentPipelineProgress, step: AgentPipelineStep, activeStepId: string | null) {
+  const events = normalizeAgentPipelineEvents(progress.events);
+  const stepEvents = events.filter((event) => event.step_id === step.id);
+  const lastStepEvent = stepEvents[stepEvents.length - 1];
+  if (isFailedPipelineStatus(lastStepEvent?.status)) return "failed";
+  if (lastStepEvent?.status === "skipped") return "skipped";
+  if (isCompletedPipelineStatus(lastStepEvent?.status)) return "completed";
+  if (activeStepId === step.id) return "active";
+  return "pending";
+}
+
+function formatPipelineAge(value?: string | null, nowMs: number = Date.now()) {
+  const ms = timestampMs(value);
+  if (ms === null) return "-";
+  return formatDurationSeconds(Math.max(1, Math.round((nowMs - ms) / 1000)));
+}
+
+function formatPipelineDetails(details: Record<string, any> | undefined) {
+  if (!details || typeof details !== "object") return "";
+  return Object.entries(details)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .slice(0, 3)
+    .map(([key, value]) => {
+      const rawText = typeof value === "string" ? value : JSON.stringify(value);
+      const text = typeof rawText === "string" ? rawText : String(value);
+      return `${key.replace(/_/g, " ")}: ${text.length > 80 ? `${text.slice(0, 77)}...` : text}`;
+    })
+    .join(" / ");
+}
+
+function PipelineStepDot({ status }: { status: string }) {
+  const tone =
+    status === "completed"
+      ? "border-emerald-400 bg-emerald-400"
+      : status === "failed"
+        ? "border-rose-400 bg-rose-400"
+        : status === "skipped"
+          ? "border-slate-600 bg-slate-800"
+          : status === "active"
+            ? "border-cyan-300 bg-cyan-300"
+            : "border-slate-700 bg-black";
+  return <span className={`h-2.5 w-2.5 shrink-0 border ${tone}`} />;
 }
 
 function chatThreadStorageKey(chatId: string) {
@@ -2496,6 +2674,26 @@ export function BlueprintWorkspace({
   }, [fetchA2aJobs, jobStatusFilter]);
 
   useEffect(() => {
+    if (!a2aJobs.length) return;
+    const jobsById = new Map(a2aJobs.map((job) => [job.job_id, job]));
+
+    setChatMessages((current) => mergeMessagesWithJobs(current, jobsById, generateProductImage));
+    setChatThreads((current) => {
+      let changed = false;
+      const nextThreads: Record<string, ChatMessage[]> = {};
+      Object.entries(current).forEach(([chatId, messages]) => {
+        const nextMessages = mergeMessagesWithJobs(messages, jobsById, generateProductImage);
+        if (nextMessages !== messages) {
+          changed = true;
+          writeStoredChatThread(chatId, nextMessages);
+        }
+        nextThreads[chatId] = nextMessages;
+      });
+      return changed ? nextThreads : current;
+    });
+  }, [a2aJobs, generateProductImage]);
+
+  useEffect(() => {
     if (!showDeveloperTools) return;
     if (homeView !== "logs" && activeTab !== "logs") return;
     fetchBackendLogs();
@@ -3256,7 +3454,7 @@ export function BlueprintWorkspace({
     checkServerStatus();
     progressPollId = window.setInterval(() => {
       void syncProgressFromJob();
-    }, 1200);
+    }, ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS);
     void syncProgressFromJob();
 
     try {
@@ -3481,7 +3679,7 @@ export function BlueprintWorkspace({
     checkServerStatus();
     progressPollId = window.setInterval(() => {
       void syncProgressFromJob();
-    }, 1200);
+    }, ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS);
     void syncProgressFromJob();
 
     try {
@@ -4556,6 +4754,7 @@ export function BlueprintWorkspace({
                               <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                             </div>
                             <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+                            <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
                             {message.projectId && (
                               <button
                                 type="button"
@@ -7042,6 +7241,7 @@ function ProjectChatPanel({
                           {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
                         </div>
                         <p className="whitespace-pre-wrap break-words text-sm leading-6">{message.content}</p>
+                        <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
                         {message.projectId && message.projectId !== projectId && (
                           <button
                             type="button"
@@ -7101,6 +7301,152 @@ function ProjectChatPanel({
         }`}>
           {namespaceContent}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentPipelineProgressView({
+  progress,
+  status,
+  compact = false,
+}: {
+  progress?: AgentPipelineProgress | null;
+  status?: ChatMessage["status"];
+  compact?: boolean;
+}) {
+  if (!progress) return null;
+
+  const steps = progress.steps.length ? progress.steps : defaultAgentPipelineSteps;
+  const events = normalizeAgentPipelineEvents(progress.events);
+  const lastEvent = latestPipelineEvent(events);
+  const activeStep = activePipelineStep({ ...progress, steps });
+  const activeStepId = activeStep?.id || null;
+  const nowMs = Date.now();
+  const startedMs = timestampMs(progress.startedAt);
+  const elapsedSeconds = startedMs === null ? null : Math.max(1, Math.round((nowMs - startedMs) / 1000));
+  const lastEventMs = pipelineEventTimestampMs(lastEvent);
+  const quietMs = lastEventMs === null ? null : nowMs - lastEventMs;
+  const isLoading = status === "loading";
+  const hasFailedEvent = events.some((event) => isFailedPipelineStatus(event.status));
+  const isError = status === "error" || hasFailedEvent;
+  const waitingForFirstEvent = isLoading && !events.length && startedMs !== null && nowMs - startedMs >= PIPELINE_STALE_AFTER_MS;
+  const backendQuiet = isLoading && quietMs !== null && quietMs >= PIPELINE_STALE_AFTER_MS;
+  const completedCount = completedPipelineStepCount({ ...progress, steps });
+  const progressPercent = Math.min(100, Math.max(6, Math.round((completedCount / Math.max(steps.length, 1)) * 100)));
+  const visibleEvents = events.slice(compact ? -4 : -6);
+  const signalLabel = isError
+    ? "error"
+    : progress.synced
+    ? backendQuiet
+      ? "backend quiet"
+      : "backend synced"
+    : waitingForFirstEvent
+      ? "waiting for job event"
+      : "estimated";
+  const signalTone = isError
+    ? "border-rose-400/35 bg-rose-950/25 text-rose-200"
+    : backendQuiet || waitingForFirstEvent
+    ? "border-amber-400/35 bg-amber-950/25 text-amber-200"
+    : progress.synced
+      ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
+      : "border-slate-500/25 bg-black/25 text-slate-400";
+
+  return (
+    <div className="mt-3 border border-[#2a2c33] bg-black/25 p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Agent pipeline</span>
+            <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${signalTone}`}>
+              {isError ? <AlertTriangle className="h-3 w-3" /> : isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+              {signalLabel}
+            </span>
+          </div>
+          {progress.jobId && (
+            <div className="mt-1 truncate font-mono text-[10px] text-slate-600">{progress.jobId}</div>
+          )}
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="font-mono text-[11px] font-black text-slate-300">{completedCount}/{steps.length}</div>
+          <div className="text-[10px] uppercase text-slate-600">{formatDurationSeconds(elapsedSeconds)}</div>
+        </div>
+      </div>
+
+      <div className="mt-3 h-1.5 bg-[#111216]">
+        <div className={`h-full ${isError ? "bg-rose-300" : backendQuiet || waitingForFirstEvent ? "bg-amber-300" : "bg-cyan-300"}`} style={{ width: `${progressPercent}%` }} />
+      </div>
+
+      <div className="mt-3 flex min-w-0 items-start gap-2 border border-[#25272e] bg-[#111216] p-3">
+        {isError ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" /> : isLoading ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-cyan-300" /> : <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+        <div className="min-w-0">
+          <div className="truncate text-xs font-black uppercase text-white">{activeStep?.label || "Preparing job"}</div>
+          <div className="mt-1 truncate text-[11px] font-bold text-cyan-200">{activeStep?.agent || "Blueprint runtime"}</div>
+          {activeStep?.description && !compact && (
+            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{activeStep.description}</div>
+          )}
+          {lastEvent && (
+            <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase text-slate-500">
+              <span>last: {lastEvent.label || lastEvent.step_id}</span>
+              <span>{String(lastEvent.status).replace(/_/g, " ")}</span>
+              <span>{formatPipelineAge(lastEvent.observed_at, nowMs)} ago</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {(backendQuiet || waitingForFirstEvent) && (
+        <div className="mt-2 flex gap-2 border border-amber-400/30 bg-amber-950/20 p-2 text-[11px] leading-4 text-amber-100">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            {events.length
+              ? `No new backend event for ${formatDurationSeconds(Math.round((quietMs || 0) / 1000))}. Waiting on the active provider or backend call.`
+              : "No backend event has been persisted yet. The job poller is still active."}
+          </span>
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {steps.map((step) => (
+          <span
+            key={step.id}
+            className="inline-flex items-center gap-1.5 border border-[#25272e] bg-[#111216] px-2 py-1 text-[10px] text-slate-500"
+            title={`${step.agent}: ${step.label}`}
+          >
+            <PipelineStepDot status={pipelineStepStatus({ ...progress, steps }, step, activeStepId)} />
+            <span className="max-w-[120px] truncate">{step.label}</span>
+          </span>
+        ))}
+      </div>
+
+      <div className="mt-3 border-t border-[#25272e] pt-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">Recent events</span>
+          <span className="font-mono text-[10px] text-slate-600">{events.length}</span>
+        </div>
+        {visibleEvents.length ? (
+          <div className="space-y-1.5">
+            {visibleEvents.map((event, index) => {
+              const details = formatPipelineDetails(event.details);
+              return (
+                <div key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className="min-w-0 border border-[#25272e] bg-[#0f1014] px-2 py-1.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] uppercase">
+                    <span className="max-w-[160px] truncate font-black text-slate-300">{event.label || event.step_id}</span>
+                    <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-cyan-300"}`}>
+                      {String(event.status).replace(/_/g, " ")}
+                    </span>
+                    <span className="text-slate-600">{formatPipelineAge(event.observed_at, nowMs)} ago</span>
+                  </div>
+                  {details && !compact && <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">{details}</div>}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="border border-[#25272e] bg-[#0f1014] px-2 py-2 text-[11px] leading-4 text-slate-500">
+            Polling job metadata. Backend pipeline events will appear here as agents report progress.
+          </div>
+        )}
       </div>
     </div>
   );
@@ -7428,6 +7774,7 @@ function JobRow({
   const sourceUsage = getJobSourceUsage(job);
   const sourceLabel = formatSourceUsageLabel(sourceUsage);
   const SourceIcon = sourceUsage.web_research || sourceUsage.firecrawl ? Sparkles : Database;
+  const llmInfo = getJobLlmInfo(job);
   const hasChatTarget = Boolean(chatIdFromJob(job));
   const hasProjectTarget = Boolean(project?.project_id);
   const isOpenable = hasChatTarget || hasProjectTarget;
@@ -7449,6 +7796,12 @@ function JobRow({
                 <span className="truncate">{sourceLabel}</span>
               </span>
             )}
+            {llmInfo.label !== "-" && (
+              <span className="inline-flex max-w-full items-center gap-1.5 truncate border border-violet-300/25 bg-violet-300/10 px-2 py-1 text-[11px] font-black uppercase text-violet-100">
+                <Cpu className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{llmInfo.label}</span>
+              </span>
+            )}
             <span className="min-w-0 max-w-full truncate text-[11px] font-bold text-slate-500">{job.sender} {"->"} {job.recipient}</span>
           </div>
           <h3 className="truncate text-sm font-black text-white">{title}</h3>
@@ -7467,11 +7820,12 @@ function JobRow({
       </div>
 
       {!compact && (
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-7">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
           <JobMetric label="Job" value={job.job_id} />
           <JobMetric label="Created" value={formatJobTime(job.created_at)} />
           <JobMetric label="Duration" value={formatJobDuration(job)} />
           <JobMetric label="Source" value={sourceLabel} />
+          <JobMetric label="LLM" value={llmInfo.label} />
           <JobMetric label="Parts" value={summary.component_count ?? "-"} />
           <JobMetric label="Valid" value={summary.is_valid === undefined ? "-" : summary.is_valid ? "yes" : "no"} />
           <JobMetric label="Image" value={imageStatusLabel} />
@@ -7524,9 +7878,50 @@ function getJobOperations(summary: Record<string, any>) {
     : [];
 }
 
+function firstString(...values: any[]) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+}
+
+function getJobLlmInfo(job: A2AJob) {
+  const summary = job.result_summary || {};
+  const operations = getJobOperations(summary);
+  const generationOperation = operations.find((operation) => operation.provider || operation.model) || {};
+  const eventDetails = normalizeAgentPipelineEvents(job.progress_events)
+    .map((event) => event.details || {})
+    .reverse();
+  const eventProvider = firstString(...eventDetails.map((details) => details.runtime_provider || details.provider));
+  const eventModel = firstString(...eventDetails.map((details) => details.runtime_model || details.actual_model || details.model));
+  const provider = firstString(
+    summary.runtime_provider,
+    summary.llm_provider,
+    summary.requested_provider,
+    job.payload?.provider,
+    generationOperation.provider,
+    eventProvider
+  );
+  const model = firstString(
+    summary.runtime_model,
+    summary.actual_model,
+    summary.model_name,
+    summary.requested_model,
+    job.payload?.model,
+    generationOperation.model,
+    eventModel
+  );
+
+  return {
+    provider,
+    model,
+    label: provider && model ? generationLlmLabel(provider, model) : provider || model || "-",
+  };
+}
+
 function pipelineEventTone(status: string) {
-  if (status === "completed") return "border-emerald-500/25 bg-emerald-950/15 text-emerald-300";
-  if (status === "failed") return "border-rose-500/30 bg-rose-950/20 text-rose-300";
+  if (isCompletedPipelineStatus(status)) return "border-emerald-500/25 bg-emerald-950/15 text-emerald-300";
+  if (isFailedPipelineStatus(status)) return "border-rose-500/30 bg-rose-950/20 text-rose-300";
   if (status === "skipped") return "border-slate-500/20 bg-slate-950/20 text-slate-500";
   return "border-cyan-500/25 bg-cyan-950/15 text-cyan-300";
 }
@@ -7558,7 +7953,7 @@ function JobPipelineEventList({
           const isActiveStartedEvent = event.status === "started" && !jobIsTerminal;
           return (
             <span key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className={`inline-flex max-w-full items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${pipelineEventTone(String(event.status))}`}>
-              {event.status === "completed" ? <CheckCircle className="h-3 w-3 shrink-0" /> : event.status === "failed" ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <RefreshCw className={`h-3 w-3 shrink-0 ${isActiveStartedEvent ? "animate-spin" : ""}`} />}
+              {isCompletedPipelineStatus(event.status) ? <CheckCircle className="h-3 w-3 shrink-0" /> : isFailedPipelineStatus(event.status) ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <RefreshCw className={`h-3 w-3 shrink-0 ${isActiveStartedEvent ? "animate-spin" : ""}`} />}
               <span className="truncate">{label}</span>
               <span className="text-slate-500">{String(event.status).replace(/_/g, " ")}</span>
               {time && !compact && <span className="text-slate-600">{time}</span>}

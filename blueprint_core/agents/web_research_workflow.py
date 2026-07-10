@@ -122,6 +122,7 @@ class WebResearchHardwarePipeline:
         schema_class: Any,
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
+        pipeline_step_id: Optional[str] = None,
     ) -> Any:
         if self.use_simulation:
             raise RuntimeError("Simulation mode is active; web research workflow needs a live structured LLM provider.")
@@ -138,6 +139,14 @@ class WebResearchHardwarePipeline:
             "has_reference_image": bool(image_bytes),
             "image_mime_type": image_mime_type,
         }
+        provider_event_details = {
+            "provider": self.llm_provider.provider_name,
+            "model": self.llm_provider.model_name,
+            "runtime_provider": self.runtime_config.provider,
+            "runtime_model": self.runtime_config.model,
+            "schema": schema_name,
+            "has_reference_image": bool(image_bytes),
+        }
         with start_observation(
             name=f"blueprint.{self.workflow_id}.{schema_name}",
             as_type="generation",
@@ -151,6 +160,13 @@ class WebResearchHardwarePipeline:
             metadata=metadata,
         ) as observation:
             try:
+                if pipeline_step_id:
+                    emit_agent_pipeline_event(
+                        self.workflow_id,
+                        pipeline_step_id,
+                        "provider_request_started",
+                        details=provider_event_details,
+                    )
                 result = self.llm_provider.generate_structured(prompt, schema_class, image_bytes, image_mime_type)
                 self.model_name = self.llm_provider.model_name
                 update_observation(
@@ -158,8 +174,26 @@ class WebResearchHardwarePipeline:
                     output=serialize_for_langfuse(result),
                     metadata={**metadata, "actual_model": self.model_name},
                 )
+                if pipeline_step_id:
+                    emit_agent_pipeline_event(
+                        self.workflow_id,
+                        pipeline_step_id,
+                        "provider_response_received",
+                        details={**provider_event_details, "actual_model": self.model_name},
+                    )
                 return result
             except Exception as exc:
+                if pipeline_step_id:
+                    emit_agent_pipeline_event(
+                        self.workflow_id,
+                        pipeline_step_id,
+                        "provider_request_failed",
+                        details={
+                            **provider_event_details,
+                            "error_type": exc.__class__.__name__,
+                            "error": str(exc)[:500],
+                        },
+                    )
                 update_observation(
                     observation,
                     metadata={**metadata, "error_type": exc.__class__.__name__, "error": str(exc)[:1000]},
@@ -232,8 +266,13 @@ class WebResearchHardwarePipeline:
             pass
         logger.info("Starting Web Research Pipeline Execution...")
         logger.info("Invoking External Source Research Agent...")
-        with agent_pipeline_step(self.workflow_id, "external_research"):
-            research = self._research(user_prompt)
+        research_queries = self._research_queries(user_prompt)
+        with agent_pipeline_step(self.workflow_id, "external_research", details={
+            "provider": self.research_client.provider_name,
+            "query_count": len(research_queries),
+            "timeout_seconds": self.research_client.config.timeout_seconds,
+        }):
+            research = self._research(research_queries)
             research_context = research.as_prompt_context()
 
         logger.info("Invoking Web Research Hardware Architect Agent...")
@@ -343,13 +382,38 @@ class WebResearchHardwarePipeline:
             self._save_project_to_db(user_prompt, project_ir)
         return project_ir
 
-    def _research(self, user_prompt: str) -> ExternalSourceLibrary:
-        queries = [
+    def _research_queries(self, user_prompt: str) -> List[str]:
+        return [
             f"{user_prompt} open source hardware schematic BOM",
             f"{user_prompt} maker project components wiring datasheet",
             f"{user_prompt} Arduino ESP32 module component reference design",
         ]
-        return self.research_client.research(queries)
+
+    def _research(self, queries: List[str]) -> ExternalSourceLibrary:
+        emit_agent_pipeline_event(
+            self.workflow_id,
+            "external_research",
+            "provider_request_started",
+            details={
+                "provider": self.research_client.provider_name,
+                "query_count": len(queries),
+                "timeout_seconds": self.research_client.config.timeout_seconds,
+            },
+        )
+        research = self.research_client.research(queries)
+        emit_agent_pipeline_event(
+            self.workflow_id,
+            "external_research",
+            "provider_response_received" if not research.error else "provider_response_failed",
+            details={
+                "provider": research.provider,
+                "configured": research.configured,
+                "searches_attempted": research.searches_attempted,
+                "source_count": len(research.sources),
+                "error": research.error,
+            },
+        )
+        return research
 
     def _plan_project(
         self,
@@ -371,7 +435,7 @@ class WebResearchHardwarePipeline:
         Return WebProjectPlan. Prefer concrete component roles that are supported by the research context.
         Keep the design in safe low-voltage DC maker-electronics scope.
         """
-        return self._call_llm_structured(prompt, WebProjectPlan, image_bytes, image_mime_type)
+        return self._call_llm_structured(prompt, WebProjectPlan, image_bytes, image_mime_type, pipeline_step_id="web_architect")
 
     def _select_components(
         self,
@@ -406,7 +470,7 @@ class WebResearchHardwarePipeline:
 
         Return WebComponentSelection.
         """
-        return self._call_llm_structured(prompt, WebComponentSelection, image_bytes, image_mime_type)
+        return self._call_llm_structured(prompt, WebComponentSelection, image_bytes, image_mime_type, pipeline_step_id="web_component_sourcing")
 
     def _wire_project(
         self,
@@ -440,7 +504,7 @@ class WebResearchHardwarePipeline:
 
         Return WiringWrapper.
         """
-        return self._call_llm_structured(prompt, WiringWrapper, image_bytes, image_mime_type)
+        return self._call_llm_structured(prompt, WiringWrapper, image_bytes, image_mime_type, pipeline_step_id="wiring_netlist")
 
     def _repair_wiring(
         self,
@@ -469,7 +533,7 @@ class WebResearchHardwarePipeline:
 
         Return corrected WiringWrapper.
         """
-        return self._call_llm_structured(prompt, WiringWrapper, image_bytes, image_mime_type)
+        return self._call_llm_structured(prompt, WiringWrapper, image_bytes, image_mime_type, pipeline_step_id="validation_repair")
 
     def _generate_mechanical(
         self,
@@ -495,7 +559,7 @@ class WebResearchHardwarePipeline:
         Use CAD/enclosure URLs only when present in research or well-known source data. If no source exists, keep cad_sources empty.
         Return MechanicalNotes.
         """
-        return self._call_llm_structured(prompt, MechanicalNotes, image_bytes, image_mime_type)
+        return self._call_llm_structured(prompt, MechanicalNotes, image_bytes, image_mime_type, pipeline_step_id="mechanical_fabrication")
 
     def _generate_assembly(
         self,
@@ -525,7 +589,7 @@ class WebResearchHardwarePipeline:
         Mention safety flags for batteries, motors, relays, soldering, heat, moving parts, and polarity.
         Return AssemblyWrapper.
         """
-        wrapper: AssemblyWrapper = self._call_llm_structured(prompt, AssemblyWrapper, image_bytes, image_mime_type)
+        wrapper: AssemblyWrapper = self._call_llm_structured(prompt, AssemblyWrapper, image_bytes, image_mime_type, pipeline_step_id="assembly")
         return wrapper.steps
 
     def _audit_output(
@@ -569,7 +633,7 @@ class WebResearchHardwarePipeline:
         Return CompletenessAudit.
         """
         try:
-            audit: CompletenessAudit = self._call_llm_structured(prompt, CompletenessAudit)
+            audit: CompletenessAudit = self._call_llm_structured(prompt, CompletenessAudit, pipeline_step_id="completeness_audit")
         except Exception as exc:
             logger.warning("Completeness audit LLM call failed: %s", exc)
             audit = CompletenessAudit(

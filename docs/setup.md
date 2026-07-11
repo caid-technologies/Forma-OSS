@@ -170,6 +170,9 @@ Notes:
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS` controls how long refreshed Supabase Storage read URLs live when projects are loaded. It defaults to `86400`.
 - `LLM_API_KEY` is a generic provider key alias. Gemini aliases (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) are still supported.
 - `LLM_TIMEOUT_SECONDS` controls the generic provider read timeout. OpenAI-compatible endpoints default to `90`.
+- `RUNPOD_MAX_TOKENS` (alias `LLM_MAX_TOKENS`) sets the structured-generation output token budget. A budget is always sent now; it defaults to `8192` when unset, and large schemas such as `MechanicalNotes` are raised to a `6000` floor so big JSON records are not truncated mid-string. Set `RUNPOD_MAX_TOKENS=8192` on parti-base backends.
+- Structured calls retry once with a larger budget on a validation failure and salvage truncated-but-recoverable JSON with `json-repair` before validating. If both attempts still fail the API returns `502 llm_output_invalid` rather than the old generic `500 generation_failed`.
+- `RUNPOD_RESPONSE_FORMAT` (alias `LLM_RESPONSE_FORMAT`) defaults to `json_object`. Set `json_schema` for vLLM grammar-constrained JSON (requires vLLM >= 0.6.3 on the worker and adds first-request grammar-compile latency for large schemas); it does not by itself prevent truncation, so the token budget and retry still apply.
 - `RUNPOD_TIMEOUT_SECONDS` controls Runpod OpenAI-compatible read timeout. It defaults to `1200` so 10-15 minute cold starts or long generations can finish.
 - `RUNPOD_POLL_TIMEOUT_SECONDS` controls Runpod Serverless status polling timeout. It defaults to `1200`.
 - `RUNPOD_EXECUTION_TIMEOUT_MS` and `RUNPOD_TTL_MS` control Runpod Serverless job policy values. Use `1200000` for 20-minute generation windows.

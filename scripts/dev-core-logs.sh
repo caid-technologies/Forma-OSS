@@ -9,7 +9,7 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/blueprint-core-dev.log}"
-BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-blueprint_core}"
+BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-blueprint_core,backend.main,backend.logging_config}"
 FRONTEND_LOG_FILE="${FRONTEND_LOG_FILE:-$ROOT_DIR/.logs/frontend-dev.log}"
 UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-warning}"
 UVICORN_ACCESS_LOG="${UVICORN_ACCESS_LOG:-false}"
@@ -35,16 +35,26 @@ wait_for_url() {
   local url="$1"
   local label="$2"
   local attempts="${3:-60}"
+  local process_pid="${4:-}"
+  local failure_log="${5:-}"
 
   for _ in $(seq 1 "$attempts"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       log "$label is ready at $url"
       return 0
     fi
+    if [ -n "$process_pid" ] && ! kill -0 "$process_pid" >/dev/null 2>&1; then
+      log "$label process exited before becoming ready at $url"
+      return 1
+    fi
     sleep 1
   done
 
   log "$label did not become ready at $url"
+  if [ -n "$failure_log" ] && [ -s "$failure_log" ]; then
+    log "Recent $label log output:"
+    tail -n 80 "$failure_log"
+  fi
   return 1
 }
 
@@ -125,7 +135,7 @@ else
   fi
   "$VENV_DIR/bin/python" -m uvicorn "${uvicorn_args[@]}" &
   backend_pid="$!"
-  wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend"
+  wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend" 60 "$backend_pid" "$BACKEND_LOG_FILE"
 fi
 
 FRONTEND_PORT="$(first_free_port "$FRONTEND_PORT")"

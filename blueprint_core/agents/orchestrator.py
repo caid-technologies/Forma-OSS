@@ -52,6 +52,7 @@ PLACEHOLDER_TEXT_VALUES = {
     "new__rewrite_1",
 }
 PARTI_BASE_MODEL_ID = "caid-technologies/parti-base"
+PARTI_BASE_PROVIDERS = {"runpod", "runpod-serverless"}
 PARTI_COMPONENT_TITLE_VALUES = {
     "main mcu",
     "mcu",
@@ -84,8 +85,21 @@ def _is_placeholder_text(value: Optional[str]) -> bool:
     return str(value or "").strip().lower() in PLACEHOLDER_TEXT_VALUES
 
 
-def _is_parti_base_selector(provider_name: str, model_name: str) -> bool:
-    return provider_name == "runpod" and model_name == PARTI_BASE_MODEL_ID
+def _is_parti_base_selector(provider_name: Optional[str], model_name: Optional[str]) -> bool:
+    """Route every parti-base selector variant to the dedicated adapter.
+
+    parti-base is fine-tuned to emit its full-record training schema no matter
+    what schema the prompt asks for, so any run that slips past this gate dies
+    on the generic pipeline's first ProjectOverview call with missing-field
+    validation errors. Match both runpod providers (openai-compatible and
+    serverless) and any model string whose basename is parti-base, with or
+    without the caid-technologies/ namespace or a :tag suffix.
+    """
+    provider = (provider_name or "").strip().lower()
+    if provider not in PARTI_BASE_PROVIDERS:
+        return False
+    model = (model_name or "").strip().lower().split(":", 1)[0]
+    return model.rsplit("/", 1)[-1] == "parti-base"
 
 
 def _clean_parti_text(value: Any) -> Optional[str]:

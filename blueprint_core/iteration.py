@@ -5,7 +5,9 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
+
+from pydantic import BaseModel, Field
 
 from blueprint_core.llm import (
     LLMProviderConfigError,
@@ -30,6 +32,27 @@ logger = logging.getLogger(__name__)
 
 PLACEHOLDER_TEXT_VALUES = {"", "unknown", "n/a", "na", "none", "null", "new", "new__rewrite_1"}
 DEFAULT_CONTEXT_MAX_STRING_CHARS = 4000
+SERVER_MANAGED_PATCH_PATHS = (
+    "/validation",
+    "/is_valid",
+    "/project_version_history",
+    "/assembly_metadata/revision",
+    "/assembly_metadata/previous_revision",
+    "/assembly_metadata/last_iteration",
+    "/assembly_metadata/project_object",
+)
+SERVER_MANAGED_PATCH_CONTAINERS = ("/assembly_metadata",)
+
+
+class HardwareIRPatchOperation(BaseModel):
+    op: Literal["add", "remove", "replace"]
+    path: str = Field(description="RFC 6901 JSON Pointer into the HardwareIR document.")
+    value: Any = Field(None, description="Value for add/replace; omitted for remove.")
+
+
+class HardwareIRPatch(BaseModel):
+    summary: str = Field(description="Short description of the project changes.")
+    operations: list[HardwareIRPatchOperation] = Field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -168,8 +191,12 @@ def build_iteration_prompt(
             f"{json.dumps(namespace_payload(current_ir, normalized_namespace), indent=2, sort_keys=True)}\n"
         )
     return (
-        "You are Blueprint's project iteration engine. Revise an existing HardwareIR project.\n"
-        "Return one complete HardwareIR JSON document, not a patch and not markdown.\n"
+        "You are Blueprint's project iteration engine. Revise an existing HardwareIR project using a JSON Patch.\n"
+        "Return only the compact patch object requested by the response schema, not the complete HardwareIR and not markdown.\n"
+        "Use RFC 6901 paths and add, remove, or replace operations. Never replace the document root.\n"
+        "Do not patch validation, is_valid, project_version_history, revision fields, last_iteration, or project_object; "
+        "Blueprint recomputes those server-managed fields after applying the design changes. Patch individual allowed "
+        "assembly_metadata children when needed; never replace the whole assembly_metadata object.\n"
         "Preserve every part of the project that the instruction does not explicitly change.\n"
         "Keep the existing project_id, reference designators, and stable net IDs unless a requested change requires updates.\n"
         "If you add, remove, or replace components, update components, nets, buses, pin_mappings, power_rails, "
@@ -183,6 +210,73 @@ def build_iteration_prompt(
         "Current HardwareIR JSON:\n"
         f"{json.dumps(compact_ir, indent=2, sort_keys=True)}"
     )
+
+
+def _json_pointer_parts(path: str) -> list[str]:
+    if not path.startswith("/"):
+        raise ValueError(f"HardwareIR patch path must be an absolute JSON Pointer: {path!r}")
+    return [part.replace("~1", "/").replace("~0", "~") for part in path[1:].split("/")]
+
+
+def apply_hardware_ir_patch(current_ir: HardwareIR, patch: HardwareIRPatch) -> HardwareIR:
+    document: Any = current_ir.model_dump(mode="json")
+    for operation in patch.operations:
+        if operation.path in SERVER_MANAGED_PATCH_CONTAINERS or any(
+            operation.path == managed_path or operation.path.startswith(f"{managed_path}/")
+            for managed_path in SERVER_MANAGED_PATCH_PATHS
+        ):
+            logger.warning("Ignoring patch operation for server-managed HardwareIR path: %s", operation.path)
+            continue
+        parts = _json_pointer_parts(operation.path)
+        if not parts or parts == [""]:
+            raise ValueError("HardwareIR patch operations cannot replace the document root.")
+        parent = document
+        for part in parts[:-1]:
+            if isinstance(parent, list):
+                try:
+                    parent = parent[int(part)]
+                except (ValueError, IndexError) as exc:
+                    raise ValueError(f"Invalid list path in HardwareIR patch: {operation.path!r}") from exc
+            elif isinstance(parent, dict) and part in parent:
+                parent = parent[part]
+            else:
+                raise ValueError(f"Missing parent path in HardwareIR patch: {operation.path!r}")
+
+        key = parts[-1]
+        if isinstance(parent, list):
+            if operation.op == "add" and key == "-":
+                parent.append(operation.value)
+                continue
+            try:
+                index = int(key)
+            except ValueError as exc:
+                raise ValueError(f"Invalid list index in HardwareIR patch: {operation.path!r}") from exc
+            if operation.op == "add":
+                if index < 0 or index > len(parent):
+                    raise ValueError(f"List insertion is out of range in HardwareIR patch: {operation.path!r}")
+                parent.insert(index, operation.value)
+            elif operation.op == "replace":
+                if index < 0 or index >= len(parent):
+                    raise ValueError(f"List replacement is out of range in HardwareIR patch: {operation.path!r}")
+                parent[index] = operation.value
+            else:
+                if index < 0 or index >= len(parent):
+                    raise ValueError(f"List removal is out of range in HardwareIR patch: {operation.path!r}")
+                parent.pop(index)
+        elif isinstance(parent, dict):
+            if operation.op == "remove":
+                if key not in parent:
+                    raise ValueError(f"Missing removal path in HardwareIR patch: {operation.path!r}")
+                del parent[key]
+            elif operation.op == "replace":
+                if key not in parent:
+                    raise ValueError(f"Missing replacement path in HardwareIR patch: {operation.path!r}")
+                parent[key] = operation.value
+            else:
+                parent[key] = operation.value
+        else:
+            raise ValueError(f"Patch parent is not a container: {operation.path!r}")
+    return HardwareIR.model_validate(document)
 
 
 def _append_history_entry(
@@ -576,7 +670,8 @@ class ProjectIterator:
             target_namespace=normalized_namespace,
         )
         try:
-            revised = self.llm_provider.generate_structured(prompt, HardwareIR, image_bytes, image_mime_type)
+            patch = self.llm_provider.generate_structured(prompt, HardwareIRPatch, image_bytes, image_mime_type)
+            revised = apply_hardware_ir_patch(base, patch)
         except Exception as exc:
             raise LLMProviderOutputError(
                 f"Project iteration failed for provider={validation.provider} model={validation.actual_model or validation.requested_model}: {exc}"
@@ -695,8 +790,11 @@ __all__ = [
     "build_iteration_prompt",
     "build_metadata_only_iteration",
     "compact_hardware_ir_for_iteration",
+    "apply_hardware_ir_patch",
     "coerce_hardware_ir",
     "finalize_project_iteration",
+    "HardwareIRPatch",
+    "HardwareIRPatchOperation",
     "iterate_project",
     "next_revision_number",
     "normalize_iteration_instruction",

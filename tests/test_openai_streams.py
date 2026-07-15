@@ -15,6 +15,7 @@ from blueprint_core.openai_streams import (
     OpenAIStreamEventWriter,
     OpenAITextStreamChunk,
     ServerSentEvent,
+    chat_completion_sse_chunks,
     iter_sse_events,
     openai_chunk_from_sse,
 )
@@ -75,6 +76,22 @@ class FakeChatStreamer:
 
 
 class OpenAIStreamTests(unittest.TestCase):
+    def test_chat_completion_sse_chunks_stream_deltas(self) -> None:
+        lines = [
+            b'data: {"id":"chat_1","choices":[{"delta":{"content":"Hel"},"finish_reason":null}]}\n',
+            b"\n",
+            b'data: {"id":"chat_1","choices":[{"delta":{"content":"lo"},"finish_reason":null}]}\n',
+            b"\n",
+            b'data: {"id":"chat_1","choices":[{"delta":{},"finish_reason":"stop"}]}\n',
+            b"\n",
+        ]
+
+        chunks = list(chat_completion_sse_chunks(lines, provider_name="baseten"))
+
+        self.assertEqual("Hello", "".join(chunk.content for chunk in chunks))
+        self.assertTrue(chunks[-1].done)
+        self.assertEqual("chat.completion.stop", chunks[-1].response_event_type)
+
     def test_iter_sse_events_parses_event_and_data_blocks(self) -> None:
         lines = [
             b"event: response.output_text.delta\n",

@@ -1478,7 +1478,29 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             if isinstance(content, list):
                 content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             if not isinstance(content, str) or not content.strip():
-                raise RuntimeError(f"{self.provider_name} response did not include text content.")
+                refusal = message.get("refusal")
+                usage = response.get("usage")
+                last_error = RuntimeError(
+                    f"response did not include text content (finish_reason={finish_reason}, "
+                    f"refusal={refusal or 'none'}, usage={usage or 'unknown'})"
+                )
+                if attempt == 0:
+                    budget = min(
+                        max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
+                        STRUCTURED_MAX_TOKENS_CEILING,
+                    )
+                    logger.warning(
+                        "%s returned empty content for %s (finish_reason=%s, refusal=%s, usage=%s); "
+                        "retrying once with max_tokens=%d.",
+                        self.provider_name,
+                        _schema_name(schema_class),
+                        finish_reason,
+                        refusal or "none",
+                        usage or "unknown",
+                        budget,
+                    )
+                    continue
+                break
 
             try:
                 result = _validate_structured_json(content, schema_class)

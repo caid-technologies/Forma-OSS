@@ -115,7 +115,7 @@ class OpenAICompatibleChatProviderClient:
             auth=ProviderAuth(api_key=api_key, source_name=api_key_source),
             capabilities=ProviderCapabilities(
                 supports_text=True,
-                supports_streaming=False,
+                supports_streaming=True,
                 supports_chat_completions=True,
                 supports_structured_output=True,
             ),
@@ -131,7 +131,7 @@ class OpenAICompatibleChatProviderClient:
                 provider=self.provider_name,
                 model=model,
                 supports_text=True,
-                supports_streaming=False,
+                supports_streaming=True,
                 supports_structured_output=True,
                 timeout_seconds=timeout_seconds,
             ),

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from blueprint_core.database import _hardware_ir_with_project_id
-from blueprint_core.iteration import ProjectIterator, ProjectSelfCorrectionAgent, compact_hardware_ir_for_iteration
+from blueprint_core.iteration import HardwareIRPatch, HardwareIRPatchOperation, ProjectIterator, ProjectSelfCorrectionAgent, apply_hardware_ir_patch, compact_hardware_ir_for_iteration
 from blueprint_core.llm import LLMProviderOutputError, LLMProviderValidation, LLMRuntimeConfig
 from blueprint_core.models import (
     ComponentInstance,
@@ -25,6 +25,7 @@ from blueprint_core.project_objects import (
     namespace_payload,
     normalize_project_namespace,
 )
+from blueprint_core.project_chat import PrebuildChatAgent, PrebuildChatDecision, ProjectChatAgent, ProjectChatDecision
 from blueprint_core.video_review import (
     DEFAULT_FIREWORKS_NATIVE_VIDEO_REVIEW_MODEL_SLUG,
     DEFAULT_FIREWORKS_VIDEO_REVIEW_MODEL_SLUG,
@@ -118,7 +119,36 @@ class FakeProvider:
 
     def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
         self.prompt = prompt
+        if schema_class is HardwareIRPatch:
+            return HardwareIRPatch(
+                summary="Test project update",
+                operations=[
+                    HardwareIRPatchOperation(op="replace", path=f"/{key}", value=value)
+                    for key, value in self.revised_ir.model_dump(mode="json").items()
+                ],
+            )
         return self.revised_ir
+
+
+class FakeProjectChatProvider(FakeProvider):
+    def __init__(self, outputs) -> None:
+        self.outputs = list(outputs)
+        self.prompts = []
+
+    def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
+        self.prompts.append(prompt)
+        output = self.outputs.pop(0)
+        if schema_class is HardwareIRPatch and isinstance(output, HardwareIR):
+            return HardwareIRPatch(
+                summary="Test project update",
+                operations=[
+                    HardwareIRPatchOperation(op="replace", path=f"/{key}", value=value)
+                    for key, value in output.model_dump(mode="json").items()
+                ],
+            )
+        if isinstance(output, schema_class):
+            return output
+        return schema_class.model_validate(output)
 
 
 class FakeVideoReviewClient:
@@ -165,6 +195,141 @@ class FakeUrlopenResponse:
 
 
 class ProjectIterationTests(unittest.TestCase):
+    def test_hardware_ir_patch_changes_only_targeted_value(self) -> None:
+        current = build_sample_ir()
+        original_nets = current.model_dump(mode="json")["nets"]
+        patch = HardwareIRPatch(
+            summary="Move the controller description.",
+            operations=[
+                HardwareIRPatchOperation(
+                    op="replace",
+                    path="/overview/description",
+                    value="A revised monitor with corrected mechanical alignment.",
+                )
+            ],
+        )
+
+        revised = apply_hardware_ir_patch(current, patch)
+
+        self.assertIn("corrected mechanical alignment", revised.overview.description)
+        self.assertEqual(original_nets, revised.model_dump(mode="json")["nets"])
+        self.assertEqual(current.components, revised.components)
+
+    def test_hardware_ir_patch_rejects_document_root_replacement(self) -> None:
+        current = build_sample_ir()
+        patch = HardwareIRPatch(
+            summary="Unsafe replacement.",
+            operations=[HardwareIRPatchOperation(op="replace", path="/", value={})],
+        )
+
+        with self.assertRaisesRegex(ValueError, "document root"):
+            apply_hardware_ir_patch(current, patch)
+
+    def test_hardware_ir_patch_ignores_server_managed_validation_edits(self) -> None:
+        current = build_sample_ir()
+        patch = HardwareIRPatch(
+            summary="Update the enclosure while attempting invalid derived-field edits.",
+            operations=[
+                HardwareIRPatchOperation(op="replace", path="/overview/description", value="Uses a 3D-printable enclosure."),
+                HardwareIRPatchOperation(op="replace", path="/validation/warning", value=["plain string is invalid"]),
+                HardwareIRPatchOperation(op="replace", path="/is_valid", value=False),
+            ],
+        )
+
+        revised = apply_hardware_ir_patch(current, patch)
+
+        self.assertEqual("Uses a 3D-printable enclosure.", revised.overview.description)
+        self.assertEqual(current.validation, revised.validation)
+        self.assertEqual(current.is_valid, revised.is_valid)
+
+    def test_prebuild_chat_treats_greeting_as_conversation(self) -> None:
+        provider = FakeProjectChatProvider(
+            [PrebuildChatDecision(action="converse", response="Hi! What would you like to build?")]
+        )
+        agent = PrebuildChatAgent(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=provider,
+        )
+
+        result = agent.respond("hi")
+
+        self.assertEqual("converse", result.action)
+        self.assertEqual("Hi! What would you like to build?", result.response)
+        self.assertIn("always converse", provider.prompts[0])
+
+    def test_prebuild_chat_routes_concrete_hardware_request_to_build(self) -> None:
+        provider = FakeProjectChatProvider(
+            [
+                PrebuildChatDecision(
+                    action="build",
+                    response="I'll start that design.",
+                    build_prompt="Build a USB-C powered soil monitor with an ESP32 and OLED.",
+                )
+            ]
+        )
+        agent = PrebuildChatAgent(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=provider,
+        )
+
+        result = agent.respond("Make me a USB-C soil monitor with an ESP32 and screen")
+
+        self.assertEqual("build", result.action)
+        self.assertIn("USB-C powered soil monitor", result.build_prompt or "")
+
+    def test_project_chat_answers_project_question_without_iteration(self) -> None:
+        current = build_sample_ir()
+        provider = FakeProjectChatProvider(
+            [
+                ProjectChatDecision(
+                    action="answer",
+                    response="I built a low-voltage soil moisture monitor around an ESP32 dev board.",
+                )
+            ]
+        )
+        agent = ProjectChatAgent(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=provider,
+        )
+
+        result = agent.respond(current, "what did you build?", project_id=PROJECT_ID)
+
+        self.assertEqual("answer", result.action)
+        self.assertIsNone(result.project_ir)
+        self.assertIn("soil moisture monitor", result.response)
+        self.assertEqual(1, len(provider.prompts))
+        self.assertIn("must never mutate", provider.prompts[0])
+
+    def test_project_chat_invokes_iteration_tool_for_component_change(self) -> None:
+        current = build_sample_ir()
+        revised = current.model_copy(deep=True)
+        revised.components[0].name = "ESP32-S3 Dev Board"
+        provider = FakeProjectChatProvider(
+            [
+                ProjectChatDecision(
+                    action="iterate",
+                    response="I replaced the controller with an ESP32-S3.",
+                    instruction="Replace U1 with an ESP32-S3 dev board and update affected wiring.",
+                    namespace="product.electrical",
+                ),
+                revised,
+            ]
+        )
+        agent = ProjectChatAgent(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=provider,
+        )
+
+        result = agent.respond(current, "Swap the controller for an ESP32-S3", project_id=PROJECT_ID)
+
+        self.assertEqual("iterate", result.action)
+        self.assertIsNotNone(result.project_ir)
+        assert result.project_ir is not None
+        self.assertEqual("ESP32-S3 Dev Board", result.project_ir.components[0].name)
+        self.assertEqual(2, result.project_ir.assembly_metadata["revision"])
+        self.assertEqual("product.electrical", result.target_namespace)
+        self.assertEqual(2, len(provider.prompts))
+
     def test_metadata_only_iteration_records_revision_without_changing_hardware(self) -> None:
         current = build_sample_ir()
         iterator = ProjectIterator(

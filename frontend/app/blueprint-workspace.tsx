@@ -900,31 +900,6 @@ function automaticHumanContextPromptSection(basePrompt: string) {
   ].join("\n");
 }
 
-function projectChatGenerationPrompt(projectIR: any, userMessage: string, activeNamespaceTab = "chat") {
-  const title = projectIR?.overview?.title || "current project";
-  const description = projectIR?.overview?.description || "";
-  const projectId = projectIR?.assembly_metadata?.project_id || "unknown";
-  const namespaceTab = workspaceTabMeta(activeNamespaceTab);
-  const namespace = workspaceNamespaceForTab(activeNamespaceTab);
-  const components = Array.isArray(projectIR?.components)
-    ? projectIR.components.slice(0, 10).map((component: any) => `${component.ref_des || ""} ${component.name || component.part_number || ""}`.trim()).filter(Boolean)
-    : [];
-  return [
-    "Create a new Blueprint hardware project from this project chat message.",
-    `Source project id: ${projectId}`,
-    `Source project title: ${title}`,
-    description ? `Source project description: ${description}` : "",
-    components.length ? `Source components: ${components.join("; ")}` : "",
-    `Active chat namespace: ${namespace} (${namespaceTab.label})`,
-    "Interpret the user message relative to that namespace unless the message clearly asks for another part of the project.",
-    "",
-    "User chat message:",
-    userMessage,
-    "",
-    "Return a complete new project. If the user asks for a revision, preserve relevant source-project continuity while creating a new project object.",
-  ].filter(Boolean).join("\n");
-}
-
 function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestion[] {
   const lower = promptText.toLowerCase();
   if (/(lab[-\s]?on[-\s]?a[-\s]?chip|microfluid|assay|cartridge|diagnostic|reagent|sample)/.test(lower)) {
@@ -3363,7 +3338,7 @@ export function BlueprintWorkspace({
       return;
     }
 
-    const rawPromptText = contextCheckpoint
+    let rawPromptText = contextCheckpoint
       ? contextCheckpoint.basePrompt
       : validationSubject.trim() || "Infer a buildable hardware project from the uploaded reference image.";
     const imageData = selectedImage;
@@ -3373,7 +3348,85 @@ export function BlueprintWorkspace({
       setIsLoading(true);
       setGenerationInputNotice(null);
       try {
-        const clarification = await requestHumanContextQuestions(validationSubject.trim(), generationWorkflow, Boolean(imageData));
+        if (!imageData) {
+          const recentHistory = (chatThreads[requestChatId] || chatMessages)
+            .filter((message) => message.role === "user" || message.role === "assistant")
+            .slice(-12)
+            .map((message) => ({ role: message.role, content: message.content }));
+          const routeResponse = await fetch(`${API_URL}/chat/stream`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: rawPromptText,
+              history: recentHistory,
+              provider: selectedGenerationLlm.provider,
+              model: selectedGenerationLlm.model,
+            }),
+          });
+          if (!routeResponse.ok) {
+            const routeError = await readApiErrorMessage(routeResponse);
+            throw new Error(
+              routeResponse.status === 404
+                ? "The chat agent endpoint is unavailable. Restart the Blueprint backend and try again."
+                : routeError,
+            );
+          }
+          if (!routeResponse.body) throw new Error("The chat stream did not include a response body.");
+          const reader = routeResponse.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+          let route: any = null;
+          let streamedText = "";
+          let assistantMessageId = "";
+          const startConversationMessage = () => {
+            if (assistantMessageId) return;
+            const userMessageId = newChatMessageId();
+            assistantMessageId = newChatMessageId();
+            setActiveChatId(requestChatId);
+            rememberChatItem({ chatId: requestChatId, title: rawPromptText, projectId: "", createdAt: chatTimestamp(), projectCount: 0 });
+            syncChatRoute(requestChatId);
+            appendChatMessage({ id: userMessageId, role: "user", content: rawPromptText, status: "idle" });
+            appendThreadMessage(requestChatId, { id: userMessageId, role: "user", content: rawPromptText, status: "idle" });
+            appendChatMessage({ id: assistantMessageId, role: "assistant", content: "", status: "loading" });
+            appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "", status: "loading" });
+          };
+          const consumeLine = (line: string) => {
+            if (!line.trim()) return;
+            const event = JSON.parse(line);
+            if (event.type === "route") {
+              route = event;
+              if (event.action === "converse") startConversationMessage();
+            } else if (event.type === "delta") {
+              startConversationMessage();
+              streamedText += String(event.content || "");
+              updateChatMessage(assistantMessageId, { content: streamedText, status: "loading" });
+              updateThreadMessage(requestChatId, assistantMessageId, { content: streamedText, status: "loading" });
+            } else if (event.type === "error") {
+              throw new Error(event.message || "The provider stream failed.");
+            }
+          };
+          while (true) {
+            const { value, done } = await reader.read();
+            buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+            const lines = buffer.split("\n");
+            buffer = lines.pop() || "";
+            lines.forEach(consumeLine);
+            if (done) break;
+          }
+          if (buffer.trim()) consumeLine(buffer);
+          if (!route) throw new Error("The chat stream ended before routing the message.");
+          if (route.action === "converse") {
+            const finalText = streamedText || route.response || "What would you like to build?";
+            updateChatMessage(assistantMessageId, { content: finalText, status: "success" });
+            updateThreadMessage(requestChatId, assistantMessageId, { content: finalText, status: "success" });
+            setPrompt("");
+            return;
+          }
+          if (typeof route.build_prompt === "string" && route.build_prompt.trim()) {
+            rawPromptText = route.build_prompt.trim();
+          }
+        }
+        const clarification = await requestHumanContextQuestions(rawPromptText, generationWorkflow, Boolean(imageData));
         if (clarification.shouldAsk) {
           const answers = Object.fromEntries(clarification.questions.map((question) => [question.id, ""]));
           setActiveChatId(requestChatId);
@@ -3422,6 +3475,11 @@ export function BlueprintWorkspace({
           setGenerationInputNotice(clarification.reason || "Answer the context questions, then build.");
           return;
         }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The chat agent could not route this message.";
+        setGenerationInputNotice(message);
+        appendChatMessage({ role: "assistant", content: message, status: "error" });
+        return;
       } finally {
         setIsLoading(false);
       }
@@ -3680,9 +3738,12 @@ export function BlueprintWorkspace({
     if (!userMessage) return;
 
     const sourceProjectId = currentProjectId;
-    const sourceProjectTitle = projectTitle;
     const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
-    const promptText = projectChatGenerationPrompt(projectIR, userMessage, activeTab);
+    const targetNamespace = workspaceNamespaceForTab(activeTab);
+    const recentHistory = (chatThreads[sourceChatId] || [])
+      .filter((message) => message.role === "user" || message.role === "assistant")
+      .slice(-12)
+      .map((message) => ({ role: message.role, content: message.content }));
     setActiveChatId(sourceChatId);
     rememberChatItem({
       chatId: sourceChatId,
@@ -3697,47 +3758,28 @@ export function BlueprintWorkspace({
       content: userMessage,
       status: "idle",
     });
-    const frontendJobId = newFrontendJobId();
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
-    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
-    const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
     const assistantMessageId = appendThreadMessage(sourceChatId, {
       role: "assistant",
-      content: `Building a new project from ${sourceProjectTitle}${providerSuffix}.`,
+      content: `Reviewing ${projectTitle || "the current project"}.`,
       status: "loading",
-      pipelineProgress,
     });
-    let progressPollId: number | null = null;
-    const syncProgressFromJob = async () => {
-      const job = await fetchA2aJob(frontendJobId);
-      if (!job) return;
-      applyThreadPipelineProgressFromJob(sourceChatId, assistantMessageId, job, pipelineProgress, generateProductImage);
-    };
 
     setProjectChatInput("");
     setGenerationInputNotice(null);
     setIsLoading(true);
     checkServerStatus();
-    progressPollId = window.setInterval(() => {
-      void syncProgressFromJob();
-    }, ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS);
-    void syncProgressFromJob();
 
     try {
-      const res = await fetch(`${API_URL}/generate`, {
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(sourceProjectId)}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          prompt: promptText,
-          workflow: generationWorkflow,
-          external_source_provider: externalSourceProviderForRequest,
+          message: userMessage,
+          history: recentHistory,
+          namespace: targetNamespace,
           provider: selectedGenerationLlm.provider,
           model: selectedGenerationLlm.model,
-          chat_id: sourceChatId,
-          source_project_id: sourceProjectId,
-          client_job_id: frontendJobId,
-          image_data: null,
-          generate_image: generateProductImage,
+          save: true,
         }),
       });
 
@@ -3753,43 +3795,50 @@ export function BlueprintWorkspace({
       }
 
       const data = await res.json();
-      if (data.job) {
-        applyThreadPipelineProgressFromJob(sourceChatId, assistantMessageId, data.job, pipelineProgress, generateProductImage);
+      if (data.action === "answer") {
+        updateThreadMessage(sourceChatId, assistantMessageId, {
+          content: data.response || "I couldn't find that information in the current project.",
+          status: "success",
+          projectId: sourceProjectId,
+        });
+        return;
+      }
+      if (!data.project_ir) {
+        throw new Error("The project chat agent selected an iteration but returned no revised project.");
       }
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
       setMermaidCode(data.mermaid_code);
       setSvgSchematic(data.svg_schematic);
       buildReactFlowGraph(ir);
-      const newProjectId = projectIdFromIR(ir);
+      const revisedProjectId = projectIdFromIR(ir) || sourceProjectId;
       const responseChatId = chatIdFromIR(ir) || data.chat_id || sourceChatId;
       setActiveChatId(responseChatId);
-      const successMessage = `${ir?.overview?.title || "Project"} is ready as a new project from this chat.`;
+      const revision = data.iteration?.revision || ir?.assembly_metadata?.revision;
+      const successMessage = data.response || `${ir?.overview?.title || "Project"} updated${revision ? ` to revision ${revision}` : ""}.`;
       rememberChatItem({
         chatId: responseChatId,
         title: ir?.overview?.title || projectTitle || userMessage,
-        projectId: newProjectId || sourceProjectId,
+        projectId: revisedProjectId,
         createdAt: chatTimestamp(),
-        projectCount: newProjectId ? 2 : 1,
+        projectCount: 1,
       });
 
       updateThreadMessage(sourceChatId, assistantMessageId, {
         content: successMessage,
         status: "success",
-        projectId: newProjectId || sourceProjectId,
+        projectId: revisedProjectId,
       });
 
       setActiveTab("chat");
       fetchProjectHistory();
-      fetchA2aJobs(jobStatusFilter, { silent: true });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Project chat generation failed.";
+      const message = error instanceof Error ? error.message : "Project iteration failed.";
       updateThreadMessage(sourceChatId, assistantMessageId, {
         content: message,
         status: "error",
       });
     } finally {
-      if (progressPollId !== null) window.clearInterval(progressPollId);
       setIsLoading(false);
     }
   };

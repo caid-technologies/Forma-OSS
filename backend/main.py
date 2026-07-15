@@ -40,6 +40,7 @@ from blueprint_core.debug import (
     get_debug_mode_config,
 )
 from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, status
+from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -69,7 +70,7 @@ from blueprint_core.agents.workflows import get_workflow_debug_config, list_work
 from blueprint_core.clarifying_questions import ask_clarifying_questions
 from blueprint_core.models import (
     AlphaSignupRequest, AlphaSignupResponse, ClarifyingQuestionsRequest, ClarifyingQuestionsResponse,
-    GenerateProjectRequest, HardwareIR, IterateProjectRequest, ValidationReport, VideoSelfCorrectRequest,
+    GenerateProjectRequest, HardwareIR, IterateProjectRequest, PrebuildChatRequest, ProjectChatRequest, ValidationReport, VideoSelfCorrectRequest,
     ComponentInstance, ConnectionNet, ValidationIssue
 )
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
@@ -87,6 +88,9 @@ from backend.a2a import (
 )
 from blueprint_core.images import get_image_output_debug_config
 from blueprint_core.iteration import ProjectIterator
+from blueprint_core.project_chat import PrebuildChatAgent, ProjectChatAgent, build_prebuild_conversation_prompt
+from blueprint_core.llm import build_llm_provider, resolve_llm_runtime_config
+from blueprint_core.openai_streams import OpenAICompatibleChatCompletionsStreamer, OpenAICompatibleChatConfig
 from blueprint_core.llm import LLMProviderConfigError
 from blueprint_core.llm import LLMProviderOutputError
 from blueprint_core.project_objects import build_project_object, list_project_namespaces
@@ -536,6 +540,74 @@ def list_agent_pipeline_steps_endpoint(
 def clarifying_questions_endpoint(request: ClarifyingQuestionsRequest):
     """Run the core Context Clarifier Agent before starting a generation job."""
     return ask_clarifying_questions(request)
+
+
+@app.post("/chat")
+def prebuild_chat_endpoint(request: PrebuildChatRequest):
+    """Routes pre-project conversation without treating every message as a build request."""
+    try:
+        decision = PrebuildChatAgent(provider_name=request.provider, model_name=request.model).respond(
+            request.message,
+            history=request.history,
+        )
+        return decision.model_dump(mode="json")
+    except LLMProviderConfigError as e:
+        raise HTTPException(status_code=400, detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e, provider=request.provider, model=request.model)) from e
+    except LLMProviderOutputError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=api_error_detail(code="llm_output_invalid", message=str(e), exc=e, provider=request.provider, model=request.model)) from e
+    except Exception as e:
+        logger.exception("Pre-build chat failed for provider=%s model=%s", request.provider, request.model)
+        raise HTTPException(status_code=500, detail=f"Pre-build chat failed: {str(e)}") from e
+
+
+@app.post("/chat/stream")
+def prebuild_chat_stream_endpoint(request: PrebuildChatRequest):
+    """Streams conversational pre-build replies for OpenAI-compatible providers."""
+    def events():
+        try:
+            runtime = resolve_llm_runtime_config(provider_name=request.provider, model_name=request.model)
+            provider = build_llm_provider(runtime_config=runtime)
+            decision = PrebuildChatAgent(runtime_config=runtime, llm_provider=provider).respond(
+                request.message,
+                history=request.history,
+            )
+            yield json.dumps({"type": "route", **decision.model_dump(mode="json")}) + "\n"
+            if decision.action != "converse":
+                yield json.dumps({"type": "done"}) + "\n"
+                return
+
+            provider_name = runtime.provider
+            if provider_name not in {"openai", "baseten"}:
+                yield json.dumps({"type": "delta", "content": decision.response}) + "\n"
+                yield json.dumps({"type": "done", "streamed": False}) + "\n"
+                return
+
+            config = OpenAICompatibleChatConfig(
+                provider_name=provider_name,
+                api_key=str(getattr(provider, "api_key", "") or ""),
+                model=str(getattr(provider, "model_name", runtime.model)),
+                base_url=str(getattr(provider, "base_url", "") or ""),
+                prompt=build_prebuild_conversation_prompt(request.message, history=request.history),
+                timeout_seconds=float(getattr(provider, "timeout_seconds", 300)),
+                max_output_tokens=2048,
+                instructions="Reply with plain conversational text. Do not return JSON or markdown fences.",
+                temperature=getattr(provider, "temperature", None),
+            )
+            emitted = False
+            for chunk in OpenAICompatibleChatCompletionsStreamer(config).stream_text():
+                if chunk.error_message:
+                    raise RuntimeError(chunk.error_message)
+                if chunk.content:
+                    emitted = True
+                    yield json.dumps({"type": "delta", "content": chunk.content}) + "\n"
+            if not emitted:
+                yield json.dumps({"type": "delta", "content": decision.response}) + "\n"
+            yield json.dumps({"type": "done", "streamed": emitted}) + "\n"
+        except Exception as exc:
+            logger.exception("Pre-build chat stream failed for provider=%s model=%s", request.provider, request.model)
+            yield json.dumps({"type": "error", "message": str(exc)}) + "\n"
+
+    return StreamingResponse(events(), media_type="application/x-ndjson", headers={"Cache-Control": "no-cache"})
 
 
 class VideoImageToVideoRequest(BaseModel):
@@ -1280,6 +1352,63 @@ def iterate_project_endpoint(project_id: str, request: IterateProjectRequest):
     except Exception as e:
         logger.exception("Project iteration failed for project_id=%s provider=%s model=%s", project_id, request.provider, request.model)
         raise HTTPException(status_code=500, detail=f"Project iteration failed: {str(e)}") from e
+
+
+@app.post("/projects/{project_id}/chat")
+def project_chat_endpoint(project_id: str, request: ProjectChatRequest):
+    """Answers questions about a project or invokes the iteration tool for requested changes."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        current_ir = HardwareIR(**project.hardware_ir)
+        result = ProjectChatAgent(provider_name=request.provider, model_name=request.model).respond(
+            current_ir,
+            request.message,
+            history=request.history,
+            active_namespace=request.namespace,
+            original_prompt=project.prompt,
+            project_id=project.project_id,
+        )
+        response = {
+            "action": result.action,
+            "response": result.response,
+            "project_id": project.project_id,
+            "saved": False,
+            "namespace": result.target_namespace,
+        }
+        if result.project_ir is None:
+            return response
+
+        revised_ir = result.project_ir
+        revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
+        if request.save:
+            saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"))
+            if not saved:
+                raise HTTPException(status_code=404, detail="Project not found.")
+        response.update(
+            {
+                "saved": request.save,
+                "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
+                "project_ir": revised_ir.model_dump(mode="json"),
+                "project_object": build_project_object(revised_ir, target_namespace=result.target_namespace).model_dump(mode="json"),
+                "mermaid_code": generate_mermaid_chart(revised_ir),
+                "svg_schematic": generate_svg_schematic(revised_ir),
+            }
+        )
+        return response
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except LLMProviderConfigError as e:
+        raise HTTPException(status_code=400, detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e, provider=request.provider, model=request.model)) from e
+    except LLMProviderOutputError as e:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=api_error_detail(code="llm_output_invalid", message=str(e), exc=e, provider=request.provider, model=request.model)) from e
+    except Exception as e:
+        logger.exception("Project chat failed for project_id=%s provider=%s model=%s", project_id, request.provider, request.model)
+        raise HTTPException(status_code=500, detail=f"Project chat failed: {str(e)}") from e
 
 
 def _stored_video_metadata_value(video: Any, keys: List[str]) -> str:

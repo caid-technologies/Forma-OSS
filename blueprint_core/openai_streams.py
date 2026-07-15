@@ -239,7 +239,7 @@ class OpenAICompatibleChatConfig:
 
     def headers(self) -> Mapping[str, str]:
         return {
-            "Accept": "application/json",
+            "Accept": "text/event-stream, application/json",
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
             "User-Agent": http_user_agent(),
@@ -253,10 +253,12 @@ class OpenAICompatibleChatConfig:
             messages.append({"role": "system", "content": "You are a concise engineering assistant. Return useful text, not markdown fences."})
         messages.append({"role": "user", "content": self.prompt})
 
+        tokens_key = "max_completion_tokens" if self.provider_name == "openai" else "max_tokens"
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
-            "max_tokens": self.max_output_tokens,
+            tokens_key: self.max_output_tokens,
+            "stream": True,
         }
         if self.temperature is not None:
             payload["temperature"] = self.temperature
@@ -309,6 +311,10 @@ class OpenAICompatibleChatCompletionsStreamer:
         )
         try:
             with urllib.request.urlopen(request, timeout=self.config.timeout_seconds) as response:
+                content_type = str(response.headers.get("Content-Type") or "").lower()
+                if "text/event-stream" in content_type:
+                    yield from chat_completion_sse_chunks(response, provider_name=self.config.provider_name)
+                    return
                 body = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
@@ -505,6 +511,69 @@ def chat_completion_chunks(body: str, *, provider_name: str) -> Iterable[OpenAIT
         response_id=response_id,
         error_message=error_message,
     )
+
+
+def chat_completion_sse_chunks(lines: Iterable[bytes], *, provider_name: str) -> Iterable[OpenAITextStreamChunk]:
+    sequence = 0
+    for event in iter_sse_events(lines):
+        if event.data.strip() == "[DONE]":
+            yield OpenAITextStreamChunk(sequence=sequence + 1, content="", done=True, response_event_type="done")
+            return
+        try:
+            payload = json.loads(event.data)
+        except json.JSONDecodeError:
+            yield OpenAITextStreamChunk(
+                sequence=sequence + 1,
+                content="",
+                done=True,
+                response_event_type="invalid_json",
+                error_message=f"Invalid {provider_name} stream JSON: {event.data[:240]}",
+            )
+            return
+        if not isinstance(payload, dict):
+            continue
+        if payload.get("error"):
+            yield OpenAITextStreamChunk(
+                sequence=sequence + 1,
+                content="",
+                done=True,
+                response_event_type="error",
+                error_message=extract_error_message(payload),
+            )
+            return
+        choices = payload.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
+            continue
+        choice = choices[0]
+        delta = choice.get("delta") if isinstance(choice.get("delta"), dict) else {}
+        content = delta.get("content")
+        if isinstance(content, list):
+            content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
+        finish_reason = choice.get("finish_reason")
+        if isinstance(content, str) and content:
+            sequence += 1
+            yield OpenAITextStreamChunk(
+                sequence=sequence,
+                content=content,
+                done=False,
+                response_event_type="chat.completion.delta",
+                response_id=str(payload.get("id")) if payload.get("id") else None,
+            )
+        if finish_reason:
+            sequence += 1
+            yield OpenAITextStreamChunk(
+                sequence=sequence,
+                content="",
+                done=True,
+                response_event_type=f"chat.completion.{finish_reason}",
+                response_id=str(payload.get("id")) if payload.get("id") else None,
+                error_message=(
+                    f"{provider_name} chat completion stopped at max tokens."
+                    if finish_reason == "length"
+                    else None
+                ),
+            )
+            return
 
 
 def chat_completion_text(payload: Mapping[str, Any]) -> tuple[str, str | None, str | None]:
@@ -731,6 +800,7 @@ __all__ = [
     "OpenAITextStreamChunk",
     "ServerSentEvent",
     "chat_completion_chunks",
+    "chat_completion_sse_chunks",
     "chat_completion_text",
     "iter_sse_events",
     "model_name_for_provider",

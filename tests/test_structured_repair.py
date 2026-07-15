@@ -260,6 +260,25 @@ class StructuredRepairTests(unittest.TestCase):
         self.assertGreater(captured[1]["max_tokens"], captured[0]["max_tokens"])
         self.assertLessEqual(captured[1]["max_tokens"], lp.STRUCTURED_MAX_TOKENS_CEILING)
 
+    def test_empty_content_retries_with_increased_budget(self) -> None:
+        provider = _runpod_provider(RUNPOD_MAX_TOKENS="500")
+        captured: List[Dict[str, Any]] = []
+        provider._request_json = _fake_request(
+            [
+                ("", "length"),
+                (build_mechanical_notes().model_dump_json(), "stop"),
+            ],
+            captured,
+        )
+
+        with self.assertLogs("blueprint_core.llm_providers", level="WARNING") as logs:
+            result = provider.generate_structured("Design an enclosure.", MechanicalNotes)
+
+        self.assertIsInstance(result, MechanicalNotes)
+        self.assertEqual(2, len(captured))
+        self.assertGreater(captured[1]["max_tokens"], captured[0]["max_tokens"])
+        self.assertTrue(any("returned empty content" in line for line in logs.output))
+
     def test_retry_exhaustion_raises_output_error(self) -> None:
         provider = _runpod_provider()
         captured: List[Dict[str, Any]] = []

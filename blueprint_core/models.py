@@ -298,6 +298,41 @@ class IterateProjectRequest(BaseModel):
         return value
 
 
+class ProjectChatMessage(BaseModel):
+    role: str = Field(..., description="Chat message role: user or assistant.")
+    content: str = Field(..., min_length=1, description="Message text.")
+
+
+class ProjectChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="User message about the active project.")
+    history: List[ProjectChatMessage] = Field(default_factory=list, description="Recent project chat context.")
+    namespace: Optional[str] = Field(None, description="Currently active project namespace.")
+    provider: Optional[str] = Field(None, description="Optional runtime LLM provider override.")
+    model: Optional[str] = Field(None, description="Optional runtime model override.")
+    save: bool = Field(True, description="Persist the project when the agent invokes the iteration tool.")
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def strip_project_chat_message(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
+class PrebuildChatRequest(BaseModel):
+    message: str = Field(..., min_length=1, description="User message before a project exists.")
+    history: List[ProjectChatMessage] = Field(default_factory=list, description="Recent pre-build chat context.")
+    provider: Optional[str] = Field(None, description="Optional runtime LLM provider override.")
+    model: Optional[str] = Field(None, description="Optional runtime model override.")
+
+    @field_validator("message", mode="before")
+    @classmethod
+    def strip_prebuild_chat_message(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+
 class VideoSelfCorrectRequest(BaseModel):
     video_url: str = Field(..., min_length=1, description="HTTP(S) URL for the generated video to review.")
     video_key: Optional[str] = Field(

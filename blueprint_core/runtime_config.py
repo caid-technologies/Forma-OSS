@@ -33,6 +33,15 @@ def deployment_mode_enabled() -> bool:
     )
 
 
+def auth_required_enabled() -> bool:
+    """Whether API requests must carry a verified auth token.
+
+    Auth is enforced only in deployment mode; BLUEPRINT_DISABLE_AUTH is an
+    escape hatch for staging deployments that need deployment mode without auth.
+    """
+    return deployment_mode_enabled() and not env_bool("BLUEPRINT_DISABLE_AUTH")
+
+
 def deployment_runtime_config(
     llm_config: Dict[str, Any],
     *,
@@ -44,6 +53,7 @@ def deployment_runtime_config(
         "enabled": deployment_enabled,
         "alpha_generation_gate_active": deployment_enabled and not live_generation_enabled,
         "generation_available": (not deployment_enabled) or live_generation_enabled,
+        "auth_required": auth_required_enabled(),
     }
     if signup_storage:
         config["signup_storage"] = signup_storage

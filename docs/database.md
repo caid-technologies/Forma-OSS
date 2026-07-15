@@ -27,12 +27,23 @@ Seed component library used by the Component Selection Agent.
 ### generated_projects
 Archived outputs from the pipeline.
 - `project_id` (unique canonical UUID string; used directly in `/project/<uuid>` routes)
+- `chat_id` (nullable chat session id)
+- `owner_id` (nullable Clerk user id (`sub`); populated only in hosted deployments where `BLUEPRINT_DEPLOYMENT=true`)
 - `title`
 - `prompt`
 - `hardware_ir` (JSON representation of the IR)
 - `created_at`
 
 `hardware_ir.assembly_metadata.project_id` must match `generated_projects.project_id`. Supabase Storage image keys are written under `images/<project_id>/...` so the DB row, route id, IR metadata, and object path share the same UUID.
+
+When auth is enabled, `/projects` listings are scoped to the caller's `owner_id`, project detail/iterate/delete routes 404 for foreign or unowned rows, and new generations record the signed-in user. In OSS mode (auth off) `owner_id` stays NULL and all projects remain visible/deletable.
+
+SQLite migrates automatically at startup. Existing Supabase deployments must run:
+```sql
+alter table generated_projects add column if not exists owner_id text;
+create index if not exists ix_generated_projects_owner_id on generated_projects (owner_id);
+```
+Until the column exists, saves retry without `owner_id` (logged loudly) and owner-scoped listings fail closed by returning no rows.
 
 ### a2a_jobs
 A2A job metadata follows `JOB_METADATA_BACKEND`:

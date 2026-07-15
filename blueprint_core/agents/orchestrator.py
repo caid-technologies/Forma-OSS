@@ -563,6 +563,7 @@ class HardwarePipelineOrchestrator:
         self.use_simulation = use_simulation or not self.llm_provider.is_configured
         self.model_name = self.llm_provider.model_name
         self._active_generation_metadata: Dict[str, Any] = {}
+        self._active_owner_id: Optional[str] = None
 
     def get_debug_config(self) -> Dict[str, Any]:
         """Return LLM provider resolution details without exposing credentials."""
@@ -629,6 +630,7 @@ class HardwarePipelineOrchestrator:
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
+        owner_id: Optional[str] = None,
     ) -> HardwareIR:
         """Orchestrates the 7-agent hardware compilation pipeline with verification loop."""
         self._active_generation_metadata = {
@@ -636,6 +638,7 @@ class HardwarePipelineOrchestrator:
             for key, value in (generation_metadata or {}).items()
             if value is not None and value != ""
         }
+        self._active_owner_id = owner_id
         # 0. Safety Guardrail Pre-check
         emit_agent_pipeline_event("default", "safety_guardrail", "started")
         safety_error = check_safety_violations(user_prompt)
@@ -1423,6 +1426,7 @@ class HardwarePipelineOrchestrator:
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.utcnow().isoformat(),
                 chat_id=generation_metadata.get("chat_id"),
+                owner_id=self._active_owner_id,
             )
             logger.info(f"Project saved to database with ID: {project_id}")
             return project_id

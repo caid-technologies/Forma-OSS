@@ -2,6 +2,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import json
 import logging
+import os
 import sys
 import types
 import urllib.parse
@@ -39,7 +40,7 @@ from blueprint_core.debug import (
     exception_debug_payload,
     get_debug_mode_config,
 )
-from fastapi import Body, FastAPI, HTTPException, Query, WebSocket, status
+from fastapi import Body, FastAPI, HTTPException, Query, Request, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -56,6 +57,7 @@ configure_backend_logging()
 
 from blueprint_core.database import (
     count_component_templates,
+    delete_generated_project,
     get_database_config,
     get_generated_project,
     init_db,
@@ -93,6 +95,12 @@ from blueprint_core.project_objects import build_project_object, list_project_na
 from blueprint_core.pipeline import list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVideoSelfCorrectionAgent
+from backend.auth import (
+    ClerkAuthMiddleware,
+    current_owner_id,
+    ensure_project_access,
+    validate_auth_startup,
+)
 from backend.logs_api import router as logs_router
 from backend.streams_api import router as streams_router
 from backend.user_integrations_api import router as user_integrations_router
@@ -101,6 +109,7 @@ from blueprint_core.observability import flush_langfuse, get_langfuse_debug_conf
 from blueprint_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
+    auth_required_enabled,
     deployment_runtime_config,
     generation_unavailable_detail,
 )
@@ -206,12 +215,22 @@ class ApiPrefixCompatibilityMiddleware:
         await self.app(scope, receive, send)
 
 
+# Auth must be added before ApiPrefixCompatibilityMiddleware so it runs after
+# it (Starlette runs last-added first) and sees /api-stripped paths. No-ops
+# unless deployment mode enables auth (see backend/auth.py).
+app.add_middleware(ClerkAuthMiddleware)
 app.add_middleware(ApiPrefixCompatibilityMiddleware)
 
-# Enable CORS for Next.js frontend
+# Enable CORS for Next.js frontend. BLUEPRINT_ALLOWED_ORIGINS (comma-separated)
+# narrows this for hosted deployments; default stays permissive for local dev.
+_allowed_origins = [
+    origin.strip()
+    for origin in os.getenv("BLUEPRINT_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+] or ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In development, allow all. Can narrow in production
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -236,6 +255,7 @@ def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting up Blueprint server...")
+    validate_auth_startup()
     try:
         init_db()
         count = count_component_templates()
@@ -305,7 +325,7 @@ def debug_config_endpoint(
         ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])
-def generate_project_endpoint(request: GenerateProjectRequest):
+def generate_project_endpoint(request: GenerateProjectRequest, http_request: Request):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
@@ -406,6 +426,7 @@ def generate_project_endpoint(request: GenerateProjectRequest):
                 chat_id=request.chat_id,
                 source_project_id=request.source_project_id,
                 frontend_job_id=job_id,
+                owner_id=current_owner_id(http_request),
             )
         JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
@@ -682,9 +703,14 @@ def list_video_models_endpoint():
 
 
 @app.get("/video/projects/{project_id}")
-def list_project_videos_endpoint(project_id: str):
+def list_project_videos_endpoint(project_id: str, http_request: Request):
     """Lists videos saved for one project from configured backend storage."""
     project_id = _require_non_empty(project_id, "projectId is required.")
+    if auth_required_enabled():
+        project = get_generated_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found.")
+        ensure_project_access(project, http_request)
     try:
         videos = list_project_videos(project_id)
         return {
@@ -1151,10 +1177,14 @@ async def a2a_mcp_endpoint(payload: Any = Body(...)):
     return await handle_mcp_json_rpc(payload)
 
 @app.get("/projects")
-def list_projects_endpoint():
+def list_projects_endpoint(http_request: Request):
     """Lists all previously compiled hardware projects."""
     try:
-        projects = list_generated_projects()
+        if auth_required_enabled():
+            owner = current_owner_id(http_request)
+            projects = list_generated_projects(owner_id=owner) if owner else []
+        else:
+            projects = list_generated_projects()
         return [
             {
                 "project_id": p.project_id,
@@ -1169,12 +1199,13 @@ def list_projects_endpoint():
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/projects/{project_id}")
-def get_project_endpoint(project_id: str):
+def get_project_endpoint(project_id: str, http_request: Request):
     """Retrieves a specific hardware design and its corresponding schematics."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    
+    ensure_project_access(project, http_request)
+
     try:
         ir = HardwareIR(**project.hardware_ir)
         ir.assembly_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
@@ -1195,12 +1226,25 @@ def get_project_endpoint(project_id: str):
         raise HTTPException(status_code=500, detail=f"Error reading project IR: {str(e)}")
 
 
+@app.delete("/projects/{project_id}")
+def delete_project_endpoint(project_id: str, http_request: Request):
+    """Deletes a compiled hardware project."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    ensure_project_access(project, http_request)
+    if not delete_generated_project(project_id):
+        raise HTTPException(status_code=404, detail="Project not found.")
+    return {"project_id": project_id, "deleted": True}
+
+
 @app.get("/projects/{project_id}/video-prompt")
-def generate_project_video_prompt_endpoint(project_id: str):
+def generate_project_video_prompt_endpoint(project_id: str, http_request: Request):
     """Builds an image-to-video prompt from Blueprint project namespaces."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    ensure_project_access(project, http_request)
 
     try:
         ir = HardwareIR(**project.hardware_ir)
@@ -1216,11 +1260,12 @@ def generate_project_video_prompt_endpoint(project_id: str):
 
 
 @app.post("/projects/{project_id}/iterate")
-def iterate_project_endpoint(project_id: str, request: IterateProjectRequest):
+def iterate_project_endpoint(project_id: str, request: IterateProjectRequest, http_request: Request):
     """Applies an iteration instruction to an existing project through blueprint_core."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    ensure_project_access(project, http_request)
 
     try:
         current_ir = HardwareIR(**project.hardware_ir)
@@ -1361,11 +1406,12 @@ def _resolve_stored_video_review_target(project_id: str, request: VideoSelfCorre
 
 
 @app.post("/projects/{project_id}/video-self-correct")
-def video_self_correct_project_endpoint(project_id: str, request: VideoSelfCorrectRequest):
+def video_self_correct_project_endpoint(project_id: str, request: VideoSelfCorrectRequest, http_request: Request):
     """Reviews a generated project video with a Fireworks native video model and applies a corrective iteration."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    ensure_project_access(project, http_request)
 
     try:
         current_ir = HardwareIR(**project.hardware_ir)

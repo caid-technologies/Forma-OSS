@@ -610,6 +610,7 @@ def build_generation_response(
     chat_id: Optional[str] = None,
     source_project_id: Optional[str] = None,
     frontend_job_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
@@ -676,6 +677,7 @@ def build_generation_response(
                 provider_name=provider,
                 model_name=model,
                 external_source_provider=external_source_provider,
+                owner_id=owner_id,
                 generation_metadata={
                     "chat_id": chat_id,
                     "source_project_id": source_project_id,

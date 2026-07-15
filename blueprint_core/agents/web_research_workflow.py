@@ -105,6 +105,7 @@ class WebResearchHardwarePipeline:
         self.external_source_provider = external_source_provider
         self.research_client = build_external_source_provider(provider=external_source_provider)
         self._active_generation_metadata: Dict[str, Any] = {}
+        self._active_owner_id: Optional[str] = None
 
     def get_debug_config(self) -> Dict[str, Any]:
         validation = self.llm_provider.validate_configured_model(raise_on_strict=False)
@@ -206,12 +207,14 @@ class WebResearchHardwarePipeline:
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
+        owner_id: Optional[str] = None,
     ) -> HardwareIR:
         self._active_generation_metadata = {
             key: value
             for key, value in (generation_metadata or {}).items()
             if value is not None and value != ""
         }
+        self._active_owner_id = owner_id
         emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "started")
         safety_error = check_safety_violations(user_prompt)
         if safety_error:
@@ -222,6 +225,7 @@ class WebResearchHardwarePipeline:
                 image_bytes=image_bytes,
                 image_mime_type=image_mime_type,
                 generation_metadata=self._active_generation_metadata,
+                owner_id=owner_id,
             )
 
         if self.use_simulation:
@@ -234,6 +238,7 @@ class WebResearchHardwarePipeline:
                 image_bytes=image_bytes,
                 image_mime_type=image_mime_type,
                 generation_metadata=self._active_generation_metadata,
+                owner_id=owner_id,
             )
             ir.assembly_metadata = {
                 **(ir.assembly_metadata or {}),
@@ -712,6 +717,7 @@ class WebResearchHardwarePipeline:
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.utcnow().isoformat(),
                 chat_id=generation_metadata.get("chat_id"),
+                owner_id=self._active_owner_id,
             )
             logger.info("Web research workflow project saved to database with ID: %s", project_id)
             return project_id

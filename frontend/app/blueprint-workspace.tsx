@@ -51,9 +51,11 @@ import {
   KeyRound,
   Terminal,
   MessageSquare,
+  Trash2,
   Wifi,
   WifiOff,
 } from "lucide-react";
+import { UserButton } from "@clerk/nextjs";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
 const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
@@ -61,6 +63,8 @@ const DEFAULT_SHOW_DEVELOPER_TOOLS =
   process.env.NODE_ENV === "development" ||
   isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEBUG) ||
   isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEV_MODE);
+// Clerk auth controls only exist in hosted deployments (see middleware.ts/layout.tsx).
+const DEPLOYMENT_AUTH_ENABLED = isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT);
 const DEFAULT_WORKFLOW_ID = "default";
 const WEB_RESEARCH_WORKFLOW_ID = "web_research";
 const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
@@ -2601,6 +2605,17 @@ export function BlueprintWorkspace({
     }
   };
 
+  const deleteProject = async (projectId: string) => {
+    if (!window.confirm("Delete this project? This cannot be undone.")) return;
+    try {
+      const res = await fetch(`${API_URL}/projects/${projectId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error(`Delete failed (${res.status})`);
+      setProjectHistory((prev) => prev.filter((p: any) => p.project_id !== projectId));
+    } catch (e) {
+      console.error("Error deleting project", e);
+    }
+  };
+
   const fetchA2aJobs = useCallback(async (status: string, options: { silent?: boolean } = {}) => {
     if (!options.silent) setJobsLoading(true);
     setJobsError(null);
@@ -4622,6 +4637,7 @@ export function BlueprintWorkspace({
                 items={projectGalleryItems}
                 onOpenChat={(chatId) => router.push(chatRoute(chatId))}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onDeleteProject={deleteProject}
                 standalone
               />
             </>
@@ -5525,6 +5541,15 @@ function ChatSidebar({
             <Handshake className="h-5 w-5 text-slate-500" />
             {!compact && <span className="truncate">About us</span>}
           </Link>
+          {DEPLOYMENT_AUTH_ENABLED && (
+            <div
+              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 ${compact ? "justify-center" : ""}`}
+              title="Account"
+            >
+              <UserButton />
+              {!compact && <span className="truncate">Account</span>}
+            </div>
+          )}
         </div>
       </div>
     </aside>
@@ -5555,12 +5580,14 @@ function ProjectGallery({
   items,
   onOpenChat,
   onOpenProjectPage,
+  onDeleteProject,
   standalone = false,
 }: {
   sectionRef: React.RefObject<HTMLElement>;
   items: ProjectGalleryItem[];
   onOpenChat: (chatId: string) => void;
   onOpenProjectPage: (projectId: string) => void;
+  onDeleteProject: (projectId: string) => void;
   standalone?: boolean;
 }) {
   const pageSize = useProjectGalleryPageSize();
@@ -5610,6 +5637,7 @@ function ProjectGallery({
                 item={item}
                 onOpenChat={() => onOpenChat(item.chatId)}
                 onOpenProjectPage={() => onOpenProjectPage(item.projectId)}
+                onDelete={() => onDeleteProject(item.projectId)}
               />
             ))}
           </div>
@@ -5740,10 +5768,12 @@ function ProjectGalleryCard({
   item,
   onOpenChat,
   onOpenProjectPage,
+  onDelete,
 }: {
   item: ProjectGalleryItem;
   onOpenChat: () => void;
   onOpenProjectPage: () => void;
+  onDelete: () => void;
 }) {
   return (
     <article className="group overflow-hidden border border-[#2c2f37] bg-[#17181d]">
@@ -5765,7 +5795,7 @@ function ProjectGalleryCard({
         <h3 className="line-clamp-2 min-h-10 break-words text-sm font-black uppercase leading-5 tracking-[0.08em] text-white">
           {item.title}
         </h3>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
           <button
             type="button"
             onClick={onOpenChat}
@@ -5781,6 +5811,14 @@ function ProjectGalleryCard({
           >
             <Eye className="h-4 w-4 shrink-0" />
             <span className="truncate">Project</span>
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label="Delete project"
+            className="inline-flex h-10 w-10 items-center justify-center border border-red-400/35 text-red-300 transition hover:bg-red-400 hover:text-black"
+          >
+            <Trash2 className="h-4 w-4 shrink-0" />
           </button>
         </div>
       </div>

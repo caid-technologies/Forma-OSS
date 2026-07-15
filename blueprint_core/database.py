@@ -54,6 +54,7 @@ class DBGeneratedProject(Base):
     id = Column(Integer, primary_key=True, index=True)
     project_id = Column(String, unique=True, index=True, nullable=False)
     chat_id = Column(String, index=True, nullable=True)
+    owner_id = Column(String, index=True, nullable=True)
     title = Column(String, nullable=False)
     prompt = Column(Text, nullable=False)
     hardware_ir = Column(JSON, nullable=False)
@@ -226,9 +227,9 @@ def _normalize_chat_id(value: Optional[str]) -> Optional[str]:
     return normalized or None
 
 
-def _error_mentions_missing_chat_id_column(exc: Exception) -> bool:
+def _error_mentions_missing_column(exc: Exception, column: str) -> bool:
     text = str(exc).lower()
-    return "chat_id" in text and (
+    return column in text and (
         "does not exist" in text
         or "42703" in text
         or "missing" in text
@@ -236,6 +237,14 @@ def _error_mentions_missing_chat_id_column(exc: Exception) -> bool:
         or "pgrst204" in text
         or "schema cache" in text
     )
+
+
+def _error_mentions_missing_chat_id_column(exc: Exception) -> bool:
+    return _error_mentions_missing_column(exc, "chat_id")
+
+
+# Columns that may be absent on older Supabase schemas; inserts retry without them.
+_OPTIONAL_PROJECT_COLUMNS = ("chat_id", "owner_id")
 
 
 def _chat_id_from_hardware_ir(hardware_ir: Any) -> Optional[str]:
@@ -305,6 +314,9 @@ def _migrate_sqlite_schema() -> None:
         if "chat_id" not in columns:
             connection.execute(text("ALTER TABLE generated_projects ADD COLUMN chat_id VARCHAR"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_chat_id ON generated_projects (chat_id)"))
+        if "owner_id" not in columns:
+            connection.execute(text("ALTER TABLE generated_projects ADD COLUMN owner_id VARCHAR"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_owner_id ON generated_projects (owner_id)"))
 
 
 def get_db():
@@ -394,6 +406,7 @@ def save_generated_project(
     hardware_ir: Dict[str, Any],
     created_at: str,
     chat_id: Optional[str] = None,
+    owner_id: Optional[str] = None,
 ) -> None:
     project_id = _canonical_project_id(project_id)
     hardware_ir = _hardware_ir_with_project_id(project_id, hardware_ir, chat_id=chat_id)
@@ -402,20 +415,35 @@ def save_generated_project(
     record = {
         "project_id": project_id,
         "chat_id": normalized_chat_id,
+        "owner_id": owner_id,
         "title": title,
         "prompt": prompt,
         "hardware_ir": hardware_ir,
         "created_at": created_at,
     }
     if DATABASE_BACKEND == "supabase":
-        try:
-            get_supabase_client().table("generated_projects").insert(record).execute()
-        except Exception as exc:
-            if not _error_mentions_missing_chat_id_column(exc):
-                raise
-            fallback_record = dict(record)
-            fallback_record.pop("chat_id", None)
-            get_supabase_client().table("generated_projects").insert(fallback_record).execute()
+        # Retry without columns the remote schema is missing (schema drift).
+        attempt = dict(record)
+        for _ in range(len(_OPTIONAL_PROJECT_COLUMNS) + 1):
+            try:
+                get_supabase_client().table("generated_projects").insert(attempt).execute()
+                return
+            except Exception as exc:
+                missing = [
+                    column
+                    for column in _OPTIONAL_PROJECT_COLUMNS
+                    if column in attempt and _error_mentions_missing_column(exc, column)
+                ]
+                if not missing:
+                    raise
+                for column in missing:
+                    attempt.pop(column, None)
+                    logger.warning(
+                        "generated_projects is missing the %s column; retrying insert without it. "
+                        "Run: alter table generated_projects add column if not exists %s text;",
+                        column,
+                        column,
+                    )
         return
 
     db = _sqlite_session()
@@ -429,37 +457,58 @@ def save_generated_project(
         db.close()
 
 
-def list_generated_projects() -> List[Any]:
+def list_generated_projects(owner_id: Optional[str] = None) -> List[Any]:
     if DATABASE_BACKEND == "supabase":
         client = get_supabase_client()
         try:
-            rows = (
+            query = (
                 client
                 .table("generated_projects")
-                .select("id,project_id,chat_id,title,prompt,created_at")
-                .order("id", desc=True)
-                .execute()
-                .data
-                or []
+                .select("id,project_id,chat_id,owner_id,title,prompt,created_at")
             )
+            if owner_id is not None:
+                query = query.eq("owner_id", owner_id)
+            rows = query.order("id", desc=True).execute().data or []
         except Exception as exc:
-            if not _error_mentions_missing_chat_id_column(exc):
+            if _error_mentions_missing_column(exc, "owner_id"):
+                if owner_id is not None:
+                    # Fail closed: without the column we cannot scope to an owner.
+                    logger.warning(
+                        "generated_projects is missing the owner_id column; returning no "
+                        "projects for owner-scoped listing. Run: alter table "
+                        "generated_projects add column if not exists owner_id text;"
+                    )
+                    return []
+                rows = (
+                    client
+                    .table("generated_projects")
+                    .select("id,project_id,chat_id,title,prompt,created_at")
+                    .order("id", desc=True)
+                    .execute()
+                    .data
+                    or []
+                )
+            elif _error_mentions_missing_chat_id_column(exc):
+                rows = (
+                    client
+                    .table("generated_projects")
+                    .select("id,project_id,title,prompt,created_at,hardware_ir")
+                    .order("id", desc=True)
+                    .execute()
+                    .data
+                    or []
+                )
+                for row in rows:
+                    row["chat_id"] = _chat_id_from_hardware_ir(row.get("hardware_ir"))
+            else:
                 raise
-            rows = (
-                client
-                .table("generated_projects")
-                .select("id,project_id,title,prompt,created_at,hardware_ir")
-                .order("id", desc=True)
-                .execute()
-                .data
-                or []
-            )
-            for row in rows:
-                row["chat_id"] = _chat_id_from_hardware_ir(row.get("hardware_ir"))
         return [_as_record(row) for row in rows]
     db = _sqlite_session()
     try:
-        return db.query(DBGeneratedProject).order_by(DBGeneratedProject.id.desc()).all()
+        query = db.query(DBGeneratedProject)
+        if owner_id is not None:
+            query = query.filter(DBGeneratedProject.owner_id == owner_id)
+        return query.order_by(DBGeneratedProject.id.desc()).all()
     finally:
         db.close()
 
@@ -520,6 +569,36 @@ def update_generated_project_hardware_ir(project_id: str, hardware_ir: Dict[str,
         project.chat_id = chat_id
         db.commit()
         return True
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def delete_generated_project(project_id: str, owner_id: Optional[str] = None) -> bool:
+    """Deletes a project. When owner_id is given, only a matching owner's row is removed."""
+    project_id = _canonical_project_id(project_id)
+    if DATABASE_BACKEND == "supabase":
+        query = (
+            get_supabase_client()
+            .table("generated_projects")
+            .delete()
+            .eq("project_id", project_id)
+        )
+        if owner_id is not None:
+            query = query.eq("owner_id", owner_id)
+        response = query.execute()
+        return bool(response.data)
+
+    db = _sqlite_session()
+    try:
+        query = db.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id)
+        if owner_id is not None:
+            query = query.filter(DBGeneratedProject.owner_id == owner_id)
+        deleted = query.delete()
+        db.commit()
+        return deleted > 0
     except Exception:
         db.rollback()
         raise

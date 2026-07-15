@@ -81,6 +81,7 @@ def generate_project_with_workflow(
     model_name: Optional[str] = None,
     external_source_provider: Optional[str] = None,
     generation_metadata: Optional[Dict[str, Any]] = None,
+    owner_id: Optional[str] = None,
 ) -> HardwareIR:
     normalized = normalize_workflow_id(workflow_id)
     source_usage = source_usage_for_workflow(normalized, external_provider=external_source_provider)
@@ -94,6 +95,7 @@ def generate_project_with_workflow(
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             generation_metadata=generation_metadata,
+            owner_id=owner_id,
         )
     else:
         ir = HardwarePipelineOrchestrator(provider_name=provider_name, model_name=model_name).generate_project(
@@ -101,6 +103,7 @@ def generate_project_with_workflow(
             image_bytes=image_bytes,
             image_mime_type=image_mime_type,
             generation_metadata=generation_metadata,
+            owner_id=owner_id,
         )
     ir.assembly_metadata = {
         **(ir.assembly_metadata or {}),

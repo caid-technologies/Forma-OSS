@@ -27,12 +27,28 @@ Seed component library used by the Component Selection Agent.
 ### generated_projects
 Archived outputs from the pipeline.
 - `project_id` (unique canonical UUID string; used directly in `/project/<uuid>` routes)
+- `chat_id` (optional private chat/thread id that created the project)
+- `owner_user_id` (optional Clerk user id that owns mutation rights)
+- `visibility` (`public` by default; public project reads are allowed through the API)
 - `title`
 - `prompt`
 - `hardware_ir` (JSON representation of the IR)
 - `created_at`
 
 `hardware_ir.assembly_metadata.project_id` must match `generated_projects.project_id`. Supabase Storage image keys are written under `images/<project_id>/...` so the DB row, route id, IR metadata, and object path share the same UUID.
+
+Projects are public artifacts: `GET /api/projects` and `GET /api/projects/{project_id}` do not require the project owner. Mutating a project, deleting it, or saving derived artifacts requires the signed-in Clerk user to match `owner_user_id` when deployed auth is enabled.
+
+### project_chats
+Private chat threads owned by a Clerk user.
+- `chat_id` (unique)
+- `owner_user_id` (Clerk user id; required)
+- `title`
+- `messages` (JSON array)
+- `created_at`
+- `updated_at`
+
+Chats are not publicly readable. Sharing is intentionally deferred to a future sharing/ACL table.
 
 ### a2a_jobs
 A2A job metadata follows `JOB_METADATA_BACKEND`:

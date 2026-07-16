@@ -699,9 +699,14 @@ class WebResearchHardwarePipeline:
     def _save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         project_id = canonical_project_uuid((ir.assembly_metadata or {}).get("project_id"))
         generation_metadata = self._active_generation_metadata or {}
+        public_generation_metadata = {
+            key: value
+            for key, value in generation_metadata.items()
+            if key != "owner_user_id"
+        }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
-            **generation_metadata,
+            **public_generation_metadata,
             "project_id": project_id,
         }
         try:
@@ -712,6 +717,8 @@ class WebResearchHardwarePipeline:
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.utcnow().isoformat(),
                 chat_id=generation_metadata.get("chat_id"),
+                owner_user_id=generation_metadata.get("owner_user_id"),
+                visibility="public",
             )
             logger.info("Web research workflow project saved to database with ID: %s", project_id)
             return project_id

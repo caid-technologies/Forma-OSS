@@ -102,9 +102,14 @@ def generate_project_with_workflow(
             image_mime_type=image_mime_type,
             generation_metadata=generation_metadata,
         )
+    public_generation_metadata = {
+        key: value
+        for key, value in (generation_metadata or {}).items()
+        if key != "owner_user_id"
+    }
     ir.assembly_metadata = {
         **(ir.assembly_metadata or {}),
-        **(generation_metadata or {}),
+        **public_generation_metadata,
         "workflow": normalized,
         "source_usage": (ir.assembly_metadata or {}).get("source_usage") or source_usage,
     }

@@ -1,7 +1,26 @@
+# Upload only the deployable app/runtime surface. This repo has large local
+# artifacts and dev metadata that must never enter Vercel services.
+/*
+
+!vercel.json
+!.python-version
+!requirements.txt
+!main.py
+!backend
+!backend/**
+!blueprint_core
+!blueprint_core/**
+!frontend
+!frontend/**
+
 .git
 .vercel
 .env
 .env.*
+.agents
+.claude
+.codex
+skills-lock.json
 
 node_modules
 frontend/node_modules
@@ -30,8 +49,8 @@ __pycache__
 tmp
 data
 
-rust/target
-blueprint-tui/target
+rust
+blueprint-tui
 
 .DS_Store
 .idea

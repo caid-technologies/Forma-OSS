@@ -1,4 +1,5 @@
 import BlueprintWorkspace from "../../blueprint-workspace";
+import { deployedAuthRequired } from "../../../lib/deployed-auth";
 import { showDeveloperTools } from "../../../lib/server-feature-flags";
 
 type ProjectPageProps = {
@@ -8,5 +9,5 @@ type ProjectPageProps = {
 };
 
 export default function ProjectPage({ params }: ProjectPageProps) {
-  return <BlueprintWorkspace routeProjectId={params.projectId} showDeveloperTools={showDeveloperTools()} />;
+  return <BlueprintWorkspace authRequired={deployedAuthRequired()} routeProjectId={params.projectId} showDeveloperTools={showDeveloperTools()} />;
 }

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ClerkProvider } from "@clerk/nextjs";
+import { deployedAuthRequired } from "../lib/deployed-auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -11,11 +13,14 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const authRequired = deployedAuthRequired();
   return (
-    <html lang="en">
-      <body>
-        {children}
-      </body>
-    </html>
+    <ClerkProvider>
+      <html lang="en">
+        <body data-auth-required={authRequired ? "true" : "false"}>
+          {children}
+        </body>
+      </html>
+    </ClerkProvider>
   );
 }

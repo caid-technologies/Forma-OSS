@@ -610,6 +610,7 @@ def build_generation_response(
     chat_id: Optional[str] = None,
     source_project_id: Optional[str] = None,
     frontend_job_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
@@ -639,6 +640,7 @@ def build_generation_response(
         "workflow": workflow_id,
         "chat_id": chat_id,
         "source_project_id": source_project_id,
+        "owner_user_id": owner_user_id,
         "requested_provider": provider,
         "requested_model": model,
         "runtime_provider": (llm_config.get("runtime") or {}).get("runtime_provider"),
@@ -680,6 +682,7 @@ def build_generation_response(
                     "chat_id": chat_id,
                     "source_project_id": source_project_id,
                     "frontend_job_id": frontend_job_id,
+                    "owner_user_id": owner_user_id,
                     "external_source_provider": external_source_provider,
                 },
             )
@@ -779,6 +782,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             payload.get("chat_id"),
             payload.get("source_project_id"),
             payload.get("client_job_id") or payload.get("frontend_job_id"),
+            payload.get("owner_user_id"),
         )
 
     if normalized == "debug_config":

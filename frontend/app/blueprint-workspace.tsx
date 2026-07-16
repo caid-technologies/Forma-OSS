@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SignedIn, SignedOut, SignInButton, UserButton, useAuth, useClerk, useUser } from "@clerk/nextjs";
+import { SignInButton, UserButton, useAuth, useClerk, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactFlow, {
@@ -5032,7 +5032,7 @@ export function BlueprintWorkspace({
 	            serverStatus={serverStatus}
 	          />
 	          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden pt-12 md:pt-0">
-	          <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} serverStatus={serverStatus} />
+	          <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} serverStatus={serverStatus} authRequired={authRequired} />
 	        <main className={`mx-auto w-full ${homeView === "chat" ? "max-w-none" : "max-w-6xl"} ${
 	          homeView === "chat"
 	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-3 sm:pt-4"
@@ -5711,9 +5711,11 @@ function WorkspacePageHeading({
 function MobileWorkspaceBar({
   onOpenSidebar,
   serverStatus = "disconnected",
+  authRequired,
 }: {
   onOpenSidebar: () => void;
   serverStatus?: "connected" | "disconnected";
+  authRequired: boolean;
 }) {
   const ApiStatusIcon = serverStatus === "connected" ? Wifi : WifiOff;
   const apiStatusLabel = serverStatus === "connected" ? "API connected" : "API disconnected";
@@ -5736,7 +5738,37 @@ function MobileWorkspaceBar({
       >
         <ApiStatusIcon className="h-4 w-4" />
       </span>
+      <AuthStatusControl authRequired={authRequired} compact />
     </header>
+  );
+}
+
+function AuthStatusControl({
+  authRequired,
+  compact = false,
+}: {
+  authRequired: boolean;
+  compact?: boolean;
+}) {
+  const { isLoaded, isSignedIn } = useAuth();
+  const { openSignIn } = useClerk();
+  if (!authRequired) return null;
+  if (isSignedIn) return <UserButton afterSignOutUrl="/" />;
+
+  return (
+    <button
+      type="button"
+      disabled={!isLoaded}
+      onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" })}
+      className={`inline-flex shrink-0 items-center justify-center border border-cyan-300/30 bg-cyan-300/10 font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent disabled:hover:text-slate-600 ${
+        compact ? "h-8 w-8" : "h-7 gap-1.5 px-2 text-[10px]"
+      }`}
+      aria-label={isLoaded ? "Sign in" : "Checking sign-in status"}
+      title={isLoaded ? "Sign in" : "Checking sign-in status"}
+    >
+      <KeyRound className={compact ? "h-4 w-4" : "h-3.5 w-3.5"} />
+      {!compact && <span>Sign in</span>}
+    </button>
   );
 }
 
@@ -5898,24 +5930,7 @@ function ChatSidebar({
               >
                 <ApiStatusIcon className="h-3.5 w-3.5" />
               </span>
-              {authRequired && (
-                <>
-                  <SignedIn>
-                    <UserButton afterSignOutUrl="/" />
-                  </SignedIn>
-                  <SignedOut>
-                    <SignInButton mode="modal">
-                      <button
-                        type="button"
-                        className="inline-flex h-7 items-center gap-1.5 border border-cyan-300/30 bg-cyan-300/10 px-2 text-[10px] font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
-                      >
-                        <KeyRound className="h-3.5 w-3.5" />
-                        Sign in
-                      </button>
-                    </SignInButton>
-                  </SignedOut>
-                </>
-              )}
+              <AuthStatusControl authRequired={authRequired} />
             </div>
           )}
           <button

@@ -1,0 +1,16 @@
+[project]
+name = "blueprint-backend"
+version = "0.1.0"
+requires-python = "~=3.12.0"
+dependencies = [
+    "fastapi>=0.124.1",
+    "uvicorn",
+    "websockets>=12.0",
+    "pydantic>=2.12.0",
+    "python-dotenv>=1.0.1",
+    "pyjwt>=2.10.1",
+    "cryptography>=42.0.0",
+    "json-repair>=0.30.0",
+    "sqlalchemy==2.0.31",
+    "supabase==2.31.0",
+]

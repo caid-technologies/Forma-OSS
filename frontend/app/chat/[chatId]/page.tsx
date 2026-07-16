@@ -1,4 +1,5 @@
 import BlueprintWorkspace from "../../blueprint-workspace";
+import { deployedAuthRequired } from "../../../lib/deployed-auth";
 import { showDeveloperTools } from "../../../lib/server-feature-flags";
 
 type ChatPageProps = {
@@ -8,5 +9,5 @@ type ChatPageProps = {
 };
 
 export default function ChatPage({ params }: ChatPageProps) {
-  return <BlueprintWorkspace routeChatId={params.chatId} showDeveloperTools={showDeveloperTools()} />;
+  return <BlueprintWorkspace authRequired={deployedAuthRequired()} routeChatId={params.chatId} showDeveloperTools={showDeveloperTools()} />;
 }

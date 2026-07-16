@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SignedIn, SignedOut, SignInButton, UserButton, useAuth, useClerk, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactFlow, {
@@ -51,6 +52,8 @@ import {
   KeyRound,
   Terminal,
   MessageSquare,
+  Star,
+  Clock3,
   Wifi,
   WifiOff,
 } from "lucide-react";
@@ -169,8 +172,8 @@ const localOnlyGenerationLlms: GenerationLlmOption[] =
 const defaultGenerationLlms: GenerationLlmOption[] = [
   { provider: "openai", model: "gpt-5.5", label: "OpenAI GPT-5.5" },
   { provider: "runpod", model: RUNPOD_PARTI_BASE_MODEL, label: "Runpod Parti Base" },
-  { provider: "runpod-serverless", model: RUNPOD_PARTI_BASE_MODEL, label: "Runpod Serverless Parti Base" },
-  { provider: "baseten", model: BASETEN_GLM_MODEL, label: "Baseten GLM 5.2" },
+  { provider: "runpod-serverless", model: RUNPOD_PARTI_BASE_MODEL, label: RUNPOD_PARTI_BASE_MODEL },
+  { provider: "baseten", model: BASETEN_GLM_MODEL, label: "GLM 5.2" },
   ...localOnlyGenerationLlms,
   { provider: "gmi", model: "anthropic/claude-fable-5", label: "GMI Claude Fable 5" },
   { provider: "nvidia", model: NVIDIA_QWEN_CODER_32B_MODEL, label: "NVIDIA Qwen2.5 Coder 32B" },
@@ -266,15 +269,21 @@ function generationLlmKey(option: Pick<GenerationLlmOption, "provider" | "model"
 }
 
 function generationLlmLabel(provider: string, model: string) {
-  if (provider === "runpod-serverless" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Serverless Parti Base";
+  if (provider === "runpod-serverless" && model === RUNPOD_PARTI_BASE_MODEL) return RUNPOD_PARTI_BASE_MODEL;
   if (provider === "runpod" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Parti Base";
-  if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "Baseten GLM 5.2";
+  if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "GLM 5.2";
   if (provider === "baseten" && model === BASETEN_DEEPSEEK_MODEL) return "Baseten DeepSeek V4 Pro";
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
   if (provider === "nvidia" && model === NVIDIA_QWEN_CODER_32B_MODEL) return "NVIDIA Qwen2.5 Coder 32B";
   if (provider === "nvidia" && model === NVIDIA_LLAMA_8B_MODEL) return "NVIDIA Llama 3.1 8B";
   if (provider === "simulation") return "Local Simulation";
   return `${provider} ${model}`.trim();
+}
+
+function projectLlmDisplayLabel(provider: string, model: string) {
+  if (provider === "runpod-serverless" && model === RUNPOD_PARTI_BASE_MODEL) return RUNPOD_PARTI_BASE_MODEL;
+  if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "GLM 5.2";
+  return `${provider}/${model}`;
 }
 
 function normalizeApiUrl(value: string) {
@@ -359,12 +368,58 @@ function chatHasStarted(messages: ChatMessage[]) {
   return messages.some((message) => message.role === "user" || Boolean(message.projectId));
 }
 
+function chatTitleFromMessages(messages: ChatMessage[], fallback = NEW_PROJECT_TITLE) {
+  const firstUserMessage = messages.find((message) => message.role === "user" && message.content.trim());
+  const title = firstUserMessage?.content.trim().replace(/\s+/g, " ");
+  if (!title) return fallback;
+  return title.length > 80 ? `${title.slice(0, 77)}...` : title;
+}
+
+function persistableChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map(normalizeChatMessage)
+    .filter((message: ChatMessage | null): message is ChatMessage => Boolean(message))
+    .slice(-MAX_PROJECT_CHAT_MESSAGES);
+}
+
 function chatIsWaiting(messages: ChatMessage[]) {
   return messages.some((message) => message.status === "loading");
 }
 
 function chatMessageIdentityKey(messages: ChatMessage[]) {
   return messages.map((message) => message.id).join("|");
+}
+
+function normalizeProjectHistoryRecord(value: any): any | null {
+  if (!value || typeof value !== "object") return null;
+  const projectId = typeof value.project_id === "string" ? value.project_id.trim() : "";
+  if (!projectId) return null;
+  const creatorDisplay =
+    typeof value.creator_username === "string" && value.creator_username.trim()
+      ? value.creator_username.trim()
+      : typeof value.creator_display === "string" && value.creator_display.trim()
+        ? value.creator_display.trim()
+        : "unknown";
+  const creatorImageUrl =
+    typeof value.creator_image_url === "string" && value.creator_image_url.trim()
+      ? value.creator_image_url.trim()
+      : typeof value.creatorImageUrl === "string" && value.creatorImageUrl.trim()
+        ? value.creatorImageUrl.trim()
+        : null;
+  return {
+    ...value,
+    project_id: projectId,
+    chat_id: typeof value.chat_id === "string" ? value.chat_id.trim() : "",
+    title: typeof value.title === "string" && value.title.trim() ? value.title.trim() : "Untitled project",
+    prompt: typeof value.prompt === "string" ? value.prompt : "",
+    created_at: typeof value.created_at === "string" && value.created_at ? value.created_at : chatTimestamp(),
+    can_chat: Boolean(value.can_chat ?? value.canChat),
+    creator_display: creatorDisplay,
+    creator_username: creatorDisplay,
+    creator_image_url: creatorImageUrl,
+    parts_count: Math.max(0, Number(value.parts_count || value.partsCount || 0)),
+    star_count: Math.max(0, Number(value.star_count || value.starCount || 0)),
+  };
 }
 
 function normalizeAgentPipelineStep(value: any): AgentPipelineStep | null {
@@ -1215,6 +1270,12 @@ type ProjectGalleryItem = {
   title: string;
   projectId: string;
   chatId: string;
+  canChat: boolean;
+  creatorDisplay: string;
+  creatorImageUrl: string | null;
+  createdAt: string | null;
+  partsCount: number;
+  starCount: number;
   image: ProjectImageCandidate | null;
 };
 
@@ -1844,6 +1905,7 @@ function withProjectResponseMetadata(ir: any, response: any) {
       ...(ir.assembly_metadata || {}),
       project_id: ir.assembly_metadata?.project_id || response?.project_id,
       chat_id: ir.assembly_metadata?.chat_id || response?.chat_id,
+      can_chat: Boolean(ir.assembly_metadata?.can_chat ?? ir.assembly_metadata?.canChat ?? response?.can_chat ?? response?.canChat),
       frontend_job_id: ir.assembly_metadata?.frontend_job_id || response?.job_id,
       source_prompt: ir.assembly_metadata?.source_prompt || response?.prompt,
       ...timingMetadata,
@@ -1909,6 +1971,10 @@ function chatIdFromIR(ir: any) {
   return ir?.assembly_metadata?.chat_id || null;
 }
 
+function canChatWithProjectIR(ir: any) {
+  return Boolean(ir?.assembly_metadata?.can_chat ?? ir?.assembly_metadata?.canChat);
+}
+
 function chatIdFromJob(job: A2AJob) {
   const rawChatId = job.payload?.chat_id || job.result_summary?.chat_id;
   return typeof rawChatId === "string" ? rawChatId.trim() : "";
@@ -1947,7 +2013,8 @@ type HomeProps = {
   routeProjectId?: string | null;
   routeChatId?: string | null;
   showDeveloperTools?: boolean;
-  homeView?: "chat" | "projects" | "jobs" | "logs";
+  homeView?: "chat" | "projects" | "my-projects" | "jobs" | "logs";
+  authRequired?: boolean;
 };
 
 export function BlueprintWorkspace({
@@ -1955,8 +2022,12 @@ export function BlueprintWorkspace({
   routeChatId = null,
   showDeveloperTools = DEFAULT_SHOW_DEVELOPER_TOOLS,
   homeView = "chat",
+  authRequired = false,
 }: HomeProps = {}) {
   const router = useRouter();
+  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth();
+  const { user } = useUser();
+  const { openSignIn } = useClerk();
   const [prompt, setPrompt] = useState("");
   const [activeChatId, setActiveChatId] = useState(() => routeChatId ? safeDecodeChatId(routeChatId) : newBuildChatId());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1972,14 +2043,20 @@ export function BlueprintWorkspace({
   const [mermaidCode, setMermaidCode] = useState<string>("");
   const [svgSchematic, setSvgSchematic] = useState<string>("");
   const [projectHistory, setProjectHistory] = useState<any[]>([]);
+  const [myProjectHistory, setMyProjectHistory] = useState<any[]>([]);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
+  const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
+  const [privateChatItems, setPrivateChatItems] = useState<ChatListItem[]>([]);
   const [chatIndexLoaded, setChatIndexLoaded] = useState(false);
+  const [sessionChatItems, setSessionChatItems] = useState<ChatListItem[]>([]);
   const [a2aJobs, setA2aJobs] = useState<A2AJob[]>([]);
   const [jobsLoading, setJobsLoading] = useState(false);
   const [jobsError, setJobsError] = useState<string | null>(null);
   const [jobStatusFilter, setJobStatusFilter] = useState("all");
   const [jobsLastUpdatedAt, setJobsLastUpdatedAt] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [adminSessionLoaded, setAdminSessionLoaded] = useState(false);
   const [backendLogs, setBackendLogs] = useState<BackendLogs | null>(null);
   const [logsLoading, setLogsLoading] = useState(false);
   const [logsError, setLogsError] = useState<string | null>(null);
@@ -2058,14 +2135,34 @@ export function BlueprintWorkspace({
   const projectsSectionRef = useRef<HTMLElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const projectChatEndRef = useRef<HTMLDivElement>(null);
+  const chatPersistenceTimersRef = useRef<Record<string, number>>({});
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   const projectGalleryItems = useMemo(
-    () => buildProjectGalleryItems(projectHistory, projectGalleryImages),
-    [projectHistory, projectGalleryImages]
+    () => buildProjectGalleryItems(projectHistory, projectGalleryImages).map((item) => ({
+      ...item,
+      canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
+    })),
+    [authRequired, isSignedIn, projectHistory, projectGalleryImages]
   );
-  const chatListItems = useMemo(() => buildChatListItems(projectHistory, localChatItems), [projectHistory, localChatItems]);
+  const myProjectGalleryItems = useMemo(
+    () => buildProjectGalleryItems(myProjectHistory, projectGalleryImages).map((item) => ({
+      ...item,
+      canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
+    })),
+    [authRequired, isSignedIn, myProjectHistory, projectGalleryImages]
+  );
+  const visibleChatSourceProjects = authRequired ? myProjectHistory : projectHistory;
+  const visibleChatSourceItems = useMemo(
+    () => authRequired ? mergeChatListItems(sessionChatItems, privateChatItems) : localChatItems,
+    [authRequired, localChatItems, privateChatItems, sessionChatItems]
+  );
+  const chatListItems = useMemo(
+    () => buildChatListItems(visibleChatSourceProjects, visibleChatSourceItems),
+    [visibleChatSourceProjects, visibleChatSourceItems]
+  );
+  const chatHistoryLoaded = authRequired ? myProjectHistoryLoaded : projectHistoryLoaded;
   const chatMessageScrollKey = useMemo(
     () => `${activeChatId || ""}:${chatMessageIdentityKey(chatMessages)}`,
     [activeChatId, chatMessages]
@@ -2083,6 +2180,8 @@ export function BlueprintWorkspace({
     generationInputNotice || ((prompt.trim() || pendingHumanContext) && !generationInputValidation.isValid ? generationInputValidation.message : null);
   const hasGenerationInput = Boolean(prompt.trim() || selectedImage || pendingHumanContext);
   const alphaGateActive = alphaGateConfig.gateActive;
+  const canViewJobs = isAdmin;
+  const canViewAdminTools = showDeveloperTools || isAdmin;
   const selectedGenerationWorkflow = useMemo(
     () => generationWorkflows.find((workflow) => workflow.id === generationWorkflow) || generationWorkflows[0] || defaultGenerationWorkflows[0],
     [generationWorkflow, generationWorkflows]
@@ -2138,6 +2237,7 @@ export function BlueprintWorkspace({
         ? storedMessages
         : initialProjectChatMessages(projectId, ir?.overview?.title || "Project", sourcePrompt);
       writeStoredChatThread(chatId, nextMessages);
+      persistChatThread(chatId, nextMessages, ir?.overview?.title || null);
       return {
         ...current,
         [chatId]: nextMessages,
@@ -2159,6 +2259,7 @@ export function BlueprintWorkspace({
     setChatThreads((current) => {
       const nextMessages = [...(current[chatId] || []), nextMessage].slice(-MAX_PROJECT_CHAT_MESSAGES);
       writeStoredChatThread(chatId, nextMessages);
+      persistChatThread(chatId, nextMessages);
       return {
         ...current,
         [chatId]: nextMessages,
@@ -2181,6 +2282,7 @@ export function BlueprintWorkspace({
           : message
       );
       writeStoredChatThread(chatId, nextMessages);
+      persistChatThread(chatId, nextMessages);
       return {
         ...current,
         [chatId]: nextMessages,
@@ -2226,6 +2328,7 @@ export function BlueprintWorkspace({
       });
       if (!changed) return current;
       writeStoredChatThread(chatId, nextMessages);
+      persistChatThread(chatId, nextMessages);
       return {
         ...current,
         [chatId]: nextMessages,
@@ -2234,11 +2337,41 @@ export function BlueprintWorkspace({
   };
 
   const rememberChatItem = (item: Partial<ChatListItem> & { chatId: string }) => {
+    const normalizedItem = normalizeChatListItem(item);
+    if (authRequired) {
+      if (normalizedItem) {
+        setSessionChatItems((current) => mergeChatListItems([normalizedItem], current));
+      }
+    }
     setLocalChatItems((current) => {
       const nextItems = upsertChatListItem(current, item);
       writeStoredChatIndex(nextItems);
       return nextItems;
     });
+    if (authRequired && normalizedItem) {
+      const messages = chatThreads[item.chatId]
+        || (activeChatId === item.chatId ? chatMessages : readStoredChatThread(item.chatId));
+      persistChatThread(item.chatId, messages, normalizedItem.title);
+    }
+  };
+
+  const rememberProjectRecord = (record: any) => {
+    const normalizedRecord = normalizeProjectHistoryRecord(record);
+    if (!normalizedRecord) return;
+    const mergeProject = (projects: any[]) => (
+      [normalizedRecord, ...projects.filter((project: any) => project?.project_id !== normalizedRecord.project_id)]
+        .sort((left: any, right: any) => {
+          const leftTime = Date.parse(left.created_at || "");
+          const rightTime = Date.parse(right.created_at || "");
+          return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
+        })
+    );
+    setProjectHistory(mergeProject);
+    if (authRequired) {
+      setMyProjectHistory(mergeProject);
+      setMyProjectHistoryLoaded(true);
+    }
+    setProjectHistoryLoaded(true);
   };
 
   const detachMissingProjectFromChat = (chatId: string, projectId: string, title?: string | null) => {
@@ -2280,6 +2413,90 @@ export function BlueprintWorkspace({
   const clearHumanContextCheckpoint = () => {
     if (pendingHumanContext) setPrompt(pendingHumanContext.basePrompt);
     setPendingHumanContext(null);
+  };
+
+  const requireSignedInForGeneration = async () => {
+    if (!authRequired || isSignedIn) return true;
+    setGenerationInputNotice("Sign in to talk in chat and make projects.");
+    openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
+    return false;
+  };
+
+  const generationRequestHeaders = useCallback(async () => {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (!authRequired) return headers;
+    const token = await getToken();
+    if (!token) {
+      openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
+      throw new Error("Sign in to talk in chat and make projects.");
+    }
+    headers.Authorization = `Bearer ${token}`;
+    return headers;
+  }, [authRequired, getToken, openSignIn]);
+
+  const optionalAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    if (!isSignedIn) return {};
+    try {
+      const token = await getToken();
+      return token ? { Authorization: `Bearer ${token}` } : {};
+    } catch {
+      return {};
+    }
+  }, [getToken, isSignedIn]);
+
+  const fetchAdminSession = useCallback(async () => {
+    if (!authLoaded) return;
+    if (!isSignedIn) {
+      setIsAdmin(false);
+      setAdminSessionLoaded(true);
+      return;
+    }
+    try {
+      const res = await fetch(`${API_URL}/admin/session`, {
+        headers: await optionalAuthHeaders(),
+      });
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const payload = await res.json();
+      setIsAdmin(Boolean(payload?.is_admin));
+    } catch (error) {
+      console.error("Error fetching admin session", error);
+      setIsAdmin(false);
+    } finally {
+      setAdminSessionLoaded(true);
+    }
+  }, [authLoaded, isSignedIn, optionalAuthHeaders]);
+
+  useEffect(() => {
+    setAdminSessionLoaded(false);
+    void fetchAdminSession();
+  }, [fetchAdminSession]);
+
+  const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
+    if (!authRequired || !isSignedIn || !chatId || typeof window === "undefined") return;
+    const nextMessages = persistableChatMessages(messages);
+    if (!chatHasStarted(nextMessages)) return;
+    const title = explicitTitle?.trim() || chatTitleFromMessages(nextMessages);
+    const existingTimer = chatPersistenceTimersRef.current[chatId];
+    if (existingTimer) window.clearTimeout(existingTimer);
+    chatPersistenceTimersRef.current[chatId] = window.setTimeout(async () => {
+      delete chatPersistenceTimersRef.current[chatId];
+      try {
+        const res = await fetch(`${API_URL}/chats/${encodeURIComponent(chatId)}`, {
+          method: "PUT",
+          headers: await generationRequestHeaders(),
+          body: JSON.stringify({
+            chat_id: chatId,
+            title,
+            messages: nextMessages,
+          }),
+        });
+        if (!res.ok) throw new Error(await readApiErrorMessage(res));
+        const savedChat = await res.json();
+        setPrivateChatItems((current) => mergeChatListItems(normalizePrivateChatItems([savedChat]), current));
+      } catch (error) {
+        console.error("Error saving private chat", error);
+      }
+    }, 300);
   };
 
   const goHome = () => {
@@ -2327,6 +2544,10 @@ export function BlueprintWorkspace({
   };
 
   const openChatItem = (item: ChatListItem) => {
+    if (authRequired && !isSignedIn) {
+      openSignIn({ redirectUrl: typeof window !== "undefined" ? chatRoute(item.chatId) : "/" });
+      return;
+    }
     setActiveChatId(item.chatId);
     setActiveTab("chat");
     const storedMessages = readStoredChatThread(item.chatId);
@@ -2378,7 +2599,15 @@ export function BlueprintWorkspace({
         ? [{ ...current[0], timestamp: chatTimestamp() }]
         : current
     ));
-  }, []);
+	  }, []);
+
+  useEffect(() => {
+    if (!authRequired) return;
+    setMyProjectHistoryLoaded(false);
+    void fetchMyProjectHistory();
+    void fetchPrivateChats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authRequired, isSignedIn]);
 
   useEffect(() => {
     fetchAgentPipelineSteps(generationWorkflow);
@@ -2559,7 +2788,9 @@ export function BlueprintWorkspace({
     if (!options.silent) setVideoGalleryLoading(true);
     setVideoGalleryError(null);
     try {
-      const res = await fetch(`${API_URL}/video/projects/${encodeURIComponent(projectId)}`);
+      const res = await fetch(`${API_URL}/video/projects/${encodeURIComponent(projectId)}`, {
+        headers: await generationRequestHeaders(),
+      });
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
 
       const data = await res.json();
@@ -2571,7 +2802,7 @@ export function BlueprintWorkspace({
     } finally {
       if (!options.silent) setVideoGalleryLoading(false);
     }
-  }, []);
+  }, [generationRequestHeaders]);
 
   const fetchCatalog = async () => {
     try {
@@ -2584,15 +2815,19 @@ export function BlueprintWorkspace({
 
   const fetchProjectHistory = async () => {
     try {
-      const res = await fetch(`${API_URL}/projects`);
+      const res = await fetch(`${API_URL}/projects`, {
+        headers: await optionalAuthHeaders(),
+      });
       if (res.ok) {
         const projects = await res.json();
         setProjectHistory(projects);
-        setLocalChatItems((current) => {
-          const repairedItems = buildChatListItems(projects, current);
-          writeStoredChatIndex(repairedItems);
-          return repairedItems;
-        });
+        if (!authRequired) {
+          setLocalChatItems((current) => {
+            const repairedItems = buildChatListItems(projects, current);
+            writeStoredChatIndex(repairedItems);
+            return repairedItems;
+          });
+        }
       }
     } catch (e) {
       console.error("Error fetching project history", e);
@@ -2601,7 +2836,87 @@ export function BlueprintWorkspace({
     }
   };
 
+  const fetchMyProjectHistory = async () => {
+    if (!authRequired || !isSignedIn) {
+      setMyProjectHistory([]);
+      setMyProjectHistoryLoaded(true);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/my/projects`, {
+        headers: await generationRequestHeaders(),
+      });
+      if (res.ok) {
+        setMyProjectHistory(await res.json());
+      } else if (res.status === 401) {
+        setMyProjectHistory([]);
+      } else {
+        throw new Error(await readApiErrorMessage(res));
+      }
+    } catch (e) {
+      console.error("Error fetching my project history", e);
+    } finally {
+      setMyProjectHistoryLoaded(true);
+    }
+  };
+
+  const fetchPrivateChats = async () => {
+    if (!authRequired || !isSignedIn) {
+      setPrivateChatItems([]);
+      setSessionChatItems([]);
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/chats`, {
+        headers: await generationRequestHeaders(),
+      });
+      if (res.ok) {
+        const chats = await res.json();
+        setPrivateChatItems(normalizePrivateChatItems(chats));
+        const threadUpdates: Record<string, ChatMessage[]> = {};
+        if (Array.isArray(chats)) {
+          chats.forEach((chat: any) => {
+            const chatId = typeof chat?.chat_id === "string" ? chat.chat_id.trim() : "";
+            const messages = persistableChatMessages(Array.isArray(chat?.messages) ? chat.messages : []);
+            if (!chatId || !messages.length) return;
+            threadUpdates[chatId] = messages;
+            writeStoredChatThread(chatId, messages);
+          });
+        }
+        if (Object.keys(threadUpdates).length) {
+          setChatThreads((current) => ({ ...current, ...threadUpdates }));
+          if (activeChatId && threadUpdates[activeChatId]) {
+            setChatMessages(threadUpdates[activeChatId]);
+          }
+        }
+      } else if (res.status === 401) {
+        setPrivateChatItems([]);
+        setSessionChatItems([]);
+      } else {
+        throw new Error(await readApiErrorMessage(res));
+      }
+    } catch (e) {
+      console.error("Error fetching private chats", e);
+    }
+  };
+
+  const refreshProjectAndChatLists = () => {
+    fetchProjectHistory();
+    if (authRequired && isSignedIn) {
+      void fetchMyProjectHistory();
+      void fetchPrivateChats();
+    }
+  };
+
   const fetchA2aJobs = useCallback(async (status: string, options: { silent?: boolean } = {}) => {
+    if (!canViewJobs) {
+      setA2aJobs([]);
+      setJobsLastUpdatedAt(null);
+      setJobsError(null);
+      return;
+    }
     if (!options.silent) setJobsLoading(true);
     setJobsError(null);
     try {
@@ -2611,7 +2926,9 @@ export function BlueprintWorkspace({
       const errors: string[] = [];
 
       try {
-        const res = await fetch(`${API_URL}/a2a/jobs?${params.toString()}`);
+        const res = await fetch(`${API_URL}/a2a/jobs?${params.toString()}`, {
+          headers: await generationRequestHeaders(),
+        });
         if (!res.ok) throw new Error(`A2A jobs endpoint returned ${res.status}`);
         const payload = await res.json();
         if (Array.isArray(payload)) jobs.push(...payload);
@@ -2621,7 +2938,9 @@ export function BlueprintWorkspace({
       }
 
       try {
-        const res = await fetch(`${API_URL}/example-project-object-jobs?${params.toString()}`);
+        const res = await fetch(`${API_URL}/example-project-object-jobs?${params.toString()}`, {
+          headers: await generationRequestHeaders(),
+        });
         if (!res.ok) throw new Error(`Example jobs endpoint returned ${res.status}`);
         const payload = await res.json();
         if (Array.isArray(payload)) jobs.push(...payload);
@@ -2649,19 +2968,21 @@ export function BlueprintWorkspace({
     } finally {
       if (!options.silent) setJobsLoading(false);
     }
-  }, []);
+  }, [canViewJobs, generationRequestHeaders]);
 
   const fetchA2aJob = useCallback(async (jobId: string): Promise<A2AJob | null> => {
     if (!jobId) return null;
     try {
-      const res = await fetch(`${API_URL}/a2a/jobs/${encodeURIComponent(jobId)}`);
+      const res = await fetch(`${API_URL}/a2a/jobs/${encodeURIComponent(jobId)}`, {
+        headers: await generationRequestHeaders(),
+      });
       if (!res.ok) return null;
       return await res.json();
     } catch (error) {
       console.error("Error fetching A2A job", error);
       return null;
     }
-  }, []);
+  }, [generationRequestHeaders]);
 
   const changeJobStatusFilter = (status: string) => {
     setJobStatusFilter(status);
@@ -2669,11 +2990,19 @@ export function BlueprintWorkspace({
   };
 
   const fetchBackendLogs = useCallback(async (options: { silent?: boolean } = {}) => {
+    if (!canViewAdminTools) {
+      setBackendLogs(null);
+      setLogsError(null);
+      setLogsLastUpdatedAt(null);
+      return;
+    }
     if (!options.silent) setLogsLoading(true);
     setLogsError(null);
     try {
       const params = new URLSearchParams({ lines: "300" });
-      const res = await fetch(`${API_URL}/logs/backend?${params.toString()}`);
+      const res = await fetch(`${API_URL}/logs/backend?${params.toString()}`, {
+        headers: await generationRequestHeaders(),
+      });
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const payload = await res.json();
       setBackendLogs(payload);
@@ -2684,18 +3013,24 @@ export function BlueprintWorkspace({
     } finally {
       if (!options.silent) setLogsLoading(false);
     }
-  }, []);
+  }, [canViewAdminTools, generationRequestHeaders]);
 
   useEffect(() => {
-    if (!showDeveloperTools) return;
+    if (!canViewAdminTools) return;
     fetchBackendLogs({ silent: true });
-  }, [fetchBackendLogs, showDeveloperTools]);
+  }, [canViewAdminTools, fetchBackendLogs]);
 
   useEffect(() => {
     if (!normalizeTab(activeTab)) setActiveTab("chat");
   }, [activeTab]);
 
   useEffect(() => {
+    if (!canViewJobs) {
+      setA2aJobs([]);
+      setJobsLastUpdatedAt(null);
+      setJobsError(null);
+      return;
+    }
     fetchA2aJobs(jobStatusFilter);
 
     const pollJobs = () => {
@@ -2711,7 +3046,7 @@ export function BlueprintWorkspace({
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", pollJobs);
     };
-  }, [fetchA2aJobs, jobStatusFilter]);
+  }, [canViewJobs, fetchA2aJobs, jobStatusFilter]);
 
   useEffect(() => {
     if (!a2aJobs.length) return;
@@ -2726,15 +3061,17 @@ export function BlueprintWorkspace({
         if (nextMessages !== messages) {
           changed = true;
           writeStoredChatThread(chatId, nextMessages);
+          persistChatThread(chatId, nextMessages);
         }
         nextThreads[chatId] = nextMessages;
       });
       return changed ? nextThreads : current;
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [a2aJobs, generateProductImage]);
 
   useEffect(() => {
-    if (!showDeveloperTools) return;
+    if (!canViewAdminTools) return;
     if (homeView !== "logs" && activeTab !== "logs") return;
     fetchBackendLogs();
 
@@ -2751,12 +3088,13 @@ export function BlueprintWorkspace({
       window.clearInterval(intervalId);
       document.removeEventListener("visibilitychange", pollLogs);
     };
-  }, [activeTab, fetchBackendLogs, homeView, showDeveloperTools]);
+  }, [activeTab, canViewAdminTools, fetchBackendLogs, homeView]);
 
   useEffect(() => {
     if (routeProjectId || projectIR) return;
 
-    const missingProjects = projectHistory.filter((project: any) => {
+    const imageProjects = mergeProjectRecords(projectHistory, myProjectHistory);
+    const missingProjects = imageProjects.filter((project: any) => {
       const projectId = project?.project_id ? String(project.project_id) : "";
       return projectId && projectGalleryImages[projectId] === undefined;
     });
@@ -2799,7 +3137,7 @@ export function BlueprintWorkspace({
       cancelled = true;
       controller.abort();
     };
-  }, [projectHistory, projectGalleryImages, projectIR, routeProjectId]);
+  }, [myProjectHistory, projectHistory, projectGalleryImages, projectIR, routeProjectId]);
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -2872,7 +3210,9 @@ export function BlueprintWorkspace({
     if (sourceUrlForRequest) params.set("sourceUrl", sourceUrlForRequest);
 
     try {
-      const res = await fetch(`${API_URL}/video/image-to-video/status/${encodeURIComponent(requestId)}?${params.toString()}`);
+      const res = await fetch(`${API_URL}/video/image-to-video/status/${encodeURIComponent(requestId)}?${params.toString()}`, {
+        headers: await generationRequestHeaders(),
+      });
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
 
       const data = await res.json();
@@ -2882,7 +3222,7 @@ export function BlueprintWorkspace({
       setVideoStatus("failed");
       setVideoStatusMessage(message);
     }
-  }, [applyVideoStatusResponse, projectIR, selectedVideoModel, videoAspectRatio, videoMode, videoPrompt, videoRequestId, videoSourceVideoUrl]);
+  }, [applyVideoStatusResponse, generationRequestHeaders, projectIR, selectedVideoModel, videoAspectRatio, videoMode, videoPrompt, videoRequestId, videoSourceVideoUrl]);
 
   const handleGenerateVideoPrompt = async () => {
     const projectId = currentProjectId || projectIdFromIR(projectIR);
@@ -2922,6 +3262,7 @@ export function BlueprintWorkspace({
   };
 
   const handleGenerateVideo = async () => {
+    if (!(await requireSignedInForGeneration())) return;
     if (videoGenerationConfig.configured === false) {
       setVideoStatus("idle");
       setVideoStatusMessage("Video generation is coming soon.");
@@ -2969,7 +3310,7 @@ export function BlueprintWorkspace({
 
         const res = await fetch(`${API_URL}/video/${isVideoToVideo ? "video-to-video" : "image-to-video"}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: await generationRequestHeaders(),
           body: JSON.stringify({
             projectId,
             ...(isVideoToVideo ? { video: source } : { image: source }),
@@ -3009,6 +3350,7 @@ export function BlueprintWorkspace({
   };
 
   const handleVideoSelfCorrect = async (targetVideo?: StoredVideoInfo) => {
+    if (!(await requireSignedInForGeneration())) return;
     if (videoSelfCorrectionConfig.configured === false) {
       setVideoReviewStatus("failed");
       setVideoReviewMessage(videoSelfCorrectionConfig.reason || "Video review is not configured.");
@@ -3033,7 +3375,7 @@ export function BlueprintWorkspace({
     try {
       const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/video-self-correct`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await generationRequestHeaders(),
         body: JSON.stringify({
           video_url: videoUrl,
           video_key: reviewTarget.key || null,
@@ -3056,7 +3398,7 @@ export function BlueprintWorkspace({
       const reviewMessage = issueCount ? `${summary} ${issueCount} issue${issueCount === 1 ? "" : "s"} applied.` : summary;
       setVideoReviewStatus("succeeded");
       setVideoReviewMessage(reviewMessage);
-      fetchProjectHistory();
+      refreshProjectAndChatLists();
       fetchA2aJobs(jobStatusFilter, { silent: true });
 
       if (videoReviewMakeNewVideo) {
@@ -3100,7 +3442,7 @@ export function BlueprintWorkspace({
         try {
           const videoRes = await fetch(`${API_URL}/video/video-to-video`, {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: await generationRequestHeaders(),
             body: JSON.stringify({
               projectId,
               video: videoUrl,
@@ -3348,6 +3690,7 @@ export function BlueprintWorkspace({
 
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!(await requireSignedInForGeneration())) return;
     const contextCheckpoint = pendingHumanContext;
     const validationSubject = contextCheckpoint ? contextCheckpoint.basePrompt : prompt;
     const validation = validateGenerationInput(validationSubject, Boolean(selectedImage));
@@ -3500,7 +3843,7 @@ export function BlueprintWorkspace({
     try {
       const res = await fetch(`${API_URL}/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await generationRequestHeaders(),
         body: JSON.stringify({
           prompt: promptText,
           workflow: generationWorkflow,
@@ -3577,6 +3920,18 @@ export function BlueprintWorkspace({
       const responseChatId = chatIdFromIR(ir) || data.chat_id || requestChatId;
       generatedProjectId = projectId;
       setActiveChatId(responseChatId);
+      rememberProjectRecord({
+        project_id: projectId,
+        chat_id: responseChatId,
+        title: ir?.overview?.title || rawPromptText,
+        prompt: promptText,
+        created_at: data.created_at || chatTimestamp(),
+        can_chat: true,
+        creator_display: "you",
+        creator_image_url: user?.imageUrl || null,
+        parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
+        star_count: 0,
+      });
       const successMessage = `${ir?.overview?.title || "Project"} is ready. I generated the project object, wiring view, BOM, docs, and validation metadata.`;
       rememberChatItem({
         chatId: responseChatId,
@@ -3600,7 +3955,7 @@ export function BlueprintWorkspace({
           projectId,
         });
       }
-      fetchProjectHistory();
+      refreshProjectAndChatLists();
       fetchA2aJobs(jobStatusFilter, { silent: true });
       generatedProject = true;
     } catch (error) {
@@ -3623,6 +3978,18 @@ export function BlueprintWorkspace({
         const fallbackProjectId = projectIdFromIR(mockRes.project_ir);
         generatedProjectId = fallbackProjectId;
         const fallbackMessage = `${mockRes.project_ir?.overview?.title || "Local example"} is loaded from local fallback because live generation failed.`;
+        rememberProjectRecord({
+          project_id: fallbackProjectId,
+          chat_id: requestChatId,
+          title: mockRes.project_ir?.overview?.title || rawPromptText,
+          prompt: promptText,
+          created_at: chatTimestamp(),
+          can_chat: true,
+          creator_display: "you",
+          creator_image_url: user?.imageUrl || null,
+          parts_count: Array.isArray(mockRes.project_ir?.components) ? mockRes.project_ir.components.length : 0,
+          star_count: 0,
+        });
         rememberChatItem({
           chatId: requestChatId,
           title: mockRes.project_ir?.overview?.title || rawPromptText,
@@ -3666,7 +4033,7 @@ export function BlueprintWorkspace({
         setActiveTab("chat");
       }
       if (generatedProjectId) {
-        fetchProjectHistory();
+        refreshProjectAndChatLists();
       }
       setIsLoading(false);
     }
@@ -3674,6 +4041,11 @@ export function BlueprintWorkspace({
 
   const handleProjectChatGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!(await requireSignedInForGeneration())) return;
+    if (!currentProjectCanChat) {
+      setGenerationInputNotice("You can only chat with projects you own.");
+      return;
+    }
     if (!currentProjectId || !projectIR) return;
 
     const userMessage = projectChatInput.trim();
@@ -3726,7 +4098,7 @@ export function BlueprintWorkspace({
     try {
       const res = await fetch(`${API_URL}/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: await generationRequestHeaders(),
         body: JSON.stringify({
           prompt: promptText,
           workflow: generationWorkflow,
@@ -3764,6 +4136,18 @@ export function BlueprintWorkspace({
       const newProjectId = projectIdFromIR(ir);
       const responseChatId = chatIdFromIR(ir) || data.chat_id || sourceChatId;
       setActiveChatId(responseChatId);
+      rememberProjectRecord({
+        project_id: newProjectId,
+        chat_id: responseChatId,
+        title: ir?.overview?.title || projectTitle || userMessage,
+        prompt: promptText,
+        created_at: data.created_at || chatTimestamp(),
+        can_chat: true,
+        creator_display: "you",
+        creator_image_url: user?.imageUrl || null,
+        parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
+        star_count: 0,
+      });
       const successMessage = `${ir?.overview?.title || "Project"} is ready as a new project from this chat.`;
       rememberChatItem({
         chatId: responseChatId,
@@ -3780,7 +4164,7 @@ export function BlueprintWorkspace({
       });
 
       setActiveTab("chat");
-      fetchProjectHistory();
+      refreshProjectAndChatLists();
       fetchA2aJobs(jobStatusFilter, { silent: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Project chat generation failed.";
@@ -3951,7 +4335,10 @@ export function BlueprintWorkspace({
     const signal = options.signal;
     setIsLoading(true);
     try {
-      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, { signal });
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+        signal,
+        headers: await optionalAuthHeaders(),
+      });
       if (!res.ok) return false;
 
       const data = await res.json();
@@ -3962,7 +4349,9 @@ export function BlueprintWorkspace({
       setMermaidCode(data.mermaid_code);
       setSvgSchematic(data.svg_schematic);
       buildReactFlowGraph(ir);
-      ensureChatThread(projectId, ir, data.prompt);
+      if (canChatWithProjectIR(ir)) {
+        ensureChatThread(projectId, ir, data.prompt);
+      }
       setActiveTab(normalizeTab(options.tab || "") || "chat");
       if (shouldSyncRoute) syncProjectRoute(projectId);
       return true;
@@ -4010,12 +4399,13 @@ export function BlueprintWorkspace({
 
   useEffect(() => {
     if (!routeChatId || routeProjectId) return;
+    if (authRequired && !isSignedIn) return;
 
     const controller = new AbortController();
     const chatId = safeDecodeChatId(routeChatId);
     const storedMessages = readStoredChatThread(chatId);
     const chatItem = chatListItems.find((item) => item.chatId === chatId);
-    const chatSourcesReady = chatIndexLoaded && projectHistoryLoaded;
+    const chatSourcesReady = chatIndexLoaded && chatHistoryLoaded;
     setActiveChatId(chatId);
     setActiveTab("chat");
     setRouteProjectError(null);
@@ -4079,6 +4469,7 @@ export function BlueprintWorkspace({
       }));
       setChatMessages(nextMessages);
       writeStoredChatThread(chatId, nextMessages);
+      persistChatThread(chatId, nextMessages, chatItem.title);
       detachMissingProjectFromChat(chatId, chatItem.projectId, chatItem.title);
       setChatRouteTransition(null);
     });
@@ -4087,7 +4478,7 @@ export function BlueprintWorkspace({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeChatId, routeProjectId, chatListItems, chatIndexLoaded, projectHistoryLoaded]);
+  }, [routeChatId, routeProjectId, chatListItems, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn]);
 
   const findProjectForJob = (job: A2AJob) => {
     const projectId = job.result_summary?.project_id;
@@ -4135,6 +4526,12 @@ export function BlueprintWorkspace({
 
   const downloadJSONIR = () => {
     if (!projectIR) return;
+    if (!currentProjectCanChat) {
+      if (authRequired && !isSignedIn) {
+        openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
+      }
+      return;
+    }
     const jsonStr = JSON.stringify(projectIR, null, 2);
     const blob = new Blob([jsonStr], { type: "application/json" });
     const url = URL.createObjectURL(blob);
@@ -4209,6 +4606,8 @@ export function BlueprintWorkspace({
   );
   const defaultVideoImage = projectImageCandidates[0]?.src || "";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
+  const currentProjectCanChat = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
+  const currentProjectCanDownloadAssets = currentProjectCanChat;
   const reviewableVideos = useMemo(
     () => videoGallery.filter((video) => Boolean(videoSourceUrl(video))),
     [videoGallery]
@@ -4224,7 +4623,11 @@ export function BlueprintWorkspace({
     if (selectedUrl) return selectedUrl;
     return "";
   }, [selectedReviewVideo]);
-  const currentProjectChatId = projectIR ? (chatIdFromIR(projectIR) || currentProjectId || activeChatId) : activeChatId;
+  const currentProjectChatId = projectIR
+    ? currentProjectCanChat
+      ? (chatIdFromIR(projectIR) || currentProjectId || activeChatId)
+      : null
+    : activeChatId;
   const currentProjectJobId = projectIR?.assembly_metadata?.frontend_job_id || null;
   const currentProjectChatMessages = useMemo(
     () => currentProjectChatId ? chatThreads[currentProjectChatId] || [] : [],
@@ -4278,6 +4681,7 @@ export function BlueprintWorkspace({
             metrics={metrics}
             cadSources={(projectIR?.mechanical && Array.isArray(projectIR.mechanical.cad_sources)) ? projectIR.mechanical.cad_sources : []}
             fabricationCost={Number(projectIR?.mechanical?.fabrication_cost_estimate_usd || 0)}
+            canDownloadAssets={currentProjectCanDownloadAssets}
           />
         );
       case "mechanical":
@@ -4333,11 +4737,12 @@ export function BlueprintWorkspace({
           </div>
         );
       case "assembly":
-        return <AssemblyPanel assembly={assembly} issues={issues} onDownload={downloadJSONIR} />;
+        return <AssemblyPanel assembly={assembly} issues={issues} onDownload={downloadJSONIR} canDownloadAssets={currentProjectCanDownloadAssets} />;
       case "video":
         return (
           <VideoPanel
             projectId={currentProjectId}
+            readOnly={!currentProjectCanChat}
             models={videoModels}
             modelsLoading={videoModelsLoading}
             modelsError={videoModelsError}
@@ -4394,9 +4799,10 @@ export function BlueprintWorkspace({
               setSelectedVideoImageSources(nextSource ? [nextSource] : []);
             }}
             onRefreshGallery={() => {
-              if (currentProjectId) fetchProjectVideos(currentProjectId);
+              if (currentProjectId && currentProjectCanDownloadAssets) fetchProjectVideos(currentProjectId);
             }}
             canGenerate={Boolean(
+              currentProjectCanChat &&
               videoGenerationConfig.configured !== false &&
                 currentProjectId &&
                 videoPrompt.trim() &&
@@ -4406,6 +4812,7 @@ export function BlueprintWorkspace({
                   : selectedVideoImageSources.length > 0 || videoImageInput.trim())
             )}
             canReview={Boolean(
+              currentProjectCanChat &&
               videoSelfCorrectionConfig.configured !== false &&
                 currentProjectId &&
                 selectedReviewVideo &&
@@ -4413,8 +4820,8 @@ export function BlueprintWorkspace({
                 videoReviewStatus !== "loading" &&
                 !isLoading
             )}
-            canMakeNewVideo={videoGenerationConfig.configured !== false}
-            canGeneratePrompt={Boolean((currentProjectId || projectIdFromIR(projectIR)) && !videoPromptGenerating)}
+            canMakeNewVideo={currentProjectCanChat && videoGenerationConfig.configured !== false}
+            canGeneratePrompt={Boolean(currentProjectCanChat && (currentProjectId || projectIdFromIR(projectIR)) && !videoPromptGenerating)}
           />
         );
       case "jobs":
@@ -4436,7 +4843,7 @@ export function BlueprintWorkspace({
           />
         );
       case "logs":
-        return showDeveloperTools ? (
+        return canViewAdminTools ? (
           <LogsPanel
             logs={backendLogs}
             loading={logsLoading}
@@ -4464,10 +4871,11 @@ export function BlueprintWorkspace({
   })();
 
   useEffect(() => {
+    if (!currentProjectCanChat) return;
     if (!currentProjectId || currentProjectChatMessages.length) return;
     ensureChatThread(currentProjectId, projectIR, projectIR?.assembly_metadata?.source_prompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProjectId, currentProjectChatMessages.length, projectIR]);
+  }, [currentProjectCanChat, currentProjectId, currentProjectChatMessages.length, projectIR]);
 
   useEffect(() => {
     setVideoImageTouched(false);
@@ -4487,8 +4895,8 @@ export function BlueprintWorkspace({
     setVideoReviewMessage(null);
     setVideoReviewMakeNewVideo(false);
     if (fileInputRefVideo.current) fileInputRefVideo.current.value = "";
-    if (currentProjectId) fetchProjectVideos(currentProjectId);
-  }, [currentProjectId, fetchProjectVideos]);
+    if (currentProjectId && currentProjectCanDownloadAssets) fetchProjectVideos(currentProjectId);
+  }, [currentProjectCanDownloadAssets, currentProjectId, fetchProjectVideos]);
 
   useEffect(() => {
     const keys = reviewableVideos
@@ -4541,6 +4949,20 @@ export function BlueprintWorkspace({
       chatRouteTransition &&
       (chatRouteTransition.error || !chatTransitionProjectId || loadedProjectId !== chatTransitionProjectId)
   );
+  const privateChatRouteRequested = Boolean(authRequired && routeChatId && !routeProjectId);
+  const privateChatRouteLoading = privateChatRouteRequested && !authLoaded;
+  const privateChatRouteDenied = privateChatRouteRequested && authLoaded && !isSignedIn;
+
+  if (privateChatRouteLoading || privateChatRouteDenied) {
+    return (
+      <AuthRequiredRouteScreen
+        loading={privateChatRouteLoading}
+        title="Private chat"
+        message="Sign in to open this chat."
+        onHome={goHome}
+      />
+    );
+  }
 
   if (showChatRouteFallback && chatRouteTransition) {
     return (
@@ -4553,7 +4975,9 @@ export function BlueprintWorkspace({
         newChatDisabled={!activeSidebarChatStarted}
         onOpenChat={openChatItem}
         waitingChatIds={waitingChatIds}
+        showJobs={canViewJobs}
         showDeveloperTools={showDeveloperTools}
+        authRequired={authRequired}
         serverStatus={serverStatus}
         transition={chatRouteTransition}
         onHome={goHome}
@@ -4586,7 +5010,9 @@ export function BlueprintWorkspace({
 	          newChatDisabled={!activeSidebarChatStarted}
 	          onOpenChat={openChatItem}
 	          waitingChatIds={waitingChatIds}
-	          showDeveloperTools={showDeveloperTools}
+		          showJobs={canViewJobs}
+		          showDeveloperTools={showDeveloperTools}
+	          authRequired={authRequired}
 	          serverStatus={serverStatus}
 	        />
 	        <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${sidebarCollapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
@@ -4600,7 +5026,9 @@ export function BlueprintWorkspace({
             newChatDisabled={!activeSidebarChatStarted}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
-            showDeveloperTools={showDeveloperTools}
+	            showJobs={canViewJobs}
+	            showDeveloperTools={showDeveloperTools}
+            authRequired={authRequired}
 	            serverStatus={serverStatus}
 	          />
 	          <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden pt-12 md:pt-0">
@@ -4625,6 +5053,21 @@ export function BlueprintWorkspace({
                 standalone
               />
             </>
+	          ) : homeView === "my-projects" ? (
+            <>
+              <WorkspacePageHeading
+                icon={Database}
+                title="My Projects"
+                description="Projects created by your signed-in account."
+              />
+              <ProjectGallery
+                sectionRef={projectsSectionRef}
+                items={authRequired ? myProjectGalleryItems : projectGalleryItems}
+                onOpenChat={(chatId) => router.push(chatRoute(chatId))}
+                onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                standalone
+              />
+            </>
           ) : homeView === "jobs" ? (
             <>
               <WorkspacePageHeading
@@ -4632,21 +5075,27 @@ export function BlueprintWorkspace({
                 title="Jobs"
                 description="Generated-project jobs, pipeline events, image status, and operation errors."
               />
-              <JobsPanel
-                jobs={a2aJobs}
-                loading={jobsLoading}
-                error={jobsError}
-                statusFilter={jobStatusFilter}
-                onStatusFilterChange={changeJobStatusFilter}
-                onRefresh={() => fetchA2aJobs(jobStatusFilter)}
-                onOpenProject={loadProjectForJob}
-                findProjectForJob={findProjectForJob}
-                lastUpdatedAt={jobsLastUpdatedAt}
-                pollIntervalMs={JOB_POLL_INTERVAL_MS}
-                title="Jobs"
-                description="Generation and example project job metadata. Polling stays active while this page is open."
-                emptyMessage="No jobs recorded for this filter."
-              />
+              {canViewJobs ? (
+                <JobsPanel
+                  jobs={a2aJobs}
+                  loading={jobsLoading}
+                  error={jobsError}
+                  statusFilter={jobStatusFilter}
+                  onStatusFilterChange={changeJobStatusFilter}
+                  onRefresh={() => fetchA2aJobs(jobStatusFilter)}
+                  onOpenProject={loadProjectForJob}
+                  findProjectForJob={findProjectForJob}
+                  lastUpdatedAt={jobsLastUpdatedAt}
+                  pollIntervalMs={JOB_POLL_INTERVAL_MS}
+                  title="Jobs"
+                  description="Generation and example project job metadata. Polling stays active while this page is open."
+                  emptyMessage="No jobs recorded for this filter."
+                />
+              ) : (
+                <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
+                  {adminSessionLoaded ? "Admin access is required to view deployment jobs." : "Checking admin access..."}
+                </div>
+              )}
             </>
           ) : homeView === "logs" ? (
             <>
@@ -4655,14 +5104,20 @@ export function BlueprintWorkspace({
                 title="Backend Logs"
                 description="Recent backend log lines for local debugging and package observability."
               />
-              <LogsPanel
-                logs={backendLogs}
-                loading={logsLoading}
-                error={logsError}
-                lastUpdatedAt={logsLastUpdatedAt}
-                onRefresh={() => fetchBackendLogs()}
-                pollIntervalMs={LOG_POLL_INTERVAL_MS}
-              />
+              {canViewAdminTools ? (
+                <LogsPanel
+                  logs={backendLogs}
+                  loading={logsLoading}
+                  error={logsError}
+                  lastUpdatedAt={logsLastUpdatedAt}
+                  onRefresh={() => fetchBackendLogs()}
+                  pollIntervalMs={LOG_POLL_INTERVAL_MS}
+                />
+              ) : (
+                <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
+                  {adminSessionLoaded ? "Admin access is required to view backend logs." : "Checking admin access..."}
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -5045,7 +5500,9 @@ export function BlueprintWorkspace({
 	        newChatDisabled={!activeSidebarChatStarted}
 	        onOpenChat={openChatItem}
 	        waitingChatIds={waitingChatIds}
-	        showDeveloperTools={showDeveloperTools}
+		        showJobs={canViewJobs}
+		        showDeveloperTools={showDeveloperTools}
+	        authRequired={authRequired}
 	        serverStatus={serverStatus}
 	      />
 	      <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${sidebarCollapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
@@ -5059,7 +5516,9 @@ export function BlueprintWorkspace({
           newChatDisabled={!activeSidebarChatStarted}
           onOpenChat={openChatItem}
           waitingChatIds={waitingChatIds}
+          showJobs={canViewJobs}
           showDeveloperTools={showDeveloperTools}
+          authRequired={authRequired}
           serverStatus={serverStatus}
         />
 	        <div className="grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden">
@@ -5088,6 +5547,7 @@ export function BlueprintWorkspace({
               setInput={setProjectChatInput}
               onSubmit={handleProjectChatGenerate}
               isLoading={isLoading}
+              canChat={currentProjectCanChat}
               endRef={projectChatEndRef}
               namespaceTabs={visibleWorkspaceTabs}
               activeNamespace={activeWorkspaceTab.id}
@@ -5163,11 +5623,65 @@ function buildChatListItems(projectHistory: any[], localChatItems: ChatListItem[
     });
 }
 
+function normalizePrivateChatItems(value: any): ChatListItem[] {
+  const chats = Array.isArray(value) ? value : [];
+  return chats
+    .map((chat: any): ChatListItem | null => {
+      const chatId = typeof chat?.chat_id === "string" ? chat.chat_id.trim() : "";
+      if (!chatId) return null;
+      return {
+        chatId,
+        title: typeof chat.title === "string" && chat.title.trim() ? chat.title.trim() : NEW_PROJECT_TITLE,
+        projectId: "",
+        createdAt: typeof chat.updated_at === "string" ? chat.updated_at : typeof chat.created_at === "string" ? chat.created_at : null,
+        projectCount: 0,
+      };
+    })
+    .filter((item: ChatListItem | null): item is ChatListItem => Boolean(item));
+}
+
+function mergeChatListItems(primary: ChatListItem[], secondary: ChatListItem[]): ChatListItem[] {
+  const merged = new Map<string, ChatListItem>();
+  secondary.forEach((item) => {
+    if (item.chatId) merged.set(item.chatId, item);
+  });
+  primary.forEach((item) => {
+    if (item.chatId) merged.set(item.chatId, item);
+  });
+  return Array.from(merged.values());
+}
+
+function mergeProjectRecords(primary: any[], secondary: any[]): any[] {
+  const merged = new Map<string, any>();
+  primary.forEach((project: any) => {
+    const projectId = project?.project_id ? String(project.project_id) : "";
+    if (projectId) merged.set(projectId, project);
+  });
+  secondary.forEach((project: any) => {
+    const projectId = project?.project_id ? String(project.project_id) : "";
+    if (projectId) merged.set(projectId, project);
+  });
+  return Array.from(merged.values());
+}
+
 function formatSidebarDate(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function formatProjectAge(value: string | null) {
+  if (!value) return "";
+  const createdAt = new Date(value).getTime();
+  if (Number.isNaN(createdAt)) return "";
+  const elapsedMs = Math.max(0, Date.now() - createdAt);
+  const hours = Math.floor(elapsedMs / (60 * 60 * 1000));
+  if (hours < 24) return hours <= 0 ? "Today" : `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 31) return days === 1 ? "1 day" : `${days} days`;
+  const months = Math.floor(days / 30);
+  return months === 1 ? "1 month" : `${months} months`;
 }
 
 function WorkspacePageHeading({
@@ -5252,7 +5766,9 @@ function MobileSidebarDrawer({
   newChatDisabled,
   onOpenChat,
   waitingChatIds,
+  showJobs,
   showDeveloperTools,
+  authRequired,
   serverStatus,
 }: {
   open: boolean;
@@ -5266,7 +5782,9 @@ function MobileSidebarDrawer({
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
   waitingChatIds: Set<string>;
+  showJobs: boolean;
   showDeveloperTools: boolean;
+  authRequired: boolean;
   serverStatus: "connected" | "disconnected";
 }) {
   if (!open) return null;
@@ -5293,7 +5811,9 @@ function MobileSidebarDrawer({
           newChatDisabled={newChatDisabled}
           onOpenChat={onOpenChat}
           waitingChatIds={waitingChatIds}
+          showJobs={showJobs}
           showDeveloperTools={showDeveloperTools}
+          authRequired={authRequired}
           serverStatus={serverStatus}
         />
       </div>
@@ -5313,7 +5833,9 @@ function ChatSidebar({
   newChatDisabled,
   onOpenChat,
   waitingChatIds,
+  showJobs,
   showDeveloperTools,
+  authRequired,
   serverStatus = "disconnected",
   mode = "desktop",
 }: {
@@ -5328,7 +5850,9 @@ function ChatSidebar({
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
   waitingChatIds: Set<string>;
+  showJobs: boolean;
   showDeveloperTools: boolean;
+  authRequired: boolean;
   serverStatus?: "connected" | "disconnected";
   mode?: "desktop" | "drawer";
 }) {
@@ -5374,6 +5898,24 @@ function ChatSidebar({
               >
                 <ApiStatusIcon className="h-3.5 w-3.5" />
               </span>
+              {authRequired && (
+                <>
+                  <SignedIn>
+                    <UserButton afterSignOutUrl="/" />
+                  </SignedIn>
+                  <SignedOut>
+                    <SignInButton mode="modal">
+                      <button
+                        type="button"
+                        className="inline-flex h-7 items-center gap-1.5 border border-cyan-300/30 bg-cyan-300/10 px-2 text-[10px] font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
+                      >
+                        <KeyRound className="h-3.5 w-3.5" />
+                        Sign in
+                      </button>
+                    </SignInButton>
+                  </SignedOut>
+                </>
+              )}
             </div>
           )}
           <button
@@ -5402,11 +5944,11 @@ function ChatSidebar({
             } ${
               compact ? "justify-center px-0" : "gap-3 px-3"
             }`}
-            aria-label="New project"
-            title={newChatDisabled ? "Send a message before starting another project" : "New project"}
+            aria-label="New chat"
+            title={newChatDisabled ? "Send a message before starting another chat" : "New chat"}
           >
             <Plus className={`h-5 w-5 shrink-0 ${newChatDisabled ? "text-slate-700" : "text-slate-500 group-hover:text-black"}`} />
-            {!compact && <span className="truncate">New project</span>}
+            {!compact && <span className="truncate">New chat</span>}
           </button>
         </div>
 
@@ -5466,6 +6008,15 @@ function ChatSidebar({
         {!compact && <div className="mb-3 text-sm text-slate-500">Workspace</div>}
         <div className="space-y-1">
           <Link
+            href="/my-projects"
+            onClick={onNavigate}
+            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
+            title="My projects"
+          >
+            <Database className="h-5 w-5 text-slate-500" />
+            {!compact && <span className="truncate">My projects</span>}
+          </Link>
+          <Link
             href="/projects"
             onClick={onNavigate}
             className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
@@ -5474,15 +6025,17 @@ function ChatSidebar({
             <Layers className="h-5 w-5 text-slate-500" />
             {!compact && <span className="truncate">Projects</span>}
           </Link>
-          <Link
-            href="/jobs"
-            onClick={onNavigate}
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="Jobs"
-          >
-            <History className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">Jobs</span>}
-          </Link>
+          {showJobs && (
+            <Link
+              href="/jobs"
+              onClick={onNavigate}
+              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
+              title="Jobs"
+            >
+              <History className="h-5 w-5 text-slate-500" />
+              {!compact && <span className="truncate">Jobs</span>}
+            </Link>
+          )}
           {showDeveloperTools && (
             <Link
               href="/backend-logs"
@@ -5545,6 +6098,22 @@ function buildProjectGalleryItems(
         title: project.title || "Untitled project",
         projectId,
         chatId,
+        canChat: Boolean(project.can_chat ?? project.canChat),
+        creatorDisplay:
+          typeof project.creator_username === "string" && project.creator_username.trim()
+            ? project.creator_username.trim()
+            : typeof project.creator_display === "string" && project.creator_display.trim()
+              ? project.creator_display.trim()
+              : "unknown",
+        creatorImageUrl:
+          typeof project.creator_image_url === "string" && project.creator_image_url.trim()
+            ? project.creator_image_url.trim()
+            : typeof project.creatorImageUrl === "string" && project.creatorImageUrl.trim()
+              ? project.creatorImageUrl.trim()
+              : null,
+        createdAt: typeof project.created_at === "string" && project.created_at ? project.created_at : null,
+        partsCount: Math.max(0, Number(project.parts_count || project.partsCount || 0)),
+        starCount: Math.max(0, Number(project.star_count || project.starCount || 0)),
         image: projectImages[projectId] || null,
       };
     });
@@ -5608,7 +6177,7 @@ function ProjectGallery({
               <ProjectGalleryCard
                 key={item.key}
                 item={item}
-                onOpenChat={() => onOpenChat(item.chatId)}
+                onOpenChat={item.canChat ? () => onOpenChat(item.chatId) : undefined}
                 onOpenProjectPage={() => onOpenProjectPage(item.projectId)}
               />
             ))}
@@ -5742,11 +6311,24 @@ function ProjectGalleryCard({
   onOpenProjectPage,
 }: {
   item: ProjectGalleryItem;
-  onOpenChat: () => void;
+  onOpenChat?: () => void;
   onOpenProjectPage: () => void;
 }) {
+  const ageLabel = formatProjectAge(item.createdAt);
   return (
-    <article className="group overflow-hidden border border-[#2c2f37] bg-[#17181d]">
+    <article
+      role="link"
+      tabIndex={0}
+      onClick={onOpenProjectPage}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onOpenProjectPage();
+        }
+      }}
+      className="group cursor-pointer overflow-hidden border border-[#2c2f37] bg-[#17181d] outline-none transition hover:border-cyan-300/35 focus-visible:border-cyan-300"
+      aria-label={`Open project ${item.title}`}
+    >
       <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
         {item.image ? (
           <img
@@ -5761,27 +6343,49 @@ function ProjectGalleryCard({
         )}
       </div>
 
-      <div className="flex min-h-[112px] flex-col justify-between gap-4 p-4">
+      <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
         <h3 className="line-clamp-2 min-h-10 break-words text-sm font-black uppercase leading-5 tracking-[0.08em] text-white">
           {item.title}
         </h3>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={onOpenChat}
-            className="inline-flex h-10 min-w-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
-          >
-            <MessageSquare className="h-4 w-4 shrink-0" />
-            <span className="truncate">Chat</span>
-          </button>
-          <button
-            type="button"
-            onClick={onOpenProjectPage}
-            className="inline-flex h-10 min-w-0 items-center justify-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white transition hover:bg-white hover:text-black"
-          >
-            <Eye className="h-4 w-4 shrink-0" />
-            <span className="truncate">Project</span>
-          </button>
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-sm font-bold text-slate-500">
+          <span className="whitespace-nowrap">{item.partsCount} parts</span>
+          <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-300">
+            <Star className="h-3.5 w-3.5 fill-current" />
+            {item.starCount}
+          </span>
+          {ageLabel && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap">
+              <Clock3 className="h-3.5 w-3.5" />
+              {ageLabel}
+            </span>
+          )}
+        </div>
+        <div className="flex min-w-0 items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-500">
+            {item.creatorImageUrl ? (
+              <img
+                src={item.creatorImageUrl}
+                alt=""
+                className="h-5 w-5 shrink-0 border border-[#2c2f37] object-cover"
+              />
+            ) : (
+              <span className="h-3.5 w-3.5 shrink-0 border border-emerald-300 bg-emerald-400 shadow-[inset_6px_0_0_#f472b6]" />
+            )}
+            <span className="truncate">{item.creatorDisplay}</span>
+          </div>
+          {item.canChat && onOpenChat && (
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onOpenChat();
+              }}
+              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
+            >
+              <MessageSquare className="h-4 w-4 shrink-0" />
+              <span className="truncate">Chat</span>
+            </button>
+          )}
         </div>
       </div>
     </article>
@@ -5842,6 +6446,52 @@ function ProjectRouteFallback({
   );
 }
 
+function AuthRequiredRouteScreen({
+  loading,
+  title,
+  message,
+  onHome,
+}: {
+  loading: boolean;
+  title: string;
+  message: string;
+  onHome: () => void;
+}) {
+  return (
+    <div className="flex min-h-screen w-full items-center justify-center bg-[#141519] px-5 font-sans text-slate-100">
+      <div className="w-full max-w-md border border-[#2c2f37] bg-[#17181d] p-6">
+        <div className="flex items-center gap-3">
+          <span className="flex h-10 w-10 items-center justify-center border border-cyan-300/30 bg-cyan-300/10 text-cyan-100">
+            <KeyRound className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-black uppercase tracking-[0.18em] text-white">{title}</h1>
+            <p className="mt-1 text-sm text-slate-500">{loading ? "Checking session..." : message}</p>
+          </div>
+        </div>
+        <div className="mt-6 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={onHome}
+            className="inline-flex h-10 items-center justify-center border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-200 transition hover:bg-white hover:text-black"
+          >
+            Home
+          </button>
+          <SignInButton mode="modal">
+            <button
+              type="button"
+              disabled={loading}
+              className="inline-flex h-10 items-center justify-center border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+            >
+              Sign in
+            </button>
+          </SignInButton>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatRouteFallback({
   collapsed,
   onToggle,
@@ -5851,7 +6501,9 @@ function ChatRouteFallback({
   newChatDisabled,
   onOpenChat,
   waitingChatIds,
+  showJobs,
   showDeveloperTools,
+  authRequired,
   serverStatus,
   transition,
   onHome,
@@ -5864,7 +6516,9 @@ function ChatRouteFallback({
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
   waitingChatIds: Set<string>;
+  showJobs: boolean;
   showDeveloperTools: boolean;
+  authRequired: boolean;
   serverStatus: "connected" | "disconnected";
   transition: ChatRouteTransition;
   onHome: () => void;
@@ -5885,7 +6539,9 @@ function ChatRouteFallback({
         newChatDisabled={newChatDisabled}
         onOpenChat={onOpenChat}
         waitingChatIds={waitingChatIds}
+        showJobs={showJobs}
         showDeveloperTools={showDeveloperTools}
+        authRequired={authRequired}
         serverStatus={serverStatus}
       />
       <div className={`grid h-full min-h-0 min-w-0 overflow-hidden ${collapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"}`}>
@@ -5899,7 +6555,9 @@ function ChatRouteFallback({
           newChatDisabled={newChatDisabled}
           onOpenChat={onOpenChat}
           waitingChatIds={waitingChatIds}
+          showJobs={showJobs}
           showDeveloperTools={showDeveloperTools}
+          authRequired={authRequired}
           serverStatus={serverStatus}
         />
         <main className="flex min-h-0 min-w-0 flex-col">
@@ -6058,7 +6716,7 @@ function OverviewPanel({
             )}
             {llmProvider && llmModel && (
               <span className="max-w-full break-words border border-violet-300/30 bg-violet-300/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-violet-100 sm:tracking-[0.16em]">
-                {llmProvider}/{llmModel}
+                {projectLlmDisplayLabel(llmProvider, llmModel)}
               </span>
             )}
             {features.slice(0, 12).map((feature, index) => (
@@ -6089,7 +6747,19 @@ function OverviewPanel({
   );
 }
 
-function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }: { components: any[]; metrics: ReturnType<typeof emptyMetrics>; cadSources?: any[]; fabricationCost?: number }) {
+function BomPanel({
+  components,
+  metrics,
+  cadSources = [],
+  fabricationCost = 0,
+  canDownloadAssets = false,
+}: {
+  components: any[];
+  metrics: ReturnType<typeof emptyMetrics>;
+  cadSources?: any[];
+  fabricationCost?: number;
+  canDownloadAssets?: boolean;
+}) {
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-5">
       <div className="space-y-3 lg:hidden">
@@ -6128,17 +6798,13 @@ function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }:
                   <div className="font-black uppercase text-slate-600">Source</div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {getSourcesForComponent(component).map((source) => (
-                      <a
+                      <ComponentSourceAction
                         key={`${source.label}-${source.href}`}
-                        href={source.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        aria-label={`Open ${source.label} source for ${component.name || component.part_number || "component"}`}
-                        title={source.title}
-                        className={`${source.className} inline-flex justify-center px-2 py-1 text-[10px] font-black italic text-black transition hover:-translate-y-0.5 hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-cyan-300`}
-                      >
-                        {source.label}
-                      </a>
+                        source={source}
+                        component={component}
+                        canDownloadAssets={canDownloadAssets}
+                        className="inline-flex justify-center px-2 py-1 text-[10px]"
+                      />
                     ))}
                   </div>
                 </div>
@@ -6173,17 +6839,13 @@ function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }:
                 <div className="text-base text-slate-200">~${Number(component.unit_price || 0).toFixed(2)}</div>
                 <div className="flex flex-col items-start gap-2">
                   {getSourcesForComponent(component).map((source) => (
-                    <a
+                    <ComponentSourceAction
                       key={`${source.label}-${source.href}`}
-                      href={source.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      aria-label={`Open ${source.label} source for ${component.name || component.part_number || "component"}`}
-                      title={source.title}
-                      className={`${source.className} inline-flex min-w-[86px] justify-center px-3 py-2 text-xs font-black italic text-black transition hover:-translate-y-0.5 hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-cyan-300`}
-                    >
-                      {source.label}
-                    </a>
+                      source={source}
+                      component={component}
+                      canDownloadAssets={canDownloadAssets}
+                      className="inline-flex min-w-[86px] justify-center px-3 py-2 text-xs"
+                    />
                   ))}
                 </div>
                 <div className="text-right text-lg font-black text-white">~${((component.unit_price || 0) * (component.quantity || 1)).toFixed(2)}</div>
@@ -6211,7 +6873,11 @@ function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }:
         </div>
 
         <div className="mt-4 space-y-3">
-          {cadSources.length ? cadSources.slice(0, 3).map((source: any) => (
+          {!canDownloadAssets ? (
+            <div className="border border-[#2a2c33] bg-[#141519] p-3 text-xs leading-6 text-slate-500">
+              Files are available only on projects you generated.
+            </div>
+          ) : cadSources.length ? cadSources.slice(0, 3).map((source: any) => (
             <a
               key={`${source.name}-${source.url}`}
               href={source.url}
@@ -6242,6 +6908,44 @@ function BomPanel({ components, metrics, cadSources = [], fabricationCost = 0 }:
         </div>
       </div>
     </div>
+  );
+}
+
+function ComponentSourceAction({
+  source,
+  component,
+  canDownloadAssets,
+  className = "",
+}: {
+  source: { label: string; className: string; href: string; title: string };
+  component: any;
+  canDownloadAssets: boolean;
+  className?: string;
+}) {
+  const isFabricationAsset = source.label.toLowerCase() === "fabricate";
+  const baseClass = `${className} font-black italic transition focus:outline-none focus:ring-2 focus:ring-cyan-300`;
+  if (isFabricationAsset && !canDownloadAssets) {
+    return (
+      <span
+        title="Files are available only on projects you generated."
+        className={`${baseClass} cursor-not-allowed border border-[#2a2c33] bg-[#111216] text-slate-600`}
+      >
+        {source.label}
+      </span>
+    );
+  }
+
+  return (
+    <a
+      href={source.href}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${source.label} source for ${component.name || component.part_number || "component"}`}
+      title={source.title}
+      className={`${baseClass} ${source.className} text-black hover:-translate-y-0.5 hover:brightness-110`}
+    >
+      {source.label}
+    </a>
   );
 }
 
@@ -6323,7 +7027,17 @@ function MechanicalPanel({
   );
 }
 
-function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issues: any[]; onDownload: () => void }) {
+function AssemblyPanel({
+  assembly,
+  issues,
+  onDownload,
+  canDownloadAssets,
+}: {
+  assembly: any[];
+  issues: any[];
+  onDownload: () => void;
+  canDownloadAssets: boolean;
+}) {
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
       <div className="mb-6 flex flex-col gap-4 border-b border-[#2a2c33] pb-5 sm:flex-row sm:items-center sm:justify-between">
@@ -6331,7 +7045,12 @@ function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issu
           <h2 className="break-words text-lg font-black uppercase tracking-[0.12em] text-white sm:text-xl sm:tracking-[0.18em]">Build Instructions</h2>
           <p className="mt-2 text-xs text-slate-500">Sequential assembly from the generated hardware graph.</p>
         </div>
-        <button onClick={onDownload} className="flex shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black">
+        <button
+          onClick={onDownload}
+          disabled={!canDownloadAssets}
+          title={canDownloadAssets ? "Export project JSON" : "Files are available only on projects you generated."}
+          className="flex shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
+        >
           <Download className="h-4 w-4" />
           Export
         </button>
@@ -6396,6 +7115,7 @@ function AssemblyPanel({ assembly, issues, onDownload }: { assembly: any[]; issu
 
 function VideoPanel({
   projectId,
+  readOnly,
   models,
   modelsLoading,
   modelsError,
@@ -6450,6 +7170,7 @@ function VideoPanel({
   canGeneratePrompt,
 }: {
   projectId: string | null;
+  readOnly: boolean;
   models: VideoModelOption[];
   modelsLoading: boolean;
   modelsError: string | null;
@@ -6519,7 +7240,7 @@ function VideoPanel({
   const isReviewing = reviewStatus === "loading";
   const generateDisabled = !canGenerate || isGenerating || !modeModels.length;
   const reviewDisabled = !canReview || isReviewing;
-  const savedHref = storedVideo?.publicUrl || null;
+  const savedHref = readOnly ? null : storedVideo?.publicUrl || null;
   const allProjectImagesSelected = imageOptions.length > 0 && imageOptions.every((candidate) => selectedImageSources.includes(candidate.src));
   const toggleImageSource = (source: string) => {
     setSelectedImageSources(
@@ -6552,6 +7273,12 @@ function VideoPanel({
                 Review
               </button>
             </div>
+
+            {readOnly && (
+              <div className="mt-5 border border-[#2a2c33] bg-black/25 p-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+                Read-only project. Video actions are available only to the owner.
+              </div>
+            )}
 
             <div className="mt-5 border border-cyan-500/30 bg-cyan-950/20 p-4">
               <div className="flex items-start gap-3">
@@ -6588,6 +7315,7 @@ function VideoPanel({
               onSelect={setSelectedReviewVideoKey}
               onReview={onReviewVideo}
               canReview={canReview}
+              canOpenAssets={!readOnly}
               reviewing={isReviewing}
             />
           </section>
@@ -6629,6 +7357,12 @@ function VideoPanel({
               </button>
             </div>
           </div>
+
+          {readOnly && (
+            <div className="mb-5 border border-[#2a2c33] bg-black/25 p-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+              Read-only project. Video actions are available only to the owner.
+            </div>
+          )}
 
           <div className="mb-4 grid grid-cols-2 border border-[#2a2c33]">
             {([
@@ -6846,6 +7580,7 @@ function VideoPanel({
             onSelect={setSelectedReviewVideoKey}
             onReview={onReviewVideo}
             canReview={canReview}
+            canOpenAssets={!readOnly}
             reviewing={isReviewing}
           />
         </section>
@@ -6984,6 +7719,7 @@ function VideoGallery({
   onSelect,
   onReview,
   canReview,
+  canOpenAssets,
   reviewing,
 }: {
   videos: StoredVideoInfo[];
@@ -6994,6 +7730,7 @@ function VideoGallery({
   onSelect: (value: string | null) => void;
   onReview: (video: StoredVideoInfo) => void;
   canReview: boolean;
+  canOpenAssets: boolean;
   reviewing: boolean;
 }) {
   return (
@@ -7006,8 +7743,9 @@ function VideoGallery({
         <button
           type="button"
           onClick={onRefresh}
-          className="flex h-9 w-9 shrink-0 items-center justify-center border border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black"
-          title="Refresh gallery"
+          disabled={!canOpenAssets}
+          className="flex h-9 w-9 shrink-0 items-center justify-center border border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+          title={canOpenAssets ? "Refresh gallery" : "Videos are available only on projects you generated."}
           aria-label="Refresh gallery"
         >
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -7038,6 +7776,7 @@ function VideoGallery({
                 onSelect={() => onSelect(key)}
                 onReview={() => onReview(video)}
                 canReview={canReview && reviewable}
+                canOpenAssets={canOpenAssets}
                 reviewing={reviewable && reviewing && selectedKey === key}
                 reviewable={reviewable}
               />
@@ -7060,6 +7799,7 @@ function VideoGalleryItem({
   onSelect,
   onReview,
   canReview,
+  canOpenAssets,
   reviewing,
   reviewable,
 }: {
@@ -7069,11 +7809,12 @@ function VideoGalleryItem({
   onSelect: () => void;
   onReview: () => void;
   canReview: boolean;
+  canOpenAssets: boolean;
   reviewing: boolean;
   reviewable: boolean;
 }) {
-  const playableUrl = videoSourceUrl(video) || null;
-  const openUrl = playableUrl || null;
+  const playableUrl = canOpenAssets ? videoSourceUrl(video) || null : null;
+  const openUrl = canOpenAssets ? playableUrl || null : null;
   const label = videoLabel(video);
   const prompt = videoPromptText(video);
 
@@ -7115,9 +7856,9 @@ function VideoGalleryItem({
             <button
               type="button"
               onClick={onSelect}
-              disabled={!reviewable}
+              disabled={!reviewable || !canOpenAssets}
               className="inline-flex h-8 items-center gap-1.5 border border-[#2a2c33] px-2 text-[10px] font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-              title={reviewable ? "Select video for review" : "This saved video needs an HTTP(S) URL before review"}
+              title={canOpenAssets ? (reviewable ? "Select video for review" : "This saved video needs an HTTP(S) URL before review") : "Videos are available only on projects you generated."}
             >
               {selected ? <CheckCircle className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               Select
@@ -7164,6 +7905,7 @@ function ProjectChatPanel({
   setInput,
   onSubmit,
   isLoading,
+  canChat,
   endRef,
   namespaceTabs,
   activeNamespace,
@@ -7183,6 +7925,7 @@ function ProjectChatPanel({
   setInput: (value: string) => void;
   onSubmit: (event: React.FormEvent) => void;
   isLoading: boolean;
+  canChat: boolean;
   endRef: React.RefObject<HTMLDivElement>;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
@@ -7194,38 +7937,47 @@ function ProjectChatPanel({
   onToggleChat: () => void;
   onOpenProject: (projectId: string) => void;
 }) {
+  const effectiveChatVisible = canChat && chatVisible;
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
       <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <MessageSquare className="h-4 w-4 text-cyan-300" />
-            <h2 className="truncate text-sm font-black uppercase tracking-[0.18em] text-white">Build Chat</h2>
+            {canChat ? <MessageSquare className="h-4 w-4 text-cyan-300" /> : <Eye className="h-4 w-4 text-cyan-300" />}
+            <h2 className="truncate text-sm font-black uppercase tracking-[0.18em] text-white">
+              {canChat ? "Build Chat" : "Read-only project"}
+            </h2>
           </div>
-          <div className="mt-1 truncate text-[11px] text-slate-500">Active project item: {projectTitle}</div>
+          <div className="mt-1 truncate text-[11px] text-slate-500">
+            {canChat ? `Active project item: ${projectTitle}` : "Public project preview"}
+          </div>
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onToggleChat}
-            className={`inline-flex h-10 items-center gap-2 border px-3 text-xs font-black uppercase ${
-              chatVisible
-                ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100 hover:bg-white hover:text-black"
-                : "border-[#2a2c33] bg-[#111216] text-slate-400 hover:bg-white hover:text-black"
-            }`}
-            aria-pressed={chatVisible}
-            aria-label={chatVisible ? "Hide chat panel" : "Show chat panel"}
-            title={chatVisible ? "Hide chat panel" : "Show chat panel"}
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span className="hidden sm:inline">{chatVisible ? "Hide chat" : "Show chat"}</span>
-          </button>
+          {canChat && (
+            <button
+              type="button"
+              onClick={onToggleChat}
+              className={`inline-flex h-10 items-center gap-2 border px-3 text-xs font-black uppercase ${
+                chatVisible
+                  ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100 hover:bg-white hover:text-black"
+                  : "border-[#2a2c33] bg-[#111216] text-slate-400 hover:bg-white hover:text-black"
+              }`}
+              aria-pressed={chatVisible}
+              aria-label={chatVisible ? "Hide chat panel" : "Show chat panel"}
+              title={chatVisible ? "Hide chat panel" : "Show chat panel"}
+            >
+              <MessageSquare className="h-4 w-4" />
+              <span className="hidden sm:inline">{chatVisible ? "Hide chat" : "Show chat"}</span>
+            </button>
+          )}
           <div className="truncate border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 font-mono text-[11px] text-cyan-100">
             {activeNamespaceName}
           </div>
-          <div className="truncate border border-[#2a2c33] px-3 py-2 font-mono text-[11px] text-slate-500">
-            {chatId || projectId || "No chat"}
-          </div>
+          {canChat && (
+            <div className="truncate border border-[#2a2c33] px-3 py-2 font-mono text-[11px] text-slate-500">
+              {chatId || projectId || "No chat"}
+            </div>
+          )}
         </div>
       </div>
 
@@ -7252,9 +8004,9 @@ function ProjectChatPanel({
       </nav>
 
       <div className={`grid min-h-0 flex-1 grid-cols-1 overflow-y-auto xl:overflow-hidden ${
-        chatVisible ? "xl:grid-cols-[minmax(360px,0.78fr)_minmax(0,1.22fr)]" : "xl:grid-cols-1"
+        effectiveChatVisible ? "xl:grid-cols-[minmax(360px,0.78fr)_minmax(0,1.22fr)]" : "xl:grid-cols-1"
       }`}>
-        {chatVisible && (
+        {effectiveChatVisible && (
         <div className="flex min-h-[520px] min-w-0 flex-col overflow-hidden xl:min-h-0">
           <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 pb-6">
             <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-3">
@@ -7338,7 +8090,7 @@ function ProjectChatPanel({
         )}
 
         <div className={`min-h-[520px] min-w-0 overflow-hidden border-t border-[#2a2c33] xl:min-h-0 xl:border-t-0 ${
-          chatVisible ? "xl:border-l" : ""
+          effectiveChatVisible ? "xl:border-l" : ""
         }`}>
           {namespaceContent}
         </div>

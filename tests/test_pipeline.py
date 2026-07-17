@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.pipeline import agent_pipeline_step, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from blueprint_core.pipeline import (
+    agent_pipeline_step,
+    external_source_response_status,
+    list_agent_pipeline_steps,
+    observe_agent_pipeline,
+    pipeline_workflow_id,
+)
 
 
 class PipelineMetadataTests(unittest.TestCase):
@@ -41,6 +47,10 @@ class PipelineMetadataTests(unittest.TestCase):
         self.assertEqual("external_research", events[0].step_id)
         self.assertEqual("External Source Research Agent", events[0].agent)
         self.assertEqual({"query_count": 3}, events[0].details)
+
+    def test_recoverable_external_source_error_is_not_failed_status(self) -> None:
+        self.assertEqual("provider_response_received", external_source_response_status(None))
+        self.assertEqual("provider_response_unavailable", external_source_response_status("Firecrawl timed out."))
 
     def test_optional_image_step_is_explicitly_included(self) -> None:
         steps = list_agent_pipeline_steps("default", include_image=True)

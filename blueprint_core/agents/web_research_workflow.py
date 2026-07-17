@@ -36,7 +36,7 @@ from blueprint_core.models import (
     ValidationIssue,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import agent_pipeline_step, emit_agent_pipeline_event
+from blueprint_core.pipeline import agent_pipeline_step, emit_agent_pipeline_event, external_source_response_status
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -404,13 +404,14 @@ class WebResearchHardwarePipeline:
         emit_agent_pipeline_event(
             self.workflow_id,
             "external_research",
-            "provider_response_received" if not research.error else "provider_response_failed",
+            external_source_response_status(research.error),
             details={
                 "provider": research.provider,
                 "configured": research.configured,
                 "searches_attempted": research.searches_attempted,
                 "source_count": len(research.sources),
                 "error": research.error,
+                "recoverable": bool(research.error),
             },
         )
         return research

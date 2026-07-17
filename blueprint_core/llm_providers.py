@@ -1,4 +1,5 @@
 import base64
+import asyncio
 import json
 import logging
 import os
@@ -736,6 +737,21 @@ class StructuredLLMProvider:
         image_mime_type: Optional[str] = None,
     ) -> Any:
         raise NotImplementedError
+
+    async def generate_structured_async(
+        self,
+        prompt: str,
+        schema_class: Any,
+        image_bytes: Optional[bytes] = None,
+        image_mime_type: Optional[str] = None,
+    ) -> Any:
+        return await asyncio.to_thread(
+            self.generate_structured,
+            prompt,
+            schema_class,
+            image_bytes,
+            image_mime_type,
+        )
 
 
 class SimulationProvider(StructuredLLMProvider):

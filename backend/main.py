@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+import asyncio
 import json
 import logging
 import sys
@@ -83,7 +84,7 @@ from backend.a2a import (
     A2A_HUB,
     A2AAgentRegistration,
     A2AMessage,
-    build_generation_response,
+    call_blueprint_action,
     get_a2a_capabilities,
     handle_a2a_websocket,
     handle_mcp_json_rpc,
@@ -179,6 +180,29 @@ def _attach_generation_timing_metadata(response: Dict[str, Any], job: Optional[D
         "total_generation_completed_at": job.get("completed_at") if job else None,
     }
     return response
+
+
+async def _process_frontend_generation_job(job_id: str, payload: Dict[str, Any]) -> None:
+    JOB_STORE.mark_running(job_id)
+    try:
+        with observe_agent_pipeline(lambda event: JOB_STORE.append_progress_event(job_id, event.as_dict())):
+            response = await call_blueprint_action("blueprint.generate_project", payload)
+        JOB_STORE.mark_succeeded(job_id, response)
+        job = JOB_STORE.get_job(job_id)
+        response = _attach_generation_timing_metadata(response, job)
+        metadata = (response.get("project_ir", {}).get("assembly_metadata") or {})
+        project_id = metadata.get("project_id")
+        if project_id and isinstance(response.get("project_ir"), dict):
+            try:
+                update_generated_project_hardware_ir(project_id, response["project_ir"])
+            except Exception:
+                logger.warning("Failed to persist generation timing metadata for project_id=%s", project_id, exc_info=debug_mode_enabled())
+        if response is not None:
+            JOB_STORE.mark_succeeded(job_id, response)
+    except Exception as exc:
+        error_debug = exception_debug_payload(exc, context=payload) if debug_mode_enabled() else None
+        JOB_STORE.mark_failed(job_id, str(exc), error_debug)
+        logger.exception("Background generation failed for job_id=%s provider=%s model=%s", job_id, payload.get("provider"), payload.get("model"))
 
 app = FastAPI(
     title="Blueprint Open-Source API",
@@ -338,7 +362,7 @@ def debug_config_endpoint(
         ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])
-def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+async def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
@@ -416,7 +440,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
         "model": request.model,
         "chat_id": request.chat_id,
         "source_project_id": request.source_project_id,
-        "client_job_id": request.client_job_id,
+        "client_job_id": job_id,
         "owner_user_id": owner_user_id,
         "external_source_provider": request.external_source_provider,
     }
@@ -431,23 +455,22 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
         server_owned=True,
         status="queued",
     )
+    if request.async_generation:
+        job = JOB_STORE.get_job(job_id)
+        asyncio.create_task(_process_frontend_generation_job(job_id, payload))
+        return {
+            "accepted": True,
+            "async_generation": True,
+            "job_id": job_id,
+            "chat_id": request.chat_id,
+            "job": job,
+        }
+
     JOB_STORE.mark_running(job_id)
 
     try:
         with observe_agent_pipeline(lambda event: JOB_STORE.append_progress_event(job_id, event.as_dict())):
-            response = build_generation_response(
-                request.prompt,
-                request.image_data,
-                generate_image=request.generate_image,
-                workflow=request.workflow,
-                provider=request.provider,
-                model=request.model,
-                external_source_provider=request.external_source_provider,
-                chat_id=request.chat_id,
-                source_project_id=request.source_project_id,
-                frontend_job_id=job_id,
-                owner_user_id=owner_user_id,
-            )
+            response = await call_blueprint_action("blueprint.generate_project", payload)
         JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
         response = _attach_generation_timing_metadata(response, job)

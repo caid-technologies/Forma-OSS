@@ -548,12 +548,24 @@ function pipelineEventCursor(events: AgentPipelineEvent[] | undefined) {
 }
 
 function isFailedPipelineStatus(status: any) {
-  return String(status || "").toLowerCase().includes("failed");
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "failed" || normalized === "provider_request_failed";
+}
+
+function isRecoverablePipelineStatus(status: any) {
+  const normalized = String(status || "").toLowerCase();
+  return normalized === "provider_response_unavailable" || normalized === "provider_response_failed";
 }
 
 function isCompletedPipelineStatus(status: any) {
   const normalized = String(status || "").toLowerCase();
   return normalized === "completed" || normalized === "provider_response_received";
+}
+
+function formatPipelineStatus(status: any) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "provider_response_unavailable" || normalized === "provider_response_failed") return "source unavailable";
+  return String(status || "").replace(/_/g, " ");
 }
 
 function failedPipelineEvent(events: AgentPipelineEvent[] | undefined) {
@@ -3788,11 +3800,29 @@ export function BlueprintWorkspace({
     const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
     const loadingMessage = `Running ${workflowLabel}${providerSuffix} with ${selectedGenerationLlm.label}.`;
     let progressPollId: number | null = null;
+    let asyncGenerationAccepted = false;
+    let asyncGenerationHydrated = false;
     const syncProgressFromJob = async () => {
       const job = await fetchA2aJob(frontendJobId);
       if (!job) return;
       applyChatPipelineProgressFromJob(assistantMessageId, job, pipelineProgress, generateProductImage);
       applyThreadPipelineProgressFromJob(requestChatId, assistantMessageId, job, pipelineProgress, generateProductImage);
+      if (job.status === "succeeded" && !asyncGenerationHydrated) {
+        const projectId = typeof job.result_summary?.project_id === "string" ? job.result_summary.project_id : "";
+        if (projectId) {
+          asyncGenerationHydrated = true;
+          generatedProject = true;
+          generatedProjectId = projectId;
+          await loadOldProject(projectId, { syncRoute: false, tab: "chat" });
+          setSelectedImage(null);
+          setActiveTab("chat");
+          refreshProjectAndChatLists();
+        }
+      }
+      if (isTerminalJobStatus(job.status) && progressPollId !== null) {
+        window.clearInterval(progressPollId);
+        progressPollId = null;
+      }
     };
     setActiveChatId(requestChatId);
     rememberChatItem({
@@ -3854,6 +3884,7 @@ export function BlueprintWorkspace({
           client_job_id: frontendJobId,
           image_data: imageData || null,
           generate_image: generateProductImage,
+          async_generation: true,
         }),
       });
 
@@ -3910,6 +3941,13 @@ export function BlueprintWorkspace({
       if (data.job) {
         applyChatPipelineProgressFromJob(assistantMessageId, data.job, pipelineProgress, generateProductImage);
         applyThreadPipelineProgressFromJob(requestChatId, assistantMessageId, data.job, pipelineProgress, generateProductImage);
+      }
+      if (data.accepted && data.async_generation) {
+        asyncGenerationAccepted = true;
+        setIsLoading(false);
+        fetchA2aJobs(jobStatusFilter, { silent: true });
+        void syncProgressFromJob();
+        return;
       }
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
@@ -4027,7 +4065,7 @@ export function BlueprintWorkspace({
         });
       }
     } finally {
-      if (progressPollId !== null) window.clearInterval(progressPollId);
+      if (!asyncGenerationAccepted && progressPollId !== null) window.clearInterval(progressPollId);
       if (generatedProject) {
         setSelectedImage(null);
         setActiveTab("chat");
@@ -4080,10 +4118,26 @@ export function BlueprintWorkspace({
       pipelineProgress,
     });
     let progressPollId: number | null = null;
+    let asyncGenerationAccepted = false;
+    let asyncGenerationHydrated = false;
     const syncProgressFromJob = async () => {
       const job = await fetchA2aJob(frontendJobId);
       if (!job) return;
       applyThreadPipelineProgressFromJob(sourceChatId, assistantMessageId, job, pipelineProgress, generateProductImage);
+      if (job.status === "succeeded" && !asyncGenerationHydrated) {
+        const projectId = typeof job.result_summary?.project_id === "string" ? job.result_summary.project_id : "";
+        if (projectId) {
+          asyncGenerationHydrated = true;
+          await loadOldProject(projectId, { syncRoute: false, tab: "chat" });
+          setSelectedImage(null);
+          setActiveTab("chat");
+          refreshProjectAndChatLists();
+        }
+      }
+      if (isTerminalJobStatus(job.status) && progressPollId !== null) {
+        window.clearInterval(progressPollId);
+        progressPollId = null;
+      }
     };
 
     setProjectChatInput("");
@@ -4110,6 +4164,7 @@ export function BlueprintWorkspace({
           client_job_id: frontendJobId,
           image_data: null,
           generate_image: generateProductImage,
+          async_generation: true,
         }),
       });
 
@@ -4127,6 +4182,13 @@ export function BlueprintWorkspace({
       const data = await res.json();
       if (data.job) {
         applyThreadPipelineProgressFromJob(sourceChatId, assistantMessageId, data.job, pipelineProgress, generateProductImage);
+      }
+      if (data.accepted && data.async_generation) {
+        asyncGenerationAccepted = true;
+        setIsLoading(false);
+        fetchA2aJobs(jobStatusFilter, { silent: true });
+        void syncProgressFromJob();
+        return;
       }
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
@@ -4173,7 +4235,7 @@ export function BlueprintWorkspace({
         status: "error",
       });
     } finally {
-      if (progressPollId !== null) window.clearInterval(progressPollId);
+      if (!asyncGenerationAccepted && progressPollId !== null) window.clearInterval(progressPollId);
       setIsLoading(false);
     }
   };
@@ -8196,7 +8258,7 @@ function AgentPipelineProgressView({
           {lastEvent && (
             <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase text-slate-500">
               <span>last: {lastEvent.label || lastEvent.step_id}</span>
-              <span>{String(lastEvent.status).replace(/_/g, " ")}</span>
+              <span>{formatPipelineStatus(lastEvent.status)}</span>
               <span>{formatPipelineAge(lastEvent.observed_at, nowMs)} ago</span>
             </div>
           )}
@@ -8240,8 +8302,8 @@ function AgentPipelineProgressView({
                 <div key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className="min-w-0 border border-[#25272e] bg-[#0f1014] px-2 py-1.5">
                   <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] uppercase">
                     <span className="max-w-[160px] truncate font-black text-slate-300">{event.label || event.step_id}</span>
-                    <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-cyan-300"}`}>
-                      {String(event.status).replace(/_/g, " ")}
+                    <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isRecoverablePipelineStatus(event.status) ? "text-slate-500" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-cyan-300"}`}>
+                      {formatPipelineStatus(event.status)}
                     </span>
                     <span className="text-slate-600">{formatPipelineAge(event.observed_at, nowMs)} ago</span>
                   </div>
@@ -8730,6 +8792,7 @@ function getJobLlmInfo(job: A2AJob) {
 function pipelineEventTone(status: string) {
   if (isCompletedPipelineStatus(status)) return "border-emerald-500/25 bg-emerald-950/15 text-emerald-300";
   if (isFailedPipelineStatus(status)) return "border-rose-500/30 bg-rose-950/20 text-rose-300";
+  if (isRecoverablePipelineStatus(status)) return "border-slate-500/20 bg-black/15 text-slate-500";
   if (status === "skipped") return "border-slate-500/20 bg-slate-950/20 text-slate-500";
   return "border-cyan-500/25 bg-cyan-950/15 text-cyan-300";
 }
@@ -8763,7 +8826,7 @@ function JobPipelineEventList({
             <span key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className={`inline-flex max-w-full items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${pipelineEventTone(String(event.status))}`}>
               {isCompletedPipelineStatus(event.status) ? <CheckCircle className="h-3 w-3 shrink-0" /> : isFailedPipelineStatus(event.status) ? <AlertTriangle className="h-3 w-3 shrink-0" /> : <RefreshCw className={`h-3 w-3 shrink-0 ${isActiveStartedEvent ? "animate-spin" : ""}`} />}
               <span className="truncate">{label}</span>
-              <span className="text-slate-500">{String(event.status).replace(/_/g, " ")}</span>
+              <span className="text-slate-500">{formatPipelineStatus(event.status)}</span>
               {time && !compact && <span className="text-slate-600">{time}</span>}
             </span>
           );

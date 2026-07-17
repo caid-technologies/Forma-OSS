@@ -232,6 +232,10 @@ def pipeline_workflow_id(workflow: Optional[str] = None) -> str:
     return normalized if normalized in {DEFAULT_WORKFLOW_ID, WEB_RESEARCH_WORKFLOW_ID} else DEFAULT_WORKFLOW_ID
 
 
+def external_source_response_status(error: Any) -> str:
+    return "provider_response_unavailable" if error else "provider_response_received"
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 

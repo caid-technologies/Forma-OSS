@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import asyncio
 import tempfile
 import unittest
 
 from backend.job_store import JobMetadataStore
+from blueprint_core.llm_providers import StructuredLLMProvider
 from blueprint_core.models import GenerateProjectRequest
+from pydantic import BaseModel
+
+
+class AsyncWrapperResult(BaseModel):
+    value: str
+
+
+class FakeStructuredProvider(StructuredLLMProvider):
+    def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
+        return schema_class(value=prompt)
 
 
 class JobProgressTests(unittest.TestCase):
@@ -50,6 +62,18 @@ class JobProgressTests(unittest.TestCase):
         request = GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="Firecrawl")
 
         self.assertEqual("firecrawl", request.external_source_provider)
+
+    def test_generate_request_accepts_async_generation_flag(self) -> None:
+        request = GenerateProjectRequest(prompt="blink", async_generation=True)
+
+        self.assertTrue(request.async_generation)
+
+    def test_structured_provider_async_wrapper_returns_result(self) -> None:
+        provider = FakeStructuredProvider()
+
+        result = asyncio.run(provider.generate_structured_async("blink", AsyncWrapperResult))
+
+        self.assertEqual("blink", result.value)
 
     def test_generate_request_maps_legacy_external_source_provider_to_firecrawl(self) -> None:
         request = GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="auto")

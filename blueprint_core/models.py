@@ -214,6 +214,10 @@ class GenerateProjectRequest(BaseModel):
         None,
         description="Optional web research provider override. Firecrawl is the only active provider."
     )
+    async_generation: bool = Field(
+        False,
+        description="When true, enqueue generation and return job metadata immediately instead of waiting for the project response."
+    )
 
     @field_validator("provider", "model", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod

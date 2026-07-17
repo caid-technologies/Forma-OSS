@@ -31,6 +31,7 @@ from blueprint_core.llm_providers import (
     _validate_structured_json,
 )
 from blueprint_core.models import (
+    FunctionalRequirements,
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalRotation3,
@@ -275,6 +276,35 @@ class StructuredRepairTests(unittest.TestCase):
             provider.generate_structured("Design an enclosure.", MechanicalNotes)
 
         self.assertEqual(2, len(captured))  # exactly two attempts, no more
+
+    def test_schema_echo_retry_requests_concrete_instance(self) -> None:
+        provider = _runpod_provider()
+        captured: List[Dict[str, Any]] = []
+        requirements = FunctionalRequirements(
+            requirements=["Illuminate an LED when continuity is detected."],
+            power_needs="5V USB-C input",
+            operating_voltage=5.0,
+            physical_constraints=["Handheld enclosure"],
+            safety_notes=["Test only de-energized circuits."],
+            missing_info=[],
+        )
+        provider._request_json = _fake_request(
+            [
+                (json.dumps(FunctionalRequirements.model_json_schema()), "stop"),
+                (requirements.model_dump_json(), "stop"),
+            ],
+            captured,
+        )
+
+        result = provider.generate_structured("Extract requirements.", FunctionalRequirements)
+
+        self.assertEqual(requirements, result)
+        self.assertEqual(2, len(captured))
+        first_prompt = captured[0]["messages"][1]["content"]
+        retry_prompt = captured[1]["messages"][1]["content"]
+        self.assertIn("Do not return or repeat the JSON Schema definition", first_prompt)
+        self.assertIn("previous response repeated the JSON Schema", retry_prompt)
+        self.assertIn("not properties, required, title, or type", retry_prompt)
 
     # --- Layer D: json_schema response_format ------------------------------
 

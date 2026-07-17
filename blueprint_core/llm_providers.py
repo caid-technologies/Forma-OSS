@@ -747,6 +747,31 @@ def _validate_structured_json(response_text: str, schema_class: Any) -> Any:
         raise first_error
 
 
+def _is_json_schema_echo(response_text: str, schema_class: Any) -> bool:
+    """Return true when a model emits the requested schema instead of data."""
+    cleaned = _strip_json_markdown(response_text)
+    extracted = _extract_json_document(cleaned) or cleaned
+    try:
+        payload = json.loads(extracted)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if not isinstance(payload, dict) or payload.get("type") != "object":
+        return False
+    properties = payload.get("properties")
+    if not isinstance(properties, dict):
+        return False
+    expected_fields = set(getattr(schema_class, "model_fields", {}))
+    return bool(expected_fields) and expected_fields.issubset(properties)
+
+
+def _append_structured_retry_instruction(content: Any, instruction: str) -> Any:
+    if isinstance(content, str):
+        return f"{content}\n\n{instruction}"
+    if isinstance(content, list):
+        return [*content, {"type": "text", "text": instruction}]
+    return content
+
+
 class StructuredLLMProvider:
     provider_name = "base"
     requested_model = "simulation"
@@ -1402,7 +1427,9 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         schema_json = json.dumps(schema_class.model_json_schema(), indent=2)
         return (
             f"{prompt}\n\n"
-            "Return only valid JSON. The JSON must conform to this schema:\n"
+            "Return exactly one concrete JSON object populated with data values. "
+            "Do not return or repeat the JSON Schema definition. Do not include markdown or commentary. "
+            "The JSON data must conform to this schema:\n"
             f"{schema_json}"
         )
 
@@ -1460,7 +1487,10 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             "messages": [
                 {
                     "role": "system",
-                    "content": "You produce concise, valid JSON only. Do not include markdown or commentary.",
+                    "content": (
+                        "You produce concise, valid JSON data only. Return a concrete instance of the requested "
+                        "schema, never the JSON Schema definition itself. Do not include markdown or commentary."
+                    ),
                 },
                 {
                     "role": "user",
@@ -1527,17 +1557,36 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             except Exception as validation_error:
                 last_error = validation_error
                 if attempt == 0:
+                    schema_echo = _is_json_schema_echo(content, schema_class)
+                    if schema_echo:
+                        retry_instruction = (
+                            f"Correction: your previous response repeated the JSON Schema for "
+                            f"{_schema_name(schema_class)}. Return an instance containing actual data values instead. "
+                            "The top-level keys must be the schema field names, not properties, required, title, or type. "
+                            "Include every required field."
+                        )
+                    else:
+                        retry_instruction = (
+                            f"Correction: the previous response did not validate as {_schema_name(schema_class)}. "
+                            "Return a complete concrete JSON data object with every required field. "
+                            "Do not return JSON Schema, markdown, or commentary."
+                        )
+                    payload["messages"][1]["content"] = _append_structured_retry_instruction(
+                        payload["messages"][1]["content"],
+                        retry_instruction,
+                    )
                     budget = min(
                         max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
                         STRUCTURED_MAX_TOKENS_CEILING,
                     )
                     logger.warning(
-                        "%s produced unusable %s (finish_reason=%s, content=%d chars); "
+                        "%s produced unusable %s (finish_reason=%s, content=%d chars, schema_echo=%s); "
                         "retrying once with max_tokens=%d.",
                         self.provider_name,
                         _schema_name(schema_class),
                         finish_reason,
                         len(content),
+                        schema_echo,
                         budget,
                     )
 

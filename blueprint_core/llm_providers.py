@@ -1,4 +1,5 @@
 import base64
+import copy
 import json
 import logging
 import os
@@ -8,9 +9,10 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple, Union, get_args, get_origin
 
 from dotenv import load_dotenv
+from pydantic import BaseModel, ValidationError
 
 load_dotenv()
 
@@ -62,6 +64,19 @@ class LLMProviderConfigError(RuntimeError):
 
 class LLMProviderOutputError(RuntimeError):
     """Raised when a live provider returns unusable structured output."""
+
+
+class ProviderHTTPStatusError(RuntimeError):
+    """HTTP error from a provider endpoint, carrying the status code.
+
+    Subclasses RuntimeError so existing call sites that catch RuntimeError keep
+    working; callers that need to branch on the status (e.g. the json_schema ->
+    json_object fallback) can catch this type instead of string-matching.
+    """
+
+    def __init__(self, message: str, status_code: int):
+        super().__init__(message)
+        self.status_code = status_code
 
 
 SUPPORTED_LLM_PROVIDERS = {
@@ -673,21 +688,185 @@ def _prune_truncated_tail(obj: Any) -> tuple[Any, List[str]]:
     return obj, notes
 
 
+def _submodel_class(annotation: Any) -> Optional[type]:
+    """Return the BaseModel subclass of a field annotation, unwrapping Optional."""
+    if isinstance(annotation, type) and issubclass(annotation, BaseModel):
+        return annotation
+    if get_origin(annotation) is Union:
+        candidates = [
+            arg for arg in get_args(annotation)
+            if isinstance(arg, type) and issubclass(arg, BaseModel)
+        ]
+        if len(candidates) == 1:
+            return candidates[0]
+    return None
+
+
+def _renest_flat_fields(obj: Dict[str, Any], schema_class: Any) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+    """Re-nest submodel fields the model emitted flat at the top level.
+
+    The fine-tuned parti-base sometimes drops required wrapper keys and emits
+    the submodel's fields at the root (WebProjectPlan came back as {"title": ...,
+    "power_needs": ...} instead of {"overview": {...}, "requirements": {...}}).
+    This moves such keys under their wrapper deterministically - driven only by
+    schema_class.model_fields, never inventing content:
+
+    - A wrapper field is a candidate when it is missing from obj, or present
+      with a non-dict value while the submodel declares a field of the same
+      name (a non-dict can never validate as the submodel, so the value is
+      provably the flat inner field, e.g. FunctionalRequirements.requirements).
+    - Keys that are declared fields of the wrapper schema itself are never
+      claimed (except that provably-invalid same-name case).
+    - A key claimable by two candidate wrappers disqualifies every claimant -
+      ownership is never guessed.
+    - A candidate is re-nested only when ALL of its submodel's required fields
+      are claimable; partial presence means genuinely absent data and is left
+      for pydantic to reject.
+
+    Assumes the models use no field aliases (true for blueprint_core.models).
+    Depth-1 only: the observed failure mode is flat-at-root. Returns
+    (re-nested copy, notes) when something moved, else (None, notes).
+    """
+    wrapper_fields = set(schema_class.model_fields)
+    candidates: Dict[str, type] = {}
+    mistyped: set = set()
+    for name, field_info in schema_class.model_fields.items():
+        submodel = _submodel_class(field_info.annotation)
+        if submodel is None:
+            continue
+        if name not in obj:
+            candidates[name] = submodel
+        elif not isinstance(obj[name], dict) and name in submodel.model_fields:
+            candidates[name] = submodel
+            mistyped.add(name)
+
+    if not candidates:
+        return None, ["no wrapper fields eligible for re-nesting"]
+
+    claims: Dict[str, set] = {}
+    for name, submodel in candidates.items():
+        claimable = set()
+        for inner in submodel.model_fields:
+            if inner not in obj:
+                continue
+            if inner in wrapper_fields and not (inner == name and name in mistyped):
+                continue
+            claimable.add(inner)
+        claims[name] = claimable
+
+    contested = {
+        key
+        for name, claimed in claims.items()
+        for key in claimed
+        if any(key in other for other_name, other in claims.items() if other_name != name)
+    }
+    notes: List[str] = []
+    if contested:
+        disqualified = [name for name, claimed in claims.items() if claimed & contested]
+        for name in disqualified:
+            candidates.pop(name)
+            claims.pop(name)
+        notes.append(
+            f"skipped ambiguous wrappers {sorted(disqualified)} (contested keys {sorted(contested)})"
+        )
+
+    result = copy.deepcopy(obj)
+    moved = False
+    for name, submodel in candidates.items():
+        claimed = claims[name]
+        required = {
+            inner for inner, info in submodel.model_fields.items() if info.is_required()
+        }
+        if not required <= claimed:
+            notes.append(
+                f"left '{name}' alone (required fields {sorted(required - claimed)} not present flat)"
+            )
+            continue
+        result[name] = {inner: result.pop(inner) for inner in claimed}
+        moved = True
+        notes.append(f"re-nested {sorted(claimed)} under '{name}'")
+
+    if not moved:
+        return None, notes
+    return result, notes
+
+
+def _has_root_shape_errors(error: ValidationError) -> bool:
+    """True when the failure includes a missing or mistyped ROOT-level field -
+    the only signatures flat-field re-nesting can deterministically repair."""
+    return any(
+        len(item.get("loc") or ()) == 1
+        and item.get("type") in {"missing", "model_type", "model_attributes_type", "dict_type"}
+        for item in error.errors()
+    )
+
+
+def _try_validate_object(obj: Any, schema_class: Any) -> Any:
+    """Full pydantic validation with deterministic flat-field re-nesting.
+
+    Every structured-output path (direct parse, salvage, and the serverless
+    already-parsed-dict branch) funnels through here so the repair behaves
+    identically everywhere. The original ValidationError is re-raised when
+    re-nesting does not produce a valid record.
+    """
+    try:
+        return schema_class.model_validate(obj)
+    except ValidationError as validation_error:
+        if not isinstance(obj, dict) or not _has_root_shape_errors(validation_error):
+            raise
+        renested, notes = _renest_flat_fields(obj, schema_class)
+        if renested is None:
+            raise
+        try:
+            result = schema_class.model_validate(renested)
+        except ValidationError:
+            raise validation_error from None
+        logger.warning(
+            "Structured output for %s required flat-field re-nesting: %s",
+            _schema_name(schema_class),
+            "; ".join(notes) or "no changes",
+        )
+        return result
+
+
+def _structured_prompt_text(prompt: str, schema_class: Any) -> str:
+    """Shared structured-output prompt suffix for every provider.
+
+    Names the required top-level keys explicitly: the parti-base fine-tune
+    otherwise sometimes emits the submodels' fields flat at the root, which
+    fails validation with 'Field required' on the wrapper keys.
+    """
+    schema = schema_class.model_json_schema()
+    text = (
+        f"{prompt}\n\n"
+        "Return only valid JSON. The JSON must conform to this schema:\n"
+        f"{json.dumps(schema, indent=2)}"
+    )
+    required = schema.get("required") or []
+    if required:
+        text += (
+            "\nThe top-level JSON object MUST contain the key"
+            f"{'s' if len(required) > 1 else ''}: {', '.join(required)}. "
+            "Nest each object's fields inside it; never emit nested fields at the top level."
+        )
+    return text
+
+
 def _validate_structured_json(response_text: str, schema_class: Any) -> Any:
     try:
-        return schema_class.model_validate_json(response_text)
+        return _try_validate_object(json.loads(response_text), schema_class)
     except Exception as first_error:
         cleaned = _strip_json_markdown(response_text)
         if cleaned != response_text:
             try:
-                return schema_class.model_validate_json(cleaned)
+                return _try_validate_object(json.loads(cleaned), schema_class)
             except Exception:
                 pass
 
         extracted = _extract_json_document(cleaned)
         if extracted:
             try:
-                return schema_class.model_validate_json(extracted)
+                return _try_validate_object(json.loads(extracted), schema_class)
             except Exception:
                 pass
 
@@ -700,7 +879,7 @@ def _validate_structured_json(response_text: str, schema_class: Any) -> Any:
             salvaged, prune_notes = _prune_truncated_tail(salvaged)
             notes = notes + prune_notes
             try:
-                result = schema_class.model_validate(salvaged)
+                result = _try_validate_object(salvaged, schema_class)
                 logger.warning(
                     "Structured output for %s required JSON salvage (%d chars): %s",
                     _schema_name(schema_class),
@@ -1099,7 +1278,12 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.fallback_model = _normalize_model_for_provider(self.provider_name, raw_fallback_model) if raw_fallback_model else None
         self.strict_mode = _first_env_bool(strict_names, default=True)
         self.validate_models = _first_env_bool(validate_model_names, default=False)
-        default_response_format = "json_schema" if self.provider_name == "openai" else "json_object"
+        # runpod (vLLM worker) gets json_schema by default too: json_object only
+        # constrains syntax, and the parti-base fine-tune emitted WebProjectPlan
+        # fields flat at the root. vLLM >= 0.6 maps json_schema to guided
+        # decoding; older workers that 400 on it are handled by the runtime
+        # fallback in generate_structured.
+        default_response_format = "json_schema" if self.provider_name in {"openai", "runpod"} else "json_object"
         self.response_format = (
             _first_env(response_format_names, default_response_format)
             or default_response_format
@@ -1152,9 +1336,10 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
                 body = response.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(
+            raise ProviderHTTPStatusError(
                 f"{self.provider_name} request failed with HTTP {exc.code}: {detail[:500]}"
-                f"{self._http_error_hint(exc.code, path)}"
+                f"{self._http_error_hint(exc.code, path)}",
+                status_code=exc.code,
             ) from exc
         except (socket.timeout, TimeoutError) as exc:
             timeout_hint = self._timeout_hint()
@@ -1366,12 +1551,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         return self._validation
 
     def _build_structured_prompt(self, prompt: str, schema_class: Any) -> str:
-        schema_json = json.dumps(schema_class.model_json_schema(), indent=2)
-        return (
-            f"{prompt}\n\n"
-            "Return only valid JSON. The JSON must conform to this schema:\n"
-            f"{schema_json}"
-        )
+        return _structured_prompt_text(prompt, schema_class)
 
     def _build_user_content(
         self,
@@ -1412,6 +1592,37 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return STRUCTURED_MAX_TOKENS_FLOOR
         return budget
 
+    def _request_structured(self, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """chat/completions request with a one-shot json_schema capability probe.
+
+        Endpoints running older vLLM images reject response_format=json_schema
+        with a 400/422. That is a capability limit, not a generation failure, so
+        it must not consume the validation-retry budget: downgrade the payload
+        to json_object, cache the downgrade on the provider instance so later
+        calls skip the doomed attempt, and re-issue immediately.
+        """
+        try:
+            return self._request_json("chat/completions", method="POST", payload=payload)
+        except ProviderHTTPStatusError as http_error:
+            sent_format = payload.get("response_format")
+            if (
+                http_error.status_code not in {400, 422}
+                or not isinstance(sent_format, dict)
+                or sent_format.get("type") != "json_schema"
+            ):
+                raise
+            logger.warning(
+                "%s endpoint rejected response_format=json_schema (HTTP %d); "
+                "falling back to json_object for this process. Set "
+                "%s to json_object to silence this probe.",
+                self.provider_name,
+                http_error.status_code,
+                "RUNPOD_RESPONSE_FORMAT" if self.provider_name == "runpod" else "LLM_RESPONSE_FORMAT",
+            )
+            self.response_format = "json_object"
+            payload["response_format"] = {"type": "json_object"}
+            return self._request_json("chat/completions", method="POST", payload=payload)
+
     def generate_structured(
         self,
         prompt: str,
@@ -1450,6 +1661,12 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
                     "strict": False,
                 },
             }
+        elif self.response_format == "guided_json":
+            # Escape hatch for older RunPod worker-vllm images that reject
+            # response_format=json_schema but accept vLLM's guided_json extra
+            # body param. Opt in with RUNPOD_RESPONSE_FORMAT=guided_json.
+            payload["response_format"] = {"type": "json_object"}
+            payload["guided_json"] = schema_class.model_json_schema()
         elif self.response_format != "none":
             payload["response_format"] = {"type": "json_object"}
 
@@ -1467,7 +1684,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         finish_reason: Optional[str] = None
         for attempt in range(2):
             payload[tokens_key] = budget
-            response = self._request_json("chat/completions", method="POST", payload=payload)
+            response = self._request_structured(payload)
             choices = response.get("choices") or []
             if not choices:
                 raise RuntimeError(f"{self.provider_name} response did not include any choices.")
@@ -1745,11 +1962,7 @@ class RunpodServerlessProvider(StructuredLLMProvider):
         if not self.is_configured:
             raise RuntimeError("Runpod provider is not configured.")
 
-        structured_prompt = (
-            f"{prompt}\n\n"
-            "Return only valid JSON. The JSON must conform to this schema:\n"
-            f"{json.dumps(schema_class.model_json_schema(), indent=2)}"
-        )
+        structured_prompt = _structured_prompt_text(prompt, schema_class)
         payload = self._build_run_payload(structured_prompt, schema_class)
         wait_ms = max(1_000, min(300_000, self.wait_ms))
         result = self._request_json(f"runsync?wait={wait_ms}", method="POST", payload=payload)
@@ -1763,7 +1976,9 @@ class RunpodServerlessProvider(StructuredLLMProvider):
         output = self._extract_structured_output(result.get("output"))
         if isinstance(output, str):
             return _validate_structured_json(output, schema_class)
-        return schema_class.model_validate(output)
+        # Already-parsed dict output goes through the same gate as text output
+        # so flat-field re-nesting applies on the native queue route too.
+        return _try_validate_object(output, schema_class)
 
 
 def build_llm_provider(

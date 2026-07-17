@@ -485,6 +485,7 @@ class JobMetadataStore:
         self,
         *,
         sender: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
         status: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
@@ -494,6 +495,8 @@ class JobMetadataStore:
             query = self._client.table("a2a_jobs").select("*")
             if sender:
                 query = query.eq("sender", sender)
+            if owner_user_id:
+                query = query.eq("payload_json->>owner_user_id", owner_user_id)
             if status:
                 query = query.eq("status", status)
             rows = query.order("created_at", desc=True).limit(limit).execute().data or []
@@ -504,6 +507,9 @@ class JobMetadataStore:
         if sender:
             clauses.append("sender = ?")
             params.append(sender)
+        if owner_user_id:
+            clauses.append("json_extract(payload_json, '$.owner_user_id') = ?")
+            params.append(owner_user_id)
         if status:
             clauses.append("status = ?")
             params.append(status)

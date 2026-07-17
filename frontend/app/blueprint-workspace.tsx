@@ -6073,17 +6073,15 @@ function ChatSidebar({
               {!compact && <span className="truncate">Listening jobs</span>}
             </Link>
           )}
-          {showDeveloperTools && (
-            <Link
-              href="/user"
-              onClick={onNavigate}
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-              title="User integrations"
-            >
-              <KeyRound className="h-5 w-5 text-slate-500" />
-              {!compact && <span className="truncate">Keys</span>}
-            </Link>
-          )}
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
+            title="Settings"
+          >
+            <Sliders className="h-5 w-5 text-slate-500" />
+            {!compact && <span className="truncate">Settings</span>}
+          </Link>
           <Link
             href="/about"
             onClick={onNavigate}

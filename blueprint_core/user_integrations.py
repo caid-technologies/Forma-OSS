@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from blueprint_core.runtime_config import blueprint_dev_mode_enabled, deployment_mode_enabled, env_bool
+
 
 DEFAULT_CONFIG_DIR = ".blueprint"
 DEFAULT_CONFIG_FILENAME = "user-integrations.json"
@@ -304,6 +306,14 @@ def default_user_integrations_path() -> Path:
     return _configured_path() or (_repo_root() / DEFAULT_CONFIG_DIR / DEFAULT_CONFIG_FILENAME)
 
 
+def user_integrations_file_store_allowed() -> bool:
+    if env_bool("BLUEPRINT_ALLOW_DEPLOYED_USER_INTEGRATIONS"):
+        return True
+    if blueprint_dev_mode_enabled():
+        return True
+    return not (deployment_mode_enabled() or os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV")))
+
+
 def integration_definition_by_id(integration_id: str) -> IntegrationDefinition:
     definition = _DEFINITION_BY_ID.get(integration_id)
     if definition is None:
@@ -412,6 +422,8 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
 
 
 def apply_user_integrations_to_environment(store: Optional[UserIntegrationStore] = None) -> UserIntegrationConfig:
+    if not user_integrations_file_store_allowed():
+        return UserIntegrationConfig()
     resolved_store = store or UserIntegrationStore()
     config = resolved_store.load()
     desired = _desired_environment(config)
@@ -466,7 +478,8 @@ def _field_status_payload(
 
 def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> dict[str, object]:
     resolved_store = store or UserIntegrationStore()
-    config = apply_user_integrations_to_environment(resolved_store)
+    file_store_allowed = user_integrations_file_store_allowed()
+    config = apply_user_integrations_to_environment(resolved_store) if file_store_allowed else UserIntegrationConfig()
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:
         stored = config.integration_by_id(definition.id)
@@ -488,7 +501,12 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
         )
     return {
         "version": config.version,
-        "config_path": str(resolved_store.path),
+        "config_path": str(resolved_store.path) if file_store_allowed else None,
+        "storage_mode": "local_file" if file_store_allowed else "environment",
+        "writable": file_store_allowed,
+        "production_note": None
+        if file_store_allowed
+        else "Provider credentials are read from deployment secrets/environment variables; local file writes are disabled.",
         "updated_at": config.updated_at,
         "integrations": integrations,
     }
@@ -507,4 +525,5 @@ __all__ = [
     "integration_status_payload",
     "list_integration_definitions",
     "mask_secret",
+    "user_integrations_file_store_allowed",
 ]

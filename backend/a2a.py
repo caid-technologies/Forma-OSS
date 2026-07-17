@@ -611,6 +611,7 @@ def build_generation_response(
     source_project_id: Optional[str] = None,
     frontend_job_id: Optional[str] = None,
     owner_user_id: Optional[str] = None,
+    model_training_opt_out: Optional[bool] = None,
 ) -> Dict[str, Any]:
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
@@ -641,6 +642,7 @@ def build_generation_response(
         "chat_id": chat_id,
         "source_project_id": source_project_id,
         "owner_user_id": owner_user_id,
+        "model_training_opt_out": model_training_opt_out,
         "requested_provider": provider,
         "requested_model": model,
         "runtime_provider": (llm_config.get("runtime") or {}).get("runtime_provider"),
@@ -683,6 +685,7 @@ def build_generation_response(
                     "source_project_id": source_project_id,
                     "frontend_job_id": frontend_job_id,
                     "owner_user_id": owner_user_id,
+                    "model_training_opt_out": model_training_opt_out,
                     "external_source_provider": external_source_provider,
                 },
             )
@@ -693,6 +696,11 @@ def build_generation_response(
                 "frontend_job_id": frontend_job_id or (ir.assembly_metadata or {}).get("frontend_job_id"),
                 "workflow": workflow_id,
                 "external_source_provider": external_source_provider or (ir.assembly_metadata or {}).get("external_source_provider"),
+                "model_training_opt_out": bool(model_training_opt_out),
+                "training_data_policy": {
+                    "model_training_opt_out": bool(model_training_opt_out),
+                    "allow_model_training": not bool(model_training_opt_out),
+                },
             }
 
             if image_data:

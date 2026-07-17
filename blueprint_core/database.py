@@ -8,7 +8,22 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 from sqlalchemy import Column, Float, Integer, JSON, String, Text, create_engine, text
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from blueprint_core.api_keys import (
+    DEFAULT_DAILY_QUOTA,
+    DEFAULT_RATE_LIMIT_PER_MINUTE,
+    api_key_hash_algorithm,
+    api_key_hash,
+    api_key_id_from_hash,
+    api_key_secret_prefix,
+    current_usage_date,
+    generate_api_key_secret,
+    normalize_api_key_name,
+    normalize_api_key_scopes,
+    safe_int,
+    utc_now_iso,
+)
 from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_objects import attach_project_object_metadata_to_dict
 
@@ -87,6 +102,38 @@ class DBAlphaSignup(Base):
     created_at = Column(String, nullable=False)
 
 
+class DBUserApiKey(Base):
+    __tablename__ = "user_api_keys"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key_id = Column(String, unique=True, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    name = Column(String, nullable=False)
+    key_prefix = Column(String, nullable=False)
+    key_hash = Column(String, unique=True, index=True, nullable=False)
+    scopes = Column(JSON, nullable=False, default=list)
+    status = Column(String, index=True, nullable=False, default="active")
+    rate_limit_per_minute = Column(Integer, nullable=False, default=DEFAULT_RATE_LIMIT_PER_MINUTE)
+    daily_quota = Column(Integer, nullable=False, default=DEFAULT_DAILY_QUOTA)
+    daily_usage_date = Column(String, nullable=True)
+    daily_usage_count = Column(Integer, nullable=False, default=0)
+    created_at = Column(String, nullable=False)
+    last_used_at = Column(String, nullable=True)
+    expires_at = Column(String, nullable=True)
+    revoked_at = Column(String, nullable=True)
+    metadata_json = Column(JSON, nullable=False, default=dict)
+
+
+class DBUserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_user_id = Column(String, unique=True, index=True, nullable=False)
+    model_training_opt_out = Column(Integer, nullable=False, default=0)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     value = os.getenv(name)
     if value is None:
@@ -117,6 +164,16 @@ def _sqlite_database_url() -> str:
     if "://" not in value:
         return f"sqlite:///{value}"
     return value
+
+
+def _create_sqlite_engine(sqlite_url: str):
+    if sqlite_url in {"sqlite:///:memory:", "sqlite://"}:
+        return create_engine(
+            sqlite_url,
+            connect_args={"check_same_thread": False},
+            poolclass=StaticPool,
+        )
+    return create_engine(sqlite_url, connect_args={"check_same_thread": False})
 
 
 def _supabase_url() -> Optional[str]:
@@ -176,11 +233,11 @@ def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
     if blueprint_dev_mode_enabled():
         if override == "supabase":
             logger.warning("BLUEPRINT_DEV_MODE=true overrides DATABASE_BACKEND=supabase; using SQLite.")
-        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+        engine = _create_sqlite_engine(sqlite_url)
         return DatabaseConfig(backend="sqlite", source="BLUEPRINT_DEV_MODE", url=sqlite_url), engine, None
 
     if override == "sqlite":
-        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+        engine = _create_sqlite_engine(sqlite_url)
         return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), engine, None
 
     url = _supabase_url()
@@ -211,7 +268,7 @@ def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
     else:
         _warn_ignored_database_urls()
 
-    engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+    engine = _create_sqlite_engine(sqlite_url)
     return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), engine, None
 
 
@@ -318,6 +375,8 @@ def _verify_supabase_tables() -> None:
     client.table("project_chats").select("id").limit(1).execute()
     client.table("a2a_jobs").select("job_id").limit(1).execute()
     client.table("alpha_signups").select("id").limit(1).execute()
+    client.table("user_api_keys").select("key_id").limit(1).execute()
+    client.table("user_settings").select("owner_user_id").limit(1).execute()
 
 
 def init_db() -> None:
@@ -342,6 +401,21 @@ def _migrate_sqlite_schema() -> None:
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_chat_id ON generated_projects (chat_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_owner_user_id ON generated_projects (owner_user_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_visibility ON generated_projects (visibility)"))
+        api_key_columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(user_api_keys)").fetchall()}
+        if api_key_columns:
+            optional_columns = {
+                "daily_usage_date": "VARCHAR",
+                "daily_usage_count": "INTEGER NOT NULL DEFAULT 0",
+                "metadata_json": "JSON NOT NULL DEFAULT '{}'",
+            }
+            for column, declaration in optional_columns.items():
+                if column not in api_key_columns:
+                    connection.execute(text(f"ALTER TABLE user_api_keys ADD COLUMN {column} {declaration}"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_keys_key_id ON user_api_keys (key_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_keys_key_hash ON user_api_keys (key_hash)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_keys_owner_user_id ON user_api_keys (owner_user_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_keys_status ON user_api_keys (status)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_user_settings_owner_user_id ON user_settings (owner_user_id)"))
 
 
 def get_db():
@@ -896,6 +970,397 @@ def save_alpha_signup(
         raise
     finally:
         db.close()
+
+
+def _api_key_record_from_row(row: Dict[str, Any]) -> Any:
+    record = dict(row)
+    record.setdefault("scopes", [])
+    record.setdefault("metadata_json", {})
+    record.setdefault("daily_usage_count", 0)
+    return _as_record(record)
+
+
+def _api_key_record_payload(
+    *,
+    owner_user_id: str,
+    name: Optional[str],
+    scopes: Optional[List[str]],
+    rate_limit_per_minute: Optional[int],
+    daily_quota: Optional[int],
+    expires_at: Optional[str],
+) -> tuple[Dict[str, Any], str]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    secret = generate_api_key_secret()
+    key_hash = api_key_hash(secret)
+    now = utc_now_iso()
+    record = {
+        "key_id": api_key_id_from_hash(key_hash),
+        "owner_user_id": normalized_owner_user_id,
+        "name": normalize_api_key_name(name),
+        "key_prefix": api_key_secret_prefix(secret),
+        "key_hash": key_hash,
+        "scopes": normalize_api_key_scopes(scopes),
+        "status": "active",
+        "rate_limit_per_minute": safe_int(rate_limit_per_minute, DEFAULT_RATE_LIMIT_PER_MINUTE, minimum=1, maximum=600),
+        "daily_quota": safe_int(daily_quota, DEFAULT_DAILY_QUOTA, minimum=1, maximum=100000),
+        "daily_usage_date": current_usage_date(),
+        "daily_usage_count": 0,
+        "created_at": now,
+        "last_used_at": None,
+        "expires_at": expires_at.strip() if isinstance(expires_at, str) and expires_at.strip() else None,
+        "revoked_at": None,
+        "metadata_json": {
+            "hash_algorithm": api_key_hash_algorithm(),
+            "secret_storage": "one_time_hash",
+        },
+    }
+    return record, secret
+
+
+def create_user_api_key(
+    *,
+    owner_user_id: str,
+    name: Optional[str],
+    scopes: Optional[List[str]] = None,
+    rate_limit_per_minute: Optional[int] = None,
+    daily_quota: Optional[int] = None,
+    expires_at: Optional[str] = None,
+) -> tuple[Any, str]:
+    record, secret = _api_key_record_payload(
+        owner_user_id=owner_user_id,
+        name=name,
+        scopes=scopes,
+        rate_limit_per_minute=rate_limit_per_minute,
+        daily_quota=daily_quota,
+        expires_at=expires_at,
+    )
+    if DATABASE_BACKEND == "supabase":
+        response = get_supabase_client().table("user_api_keys").insert(record).execute()
+        rows = response.data or []
+        return (_api_key_record_from_row(rows[0]) if rows else _api_key_record_from_row(record)), secret
+
+    db = _sqlite_session()
+    try:
+        api_key = DBUserApiKey(**record)
+        db.add(api_key)
+        db.commit()
+        db.refresh(api_key)
+        return api_key, secret
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def list_user_api_keys(owner_user_id: str) -> List[Any]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        return []
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_api_keys")
+            .select("key_id,owner_user_id,name,key_prefix,scopes,status,rate_limit_per_minute,daily_quota,daily_usage_date,daily_usage_count,created_at,last_used_at,expires_at,revoked_at,metadata_json")
+            .eq("owner_user_id", normalized_owner_user_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_api_key_record_from_row(row) for row in rows]
+    db = _sqlite_session()
+    try:
+        return (
+            db.query(DBUserApiKey)
+            .filter(DBUserApiKey.owner_user_id == normalized_owner_user_id)
+            .order_by(DBUserApiKey.created_at.desc())
+            .all()
+        )
+    finally:
+        db.close()
+
+
+def get_user_api_key_for_owner(owner_user_id: str, key_id: str) -> Optional[Any]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    normalized_key_id = str(key_id or "").strip()
+    if not normalized_owner_user_id or not normalized_key_id:
+        return None
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_api_keys")
+            .select("*")
+            .eq("owner_user_id", normalized_owner_user_id)
+            .eq("key_id", normalized_key_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _api_key_record_from_row(rows[0]) if rows else None
+    db = _sqlite_session()
+    try:
+        return (
+            db.query(DBUserApiKey)
+            .filter(DBUserApiKey.owner_user_id == normalized_owner_user_id)
+            .filter(DBUserApiKey.key_id == normalized_key_id)
+            .first()
+        )
+    finally:
+        db.close()
+
+
+def revoke_user_api_key(owner_user_id: str, key_id: str) -> bool:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    normalized_key_id = str(key_id or "").strip()
+    if not normalized_owner_user_id or not normalized_key_id:
+        return False
+    updates = {"status": "revoked", "revoked_at": utc_now_iso()}
+    if DATABASE_BACKEND == "supabase":
+        response = (
+            get_supabase_client()
+            .table("user_api_keys")
+            .update(updates)
+            .eq("owner_user_id", normalized_owner_user_id)
+            .eq("key_id", normalized_key_id)
+            .execute()
+        )
+        return bool(response.data)
+
+    db = _sqlite_session()
+    try:
+        api_key = (
+            db.query(DBUserApiKey)
+            .filter(DBUserApiKey.owner_user_id == normalized_owner_user_id)
+            .filter(DBUserApiKey.key_id == normalized_key_id)
+            .first()
+        )
+        if not api_key:
+            return False
+        api_key.status = "revoked"
+        api_key.revoked_at = updates["revoked_at"]
+        db.commit()
+        return True
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def get_user_api_key_by_secret(secret: str) -> Optional[Any]:
+    key_hash = api_key_hash(secret)
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_api_keys")
+            .select("*")
+            .eq("key_hash", key_hash)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _api_key_record_from_row(rows[0]) if rows else None
+    db = _sqlite_session()
+    try:
+        return db.query(DBUserApiKey).filter(DBUserApiKey.key_hash == key_hash).first()
+    finally:
+        db.close()
+
+
+def record_user_api_key_use(key_id: str) -> Optional[Any]:
+    normalized_key_id = str(key_id or "").strip()
+    if not normalized_key_id:
+        return None
+    today = current_usage_date()
+    now = utc_now_iso()
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_api_keys")
+            .select("*")
+            .eq("key_id", normalized_key_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            return None
+        record = dict(rows[0])
+        count = int(record.get("daily_usage_count") or 0)
+        if record.get("daily_usage_date") != today:
+            count = 0
+        updates = {
+            "last_used_at": now,
+            "daily_usage_date": today,
+            "daily_usage_count": count + 1,
+        }
+        response = (
+            get_supabase_client()
+            .table("user_api_keys")
+            .update(updates)
+            .eq("key_id", normalized_key_id)
+            .execute()
+        )
+        updated_rows = response.data or []
+        return _api_key_record_from_row(updated_rows[0]) if updated_rows else _api_key_record_from_row({**record, **updates})
+
+    db = _sqlite_session()
+    try:
+        api_key = db.query(DBUserApiKey).filter(DBUserApiKey.key_id == normalized_key_id).first()
+        if not api_key:
+            return None
+        if api_key.daily_usage_date != today:
+            api_key.daily_usage_date = today
+            api_key.daily_usage_count = 0
+        api_key.daily_usage_count = int(api_key.daily_usage_count or 0) + 1
+        api_key.last_used_at = now
+        db.commit()
+        db.refresh(api_key)
+        return api_key
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def _user_settings_payload(record: Any) -> Dict[str, Any]:
+    return {
+        "owner_user_id": getattr(record, "owner_user_id", None),
+        "model_training_opt_out": bool(getattr(record, "model_training_opt_out", False)),
+        "created_at": getattr(record, "created_at", None),
+        "updated_at": getattr(record, "updated_at", None),
+    }
+
+
+def _default_user_settings(owner_user_id: str) -> Any:
+    now = utc_now_iso()
+    return _as_record(
+        {
+            "owner_user_id": owner_user_id,
+            "model_training_opt_out": False,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+
+def get_user_settings(owner_user_id: str) -> Any:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_settings")
+            .select("*")
+            .eq("owner_user_id", normalized_owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows:
+            return _as_record(rows[0])
+        return _default_user_settings(normalized_owner_user_id)
+
+    db = _sqlite_session()
+    try:
+        settings = (
+            db.query(DBUserSettings)
+            .filter(DBUserSettings.owner_user_id == normalized_owner_user_id)
+            .first()
+        )
+        return settings or _default_user_settings(normalized_owner_user_id)
+    finally:
+        db.close()
+
+
+def upsert_user_settings(
+    owner_user_id: str,
+    *,
+    model_training_opt_out: Optional[bool] = None,
+) -> Any:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    now = utc_now_iso()
+    existing = get_user_settings(normalized_owner_user_id)
+    record = {
+        "owner_user_id": normalized_owner_user_id,
+        "model_training_opt_out": bool(
+            model_training_opt_out
+            if model_training_opt_out is not None
+            else getattr(existing, "model_training_opt_out", False)
+        ),
+        "created_at": getattr(existing, "created_at", None) or now,
+        "updated_at": now,
+    }
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_settings")
+            .select("owner_user_id")
+            .eq("owner_user_id", normalized_owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if rows:
+            response = (
+                get_supabase_client()
+                .table("user_settings")
+                .update(record)
+                .eq("owner_user_id", normalized_owner_user_id)
+                .execute()
+            )
+        else:
+            response = get_supabase_client().table("user_settings").insert(record).execute()
+        updated = response.data or []
+        return _as_record(updated[0]) if updated else _as_record(record)
+
+    db = _sqlite_session()
+    try:
+        settings = (
+            db.query(DBUserSettings)
+            .filter(DBUserSettings.owner_user_id == normalized_owner_user_id)
+            .first()
+        )
+        if settings:
+            settings.model_training_opt_out = 1 if record["model_training_opt_out"] else 0
+            settings.updated_at = now
+        else:
+            settings = DBUserSettings(
+                owner_user_id=normalized_owner_user_id,
+                model_training_opt_out=1 if record["model_training_opt_out"] else 0,
+                created_at=record["created_at"],
+                updated_at=now,
+            )
+            db.add(settings)
+        db.commit()
+        db.refresh(settings)
+        return settings
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def user_settings_public_payload(record: Any) -> Dict[str, Any]:
+    payload = _user_settings_payload(record)
+    payload["training"] = {
+        "model_training_opt_out": payload["model_training_opt_out"],
+        "note": "When enabled, generated outputs are marked as excluded from model-training datasets.",
+    }
+    return payload
 
 
 def get_database_config() -> Dict[str, Any]:

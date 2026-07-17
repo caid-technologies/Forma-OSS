@@ -19,6 +19,11 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `backend/seed_db.py` – seed component templates
 
 ## API endpoints
+- `GET /api/v1/health` – check developer API availability and auth configuration
+- `GET /api/v1/me` – verify a developer API key and inspect its server-side owner id
+- `POST /api/v1/generate` – run the generation pipeline with API-key auth for external users
+- `GET/POST/DELETE /api/user/api-keys` – manage signed-in user developer API keys
+- `GET/PUT /api/user/settings` – manage signed-in user privacy settings, including model-training opt-out
 - `POST /api/generate` – run the pipeline and return IR + diagrams
 - `POST /api/alpha-signups` – capture alpha launch interest while deployed generation is gated
 - `GET /api/a2a/capabilities` – inspect agent transports and actions
@@ -36,6 +41,114 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/projects/{project_id}` – fetch a stored project
 - `POST /api/seed` – re-seed the component database
 - `GET /api/debug/config` – inspect LLM, database, image-provider, and image-storage resolution (no secrets)
+
+## Developer API
+Use `/api/v1` when you want external users, partners, or scripts to call Blueprint without a Clerk browser session. Signed-in users can create and revoke keys from the **Settings → API Keys** manager, or directly through the management endpoint:
+
+For offline simulation checks, provider/model routing tests, and live Baseten GLM curl examples, see [Developer API Testing](./api-testing.md).
+
+```bash
+curl http://localhost:8000/api/user/api-keys \
+  -H "Authorization: Bearer <clerk_session_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "CI deploy key",
+    "scopes": ["generate:project", "read:job"],
+    "rate_limit_per_minute": 30,
+    "daily_quota": 100
+  }'
+```
+
+The full key secret is returned once. In production, managed keys are database-backed records in `user_api_keys`; the backend stores only a keyed HMAC-SHA-256 hash, prefix, owner, scopes, quota fields, status, and timestamps. Set `BLUEPRINT_API_KEY_PEPPER` before creating production keys. Rotating the pepper invalidates existing managed keys, so issue replacement keys before changing it.
+
+Env-var keys are local/bootstrap fallback credentials. They are ignored in deployed mode unless `BLUEPRINT_ALLOW_ENV_USER_API_KEYS=true` is set intentionally:
+
+```bash
+BLUEPRINT_USER_API_KEYS=docs=bp_live_replace_me,partner=bp_live_another_secret
+```
+
+Users can verify their key:
+
+```bash
+curl http://localhost:8000/api/v1/me \
+  -H "Authorization: Bearer bp_live_replace_me"
+```
+
+List available LLM providers/models for this deployment:
+
+```bash
+curl http://localhost:8000/api/v1/llms \
+  -H "Authorization: Bearer bp_live_replace_me"
+```
+
+Generate a project:
+
+```bash
+curl http://localhost:8000/api/v1/generate \
+  -H "Authorization: Bearer bp_live_replace_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A low-voltage plant watering monitor with OLED status",
+    "workflow": "default",
+    "provider": "openai",
+    "model": "gpt-4o-mini",
+    "generate_image": false
+  }'
+```
+
+The response includes `project_ir`, `schematic_svg`, `mermaid_diagram`, `project_id`, and `job_id`. Use `X-API-Key: <secret>` instead of `Authorization` if that is easier for a client environment. `/api/v1/generate` requires the `generate:project` scope, rejects revoked or expired keys, and persists usage counts for daily quota checks. Runtime `provider` and `model` values must be allowed by `LLM_ALLOWED_PROVIDERS` and the provider-specific `*_ALLOWED_MODELS` environment variables.
+
+For production clients, prefer the async job endpoint. It creates the job, returns `202 Accepted`, and lets the client poll until the job is `succeeded` or `failed`:
+
+```bash
+curl http://localhost:8000/api/v1/jobs \
+  -H "Authorization: Bearer bp_live_replace_me" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prompt": "A compact USB-C powered LED tester with a button and status indicator",
+    "workflow": "default",
+    "provider": "baseten",
+    "model": "zai-org/GLM-5.2",
+    "generate_image": false
+  }'
+```
+
+List jobs created by the calling API key:
+
+```bash
+curl "http://localhost:8000/api/v1/jobs?limit=25" \
+  -H "Authorization: Bearer bp_live_replace_me"
+```
+
+List all jobs owned by the same user across their API keys:
+
+```bash
+curl "http://localhost:8000/api/v1/jobs?scope=owner&status=succeeded" \
+  -H "Authorization: Bearer bp_live_replace_me"
+```
+
+Fetch one job, including progress events:
+
+```bash
+curl "http://localhost:8000/api/v1/jobs/job_api_replace_me" \
+  -H "Authorization: Bearer bp_live_replace_me"
+```
+
+`/api/v1/jobs` and `/api/v1/jobs/{job_id}` require the `read:job` scope. A token can read jobs created by that token or jobs whose stored `owner_user_id` matches the token owner. For globally consistent burst limits across multiple backend instances, put an API gateway, load-balancer rule, or edge rate limiter in front of `/api/v1/*`; the app-level minute limiter is only a per-process backstop.
+
+Provider credentials such as `OPENAI_API_KEY`, `GEMINI_API_KEY`, `RUNPOD_API_KEY`, and `FIRECRAWL_API_KEY` are separate from user API keys. In production, configure them through deployment secrets or a KMS-backed vault. The local file-backed provider integrations manager is disabled in deployed mode unless `BLUEPRINT_ALLOW_DEPLOYED_USER_INTEGRATIONS=true` is set with a real encrypted backing store.
+
+## User Settings
+Signed-in users can manage privacy preferences from `/settings` or with:
+
+```bash
+curl -X PUT http://localhost:8000/api/user/settings \
+  -H "Authorization: Bearer <clerk_session_jwt>" \
+  -H "Content-Type: application/json" \
+  -d '{"model_training_opt_out": true}'
+```
+
+When `model_training_opt_out` is true, new generated projects and generation jobs are marked with `assembly_metadata.model_training_opt_out=true` and `assembly_metadata.training_data_policy.allow_model_training=false`.
 
 ## Orchestration layer
 The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `blueprint_core/agents/orchestrator.py`). Live agent calls go through `blueprint_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.

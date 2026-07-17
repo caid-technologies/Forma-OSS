@@ -229,7 +229,7 @@ export default function UserIntegrationsPage() {
                 <h1 className="truncate text-lg font-black uppercase tracking-wide text-white">User Integrations</h1>
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                Local API keys and provider defaults saved outside git, then applied during backend runtime.
+                Provider credentials and runtime defaults saved outside git, then applied during backend runtime.
               </p>
             </div>
           </div>

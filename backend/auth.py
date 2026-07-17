@@ -1,8 +1,13 @@
 import base64
+import hashlib
 import json
 import os
+import secrets
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set
 from urllib import request as urllib_request
 
 import jwt
@@ -27,6 +32,16 @@ def deployed_auth_required() -> bool:
     if explicit is not None:
         return _truthy(explicit)
     return os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
+
+
+def _deployed_runtime() -> bool:
+    return deployed_auth_required() or _truthy(os.getenv("BLUEPRINT_DEPLOYMENT")) or _truthy(os.getenv("BLUEPRINT_DEPLOYMENT_MODE"))
+
+
+def env_user_api_keys_allowed() -> bool:
+    if _truthy(os.getenv("BLUEPRINT_ALLOW_ENV_USER_API_KEYS")):
+        return True
+    return not _deployed_runtime()
 
 
 def _issuer_from_publishable_key(value: Optional[str]) -> Optional[str]:
@@ -197,6 +212,164 @@ def _request_bearer_token(request: Request) -> Optional[str]:
     return normalized or None
 
 
+@dataclass(frozen=True)
+class UserApiKeyPrincipal:
+    key_id: str
+    owner_user_id: str
+    scopes: List[str]
+    rate_limit_per_minute: Optional[int] = None
+    daily_quota: Optional[int] = None
+
+
+_API_KEY_RATE_LIMIT_EVENTS: Dict[str, List[float]] = {}
+
+
+def _api_key_id(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()[:12]
+
+
+def _configured_user_api_keys() -> Dict[str, UserApiKeyPrincipal]:
+    if not env_user_api_keys_allowed():
+        return {}
+    raw = os.getenv("BLUEPRINT_USER_API_KEYS") or os.getenv("BLUEPRINT_API_KEYS") or ""
+    credentials: Dict[str, UserApiKeyPrincipal] = {}
+    for item in raw.replace("\n", ",").split(","):
+        entry = item.strip()
+        if not entry:
+            continue
+
+        label: Optional[str] = None
+        secret = entry
+        for separator in ("=", ":"):
+            if separator not in entry:
+                continue
+            candidate_label, candidate_secret = entry.split(separator, 1)
+            if candidate_label.strip() and candidate_secret.strip():
+                label = candidate_label.strip()
+                secret = candidate_secret.strip()
+                break
+
+        if not secret:
+            continue
+        key_id = label or _api_key_id(secret)
+        credentials[secret] = UserApiKeyPrincipal(key_id=key_id, owner_user_id=f"api:{key_id}", scopes=["*"])
+    return credentials
+
+
+def user_api_key_auth_configured() -> bool:
+    return bool(_configured_user_api_keys())
+
+
+def _request_user_api_key(request: Request) -> Optional[str]:
+    header_key = (
+        request.headers.get("x-blueprint-api-key")
+        or request.headers.get("x-api-key")
+    )
+    if header_key and header_key.strip():
+        return header_key.strip()
+    return _request_bearer_token(request)
+
+
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    normalized = value.strip()
+    if normalized.endswith("Z"):
+        normalized = f"{normalized[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _api_key_is_expired(value: Any) -> bool:
+    expires_at = _parse_iso_datetime(value)
+    return bool(expires_at and expires_at <= datetime.now(timezone.utc))
+
+
+def _enforce_in_memory_rate_limit(key_id: str, limit: Optional[int]) -> None:
+    if not limit or limit <= 0:
+        return
+    now = time.time()
+    window_start = now - 60.0
+    events = [event for event in _API_KEY_RATE_LIMIT_EVENTS.get(key_id, []) if event >= window_start]
+    if len(events) >= limit:
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="API key rate limit exceeded.")
+    events.append(now)
+    _API_KEY_RATE_LIMIT_EVENTS[key_id] = events
+
+
+def _database_api_key_principal(secret: str) -> Optional[UserApiKeyPrincipal]:
+    try:
+        from blueprint_core.api_keys import current_usage_date, validate_managed_api_key_hashing_config
+        from blueprint_core.database import get_user_api_key_by_secret, record_user_api_key_use
+    except Exception:
+        return None
+
+    try:
+        validate_managed_api_key_hashing_config()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)) from exc
+
+    record = get_user_api_key_by_secret(secret)
+    if not record:
+        return None
+    if getattr(record, "status", None) != "active" or getattr(record, "revoked_at", None):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key has been revoked.")
+    if _api_key_is_expired(getattr(record, "expires_at", None)):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key has expired.")
+
+    key_id = str(getattr(record, "key_id", "") or "")
+    daily_quota = getattr(record, "daily_quota", None)
+    daily_usage_count = int(getattr(record, "daily_usage_count", 0) or 0)
+    if getattr(record, "daily_usage_date", None) != current_usage_date():
+        daily_usage_count = 0
+    if daily_quota and daily_usage_count >= int(daily_quota):
+        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="API key daily quota exceeded.")
+
+    rate_limit = getattr(record, "rate_limit_per_minute", None)
+    _enforce_in_memory_rate_limit(key_id, int(rate_limit) if rate_limit else None)
+    updated = record_user_api_key_use(key_id) or record
+    return UserApiKeyPrincipal(
+        key_id=key_id,
+        owner_user_id=str(getattr(updated, "owner_user_id", "") or ""),
+        scopes=list(getattr(updated, "scopes", None) or []),
+        rate_limit_per_minute=int(rate_limit) if rate_limit else None,
+        daily_quota=int(daily_quota) if daily_quota else None,
+    )
+
+
+async def require_user_api_key(request: Request) -> UserApiKeyPrincipal:
+    credentials = _configured_user_api_keys()
+    supplied_key = _request_user_api_key(request)
+    if not supplied_key:
+        if not credentials:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="User API access is not configured. Create an API key or set BLUEPRINT_USER_API_KEYS on the backend.",
+            )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="API key required.")
+
+    database_principal = _database_api_key_principal(supplied_key)
+    if database_principal:
+        return database_principal
+
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid API key.",
+        )
+
+    for expected_key, principal in credentials.items():
+        if secrets.compare_digest(supplied_key, expected_key):
+            return principal
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid API key.")
+
+
 async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
     token = _request_bearer_token(request)
     if token:
@@ -204,6 +377,16 @@ async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, An
     if not deployed_auth_required():
         return None
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Blueprint generation.")
+
+
+async def require_deployed_user_id(request: Request) -> str:
+    auth_claims = await require_deployed_clerk_auth(request)
+    user_id = clerk_user_id(auth_claims)
+    if user_id:
+        return user_id
+    if not deployed_auth_required():
+        return "local-dev-user"
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to manage API keys.")
 
 
 async def optional_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:

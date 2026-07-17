@@ -573,6 +573,39 @@ def get_llm_runtime_debug_config() -> Dict[str, Any]:
     return resolve_llm_runtime_config().as_debug_dict()
 
 
+def get_available_llm_runtime_options() -> Dict[str, Any]:
+    """Return provider/model choices that can be safely shown to API clients."""
+    default_provider = _default_provider_name()
+    default_runtime = resolve_llm_runtime_config()
+    allowed_providers = _allowed_provider_names(default_provider) or []
+    configured_providers = set(_configured_provider_names(default_provider))
+    providers: List[Dict[str, Any]] = []
+
+    for provider in sorted(SUPPORTED_LLM_PROVIDERS):
+        if provider not in allowed_providers:
+            continue
+        default_model = _default_model_for_provider(provider)
+        models = _allowed_model_names(provider, default_model) or []
+        fallback_model = _fallback_model_for_provider(provider)
+        providers.append(
+            {
+                "id": provider,
+                "configured": provider in configured_providers,
+                "default_model": default_model,
+                "models": models,
+                "fallback_model": fallback_model,
+            }
+        )
+
+    return {
+        "default": {
+            "provider": default_runtime.provider,
+            "model": default_runtime.model,
+        },
+        "providers": providers,
+    }
+
+
 def _normalize_model_name(model_name: str) -> str:
     return model_name.strip().removeprefix("models/")
 

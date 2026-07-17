@@ -60,6 +60,7 @@ from blueprint_core.database import (
     delete_project_chat,
     get_database_config,
     get_generated_project,
+    get_user_settings,
     get_project_chat,
     init_db,
     list_project_chats,
@@ -100,8 +101,11 @@ from blueprint_core.pipeline import list_agent_pipeline_steps, observe_agent_pip
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVideoSelfCorrectionAgent
 from backend.logs_api import router as logs_router
+from backend.public_api import router as public_api_router
 from backend.streams_api import router as streams_router
+from backend.user_api_keys_api import router as user_api_keys_router
 from backend.user_integrations_api import router as user_integrations_router
+from backend.user_settings_api import router as user_settings_router
 from backend.auth import clerk_user_display_name, clerk_user_id, clerk_user_image_url, clerk_user_is_admin, deployed_auth_required, optional_deployed_clerk_auth, require_deployed_admin_auth, require_deployed_clerk_auth
 from backend.job_store import JOB_STORE
 from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
@@ -227,6 +231,9 @@ app.add_middleware(
 app.include_router(logs_router, dependencies=[Depends(require_deployed_admin_auth)])
 app.include_router(streams_router, dependencies=[Depends(require_deployed_admin_auth)])
 app.include_router(user_integrations_router)
+app.include_router(user_api_keys_router)
+app.include_router(user_settings_router)
+app.include_router(public_api_router)
 
 
 @app.middleware("http")
@@ -402,6 +409,8 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
     job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
     owner_user_id = _require_authenticated_user(_auth_claims)
+    user_settings = get_user_settings(owner_user_id)
+    model_training_opt_out = bool(getattr(user_settings, "model_training_opt_out", False))
     if request.source_project_id:
         source_project = get_generated_project(request.source_project_id)
         if not source_project:
@@ -418,6 +427,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
         "source_project_id": request.source_project_id,
         "client_job_id": request.client_job_id,
         "owner_user_id": owner_user_id,
+        "model_training_opt_out": model_training_opt_out,
         "external_source_provider": request.external_source_provider,
     }
     JOB_STORE.create_job(
@@ -447,6 +457,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
                 source_project_id=request.source_project_id,
                 frontend_job_id=job_id,
                 owner_user_id=owner_user_id,
+                model_training_opt_out=model_training_opt_out,
             )
         JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)

@@ -36,7 +36,7 @@ from blueprint_core.models import (
     ValidationIssue,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import agent_pipeline_step, emit_agent_pipeline_event
+from blueprint_core.pipeline import agent_pipeline_step, emit_agent_note_event, emit_agent_pipeline_event
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -50,6 +50,24 @@ from blueprint_core.validation import (
 
 
 logger = logging.getLogger(__name__)
+
+VISIBLE_WEB_AGENT_DECISION_NOTES = {
+    "external_research": "I am gathering source material before committing to components or wiring.",
+    "web_architect": "I am turning the source context into a sourced hardware architecture.",
+    "web_component_sourcing": "I am weighing sourced components against requirements, availability, and pin compatibility.",
+    "wiring_netlist": "I am about to connect the sourced components into safe power, ground, bus, and signal nets.",
+    "validation_repair": "I am checking the sourced circuit for electrical issues before accepting it.",
+    "mechanical_fabrication": "I am turning sourced parts and wiring into placement, enclosure, and fabrication decisions.",
+    "assembly": "I am preparing build steps grounded in the selected parts and wiring.",
+    "completeness_audit": "I am auditing the output for missing sourcing, protection, wiring, and assembly details.",
+    "package_project": "I am packaging the sourced project artifacts and validation summary.",
+}
+
+
+def _visible_web_agent_decision_note(step_id: Optional[str], schema_name: str) -> str:
+    if step_id and step_id in VISIBLE_WEB_AGENT_DECISION_NOTES:
+        return VISIBLE_WEB_AGENT_DECISION_NOTES[step_id]
+    return f"I am preparing a structured {schema_name} decision for this sourced workflow step."
 
 
 class WebProjectPlan(BaseModel):
@@ -161,6 +179,12 @@ class WebResearchHardwarePipeline:
         ) as observation:
             try:
                 if pipeline_step_id:
+                    emit_agent_note_event(
+                        self.workflow_id,
+                        pipeline_step_id,
+                        _visible_web_agent_decision_note(pipeline_step_id, schema_name),
+                        details={**provider_event_details, "phase": "before_provider_request"},
+                    )
                     emit_agent_pipeline_event(
                         self.workflow_id,
                         pipeline_step_id,
@@ -390,6 +414,17 @@ class WebResearchHardwarePipeline:
         ]
 
     def _research(self, queries: List[str]) -> ExternalSourceLibrary:
+        emit_agent_note_event(
+            self.workflow_id,
+            "external_research",
+            VISIBLE_WEB_AGENT_DECISION_NOTES["external_research"],
+            details={
+                "provider": self.research_client.provider_name,
+                "query_count": len(queries),
+                "queries": queries,
+                "phase": "before_research_request",
+            },
+        )
         emit_agent_pipeline_event(
             self.workflow_id,
             "external_research",
@@ -397,10 +432,30 @@ class WebResearchHardwarePipeline:
             details={
                 "provider": self.research_client.provider_name,
                 "query_count": len(queries),
+                "queries": queries,
                 "timeout_seconds": self.research_client.config.timeout_seconds,
             },
         )
         research = self.research_client.research(queries)
+        for index, source in enumerate(research.sources[:8], start=1):
+            metadata = source.metadata or {}
+            emit_agent_pipeline_event(
+                self.workflow_id,
+                "external_research",
+                "source_found",
+                details={
+                    "provider": source.provider or research.provider,
+                    "source_index": index,
+                    "title": source.title,
+                    "url": source.url,
+                    "domain": metadata.get("domain"),
+                    "source_type": source.source_type,
+                    "score": source.score,
+                    "relevance_reason": metadata.get("relevance_reason"),
+                    "matched_query_terms": metadata.get("matched_query_terms"),
+                    "content_preview": source.content[:360],
+                },
+            )
         emit_agent_pipeline_event(
             self.workflow_id,
             "external_research",

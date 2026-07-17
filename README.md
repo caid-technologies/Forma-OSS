@@ -211,9 +211,12 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `blueprint`.
-- `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
+- `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Supported values are `firecrawl` and `tavily`; legacy `auto` selects Firecrawl.
 - `FIRECRAWL_API_KEY` / `FIRECRAWL_MCP_COMMAND`: Enable Firecrawl MCP search and page extraction for the web research workflow.
 - `FIRECRAWL_SEARCH_LIMIT` / `FIRECRAWL_MCP_TIMEOUT_SECONDS`: Firecrawl search controls for the web research workflow.
+- `FIRECRAWL_WEBHOOK_SECRET`: Optional shared secret for `/api/webhooks/firecrawl`, used to attach Firecrawl async crawl/batch scrape page events to a Blueprint job when Firecrawl sends `metadata.blueprint_job_id`.
+- `TAVILY_API_KEY`: Enable Tavily search for the web research workflow when `EXTERNAL_SOURCE_PROVIDER=tavily`.
+- `TAVILY_SEARCH_LIMIT` / `TAVILY_SEARCH_DEPTH` / `TAVILY_TIMEOUT_SECONDS`: Tavily search controls. `TAVILY_INCLUDE_ANSWER` and `TAVILY_INCLUDE_RAW_CONTENT` control extra response context.
 - `NVIDIA_API_KEY` / `NVIDIA_BASE_URL`: NVIDIA Build/NIM configuration when `LLM_PROVIDER=nvidia` or a request uses `provider=nvidia`. `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL`: NVIDIA model slug, for example `meta/llama-3.1-8b-instruct`.
 - `RUNPOD_API_KEY` / `RUNPOD_OPENAI_BASE_URL`: Runpod OpenAI-compatible/vLLM configuration when `LLM_PROVIDER=runpod` or a request uses `provider=runpod`.

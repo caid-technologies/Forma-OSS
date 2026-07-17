@@ -57,6 +57,135 @@ def _json_loads(value: Optional[str]) -> Any:
         return value
 
 
+TERMINAL_JOB_STATUSES = {"succeeded", "failed"}
+ONGOING_JOB_STATUSES = {"queued", "accepted", "routed", "running"}
+
+
+def _humanize_step_status(status: str) -> str:
+    return status.replace("_", " ").strip().lower() or "working"
+
+
+def _event_label(event: Dict[str, Any]) -> str:
+    return str(event.get("label") or event.get("step_id") or "the current step")
+
+
+def _event_agent(event: Dict[str, Any]) -> str:
+    return str(event.get("agent") or event.get("step_id") or "Blueprint Agent")
+
+
+def _thinking_summary_for_event(event: Optional[Dict[str, Any]], job_status: str, error: Optional[str]) -> str:
+    if not event:
+        if job_status == "succeeded":
+            return "The job completed successfully."
+        if job_status == "failed":
+            return f"The job failed: {error}" if error else "The job failed."
+        if job_status in {"queued", "accepted"}:
+            return "The job is queued and waiting to start."
+        if job_status == "routed":
+            return "The job has been routed and is waiting for an agent to run it."
+        if job_status == "running":
+            return "The job is running, but no agent progress events have been recorded yet."
+        return f"The job is {job_status or 'pending'}."
+
+    status = str(event.get("status") or "")
+    details = event.get("details") if isinstance(event.get("details"), dict) else {}
+    agent = _event_agent(event)
+    label = _event_label(event)
+    provider = details.get("provider")
+    model = details.get("actual_model") or details.get("model")
+    schema = details.get("schema")
+
+    if status == "agent_note":
+        note = details.get("note")
+        return str(note) if note else f"{agent} is preparing {label}."
+    if status == "provider_request_started":
+        target = "/".join(str(value) for value in (provider, model) if value)
+        schema_text = f" for {schema}" if schema else ""
+        provider_text = f" from {target}" if target else ""
+        return f"{agent} is waiting for a structured model response{schema_text}{provider_text}."
+    if status == "provider_response_received":
+        schema_text = f" {schema}" if schema else ""
+        return f"{agent} received{schema_text} model output and is continuing {label}."
+    if status == "provider_request_failed":
+        reason = details.get("error") or "provider request failed"
+        return f"{agent} hit a provider error during {label}: {reason}"
+    if status == "source_found":
+        title = details.get("title") or details.get("url") or "a source"
+        reason = details.get("relevance_reason")
+        return f"{agent} found {title}. {reason}" if reason else f"{agent} found {title}."
+    if status == "started":
+        return f"{agent} is working on {label}."
+    if status == "completed":
+        return f"{agent} completed {label}."
+    if status == "failed":
+        reason = details.get("error") or error or "step failed"
+        return f"{agent} failed while working on {label}: {reason}"
+    if status == "skipped":
+        reason = details.get("reason")
+        return f"{agent} skipped {label}: {reason}" if reason else f"{agent} skipped {label}."
+
+    return f"{agent} reported {_humanize_step_status(status)} on {label}."
+
+
+def build_job_runtime_object(job: Dict[str, Any]) -> Dict[str, Any]:
+    """Return public, derived job runtime state from stored metadata and progress events."""
+    status = str(job.get("status") or "unknown")
+    progress_events = [event for event in (job.get("progress_events") or []) if isinstance(event, dict)]
+    last_event = progress_events[-1] if progress_events else None
+    error = job.get("error")
+    is_terminal = status in TERMINAL_JOB_STATUSES
+    is_ongoing = status in ONGOING_JOB_STATUSES
+    outcome = "successful" if status == "succeeded" else "failed" if status == "failed" else "ongoing" if is_ongoing else status
+    completed_steps = {
+        str(event.get("step_id"))
+        for event in progress_events
+        if event.get("step_id") and event.get("status") in {"completed", "skipped"}
+    }
+    failed_steps = {
+        str(event.get("step_id"))
+        for event in progress_events
+        if event.get("step_id") and event.get("status") in {"failed", "provider_request_failed"}
+    }
+
+    current_step_id = str(last_event.get("step_id")) if last_event and last_event.get("step_id") else None
+    current_agent = _event_agent(last_event) if last_event else None
+    current_status = str(last_event.get("status")) if last_event and last_event.get("status") else status
+    updated_at = (last_event or {}).get("observed_at") or job.get("updated_at")
+    thinking_summary = _thinking_summary_for_event(last_event, status, error)
+    recent_events = progress_events[-5:]
+
+    return {
+        "job_id": job.get("job_id"),
+        "status": status,
+        "state": "complete" if status == "succeeded" else "failed" if status == "failed" else "ongoing" if is_ongoing else status,
+        "outcome": outcome,
+        "successful": status == "succeeded",
+        "failed": status == "failed",
+        "ongoing": is_ongoing,
+        "terminal": is_terminal,
+        "current_agent": current_agent,
+        "current_step_id": current_step_id,
+        "current_step_label": _event_label(last_event) if last_event else None,
+        "current_status": current_status,
+        "started_at": job.get("started_at"),
+        "completed_at": job.get("completed_at"),
+        "updated_at": updated_at,
+        "thinking": {
+            "summary": thinking_summary,
+            "updated_at": updated_at,
+            "source": "pipeline_progress_events" if last_event else "job_status",
+            "last_event": last_event,
+            "recent_events": recent_events,
+        },
+        "progress": {
+            "event_count": len(progress_events),
+            "completed_steps": sorted(completed_steps),
+            "failed_steps": sorted(failed_steps),
+            "last_event": last_event,
+        },
+    }
+
+
 def _redact_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     redacted = dict(payload or {})
     if redacted.get("image_data"):
@@ -577,6 +706,8 @@ class JobMetadataStore:
             result_summary=result_summary,
             current={"source_usage": source_usage},
         )
+        result["runtime"] = build_job_runtime_object(result)
+        result["agent_thinking"] = result["runtime"]["thinking"]["summary"]
         return result
 
 

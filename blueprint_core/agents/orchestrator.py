@@ -24,7 +24,7 @@ from blueprint_core.llm import (
     resolve_llm_runtime_config,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import agent_pipeline_step, emit_agent_pipeline_event
+from blueprint_core.pipeline import agent_pipeline_step, current_agent_pipeline_step_id, emit_agent_note_event, emit_agent_pipeline_event
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -40,6 +40,23 @@ from blueprint_core.models import (
 from blueprint_core.validation import validate_circuit, check_safety_violations, build_validation_summary
 
 logger = logging.getLogger(__name__)
+
+VISIBLE_AGENT_DECISION_NOTES = {
+    "intent_parser": "I am turning the request into a project identity before choosing parts or wiring.",
+    "requirements": "I am extracting operating needs, constraints, and missing information so later agents have a stable brief.",
+    "component_selection": "I am comparing the requirements against the available component catalog and preparing a compatible parts decision.",
+    "wiring_netlist": "I am about to draft the electrical connections, checking power rails, grounds, buses, and pin usage.",
+    "validation_repair": "I am checking whether the generated circuit has shorts, voltage mismatches, or reused pins before accepting it.",
+    "mechanical_fabrication": "I am translating the electronics into enclosure, placement, and fabrication decisions.",
+    "assembly": "I am converting the selected parts, wiring, and enclosure into buildable assembly steps.",
+    "package_project": "I am packaging the generated artifacts and validation summary into the final project object.",
+}
+
+
+def _visible_agent_decision_note(step_id: Optional[str], schema_name: str) -> str:
+    if step_id and step_id in VISIBLE_AGENT_DECISION_NOTES:
+        return VISIBLE_AGENT_DECISION_NOTES[step_id]
+    return f"I am preparing a structured {schema_name} decision for this step."
 
 PLACEHOLDER_TEXT_VALUES = {
     "",
@@ -594,6 +611,15 @@ class HardwarePipelineOrchestrator:
             "has_reference_image": bool(image_bytes),
             "image_mime_type": image_mime_type,
         }
+        pipeline_step_id = current_agent_pipeline_step_id()
+        provider_event_details = {
+            "provider": self.llm_provider.provider_name,
+            "model": self.llm_provider.model_name,
+            "runtime_provider": self.runtime_config.provider,
+            "runtime_model": self.runtime_config.model,
+            "schema": schema_name,
+            "has_reference_image": bool(image_bytes),
+        }
         with start_observation(
             name=f"blueprint.default.{schema_name}",
             as_type="generation",
@@ -607,6 +633,19 @@ class HardwarePipelineOrchestrator:
             metadata=metadata,
         ) as observation:
             try:
+                if pipeline_step_id:
+                    emit_agent_note_event(
+                        "default",
+                        pipeline_step_id,
+                        _visible_agent_decision_note(pipeline_step_id, schema_name),
+                        details={**provider_event_details, "phase": "before_provider_request"},
+                    )
+                    emit_agent_pipeline_event(
+                        "default",
+                        pipeline_step_id,
+                        "provider_request_started",
+                        details=provider_event_details,
+                    )
                 result = self.llm_provider.generate_structured(prompt, schema_class, image_bytes, image_mime_type)
                 self.model_name = self.llm_provider.model_name
                 update_observation(
@@ -614,8 +653,26 @@ class HardwarePipelineOrchestrator:
                     output=serialize_for_langfuse(result),
                     metadata={**metadata, "actual_model": self.model_name},
                 )
+                if pipeline_step_id:
+                    emit_agent_pipeline_event(
+                        "default",
+                        pipeline_step_id,
+                        "provider_response_received",
+                        details={**provider_event_details, "actual_model": self.model_name},
+                    )
                 return result
             except Exception as e:
+                if pipeline_step_id:
+                    emit_agent_pipeline_event(
+                        "default",
+                        pipeline_step_id,
+                        "provider_request_failed",
+                        details={
+                            **provider_event_details,
+                            "error_type": e.__class__.__name__,
+                            "error": str(e)[:500],
+                        },
+                    )
                 update_observation(
                     observation,
                     metadata={**metadata, "error_type": e.__class__.__name__, "error": str(e)[:1000]},

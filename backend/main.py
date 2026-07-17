@@ -102,6 +102,7 @@ from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVid
 from backend.logs_api import router as logs_router
 from backend.streams_api import router as streams_router
 from backend.user_integrations_api import router as user_integrations_router
+from backend.firecrawl_webhooks_api import router as firecrawl_webhooks_router
 from backend.auth import clerk_user_display_name, clerk_user_id, clerk_user_image_url, clerk_user_is_admin, deployed_auth_required, optional_deployed_clerk_auth, require_deployed_admin_auth, require_deployed_clerk_auth
 from backend.job_store import JOB_STORE
 from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
@@ -227,6 +228,7 @@ app.add_middleware(
 app.include_router(logs_router, dependencies=[Depends(require_deployed_admin_auth)])
 app.include_router(streams_router, dependencies=[Depends(require_deployed_admin_auth)])
 app.include_router(user_integrations_router)
+app.include_router(firecrawl_webhooks_router)
 
 
 @app.middleware("http")

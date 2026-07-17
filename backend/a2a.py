@@ -1041,7 +1041,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     "generate_image": {"type": "boolean", "default": False},
                     "external_source_provider": {
                         "type": "string",
-                        "enum": ["firecrawl"],
+                        "enum": ["firecrawl", "tavily"],
                         "description": "Optional provider for web_research workflow.",
                     },
                 },

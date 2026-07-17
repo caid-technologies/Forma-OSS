@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import contextvars
+import time
 from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Iterator, List, Optional
@@ -40,6 +41,10 @@ class AgentPipelineEvent:
 PipelineEventCallback = Callable[[AgentPipelineEvent], None]
 _PIPELINE_EVENT_CALLBACK: contextvars.ContextVar[Optional[PipelineEventCallback]] = contextvars.ContextVar(
     "blueprint_pipeline_event_callback",
+    default=None,
+)
+_CURRENT_PIPELINE_STEP: contextvars.ContextVar[Optional[str]] = contextvars.ContextVar(
+    "blueprint_current_pipeline_step",
     default=None,
 )
 
@@ -243,6 +248,10 @@ def pipeline_step_metadata(workflow: Optional[str], step_id: str) -> Optional[di
     return None
 
 
+def current_agent_pipeline_step_id() -> Optional[str]:
+    return _CURRENT_PIPELINE_STEP.get()
+
+
 def emit_agent_pipeline_event(
     workflow: Optional[str],
     step_id: str,
@@ -274,6 +283,24 @@ def emit_agent_pipeline_event(
     return event
 
 
+def emit_agent_note_event(
+    workflow: Optional[str],
+    step_id: str,
+    note: str,
+    *,
+    details: Optional[dict[str, Any]] = None,
+) -> Optional[AgentPipelineEvent]:
+    stripped_note = str(note or "").strip()
+    if not stripped_note:
+        return None
+    return emit_agent_pipeline_event(
+        workflow,
+        step_id,
+        "agent_note",
+        details={**(details or {}), "note": stripped_note},
+    )
+
+
 @contextlib.contextmanager
 def observe_agent_pipeline(callback: PipelineEventCallback) -> Iterator[None]:
     token = _PIPELINE_EVENT_CALLBACK.set(callback)
@@ -291,15 +318,31 @@ def agent_pipeline_step(
     details: Optional[dict[str, Any]] = None,
 ) -> Iterator[None]:
     emit_agent_pipeline_event(workflow, step_id, "started", details=details)
+    token = _CURRENT_PIPELINE_STEP.set(step_id)
+    started_at = time.perf_counter()
     try:
         yield
     except Exception as exc:
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000)
         emit_agent_pipeline_event(
             workflow,
             step_id,
             "failed",
-            details={**(details or {}), "error_type": exc.__class__.__name__, "error": str(exc)[:500]},
+            details={
+                **(details or {}),
+                "duration_ms": elapsed_ms,
+                "error_type": exc.__class__.__name__,
+                "error": str(exc)[:500],
+            },
         )
         raise
     else:
-        emit_agent_pipeline_event(workflow, step_id, "completed", details=details)
+        elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+        emit_agent_pipeline_event(
+            workflow,
+            step_id,
+            "completed",
+            details={**(details or {}), "duration_ms": elapsed_ms},
+        )
+    finally:
+        _CURRENT_PIPELINE_STEP.reset(token)

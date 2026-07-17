@@ -56,6 +56,8 @@ import {
   Clock3,
   Wifi,
   WifiOff,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
@@ -66,7 +68,8 @@ const DEFAULT_SHOW_DEVELOPER_TOOLS =
   isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEV_MODE);
 const DEFAULT_WORKFLOW_ID = "default";
 const WEB_RESEARCH_WORKFLOW_ID = "web_research";
-const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
+const WEB_RESEARCH_EXTERNAL_SOURCE_PROVIDER = "tavily";
+const WEB_RESEARCH_EXTERNAL_SOURCE_LABEL = "Tavily";
 const JOB_POLL_INTERVAL_MS = 5000;
 const ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS = 1200;
 const PIPELINE_UI_HEARTBEAT_MS = 5000;
@@ -155,7 +158,7 @@ type PendingHumanContext = {
 
 const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
   { id: DEFAULT_WORKFLOW_ID, label: "Catalog", description: "Catalog workflow", uses_catalog: true },
-  { id: WEB_RESEARCH_WORKFLOW_ID, label: "Web Research", description: "Firecrawl research workflow", uses_web_research: true, uses_firecrawl_mcp: true, uses_external_sources: true },
+  { id: WEB_RESEARCH_WORKFLOW_ID, label: "Web Research", description: "External source research workflow", uses_web_research: true, uses_firecrawl_mcp: true, uses_external_sources: true },
 ];
 
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
@@ -554,6 +557,16 @@ function isFailedPipelineStatus(status: any) {
 function isCompletedPipelineStatus(status: any) {
   const normalized = String(status || "").toLowerCase();
   return normalized === "completed" || normalized === "provider_response_received";
+}
+
+function latestAgentNote(events: AgentPipelineEvent[] | undefined) {
+  const normalizedEvents = normalizeAgentPipelineEvents(events);
+  return [...normalizedEvents].reverse().find((event) => event.status === "agent_note" && event.details?.note) || null;
+}
+
+function latestSourceFoundEvent(events: AgentPipelineEvent[] | undefined) {
+  const normalizedEvents = normalizeAgentPipelineEvents(events);
+  return [...normalizedEvents].reverse().find((event) => event.status === "source_found" && event.details) || null;
 }
 
 function failedPipelineEvent(events: AgentPipelineEvent[] | undefined) {
@@ -1399,6 +1412,8 @@ type A2AJob = {
   progress_events?: AgentPipelineEvent[];
   error?: string | null;
   error_debug?: Record<string, any> | null;
+  runtime?: Record<string, any> | null;
+  agent_thinking?: string | null;
 };
 
 type BackendLogs = {
@@ -3783,9 +3798,9 @@ export function BlueprintWorkspace({
     const userMessageId = newChatMessageId();
     const assistantMessageId = newChatMessageId();
     const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
+    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? WEB_RESEARCH_EXTERNAL_SOURCE_PROVIDER : null;
     const workflowLabel = selectedGenerationWorkflow?.label || generationWorkflow;
-    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
+    const providerSuffix = externalSourceProviderForRequest ? ` via ${WEB_RESEARCH_EXTERNAL_SOURCE_LABEL}` : "";
     const loadingMessage = `Running ${workflowLabel}${providerSuffix} with ${selectedGenerationLlm.label}.`;
     let progressPollId: number | null = null;
     const syncProgressFromJob = async () => {
@@ -4070,8 +4085,8 @@ export function BlueprintWorkspace({
       status: "idle",
     });
     const frontendJobId = newFrontendJobId();
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
-    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
+    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? WEB_RESEARCH_EXTERNAL_SOURCE_PROVIDER : null;
+    const providerSuffix = externalSourceProviderForRequest ? ` via ${WEB_RESEARCH_EXTERNAL_SOURCE_LABEL}` : "";
     const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
     const assistantMessageId = appendThreadMessage(sourceChatId, {
       role: "assistant",
@@ -5424,7 +5439,7 @@ export function BlueprintWorkspace({
                       </button>
                       <label
                         className="inline-flex h-10 cursor-pointer items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white sm:justify-start"
-                        title="Use Firecrawl web research"
+                        title={`Use ${WEB_RESEARCH_EXTERNAL_SOURCE_LABEL} web research`}
                       >
                         <input
                           type="checkbox"
@@ -8128,6 +8143,10 @@ function AgentPipelineProgressView({
   const steps = progress.steps.length ? progress.steps : defaultAgentPipelineSteps;
   const events = normalizeAgentPipelineEvents(progress.events);
   const lastEvent = latestPipelineEvent(events);
+  const agentNote = latestAgentNote(events);
+  const sourceEvent = latestSourceFoundEvent(events);
+  const sourceDetails = sourceEvent?.details || {};
+  const sourceProviderLabel = formatExternalProviderLabel(sourceDetails.provider);
   const activeStep = activePipelineStep({ ...progress, steps });
   const activeStepId = activeStep?.id || null;
   const nowMs = Date.now();
@@ -8192,6 +8211,25 @@ function AgentPipelineProgressView({
           <div className="mt-1 truncate text-[11px] font-bold text-cyan-200">{activeStep?.agent || "Blueprint runtime"}</div>
           {activeStep?.description && !compact && (
             <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{activeStep.description}</div>
+          )}
+          {agentNote && (
+            <div className="mt-2 border border-cyan-400/20 bg-cyan-950/15 p-2 text-[11px] leading-4 text-cyan-100">
+              <div className="text-[10px] font-black uppercase text-cyan-300">Visible working note</div>
+              <div className="mt-1 break-words text-slate-300">{String(agentNote.details?.note)}</div>
+            </div>
+          )}
+          {sourceEvent && (
+            <div className="mt-2 border border-emerald-400/20 bg-emerald-950/10 p-2 text-[11px] leading-4 text-slate-300">
+              <div className="flex min-w-0 items-center gap-1.5 text-[10px] font-black uppercase text-emerald-300">
+                <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                <span>{sourceProviderLabel ? `Latest ${sourceProviderLabel} source` : "Latest web source"}</span>
+              </div>
+              <div className="mt-1 truncate font-black text-emerald-100">{String(sourceDetails.title || sourceDetails.url || "Source")}</div>
+              {sourceDetails.domain && <div className="mt-1 truncate font-mono text-[10px] text-emerald-300">{String(sourceDetails.domain)}</div>}
+              {sourceDetails.relevance_reason && !compact && (
+                <div className="mt-1 line-clamp-3 text-slate-400">{String(sourceDetails.relevance_reason)}</div>
+              )}
+            </div>
           )}
           {lastEvent && (
             <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase text-slate-500">
@@ -8365,13 +8403,28 @@ function LogsPanel({
   pollIntervalMs?: number;
   compact?: boolean;
 }) {
+  const [fullscreen, setFullscreen] = useState(false);
   const lines = Array.isArray(logs?.lines) ? logs.lines : [];
   const visibleLines = compact ? lines.slice(-10) : lines;
   const enabled = logs?.enabled !== false;
   const message = logs?.message || (enabled ? null : "Backend logging is not enabled.");
+  const terminalHeightClass = fullscreen
+    ? "h-[calc(100vh-210px)] min-h-0"
+    : compact
+      ? "max-h-[260px]"
+      : "h-[calc(100%-132px)] min-h-[360px]";
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullscreen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [fullscreen]);
 
   return (
-    <div className={`min-w-0 overflow-x-hidden ${compact ? "border border-[#2c2f37] bg-[#17181d] p-4" : "h-full min-h-0 overflow-hidden bg-[#141519] p-4 sm:p-6"}`}>
+    <div className={`min-w-0 overflow-x-hidden ${fullscreen ? "fixed inset-0 z-50 flex flex-col bg-[#0b0c10] p-4 sm:p-6" : compact ? "border border-[#2c2f37] bg-[#17181d] p-4" : "h-full min-h-0 overflow-hidden bg-[#141519] p-4 sm:p-6"}`}>
       <div className={`${compact ? "mb-3 pb-3" : "mb-4 pb-4"} flex items-start justify-between gap-4 border-b border-[#2a2c33]`}>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -8387,18 +8440,29 @@ function LogsPanel({
             <p className="mt-1 text-[11px] leading-5 text-slate-600">Updated {formatJobTime(lastUpdatedAt)}</p>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onRefresh}
-          className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black"
-          title="Refresh logs"
-          aria-label="Refresh logs"
-        >
-          <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setFullscreen((value) => !value)}
+            className="flex h-10 w-10 items-center justify-center border border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black"
+            title={fullscreen ? "Exit full screen" : "Full screen terminal"}
+            aria-label={fullscreen ? "Exit full screen terminal" : "Open full screen terminal"}
+          >
+            {fullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </button>
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="flex h-10 w-10 items-center justify-center border border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black"
+            title="Refresh logs"
+            aria-label="Refresh logs"
+          >
+            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
       </div>
 
-      {!compact && (
+      {(!compact || fullscreen) && (
         <div className="mb-3 grid gap-2 text-[11px] sm:grid-cols-4">
           <JobMetric label="File" value={logs?.path || "-"} />
           <JobMetric label="Size" value={formatBytes(Number(logs?.size_bytes || 0))} />
@@ -8421,7 +8485,7 @@ function LogsPanel({
         </div>
       )}
 
-      <div className={`${compact ? "max-h-[260px]" : "h-[calc(100%-132px)] min-h-[360px]"} overflow-auto border border-[#25272e] bg-black p-3`}>
+      <div className={`${terminalHeightClass} overflow-auto border border-[#25272e] bg-black p-3`}>
         {visibleLines.length ? (
           <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-5 text-slate-300">
             {visibleLines.join("\n")}
@@ -8588,6 +8652,9 @@ function JobRow({
   const isOpenable = hasChatTarget || hasProjectTarget;
   const imageStatusLabel = formatJobImageStatus(summary);
   const operations = getJobOperations(summary);
+  const runtimeThinking = getJobRuntimeThinking(job);
+  const runtime = job.runtime || {};
+  const currentAgent = runtime.current_agent || runtime.current_step_label || "";
 
   return (
     <article className={`border border-[#2a2c33] bg-[#141519] ${compact ? "p-3" : "p-4"}`}>
@@ -8626,6 +8693,18 @@ function JobRow({
           {hasChatTarget ? "Open chat" : "Open"}
         </button>
       </div>
+
+      {runtimeThinking && (
+        <div className="mt-4 flex min-w-0 items-start gap-2 border border-cyan-400/20 bg-cyan-950/10 p-3 text-xs leading-5 text-cyan-100">
+          <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+          <div className="min-w-0">
+            <div className="truncate text-[10px] font-black uppercase text-cyan-300">
+              {currentAgent ? `Agent runtime: ${currentAgent}` : "Agent runtime"}
+            </div>
+            <div className="mt-1 break-words text-slate-300">{runtimeThinking}</div>
+          </div>
+        </div>
+      )}
 
       {!compact && (
         <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
@@ -8684,6 +8763,29 @@ function getJobOperations(summary: Record<string, any>) {
   return Array.isArray(summary.operation_statuses)
     ? summary.operation_statuses.filter((operation: any) => operation && typeof operation === "object")
     : [];
+}
+
+function getJobRuntimeThinking(job: A2AJob) {
+  const runtimeSummary = job.runtime?.thinking?.summary || job.agent_thinking;
+  if (runtimeSummary) return String(runtimeSummary);
+
+  const events = normalizeAgentPipelineEvents(job.progress_events || []);
+  const noteEvent = latestAgentNote(events);
+  if (noteEvent?.details?.note) return String(noteEvent.details.note);
+
+  const lastEvent = events[events.length - 1];
+  if (lastEvent) {
+    const agent = lastEvent.agent || lastEvent.step_id || "Blueprint Agent";
+    const label = lastEvent.label || lastEvent.step_id || "the current step";
+    const status = String(lastEvent.status || "working").replace(/_/g, " ");
+    return `${agent} is ${status} on ${label}.`;
+  }
+
+  if (job.status === "succeeded") return "The job completed successfully.";
+  if (job.status === "failed") return job.error ? `The job failed: ${job.error}` : "The job failed.";
+  if (job.status === "queued" || job.status === "accepted") return "The job is queued and waiting to start.";
+  if (job.status === "running") return "The job is running.";
+  return "";
 }
 
 function firstString(...values: any[]) {
@@ -8746,6 +8848,7 @@ function JobPipelineEventList({
   const normalizedEvents = normalizeAgentPipelineEvents(events);
   if (!normalizedEvents.length) return null;
   const visibleEvents = compact ? normalizedEvents.slice(-3) : normalizedEvents.slice(-12);
+  const sourceEvents = normalizedEvents.filter((event) => event.status === "source_found").slice(compact ? -2 : -6);
   const jobIsTerminal = isTerminalJobStatus(jobStatus);
 
   return (
@@ -8769,6 +8872,26 @@ function JobPipelineEventList({
           );
         })}
       </div>
+      {sourceEvents.length > 0 && (
+        <div className={`${compact ? "mt-2" : "mt-3"} grid gap-2 ${compact ? "" : "md:grid-cols-2"}`}>
+          {sourceEvents.map((event, index) => {
+            const details = event.details || {};
+            const title = details.title || details.url || "Web source";
+            const domain = details.domain || "";
+            const reason = details.relevance_reason || "";
+            return (
+              <div key={`${details.url || title}-${event.observed_at || index}`} className="min-w-0 border border-cyan-400/20 bg-cyan-950/10 p-2 text-[11px] leading-4 text-slate-300">
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+                  <span className="truncate font-black text-cyan-100">{String(title)}</span>
+                </div>
+                {domain && <div className="mt-1 truncate font-mono text-[10px] text-cyan-300">{String(domain)}</div>}
+                {reason && !compact && <div className="mt-1 line-clamp-3 text-slate-400">{String(reason)}</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -8862,6 +8985,13 @@ function normalizeJobSourceUsage(value: any) {
 function formatSourceUsageLabel(sourceUsage: Record<string, any>) {
   const labels = Array.isArray(sourceUsage.source_labels) ? sourceUsage.source_labels : [];
   return labels.length ? labels.join(" + ") : "-";
+}
+
+function formatExternalProviderLabel(provider: any) {
+  const normalized = typeof provider === "string" ? provider.trim().toLowerCase() : "";
+  if (normalized === "tavily") return "Tavily";
+  if (normalized === "firecrawl") return "Firecrawl";
+  return normalized ? normalized.replace(/(^|[\s_-])\w/g, (match) => match.toUpperCase()) : "";
 }
 
 function formatJobImageStatus(summary: Record<string, any>) {

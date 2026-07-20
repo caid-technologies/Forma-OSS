@@ -71,6 +71,12 @@ SQLITE_DATABASE_URL=sqlite:///./blueprint.db
 # Deployment-only alpha gate
 # BLUEPRINT_DEPLOYMENT=true
 
+# Stripe prepaid credits
+# STRIPE_SECRET_KEY=sk_test_your_key_here
+# STRIPE_WEBHOOK_SECRET=whsec_your_webhook_secret_here
+# BLUEPRINT_APP_URL=http://localhost:3000
+# BLUEPRINT_CREDIT_PACKAGES_JSON=[{"package_id":"starter","name":"Starter credit pack","credits":100,"unit_amount_cents":1000,"currency":"usd"}]
+
 # Live LLM generation
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here

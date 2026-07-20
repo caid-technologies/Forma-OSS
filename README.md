@@ -169,6 +169,10 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
 - `BLUEPRINT_DEPLOYMENT`: When `true`, deployed builds without a live LLM show generated examples plus an alpha signup form instead of running generation.
+- `STRIPE_SECRET_KEY`: Backend-only Stripe secret key used to create prepaid credit Checkout Sessions.
+- `STRIPE_WEBHOOK_SECRET`: Stripe webhook signing secret for `/api/user/billing/stripe/webhook`; required before successful payments can credit accounts.
+- `BLUEPRINT_APP_URL`: Public frontend origin used for Stripe Checkout success/cancel redirects. Defaults to Vercel URL env vars or `http://localhost:3000`.
+- `BLUEPRINT_CREDIT_PACKAGES_JSON`: Optional JSON array overriding the default prepaid packs. Each item supports `package_id`, `name`, `credits`, `unit_amount_cents`, and `currency`.
 - `LLM_PROVIDER`: Live generation provider: `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_ALLOWED_PROVIDERS`: Optional comma-separated allowlist for per-request provider overrides.
 - `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.

@@ -101,6 +101,7 @@ from blueprint_core.pipeline import list_agent_pipeline_steps, observe_agent_pip
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVideoSelfCorrectionAgent
 from backend.logs_api import router as logs_router
+from backend.billing_api import router as billing_router
 from backend.public_api import router as public_api_router
 from backend.streams_api import router as streams_router
 from backend.user_api_keys_api import router as user_api_keys_router
@@ -233,6 +234,7 @@ app.include_router(streams_router, dependencies=[Depends(require_deployed_admin_
 app.include_router(user_integrations_router)
 app.include_router(user_api_keys_router)
 app.include_router(user_settings_router)
+app.include_router(billing_router)
 app.include_router(public_api_router)
 
 

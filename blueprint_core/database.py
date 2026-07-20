@@ -134,6 +134,31 @@ class DBUserSettings(Base):
     updated_at = Column(String, nullable=False)
 
 
+class DBUserCreditBalance(Base):
+    __tablename__ = "user_credit_balances"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_user_id = Column(String, unique=True, index=True, nullable=False)
+    credit_balance = Column(Integer, nullable=False, default=0)
+    stripe_customer_id = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
+class DBUserCreditTransaction(Base):
+    __tablename__ = "user_credit_transactions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_user_id = Column(String, index=True, nullable=False)
+    credit_delta = Column(Integer, nullable=False)
+    balance_after = Column(Integer, nullable=False)
+    source = Column(String, index=True, nullable=False)
+    stripe_checkout_session_id = Column(String, unique=True, index=True, nullable=True)
+    stripe_payment_intent_id = Column(String, nullable=True)
+    metadata_json = Column(JSON, nullable=False, default=dict)
+    created_at = Column(String, nullable=False)
+
+
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     value = os.getenv(name)
     if value is None:
@@ -377,6 +402,8 @@ def _verify_supabase_tables() -> None:
     client.table("alpha_signups").select("id").limit(1).execute()
     client.table("user_api_keys").select("key_id").limit(1).execute()
     client.table("user_settings").select("owner_user_id").limit(1).execute()
+    client.table("user_credit_balances").select("owner_user_id").limit(1).execute()
+    client.table("user_credit_transactions").select("id").limit(1).execute()
 
 
 def init_db() -> None:
@@ -416,6 +443,10 @@ def _migrate_sqlite_schema() -> None:
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_keys_owner_user_id ON user_api_keys (owner_user_id)"))
         connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_api_keys_status ON user_api_keys (status)"))
         connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_user_settings_owner_user_id ON user_settings (owner_user_id)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_user_credit_balances_owner_user_id ON user_credit_balances (owner_user_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_credit_transactions_owner_user_id ON user_credit_transactions (owner_user_id)"))
+        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_user_credit_transactions_source ON user_credit_transactions (source)"))
+        connection.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_user_credit_transactions_stripe_checkout_session_id ON user_credit_transactions (stripe_checkout_session_id)"))
 
 
 def get_db():
@@ -1361,6 +1392,228 @@ def user_settings_public_payload(record: Any) -> Dict[str, Any]:
         "note": "When enabled, generated outputs are marked as excluded from model-training datasets.",
     }
     return payload
+
+
+def _default_user_credit_balance(owner_user_id: str) -> Any:
+    now = utc_now_iso()
+    return _as_record(
+        {
+            "owner_user_id": owner_user_id,
+            "credit_balance": 0,
+            "stripe_customer_id": None,
+            "created_at": now,
+            "updated_at": now,
+        }
+    )
+
+
+def get_user_credit_balance(owner_user_id: str) -> Any:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_credit_balances")
+            .select("*")
+            .eq("owner_user_id", normalized_owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _as_record(rows[0]) if rows else _default_user_credit_balance(normalized_owner_user_id)
+
+    db = _sqlite_session()
+    try:
+        balance = (
+            db.query(DBUserCreditBalance)
+            .filter(DBUserCreditBalance.owner_user_id == normalized_owner_user_id)
+            .first()
+        )
+        return balance or _default_user_credit_balance(normalized_owner_user_id)
+    finally:
+        db.close()
+
+
+def user_credit_balance_public_payload(record: Any) -> Dict[str, Any]:
+    return {
+        "owner_user_id": getattr(record, "owner_user_id", None),
+        "credit_balance": int(getattr(record, "credit_balance", 0) or 0),
+        "stripe_customer_id": getattr(record, "stripe_customer_id", None),
+        "created_at": getattr(record, "created_at", None),
+        "updated_at": getattr(record, "updated_at", None),
+    }
+
+
+def get_user_credit_transaction_by_checkout_session(stripe_checkout_session_id: str) -> Optional[Any]:
+    normalized_session_id = str(stripe_checkout_session_id or "").strip()
+    if not normalized_session_id:
+        return None
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_credit_transactions")
+            .select("*")
+            .eq("stripe_checkout_session_id", normalized_session_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _as_record(rows[0]) if rows else None
+    db = _sqlite_session()
+    try:
+        return (
+            db.query(DBUserCreditTransaction)
+            .filter(DBUserCreditTransaction.stripe_checkout_session_id == normalized_session_id)
+            .first()
+        )
+    finally:
+        db.close()
+
+
+def add_user_credits(
+    owner_user_id: str,
+    *,
+    credit_delta: int,
+    source: str,
+    stripe_checkout_session_id: Optional[str] = None,
+    stripe_payment_intent_id: Optional[str] = None,
+    stripe_customer_id: Optional[str] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+) -> Any:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    delta = int(credit_delta or 0)
+    if delta <= 0:
+        raise ValueError("credit_delta must be positive.")
+    normalized_source = str(source or "").strip() or "manual"
+    normalized_session_id = str(stripe_checkout_session_id or "").strip() or None
+    if normalized_session_id:
+        existing_transaction = get_user_credit_transaction_by_checkout_session(normalized_session_id)
+        if existing_transaction:
+            return existing_transaction
+    now = utc_now_iso()
+
+    if DATABASE_BACKEND == "supabase":
+        client = get_supabase_client()
+        balance = get_user_credit_balance(normalized_owner_user_id)
+        new_balance = int(getattr(balance, "credit_balance", 0) or 0) + delta
+        existing_row = getattr(balance, "id", None) is not None
+        balance_record = {
+            "owner_user_id": normalized_owner_user_id,
+            "credit_balance": new_balance,
+            "stripe_customer_id": stripe_customer_id or getattr(balance, "stripe_customer_id", None),
+            "created_at": getattr(balance, "created_at", None) or now,
+            "updated_at": now,
+        }
+        if existing_row:
+            client.table("user_credit_balances").update(balance_record).eq("owner_user_id", normalized_owner_user_id).execute()
+        else:
+            client.table("user_credit_balances").insert(balance_record).execute()
+        transaction_record = {
+            "owner_user_id": normalized_owner_user_id,
+            "credit_delta": delta,
+            "balance_after": new_balance,
+            "source": normalized_source,
+            "stripe_checkout_session_id": normalized_session_id,
+            "stripe_payment_intent_id": str(stripe_payment_intent_id or "").strip() or None,
+            "metadata_json": metadata or {},
+            "created_at": now,
+        }
+        try:
+            response = client.table("user_credit_transactions").insert(transaction_record).execute()
+            rows = response.data or []
+            return _as_record(rows[0]) if rows else _as_record(transaction_record)
+        except Exception as exc:
+            if normalized_session_id and "duplicate" in str(exc).lower():
+                existing_transaction = get_user_credit_transaction_by_checkout_session(normalized_session_id)
+                if existing_transaction:
+                    return existing_transaction
+            raise
+
+    db = _sqlite_session()
+    try:
+        if normalized_session_id:
+            existing = (
+                db.query(DBUserCreditTransaction)
+                .filter(DBUserCreditTransaction.stripe_checkout_session_id == normalized_session_id)
+                .first()
+            )
+            if existing:
+                return existing
+        balance = (
+            db.query(DBUserCreditBalance)
+            .filter(DBUserCreditBalance.owner_user_id == normalized_owner_user_id)
+            .first()
+        )
+        if balance:
+            balance.credit_balance = int(balance.credit_balance or 0) + delta
+            if stripe_customer_id:
+                balance.stripe_customer_id = stripe_customer_id
+            balance.updated_at = now
+        else:
+            balance = DBUserCreditBalance(
+                owner_user_id=normalized_owner_user_id,
+                credit_balance=delta,
+                stripe_customer_id=stripe_customer_id,
+                created_at=now,
+                updated_at=now,
+            )
+            db.add(balance)
+            db.flush()
+        transaction = DBUserCreditTransaction(
+            owner_user_id=normalized_owner_user_id,
+            credit_delta=delta,
+            balance_after=int(balance.credit_balance or 0),
+            source=normalized_source,
+            stripe_checkout_session_id=normalized_session_id,
+            stripe_payment_intent_id=str(stripe_payment_intent_id or "").strip() or None,
+            metadata_json=metadata or {},
+            created_at=now,
+        )
+        db.add(transaction)
+        db.commit()
+        db.refresh(transaction)
+        return transaction
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
+def list_user_credit_transactions(owner_user_id: str, *, limit: int = 20) -> List[Any]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        return []
+    safe_limit = max(1, min(int(limit or 20), 100))
+    if DATABASE_BACKEND == "supabase":
+        rows = (
+            get_supabase_client()
+            .table("user_credit_transactions")
+            .select("*")
+            .eq("owner_user_id", normalized_owner_user_id)
+            .order("created_at", desc=True)
+            .limit(safe_limit)
+            .execute()
+            .data
+            or []
+        )
+        return [_as_record(row) for row in rows]
+    db = _sqlite_session()
+    try:
+        return (
+            db.query(DBUserCreditTransaction)
+            .filter(DBUserCreditTransaction.owner_user_id == normalized_owner_user_id)
+            .order_by(DBUserCreditTransaction.created_at.desc())
+            .limit(safe_limit)
+            .all()
+        )
+    finally:
+        db.close()
 
 
 def get_database_config() -> Dict[str, Any]:

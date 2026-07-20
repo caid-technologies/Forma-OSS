@@ -11,6 +11,7 @@ import {
   CheckCircle,
   Clock3,
   Copy,
+  CreditCard,
   KeyRound,
   ListChecks,
   Plus,
@@ -57,6 +58,32 @@ type ApiKeysPayload = {
   created_key?: ApiKeyRecord;
 };
 
+type CreditPackage = {
+  package_id: string;
+  name: string;
+  credits: number;
+  unit_amount_cents: number;
+  currency: string;
+};
+
+type CreditTransaction = {
+  id: number | null;
+  credit_delta: number;
+  balance_after: number;
+  source: string;
+  stripe_checkout_session_id: string | null;
+  created_at: string;
+  metadata: Record<string, unknown>;
+};
+
+type CreditsPayload = {
+  owner_user_id: string;
+  credit_balance: number;
+  updated_at: string | null;
+  packages: CreditPackage[];
+  transactions: CreditTransaction[];
+};
+
 function normalizeApiUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) return "/api";
@@ -68,6 +95,13 @@ function formatTimestamp(value: string | null | undefined) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString();
+}
+
+function formatMoney(cents: number, currency: string) {
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency || "usd",
+  }).format((cents || 0) / 100);
 }
 
 async function apiErrorMessage(response: Response, fallback: string) {
@@ -176,11 +210,13 @@ export default function SettingsPage() {
   const { getToken, isSignedIn } = useAuth();
   const [settings, setSettings] = useState<UserSettingsPayload | null>(null);
   const [apiKeys, setApiKeys] = useState<ApiKeysPayload | null>(null);
+  const [credits, setCredits] = useState<CreditsPayload | null>(null);
   const [newKeyName, setNewKeyName] = useState("Default API key");
   const [newKeySecret, setNewKeySecret] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [creatingKey, setCreatingKey] = useState(false);
+  const [checkoutPackageId, setCheckoutPackageId] = useState<string | null>(null);
   const [revokingKeyId, setRevokingKeyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -196,12 +232,15 @@ export default function SettingsPage() {
     setError(null);
     try {
       const headers = await authHeaders();
-      const [settingsResponse, keysResponse] = await Promise.all([
+      const [creditsResponse, settingsResponse, keysResponse] = await Promise.all([
+        fetch(`${API_URL}/user/billing/credits`, { cache: "no-store", headers }),
         fetch(`${API_URL}/user/settings`, { cache: "no-store", headers }),
         fetch(`${API_URL}/user/api-keys`, { cache: "no-store", headers }),
       ]);
+      if (!creditsResponse.ok) throw new Error(await apiErrorMessage(creditsResponse, "Failed to load credits."));
       if (!settingsResponse.ok) throw new Error(await apiErrorMessage(settingsResponse, "Failed to load settings."));
       if (!keysResponse.ok) throw new Error(await apiErrorMessage(keysResponse, "Failed to load API keys."));
+      setCredits((await creditsResponse.json()) as CreditsPayload);
       setSettings((await settingsResponse.json()) as UserSettingsPayload);
       setApiKeys((await keysResponse.json()) as ApiKeysPayload);
     } catch (err) {
@@ -285,6 +324,32 @@ export default function SettingsPage() {
     }
   }
 
+  async function startCheckout(packageId: string) {
+    setCheckoutPackageId(packageId);
+    setError(null);
+    setNotice(null);
+    try {
+      const headers = await authHeaders();
+      const response = await fetch(`${API_URL}/user/billing/checkout-sessions`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          package_id: packageId,
+          quantity: 1,
+          success_url: `${window.location.origin}/settings?credits=success`,
+          cancel_url: `${window.location.origin}/settings?credits=cancelled`,
+        }),
+      });
+      if (!response.ok) throw new Error(await apiErrorMessage(response, "Failed to start Stripe Checkout."));
+      const data = (await response.json()) as { checkout_url?: string };
+      if (!data.checkout_url) throw new Error("Stripe did not return a Checkout URL.");
+      window.location.href = data.checkout_url;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start Stripe Checkout.");
+      setCheckoutPackageId(null);
+    }
+  }
+
   async function copySecret(value: string) {
     await navigator.clipboard.writeText(value);
     setNotice("API key copied.");
@@ -345,6 +410,68 @@ export default function SettingsPage() {
               <p className="mt-2">{notice}</p>
             </div>
           )}
+
+          <article className="border border-[#2c2f37] bg-[#17181d]">
+            <div className="flex flex-col gap-4 border-b border-[#2c2f37] p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <div className="flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
+                  <CreditCard className="h-4 w-4 text-cyan-300" />
+                  Credits
+                </div>
+                <p className="mt-2 text-xs leading-5 text-slate-500">
+                  Current balance: <span className="font-mono text-cyan-200">{credits?.credit_balance ?? 0}</span>
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={loadSettings}
+                disabled={loading}
+                className="inline-flex h-10 shrink-0 items-center justify-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
+              >
+                <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
+            <div className="grid gap-4 p-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                {(credits?.packages || []).map((pack) => (
+                  <div key={pack.package_id} className="border border-[#2c2f37] bg-[#141519] p-4">
+                    <div className="text-xs font-black uppercase tracking-wide text-white">{pack.name}</div>
+                    <div className="mt-3 font-mono text-2xl font-black text-cyan-200">{pack.credits}</div>
+                    <p className="mt-1 text-xs uppercase tracking-wide text-slate-500">credits</p>
+                    <p className="mt-3 text-sm font-black text-white">{formatMoney(pack.unit_amount_cents, pack.currency)}</p>
+                    <button
+                      type="button"
+                      onClick={() => startCheckout(pack.package_id)}
+                      disabled={Boolean(checkoutPackageId)}
+                      className="mt-4 inline-flex h-10 w-full items-center justify-center gap-2 bg-white px-3 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
+                    >
+                      <CreditCard className="h-4 w-4" />
+                      {checkoutPackageId === pack.package_id ? "Opening" : "Buy"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {credits?.transactions.length ? (
+                <div className="border border-[#2c2f37]">
+                  {credits.transactions.map((transaction) => (
+                    <div key={`${transaction.source}-${transaction.created_at}-${transaction.credit_delta}`} className="flex flex-col gap-2 border-b border-[#2c2f37] p-3 last:border-b-0 md:flex-row md:items-center md:justify-between">
+                      <div className="min-w-0">
+                        <div className="text-xs font-black uppercase tracking-wide text-white">+{transaction.credit_delta} credits</div>
+                        <p className="mt-1 break-all font-mono text-[11px] text-slate-500">{transaction.source} · {transaction.stripe_checkout_session_id || "manual"}</p>
+                      </div>
+                      <div className="text-xs text-slate-500 md:text-right">
+                        <div>{formatTimestamp(transaction.created_at)}</div>
+                        <div className="mt-1 font-mono">balance {transaction.balance_after}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="border border-[#2c2f37] p-4 text-sm text-slate-500">No credit activity yet.</div>
+              )}
+            </div>
+          </article>
 
           <article className="border border-[#2c2f37] bg-[#17181d]">
             <div className="border-b border-[#2c2f37] p-5">

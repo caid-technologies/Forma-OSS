@@ -9,3 +9,4 @@ python-dotenv>=1.0.1
 json-repair>=0.30.0
 sqlalchemy==2.0.31
 supabase==2.31.0
+stripe>=13.0.0

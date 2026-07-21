@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark configured Blueprint LLM providers and models."""
+"""Benchmark configured Forma LLM providers and models."""
 
 from __future__ import annotations
 
@@ -163,7 +163,7 @@ class BenchmarkJobSink:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Benchmark configured Blueprint LLM provider/model pairs.")
+    parser = argparse.ArgumentParser(description="Benchmark configured Forma LLM provider/model pairs.")
     parser.add_argument("prompt", nargs="?", default=sample.DEFAULT_PROMPT, help="Prompt to send in live mode.")
     parser.add_argument("--env-file", default=sample.DEFAULT_ENV_FILE, help=f"Dotenv file to load. Defaults to {sample.DEFAULT_ENV_FILE}.")
     parser.add_argument("--llm", action="append", type=sample.parse_llm_selector, help="Specific provider/model selector. Can be repeated.")
@@ -195,7 +195,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-path-prefix", default="blueprint", help="Path prefix inside the Hugging Face repo. Defaults to blueprint.")
     parser.add_argument("--hf-private", action="store_true", help="Create the Hugging Face repo as private when it does not exist.")
     parser.add_argument("--hf-no-create-repo", action="store_true", help="Do not create the Hugging Face repo before uploading.")
-    parser.add_argument("--hf-commit-message", default="Upload Blueprint model benchmark artifacts", help="Commit message for Hugging Face uploads.")
+    parser.add_argument("--hf-commit-message", default="Upload Forma model benchmark artifacts", help="Commit message for Hugging Face uploads.")
     return parser
 
 

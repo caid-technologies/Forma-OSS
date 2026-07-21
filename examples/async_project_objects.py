@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create Blueprint project objects with Ollama, Runpod, Baseten, GMI, and Hugging Face, concurrently."""
+"""Create Forma project objects with Ollama, Runpod, Baseten, GMI, and Hugging Face, concurrently."""
 
 from __future__ import annotations
 
@@ -235,7 +235,7 @@ def save_combined_summary(results: list[ProviderProcessResult], *, output_dir: P
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Create Blueprint project objects with Ollama, Runpod, Baseten, GMI, and Hugging Face concurrently.")
+    parser = argparse.ArgumentParser(description="Create Forma project objects with Ollama, Runpod, Baseten, GMI, and Hugging Face concurrently.")
     parser.add_argument("prompt", nargs="?", default=DEFAULT_PROMPT, help="Project prompt to generate.")
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE, help=f"Dotenv file to load. Defaults to {DEFAULT_ENV_FILE}.")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=f"Directory for JSON output. Defaults to {DEFAULT_OUTPUT_DIR}.")

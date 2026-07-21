@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run continuous Blueprint agents over a local Spacebase-style JSONL stream."""
+"""Run continuous Forma agents over a local Spacebase-style JSONL stream."""
 
 from __future__ import annotations
 

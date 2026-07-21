@@ -97,7 +97,7 @@ if is_port_open "$BACKEND_PORT"; then
     log "Backend already appears to be running at http://$BACKEND_HOST:$BACKEND_PORT"
     log "Backend logs are controlled by the existing backend process."
   else
-    log "Port $BACKEND_PORT is already in use, but Blueprint did not respond there."
+    log "Port $BACKEND_PORT is already in use, but Forma did not respond there."
     exit 1
   fi
 else
@@ -119,7 +119,7 @@ wait_for_url "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Frontend"
 
 cat <<EOF
 
-Blueprint is running:
+Forma is running:
   Backend:  http://$BACKEND_HOST:$BACKEND_PORT
   Frontend: http://$FRONTEND_HOST:$FRONTEND_PORT
 

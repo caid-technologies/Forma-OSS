@@ -1,6 +1,6 @@
 # Agent-To-Agent (A2A)
 
-Blueprint exposes the same hardware generation capability through several agent-friendly transports.
+Forma exposes the same hardware generation capability through several agent-friendly transports.
 
 ## Transports
 - **REST:** `GET /api/a2a/capabilities`, `PUT /api/a2a/agents/{agent_id}`, `POST /api/a2a/messages`, long-poll `GET /api/a2a/agents/{agent_id}/events`, and job metadata lookup under `GET /api/a2a/jobs`
@@ -8,7 +8,7 @@ Blueprint exposes the same hardware generation capability through several agent-
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
 - **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
 
-Job metadata is persisted through `JOB_METADATA_BACKEND` (default: `auto`). In `auto`, Blueprint stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite at `JOB_METADATA_DB_PATH` (default: `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite, even if Supabase credentials are configured. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, or both.
+Job metadata is persisted through `JOB_METADATA_BACKEND` (default: `auto`). In `auto`, Forma stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite at `JOB_METADATA_DB_PATH` (default: `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite, even if Supabase credentials are configured. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, or both.
 
 ## Message Shape
 ```json

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Fabricator CLI using Blueprint for LLM and MCP integration.
+"""Fabricator CLI using Forma for LLM and MCP integration.
 
 Generate a local plan:
     python -m fabricator plan --material "cellulose acetate offcuts"
 
-Generate through the configured Blueprint LLM provider:
+Generate through the configured Forma LLM provider:
     python -m fabricator plan --live --provider runpod --material "cellulose acetate offcuts"
 
-Inspect Blueprint MCP tools:
+Inspect Forma MCP tools:
     python -m fabricator mcp-tools
 """
 
@@ -126,9 +126,9 @@ def build_question(args: argparse.Namespace) -> FabricatorQuestion:
 
 def build_prompt(question: FabricatorQuestion) -> str:
     return (
-        "You are Fabricator, a Blueprint-powered fabrication planning assistant. "
+        "You are Fabricator, a Forma-powered fabrication planning assistant. "
         "Given available primitive materials, propose high-level product families, "
-        "candidate workflows, and device or software systems that Blueprint MCP may need to interface with. "
+        "candidate workflows, and device or software systems that Forma MCP may need to interface with. "
         "Keep the plan conceptual and review-oriented. Do not provide hazardous, regulated, or executable wet-lab protocols.\n\n"
         "User question:\n"
         f"We have excess {question.inventory.amount} of {question.inventory.material} "
@@ -248,7 +248,7 @@ def local_heuristic_plan(question: FabricatorQuestion) -> FabricatorPlan:
         question=question,
         interpretation=(
             "Treat the surplus primitive as an inventory and capability-discovery problem: first identify safe "
-            "product families, then ask Blueprint MCP which tools, devices, and external systems can support each route."
+            "product families, then ask Forma MCP which tools, devices, and external systems can support each route."
         ),
         candidate_workflows=[
             CandidateWorkflow(
@@ -279,7 +279,7 @@ def local_heuristic_plan(question: FabricatorQuestion) -> FabricatorPlan:
         recommended_clarifying_questions=[
             "What product category matters most: packaging, filtration, insulation, lab consumables, or device parts?",
             "Do these primitives have contamination, sterility, allergen, or regulatory constraints?",
-            "Which devices are actually connected to Blueprint MCP today?",
+            "Which devices are actually connected to Forma MCP today?",
         ],
         blueprint_mcp_handoff=mcp_handoff_requests(),
     )
@@ -291,13 +291,13 @@ def generate_live_plan(args: argparse.Namespace, question: FabricatorQuestion) -
     debug_config = validation.as_debug_dict()
     warnings: list[str] = []
     if not validation.live_generation_enabled:
-        warnings.append(f"Blueprint live LLM is unavailable: {validation.validation_error}")
+        warnings.append(f"Forma live LLM is unavailable: {validation.validation_error}")
         return local_heuristic_plan(question), debug_config, warnings
 
     try:
         plan = provider.generate_structured(build_prompt(question), FabricatorPlan)
     except Exception as exc:
-        warnings.append(f"Blueprint live LLM failed; using local heuristic plan: {exc}")
+        warnings.append(f"Forma live LLM failed; using local heuristic plan: {exc}")
         return local_heuristic_plan(question), debug_config, warnings
 
     if not plan.blueprint_mcp_handoff:
@@ -337,7 +337,7 @@ def fabricator_lattice_card() -> LatticeAgentCard:
         domain="fabrication planning from primitive material inputs",
         summary=(
             "A domain agent for turning surplus materials, constraints, and equipment access into conceptual "
-            "fabrication workflows, missing-data questions, and Blueprint MCP handoff actions."
+            "fabrication workflows, missing-data questions, and Forma MCP handoff actions."
         ),
         capabilities=[
             LatticeCapability(
@@ -371,7 +371,7 @@ def fabricator_lattice_card() -> LatticeAgentCard:
         ],
         contracts=[planning_contract],
         runtime_boundary=(
-            "Fabricator owns fabrication-domain reasoning and schema shape; Blueprint owns model routing, MCP/tool "
+            "Fabricator owns fabrication-domain reasoning and schema shape; Forma owns model routing, MCP/tool "
             "execution, logging, validation, and provider configuration."
         ),
         tools_needed=[
@@ -406,7 +406,7 @@ def fabricator_lattice_card() -> LatticeAgentCard:
             "unknown contamination or traceability",
         ],
         tags=["domain-agent", "fabrication", "materials", "mcp", "schema-contract"],
-        metadata={"runtime": "Blueprint", "layer": "Lattice"},
+        metadata={"runtime": "Forma", "layer": "Lattice"},
     )
 
 
@@ -418,8 +418,8 @@ def call_in_process_mcp(payload: dict[str, Any] | list[dict[str, Any]]) -> Any:
         if venv_python.exists() and Path(sys.executable).absolute() != venv_python.absolute():
             return call_in_process_mcp_with_python(venv_python, payload)
         raise RuntimeError(
-            "Blueprint backend dependencies are unavailable. Run backend dependency setup or pass --mcp-url "
-            "to a running Blueprint server."
+            "Forma backend dependencies are unavailable. Run backend dependency setup or pass --mcp-url "
+            "to a running Forma server."
         ) from exc
 
     return asyncio.run(handle_mcp_json_rpc(payload))
@@ -451,7 +451,7 @@ print(json.dumps(result))
     )
     if completed.returncode != 0:
         message = completed.stderr.strip() or completed.stdout.strip() or "unknown subprocess error"
-        raise RuntimeError(f"Blueprint in-process MCP failed under {python_path}: {message}")
+        raise RuntimeError(f"Forma in-process MCP failed under {python_path}: {message}")
     return json.loads(completed.stdout)
 
 
@@ -470,9 +470,9 @@ def post_mcp_json_rpc(mcp_url: str, payload: dict[str, Any] | list[dict[str, Any
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.URLError as exc:
         reason = getattr(exc, "reason", exc)
-        raise RuntimeError(f"Could not reach Blueprint MCP server at {mcp_url}: {reason}") from exc
+        raise RuntimeError(f"Could not reach Forma MCP server at {mcp_url}: {reason}") from exc
     except ValueError as exc:
-        raise RuntimeError(f"Invalid Blueprint MCP URL {mcp_url!r}: {exc}") from exc
+        raise RuntimeError(f"Invalid Forma MCP URL {mcp_url!r}: {exc}") from exc
 
 
 def add_question_arguments(parser: argparse.ArgumentParser) -> None:
@@ -485,16 +485,16 @@ def add_question_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def add_model_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--provider", default=None, help="Blueprint LLM provider override, such as runpod or openai.")
-    parser.add_argument("--model", default=None, help="Blueprint LLM model override.")
-    parser.add_argument("--live", action="store_true", help="Use Blueprint's configured LLM provider instead of the dry-run sample.")
+    parser.add_argument("--provider", default=None, help="Forma LLM provider override, such as runpod or openai.")
+    parser.add_argument("--model", default=None, help="Forma LLM model override.")
+    parser.add_argument("--live", action="store_true", help="Use Forma's configured LLM provider instead of the dry-run sample.")
 
 
 def add_mcp_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--mcp-url",
         default=DEFAULT_MCP_URL,
-        help="Blueprint MCP endpoint URL, or 'in-process' to use Blueprint's handler directly.",
+        help="Forma MCP endpoint URL, or 'in-process' to use Forma's handler directly.",
     )
 
 
@@ -506,7 +506,7 @@ def add_output_arguments(parser: argparse.ArgumentParser) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="fabricator",
-        description="Fabricator fabrication-planning CLI backed by Blueprint.",
+        description="Fabricator fabrication-planning CLI backed by Forma.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -520,12 +520,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--list-mcp-tools",
         dest="include_mcp_tools",
         action="store_true",
-        help="Include Blueprint MCP tool discovery in the plan output.",
+        help="Include Forma MCP tool discovery in the plan output.",
     )
     plan_parser.add_argument(
         "--print-prompt",
         action="store_true",
-        help="Print the prompt that would be sent to Blueprint's LLM layer.",
+        help="Print the prompt that would be sent to Forma's LLM layer.",
     )
 
     prompt_parser = subparsers.add_parser("prompt", help="Print the model prompt for a fabrication question.")
@@ -533,7 +533,7 @@ def build_parser() -> argparse.ArgumentParser:
     prompt_parser.add_argument("--output", help="Write the prompt to this file path.")
     prompt_parser.add_argument("--quiet", action="store_true", help="Do not print the prompt to stdout when --output is set.")
 
-    tools_parser = subparsers.add_parser("mcp-tools", help="List tools exposed by Blueprint MCP.")
+    tools_parser = subparsers.add_parser("mcp-tools", help="List tools exposed by Forma MCP.")
     add_mcp_arguments(tools_parser)
     add_output_arguments(tools_parser)
 

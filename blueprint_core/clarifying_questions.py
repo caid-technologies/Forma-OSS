@@ -164,7 +164,7 @@ class ContextClarifierAgent:
 
         first_label = "Reference Image" if has_image and not prompt else "Use Case"
         first_question = (
-            "What should Blueprint infer from the attached reference image?"
+            "What should Forma infer from the attached reference image?"
             if has_image and not prompt
             else "Who uses it, and where does it operate?"
         )
@@ -191,7 +191,7 @@ class ContextClarifierAgent:
             ClarifyingQuestion(
                 id="outputs",
                 label="Artifacts",
-                question="What should Blueprint optimize in the first version?",
+                question="What should Forma optimize in the first version?",
                 placeholder="Example: wiring accuracy, mechanical concept, product images, validation, BOM...",
                 suggestions=["Wiring accuracy", "Mechanical design", "Product images"],
             ),

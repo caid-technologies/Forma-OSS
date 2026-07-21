@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run a Blueprint job and render the dashboard/3D view back into the terminal."""
+"""Run a Forma job and render the dashboard/3D view back into the terminal."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 # Roadmap
 
-Blueprint OSS is an MVP and research prototype. This roadmap separates **current capabilities** from **future ideas**.
+Forma OSS is an MVP and research prototype. This roadmap separates **current capabilities** from **future ideas**.
 
 ## Current MVP
 - Prompt-to-IR pipeline with sequential agents

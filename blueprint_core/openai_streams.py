@@ -25,7 +25,7 @@ DEFAULT_BASETEN_STREAM_MODEL = "zai-org/GLM-5.2"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_GMI_STREAM_MODEL = "anthropic/claude-fable-5"
 DEFAULT_OPENAI_COMPATIBLE_CHAT_TEMPERATURE = 0.2
-DEFAULT_HTTP_USER_AGENT = "Blueprint-OSS/0.1"
+DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
 
 def http_user_agent() -> str:

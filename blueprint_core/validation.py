@@ -13,13 +13,13 @@ def check_safety_violations(prompt: str) -> Optional[str]:
     weapon_keywords = ["weapon", "gun", "firearm", "missile", "explosive", "grenade", "bomb", "defense system", "tactical military", "ammunition", "artillery", "pistol"]
     for word in weapon_keywords:
         if word in prompt_lower:
-            return f"Safety Block: Weapons-related projects ('{word}') are strictly blocked. Blueprint only supports educational, hobbyist, and safe IoT hardware prototypes."
+            return f"Safety Block: Weapons-related projects ('{word}') are strictly blocked. Forma only supports educational, hobbyist, and safe IoT hardware prototypes."
             
     # 2. Medical Devices
     medical_keywords = ["medical", "pacemaker", "ventilator", "life support", "implant", "clinical health", "surgical", "life-support", "dialysis", "biomedical"]
     for word in medical_keywords:
         if word in prompt_lower:
-            return f"Safety Block: Critical medical or life-support devices ('{word}') are strictly blocked. Blueprint only generates low-voltage educational prototypes and does not compile medical grade electronics."
+            return f"Safety Block: Critical medical or life-support devices ('{word}') are strictly blocked. Forma only generates low-voltage educational prototypes and does not compile medical grade electronics."
 
     # 3. Automotive Systems
     automotive_keywords = ["automotive", "car system", "ecu control", "engine control", "vehicle safety", "brake control", "can-bus car", "throttle control", "autopilot car"]

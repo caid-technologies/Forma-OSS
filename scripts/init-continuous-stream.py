@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a local Blueprint continuous-agent stream."""
+"""Initialize a local Forma continuous-agent stream."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--spacebase-root", type=Path, default=ROOT_DIR / ".spacebase")
     parser.add_argument("--stream-id", default="llama-cpp-local")
-    parser.add_argument("--initial-prompt", default="Generate a precise Blueprint project output.")
+    parser.add_argument("--initial-prompt", default="Generate a precise Forma project output.")
     parser.add_argument("--seed-text", default=None, help="Append one sample event after initialization.")
     parser.add_argument("--reset", action="store_true", help="Clear stream events, agent outputs, and state before initializing.")
     return parser.parse_args(argv)

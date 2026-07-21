@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append an LLM job object to a Blueprint continuous stream queue."""
+"""Append an LLM job object to a Forma continuous stream queue."""
 
 from __future__ import annotations
 

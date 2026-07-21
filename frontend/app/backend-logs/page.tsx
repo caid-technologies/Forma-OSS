@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
-import BlueprintWorkspace from "../blueprint-workspace";
+import FormaWorkspace from "../blueprint-workspace";
 import { showDeveloperTools } from "../../lib/server-feature-flags";
 
 export default function BackendLogsPage() {
   if (!showDeveloperTools()) notFound();
-  return <BlueprintWorkspace homeView="logs" showDeveloperTools={true} />;
+  return <FormaWorkspace homeView="logs" showDeveloperTools={true} />;
 }

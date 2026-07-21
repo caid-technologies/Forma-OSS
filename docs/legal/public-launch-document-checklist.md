@@ -1,6 +1,6 @@
 # Public Launch Document Checklist
 
-This checklist tracks document and policy work before Blueprint is published as a public-facing hosted application.
+This checklist tracks document and policy work before Forma is published as a public-facing hosted application.
 
 ## Required Document Review
 

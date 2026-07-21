@@ -18,7 +18,7 @@ pub fn draw(frame: &mut Frame, app: &ChatApp) {
 
     let title = Paragraph::new(vec![Line::from(vec![
         Span::styled(
-            "Blueprint TUI",
+            "Forma TUI",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -133,7 +133,7 @@ pub fn draw(frame: &mut Frame, app: &ChatApp) {
     master_lines = top_window(master_lines, master_height, app.architect_scroll);
     let master =
         Paragraph::new(master_lines).block(Block::default().borders(Borders::ALL).title(format!(
-            "Blueprint Architect{}",
+            "Forma Architect{}",
             scroll_title_marker(app.scroll_focus == ScrollFocus::Architect)
         )));
     frame.render_widget(master, side[0]);

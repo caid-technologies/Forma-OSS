@@ -8,12 +8,12 @@ from blueprint_core.agents.workflows import (
     normalize_workflow_id,
 )
 from blueprint_core.iteration import ProjectIterator, ProjectSelfCorrectionAgent, iterate_project
-from blueprint_core.project_objects import BlueprintProjectObject, build_project_object, list_project_namespaces
+from blueprint_core.project_objects import FormaProjectObject, build_project_object, list_project_namespaces
 from blueprint_core.video_prompts import VIDEO_PROMPT_NAMESPACES, generate_image_to_video_prompt_from_namespaces
 
 __all__ = [
     "HardwarePipelineOrchestrator",
-    "BlueprintProjectObject",
+    "FormaProjectObject",
     "ProjectIterator",
     "ProjectSelfCorrectionAgent",
     "VIDEO_PROMPT_NAMESPACES",

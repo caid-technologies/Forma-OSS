@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test configured Blueprint LLM providers and runtime model selectors."""
+"""Smoke-test configured Forma LLM providers and runtime model selectors."""
 
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def dedupe_candidates(candidates: list[LlmCandidate]) -> list[LlmCandidate]:
 
 def smoke_prompt(candidate: LlmCandidate, expected_message: str) -> str:
     return (
-        "Blueprint LLM provider smoke test.\n"
+        "Forma LLM provider smoke test.\n"
         f"Provider selector: {candidate.provider}\n"
         f"Model selector: {candidate.model}\n"
         "Return only valid JSON. Set ok to true. "
@@ -259,7 +259,7 @@ def save_report(report: dict[str, Any], *, output_dir: str, output_file: str | N
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Verify configured Blueprint LLM providers with a tiny structured JSON smoke prompt."
+        description="Verify configured Forma LLM providers with a tiny structured JSON smoke prompt."
     )
     parser.add_argument("--env-file", default=DEFAULT_ENV_FILE, help=f"Dotenv file to load. Defaults to {DEFAULT_ENV_FILE}.")
     parser.add_argument(

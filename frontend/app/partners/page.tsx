@@ -6,8 +6,8 @@ import PartnerLogoMarquee from "../../components/partner-logo-marquee";
 import { partners } from "../../lib/partners";
 
 export const metadata: Metadata = {
-  title: "Partners | Blueprint",
-  description: "Blueprint partners and infrastructure collaborators.",
+  title: "Partners | Forma",
+  description: "Forma partners and infrastructure collaborators.",
 };
 
 export default function PartnersPage() {
@@ -19,7 +19,7 @@ export default function PartnersPage() {
           className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black"
         >
           <ArrowLeft className="h-4 w-4" />
-          Blueprint
+          Forma
         </Link>
         <div className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400">
           <Handshake className="h-4 w-4 text-cyan-300" />
@@ -29,7 +29,7 @@ export default function PartnersPage() {
 
       <section className="mx-auto grid w-full max-w-6xl gap-8 py-12 lg:grid-cols-[0.8fr_1.2fr] lg:items-end">
         <div>
-          <p className="text-sm font-medium text-slate-500">Blueprint network</p>
+          <p className="text-sm font-medium text-slate-500">Forma network</p>
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-white sm:text-6xl">Partners</h1>
         </div>
         <p className="max-w-2xl text-base leading-7 text-slate-400 lg:justify-self-end">

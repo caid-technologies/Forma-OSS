@@ -63,7 +63,7 @@ def request(
     data = None
     headers = {
         "Accept": "application/json, text/event-stream",
-        "User-Agent": "Blueprint-OSS/contra-mcp-verifier",
+        "User-Agent": "Forma-OSS/contra-mcp-verifier",
     }
     if body is not None:
         data = json.dumps(body).encode("utf-8")

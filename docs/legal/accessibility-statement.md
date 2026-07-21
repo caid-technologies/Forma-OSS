@@ -5,7 +5,7 @@ Publication note: This is a draft template. Replace bracketed placeholders and h
 Last updated: July 8, 2026  
 Effective date: [EFFECTIVE DATE]
 
-Blueprint is committed to making the Service accessible and usable for as many people as possible.
+Forma is committed to making the Service accessible and usable for as many people as possible.
 
 ## 1. Standard
 
@@ -13,7 +13,7 @@ Our goal is to substantially conform to the Web Content Accessibility Guidelines
 
 ## 2. Ongoing Work
 
-Blueprint is an evolving product. We intend to improve accessibility through design reviews, semantic markup, keyboard navigation, color contrast checks, responsive layouts, alternative text, clear focus states, and testing with assistive technologies.
+Forma is an evolving product. We intend to improve accessibility through design reviews, semantic markup, keyboard navigation, color contrast checks, responsive layouts, alternative text, clear focus states, and testing with assistive technologies.
 
 ## 3. Known Limitations
 

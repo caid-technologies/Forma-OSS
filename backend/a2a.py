@@ -181,7 +181,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
 
     return {
         "agent_id": BLUEPRINT_AGENT_ID,
-        "name": "Blueprint OSS Hardware Compiler",
+        "name": "Forma OSS Hardware Compiler",
         "transports": {
             "rest": {
                 "capabilities": "/api/a2a/capabilities",
@@ -704,7 +704,7 @@ def _persist_updated_project_ir(
         title = (
             getattr(getattr(ir, "overview", None), "title", None)
             or (prompt_text or "").strip()
-            or "Untitled Blueprint Project"
+            or "Untitled Forma Project"
         )
         created_at = metadata.get("created_at") if isinstance(metadata.get("created_at"), str) else _utc_now()
         save_generated_project(
@@ -947,7 +947,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
     if action == "a2a.ping" or normalized == "ping":
         return {"pong": True, "server_time": _utc_now()}
 
-    raise ValueError(f"Unsupported Blueprint A2A action: {action}")
+    raise ValueError(f"Unsupported Forma A2A action: {action}")
 
 
 def _is_server_message(message: A2AMessage) -> bool:
@@ -1161,7 +1161,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
     return [
         {
             "name": "blueprint.generate_project",
-            "description": "Generate a Blueprint Hardware IR package, Mermaid diagram, and SVG schematic.",
+            "description": "Generate a Forma Hardware IR package, Mermaid diagram, and SVG schematic.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1189,7 +1189,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "blueprint.validate_circuit",
-            "description": "Validate a list of components and nets against Blueprint electrical rules.",
+            "description": "Validate a list of components and nets against Forma electrical rules.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1201,7 +1201,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "blueprint.a2a.send_message",
-            "description": "Send an A2A message through the Blueprint in-memory broker.",
+            "description": "Send an A2A message through the Forma in-memory broker.",
             "inputSchema": {"type": "object", "properties": A2AMessage.model_json_schema()["properties"]},
         },
         {
@@ -1240,7 +1240,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "blueprint.lattice.list_agents",
-            "description": "List Lattice domain-agent cards registered with Blueprint.",
+            "description": "List Lattice domain-agent cards registered with Forma.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

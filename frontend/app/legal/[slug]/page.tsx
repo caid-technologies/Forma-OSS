@@ -24,7 +24,7 @@ export function generateMetadata({ params }: LegalDocumentPageProps): Metadata {
   const document = getLegalDocument(params.slug);
   if (!document) return {};
   return {
-    title: `${document.title} | Blueprint`,
+    title: `${document.title} | Forma`,
     description: document.summary,
   };
 }

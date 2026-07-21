@@ -1,4 +1,4 @@
-# Blueprint Rust Integration
+# Forma Rust Integration
 
 This workspace is for low-level and streaming integrations that should not live
 inside the Python API process.
@@ -8,7 +8,7 @@ Current crate:
 - `blueprint-edge`: a small JSONL event emitter/listener process with an MCP
   stdio server for agent-facing source control.
 
-The boundary between Rust and the rest of Blueprint is intentionally plain:
+The boundary between Rust and the rest of Forma is intentionally plain:
 JSONL for streams and Content-Length-framed JSON-RPC for MCP. A Python worker,
 A2A bridge, MCP client, or systemd service can spawn this binary and consume
 events without linking Rust into the API process.
@@ -168,5 +168,5 @@ Each line is one JSON object:
 - File, socket, serial, MQTT, or device listeners.
 - Linux environment and process telemetry.
 - Optional low-level integrations behind feature flags.
-- A Python bridge that forwards JSONL events into Blueprint jobs/A2A.
+- A Python bridge that forwards JSONL events into Forma jobs/A2A.
 - MCP resource subscriptions once sources become long-running streams.

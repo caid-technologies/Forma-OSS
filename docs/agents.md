@@ -1,6 +1,6 @@
 # Agents
 
-Blueprint uses an **ADK-style** sequential multi-agent workflow (implemented in `backend/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
+Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `backend/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
 
 ## Pipeline overview
 0. Safety guardrails → 1. Intent Parser → 2. Requirements → 3. Component Selection → 4. Wiring/Netlist (+ repair loop) → 5. BOM → 6. Mechanical/Fabrication → 7. Assembly Instructions → 8. Mechanical render enrichment
@@ -69,4 +69,4 @@ flowchart LR
 - Validation can trigger a **repair loop** that re-invokes the wiring agent.
 - If a live LLM provider isn’t configured (or generation fails), the backend uses a deterministic **simulation fallback** backed by the example projects.
 - The pipeline is designed to swap models or add agents without rewriting the core IR schema.
-- External agents can call or listen to Blueprint through the A2A layer documented in `docs/a2a.md`.
+- External agents can call or listen to Forma through the A2A layer documented in `docs/a2a.md`.

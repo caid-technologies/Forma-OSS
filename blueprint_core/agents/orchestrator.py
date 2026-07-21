@@ -725,7 +725,7 @@ class HardwarePipelineOrchestrator:
             )
 
         try:
-            logger.info("Starting Blueprint Agent Pipeline Execution...")
+            logger.info("Starting Forma Agent Pipeline Execution...")
             
             # 1. Intent Parser Agent
             logger.info("Invoking Intent Parser Agent...")
@@ -1452,7 +1452,7 @@ class HardwarePipelineOrchestrator:
             return self._load_simulated_smart_lock_project(prompt)
 
     def _load_simulated_mp3_player_project(self, prompt: str) -> HardwareIR:
-        """Reference-style Blueprint project used for prompt+image MP3 player examples."""
+        """Reference-style Forma project used for prompt+image MP3 player examples."""
         def pin(pin_id: str, name: str, pin_type: str, voltage: Optional[float] = None) -> PinDefinition:
             return PinDefinition(pin_id=pin_id, name=name, pin_type=pin_type, voltage=voltage, description=name)
 

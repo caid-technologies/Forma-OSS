@@ -44,7 +44,7 @@ DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
-DEFAULT_HTTP_USER_AGENT = "Blueprint-OSS/0.1"
+DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
 # Structured-output token budgets. The fine-tuned parti-base emits large JSON
 # records (MechanicalNotes runs ~9k+ chars); a low or unset max_tokens truncates

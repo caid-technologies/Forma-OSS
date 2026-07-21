@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Blueprint Edge live streaming with three sample configurations."""
+"""Exercise Forma Edge live streaming with three sample configurations."""
 
 from __future__ import annotations
 

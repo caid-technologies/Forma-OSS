@@ -1,4 +1,4 @@
-use crate::agents::{AgentCard, BlueprintMcpContext, BlueprintMcpTool};
+use crate::agents::{AgentCard, FormaMcpContext, FormaMcpTool};
 use reqwest::blocking::Client;
 use serde_json::{json, Value};
 use std::time::Duration;
@@ -23,18 +23,18 @@ pub fn fetch_lattice_agents(mcp_url: &str) -> Result<Vec<AgentCard>, String> {
         .post(mcp_url)
         .json(&payload)
         .send()
-        .map_err(|error| format!("could not reach Blueprint MCP at {mcp_url}: {error}"))?
+        .map_err(|error| format!("could not reach Forma MCP at {mcp_url}: {error}"))?
         .json()
-        .map_err(|error| format!("Blueprint MCP returned invalid JSON: {error}"))?;
+        .map_err(|error| format!("Forma MCP returned invalid JSON: {error}"))?;
 
     if let Some(error) = response.get("error") {
-        return Err(format!("Blueprint MCP error: {error}"));
+        return Err(format!("Forma MCP error: {error}"));
     }
 
     let agents = response
         .pointer("/result/structuredContent/agents")
         .cloned()
-        .ok_or_else(|| "Blueprint MCP response did not include Lattice agents".to_string())?;
+        .ok_or_else(|| "Forma MCP response did not include Lattice agents".to_string())?;
 
     serde_json::from_value(agents)
         .map_err(|error| format!("could not parse Lattice agent cards: {error}"))
@@ -43,7 +43,7 @@ pub fn fetch_lattice_agents(mcp_url: &str) -> Result<Vec<AgentCard>, String> {
 pub fn fetch_agent_mcp_context(
     mcp_url: &str,
     card: Option<&AgentCard>,
-) -> Result<BlueprintMcpContext, String> {
+) -> Result<FormaMcpContext, String> {
     let tools = fetch_mcp_tools(mcp_url)?;
     let agent_card = match card {
         Some(card)
@@ -56,7 +56,7 @@ pub fn fetch_agent_mcp_context(
         _ => None,
     };
 
-    Ok(BlueprintMcpContext {
+    Ok(FormaMcpContext {
         url: Some(mcp_url.to_string()),
         tools,
         agent_card,
@@ -64,7 +64,7 @@ pub fn fetch_agent_mcp_context(
     })
 }
 
-pub fn fetch_mcp_tools(mcp_url: &str) -> Result<Vec<BlueprintMcpTool>, String> {
+pub fn fetch_mcp_tools(mcp_url: &str) -> Result<Vec<FormaMcpTool>, String> {
     let payload = json!({
         "jsonrpc": "2.0",
         "id": "blueprint-tui-tools",
@@ -73,14 +73,14 @@ pub fn fetch_mcp_tools(mcp_url: &str) -> Result<Vec<BlueprintMcpTool>, String> {
     });
     let response = post_mcp_json_rpc(mcp_url, payload)?;
     if let Some(error) = response.get("error") {
-        return Err(format!("Blueprint MCP error: {error}"));
+        return Err(format!("Forma MCP error: {error}"));
     }
     let tools = response
         .pointer("/result/tools")
         .cloned()
-        .ok_or_else(|| "Blueprint MCP response did not include tools".to_string())?;
+        .ok_or_else(|| "Forma MCP response did not include tools".to_string())?;
     serde_json::from_value(tools)
-        .map_err(|error| format!("could not parse Blueprint MCP tools: {error}"))
+        .map_err(|error| format!("could not parse Forma MCP tools: {error}"))
 }
 
 pub fn fetch_mcp_agent_card(mcp_url: &str, agent_id: &str) -> Result<AgentCard, String> {
@@ -95,14 +95,14 @@ pub fn fetch_mcp_agent_card(mcp_url: &str, agent_id: &str) -> Result<AgentCard, 
     });
     let response = post_mcp_json_rpc(mcp_url, payload)?;
     if let Some(error) = response.get("error") {
-        return Err(format!("Blueprint MCP error: {error}"));
+        return Err(format!("Forma MCP error: {error}"));
     }
     let card = response
         .pointer("/result/structuredContent/agent")
         .cloned()
-        .ok_or_else(|| "Blueprint MCP response did not include an agent card".to_string())?;
+        .ok_or_else(|| "Forma MCP response did not include an agent card".to_string())?;
     serde_json::from_value(card)
-        .map_err(|error| format!("could not parse Blueprint MCP agent card: {error}"))
+        .map_err(|error| format!("could not parse Forma MCP agent card: {error}"))
 }
 
 fn post_mcp_json_rpc(mcp_url: &str, payload: Value) -> Result<Value, String> {
@@ -115,9 +115,9 @@ fn post_mcp_json_rpc(mcp_url: &str, payload: Value) -> Result<Value, String> {
         .post(mcp_url)
         .json(&payload)
         .send()
-        .map_err(|error| format!("could not reach Blueprint MCP at {mcp_url}: {error}"))?
+        .map_err(|error| format!("could not reach Forma MCP at {mcp_url}: {error}"))?
         .json()
-        .map_err(|error| format!("Blueprint MCP returned invalid JSON: {error}"))
+        .map_err(|error| format!("Forma MCP returned invalid JSON: {error}"))
 }
 
 #[cfg(test)]

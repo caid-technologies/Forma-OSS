@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "caid-blueprint-core"
 dynamic = ["version"]
-description = "Reusable generation, validation, provider, and project-object core for Blueprint OSS."
+description = "Reusable generation, validation, provider, and project-object core for Forma OSS."
 readme = "README.md"
 requires-python = ">=3.11"
 authors = [
@@ -32,9 +32,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/caid-technologies/Blueprint-OSS"
-Repository = "https://github.com/caid-technologies/Blueprint-OSS"
-Documentation = "https://github.com/caid-technologies/Blueprint-OSS#readme"
+Homepage = "https://github.com/caid-technologies/Forma-OSS"
+Repository = "https://github.com/caid-technologies/Forma-OSS"
+Documentation = "https://github.com/caid-technologies/Forma-OSS#readme"
 
 [project.scripts]
 fabricator = "fabricator.main:main"

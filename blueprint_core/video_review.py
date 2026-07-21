@@ -77,9 +77,9 @@ class VideoIterationReview(BaseModel):
     summary: str = Field(..., description="Short review of the video and project coherence.")
     coherence_score: float = Field(0.0, ge=0.0, le=1.0, description="0-1 assessment of video/project coherence.")
     needs_iteration: bool = Field(True, description="Whether the project should be revised.")
-    target_namespace: str = Field("product.mech", description="Blueprint namespace best suited for the correction.")
+    target_namespace: str = Field("product.mech", description="Forma namespace best suited for the correction.")
     issues: List[VideoCoherenceIssue] = Field(default_factory=list)
-    iteration_instruction: str = Field(..., description="Natural-language instruction for Blueprint's project iterator.")
+    iteration_instruction: str = Field(..., description="Natural-language instruction for Forma's project iterator.")
 
     @field_validator("target_namespace", mode="before")
     @classmethod
@@ -639,7 +639,7 @@ def _image_data_url(image_bytes: bytes) -> str:
 
 def _video_review_system_prompt() -> str:
     return (
-        "You are Blueprint's video self-correction reviewer. You inspect generated hardware video evidence "
+        "You are Forma's video self-correction reviewer. You inspect generated hardware video evidence "
         "against the current HardwareIR. Find visual coherence, physical logic, assembly continuity, camera continuity, "
         "component placement, wiring, enclosure, and documentation issues. Return one valid JSON object only. "
         "Do not include prose, markdown, or hidden reasoning."
@@ -671,7 +671,7 @@ def _video_review_user_content(
                     "suggested_correction": "project change",
                 }
             ],
-            "iteration_instruction": "single concise instruction for Blueprint's project iterator to revise the HardwareIR",
+            "iteration_instruction": "single concise instruction for Forma's project iterator to revise the HardwareIR",
         },
         "review_rules": [
             "Do not invent invisible parts. Ground findings in the frames and HardwareIR.",
@@ -715,7 +715,7 @@ def _video_review_instructions() -> Dict[str, Any]:
                     "suggested_correction": "project change",
                 }
             ],
-            "iteration_instruction": "single concise instruction for Blueprint's project iterator to revise the HardwareIR",
+            "iteration_instruction": "single concise instruction for Forma's project iterator to revise the HardwareIR",
         },
         "review_rules": [
             "Do not invent invisible parts. Ground findings in the video/audio and HardwareIR.",
@@ -924,7 +924,7 @@ class FireworksVideoReviewClient:
             headers={
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "Blueprint-OSS/0.1",
+                "User-Agent": "Forma-OSS/0.1",
             },
             method="POST",
         )
@@ -990,7 +990,7 @@ class FireworksVideoReviewClient:
 
 
 class FireworksVideoSelfCorrectionAgent:
-    """Review a generated video, then apply the review as a Blueprint project iteration."""
+    """Review a generated video, then apply the review as a Forma project iteration."""
 
     def __init__(
         self,

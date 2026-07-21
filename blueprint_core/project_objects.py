@@ -186,8 +186,8 @@ class ProjectNamespaceObject(BaseModel):
         return next((item for item in self.attributes if item.name == normalized), None)
 
 
-class BlueprintProjectObject(BaseModel):
-    object_type: str = Field(PROJECT_OBJECT_TYPE, description="Stable object kind for Blueprint project objects.")
+class FormaProjectObject(BaseModel):
+    object_type: str = Field(PROJECT_OBJECT_TYPE, description="Stable object kind for Forma project objects.")
     object_id: str
     version: int = Field(1, ge=1)
     namespaces: list[ProjectNamespaceObject] = Field(default_factory=list)
@@ -603,7 +603,7 @@ def _namespace_names_for_ir(ir: HardwareIR, target_namespace: Optional[str] = No
     return sorted(dict.fromkeys(names))
 
 
-def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: Optional[str] = None) -> BlueprintProjectObject:
+def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: Optional[str] = None) -> FormaProjectObject:
     hardware_ir = coerce_hardware_ir(ir)
     namespace_names = _namespace_names_for_ir(hardware_ir, target_namespace=target_namespace)
     versions = _namespace_versions(hardware_ir, namespace_names)
@@ -624,7 +624,7 @@ def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: O
             attributes=build_project_attribute_objects(namespace, payload, version=version),
         ))
 
-    return BlueprintProjectObject(
+    return FormaProjectObject(
         object_id=object_id,
         version=project_object_version(hardware_ir),
         namespaces=namespaces,
@@ -679,7 +679,7 @@ def attach_project_object_metadata_to_dict(
 
 
 __all__ = [
-    "BlueprintProjectObject",
+    "FormaProjectObject",
     "DEFAULT_PROJECT_NAMESPACES",
     "PROJECT_OBJECT_TYPE",
     "ProjectAttributeItemMeta",

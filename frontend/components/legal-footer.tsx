@@ -21,7 +21,7 @@ export default function LegalFooter() {
       <div className="mx-auto grid w-full max-w-6xl gap-6 md:grid-cols-[1fr_2fr]">
         <div>
           <Link href="/" className="text-sm font-black uppercase tracking-[0.22em] text-white">
-            Blueprint
+            Forma
           </Link>
           <p className="mt-3 max-w-sm text-xs leading-5 text-slate-500">
             {legalEntityName}

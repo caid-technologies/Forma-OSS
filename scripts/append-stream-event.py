@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Append a simple text event to a local Blueprint JSONL stream."""
+"""Append a simple text event to a local Forma JSONL stream."""
 
 from __future__ import annotations
 

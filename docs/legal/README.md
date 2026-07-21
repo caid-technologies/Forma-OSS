@@ -1,6 +1,6 @@
 # Legal and Policy Documents
 
-These documents are draft templates for making Blueprint public-facing. They are written for a hosted AI hardware-generation application and should be reviewed by qualified counsel before publication.
+These documents are draft templates for making Forma public-facing. They are written for a hosted AI hardware-generation application and should be reviewed by qualified counsel before publication.
 
 ## Public Policies
 

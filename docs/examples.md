@@ -1,6 +1,6 @@
 # Examples
 
-Blueprint ships with a few example Hardware IR projects to make the MVP easy to explore without live agent calls.
+Forma ships with a few example Hardware IR projects to make the MVP easy to explore without live agent calls.
 
 ## Example projects
 - **Auto-Grow Plant Watering** (`examples/plant_watering.json`)

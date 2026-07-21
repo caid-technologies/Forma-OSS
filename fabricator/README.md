@@ -4,15 +4,15 @@ Fabricator is the workspace area for predicting how products can be fabricated f
 
 ## MVP Direction
 
-Fabricator can use Blueprint as its first MVP server. The initial implementation should expose Fabricator workflows through the existing Blueprint backend/runtime surfaces instead of starting a separate service.
+Fabricator can use Forma as its first MVP server. The initial implementation should expose Fabricator workflows through the existing Forma backend/runtime surfaces instead of starting a separate service.
 
-LLM access should also go through Blueprint's provider interfaces. Fabricator should treat Blueprint as the boundary for model selection, prompt execution, streaming, logging, validation, and provider configuration so it can reuse the existing OpenAI, RunPod, Baseten, NVIDIA, simulation, and OpenAI-compatible paths.
+LLM access should also go through Forma's provider interfaces. Fabricator should treat Forma as the boundary for model selection, prompt execution, streaming, logging, validation, and provider configuration so it can reuse the existing OpenAI, RunPod, Baseten, NVIDIA, simulation, and OpenAI-compatible paths.
 
 ## Human-Computer Interaction
 
-Fabricator should feel like a question-driven fabrication copilot rather than a raw model endpoint. People should be able to describe available primitives, desired products, constraints, and equipment access in natural language, then receive structured fabrication options that can be inspected, compared, refined, and handed to Blueprint workflows.
+Fabricator should feel like a question-driven fabrication copilot rather than a raw model endpoint. People should be able to describe available primitives, desired products, constraints, and equipment access in natural language, then receive structured fabrication options that can be inspected, compared, refined, and handed to Forma workflows.
 
-The first interface can be conversational, with Blueprint providing the server, model routing, streaming responses, validation, logging, and MCP/tool access. Over time, the same interaction model can support forms, dashboards, route graphs, inventory views, device status panels, and protocol review queues.
+The first interface can be conversational, with Forma providing the server, model routing, streaming responses, validation, logging, and MCP/tool access. Over time, the same interaction model can support forms, dashboards, route graphs, inventory views, device status panels, and protocol review queues.
 
 Useful questions Fabricator can ask include:
 
@@ -23,9 +23,9 @@ Useful questions Fabricator can ask include:
 - Which route is most feasible under `{budget}`, `{timeline}`, `{safety_constraints}`, `{regulatory_context}`, and `{available_equipment}`?
 - What measurements, assays, simulations, or validation checks should be requested before committing to a route?
 - What parts of this plan require human review before execution because of safety, biosecurity, compliance, or irreversible physical actions?
-- What should Blueprint MCP call next: inventory lookup, device capability discovery, literature search, schema validation, simulation, job creation, or status monitoring?
+- What should Forma MCP call next: inventory lookup, device capability discovery, literature search, schema validation, simulation, job creation, or status monitoring?
 
-This is why Fabricator needs the Blueprint MCP server. MCP gives the conversational planner a controlled way to discover tools, inspect resources, call external systems, and coordinate fabrication workflows without hard-coding every device or provider inside Fabricator.
+This is why Fabricator needs the Forma MCP server. MCP gives the conversational planner a controlled way to discover tools, inspect resources, call external systems, and coordinate fabrication workflows without hard-coding every device or provider inside Fabricator.
 
 ## Scope
 
@@ -33,13 +33,13 @@ This is why Fabricator needs the Blueprint MCP server. MCP gives the conversatio
 - Model fabrication routes including synthesis, formulation, growth, assembly, purification, finishing, and quality-control steps.
 - Capture constraints such as yield, cost, safety, biocompatibility, manufacturability, sustainability, and regulatory boundaries.
 - Provide room for predictors, domain schemas, examples, validation datasets, and evaluation reports.
-- Integrate with Blueprint server routes and LLM orchestration before introducing Fabricator-specific infrastructure.
+- Integrate with Forma server routes and LLM orchestration before introducing Fabricator-specific infrastructure.
 
 ## Suggested Layout
 
 This directory starts intentionally small. Likely next additions are:
 
-- `main.py` for a runnable sample of Blueprint-backed Fabricator planning.
+- `main.py` for a runnable sample of Forma-backed Fabricator planning.
 - `schemas/` for product, primitive, and process definitions.
 - `predictors/` for route-planning and fabrication prediction models.
 - `examples/` for domain-specific fabrication scenarios.
@@ -53,13 +53,13 @@ Generate a local plan without calling a live model:
 python -m fabricator plan
 ```
 
-Run the same flow through Blueprint's configured LLM provider:
+Run the same flow through Forma's configured LLM provider:
 
 ```bash
 python -m fabricator plan --live --provider runpod --material "cellulose acetate offcuts"
 ```
 
-Inspect tools through Blueprint's MCP handler:
+Inspect tools through Forma's MCP handler:
 
 ```bash
 python -m fabricator mcp-tools
@@ -77,7 +77,7 @@ Generate a plan and write a JSON artifact:
 python -m fabricator plan --material "cellulose acetate offcuts" --include-mcp-tools --output fabricator/results/sample-plan.json
 ```
 
-Use a running Blueprint backend instead of the in-process handler:
+Use a running Forma backend instead of the in-process handler:
 
 ```bash
 python -m fabricator mcp-tools --mcp-url http://127.0.0.1:8000/mcp

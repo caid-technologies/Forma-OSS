@@ -24,7 +24,7 @@ When critical issues appear:
 This loop keeps the IR grounded in real-world electrical constraints.
 
 ## Safety boundaries
-Blueprint is intentionally constrained to **low-voltage maker electronics**. The system blocks or warns on:
+Forma is intentionally constrained to **low-voltage maker electronics**. The system blocks or warns on:
 - Mains AC systems (110–240V)
 - Medical or life-support devices
 - Automotive control systems

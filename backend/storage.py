@@ -191,7 +191,7 @@ def _decode_image_payload(
     if image_data.startswith(("http://", "https://")):
         if not allow_remote_url:
             raise ValueError("Remote image URLs are not accepted for this upload path.")
-        request = urllib.request.Request(image_data, headers={"User-Agent": "Blueprint-OSS/1.0"})
+        request = urllib.request.Request(image_data, headers={"User-Agent": "Forma-OSS/1.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
             content = response.read()
             content_type = response.headers.get_content_type() or fallback_content_type

@@ -81,7 +81,7 @@ def _minimal_ir() -> Any:
 
 def _decode_data_url(value: str) -> Tuple[bytes, str]:
     if value.startswith(("http://", "https://")):
-        request = urllib.request.Request(value, headers={"User-Agent": "Blueprint-OSS/1.0"})
+        request = urllib.request.Request(value, headers={"User-Agent": "Forma-OSS/1.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.read(), response.headers.get_content_type() or "image/png"
 

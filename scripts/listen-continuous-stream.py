@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Listen to a local Blueprint stream and its continuous-agent outputs."""
+"""Listen to a local Forma stream and its continuous-agent outputs."""
 
 from __future__ import annotations
 

@@ -40,6 +40,7 @@ TEST_ENV_KEYS = (
     "NEXT_PUBLIC_SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_SECRET_KEY",
+    "BLUEPRINT_USER_SECRETS_KEY",
     "BLUEPRINT_DEPLOYMENT",
     "BLUEPRINT_DEPLOYMENT_MODE",
     "DEPLOYMENT",
@@ -121,6 +122,46 @@ def field_by_id(integration: dict[str, object], field_id: str) -> dict[str, obje
 
 
 class UserIntegrationTests(unittest.TestCase):
+    def test_supabase_user_store_reports_encryption_key_mismatch(self) -> None:
+        class Response:
+            data = [
+                {
+                    "encrypted_config": "encrypted-value",
+                    "encryption_key_id": "old-key-id",
+                    "version": 1,
+                    "updated_at": "2026-07-21T18:51:40Z",
+                }
+            ]
+
+        class Query:
+            def select(self, *_args):
+                return self
+
+            def eq(self, *_args):
+                return self
+
+            def limit(self, *_args):
+                return self
+
+            def execute(self):
+                return Response()
+
+        class Client:
+            def table(self, *_args):
+                return Query()
+
+        store = SupabaseUserIntegrationStore("user_test")
+        with isolated_integration_env(), patch.object(store, "_client", return_value=Client()):
+            os.environ["BLUEPRINT_USER_SECRETS_KEY"] = "current-server-key"
+            with self.assertLogs("blueprint_core.user_integrations", level="ERROR") as logs:
+                with self.assertRaisesRegex(RuntimeError, "different BLUEPRINT_USER_SECRETS_KEY"):
+                    store.load()
+
+        output = "\n".join(logs.output)
+        self.assertIn("encryption key mismatch", output)
+        self.assertIn("stored_key_id=old-key-id", output)
+        self.assertNotIn("current-server-key", output)
+
     def test_saved_secret_is_masked_and_nonsecret_value_is_visible(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")

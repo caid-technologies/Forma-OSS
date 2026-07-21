@@ -256,6 +256,12 @@ async function responseErrorMessage(response: Response, fallback: string) {
     const parsed = JSON.parse(text) as { detail?: unknown };
     if (typeof parsed.detail === "string") return parsed.detail;
     if (Array.isArray(parsed.detail)) return parsed.detail.map((item) => String(item?.msg || item)).join("; ");
+    if (parsed.detail && typeof parsed.detail === "object") {
+      const detail = parsed.detail as { code?: unknown; message?: unknown };
+      const message = typeof detail.message === "string" ? detail.message : fallback;
+      const code = typeof detail.code === "string" ? detail.code : "";
+      return code ? `${message} (${code})` : message;
+    }
   } catch {
     // Fall through to plain text.
   }

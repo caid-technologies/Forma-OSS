@@ -903,22 +903,73 @@ class SupabaseUserIntegrationStore(UserIntegrationStore):
             return create_client(url, key)
 
     def load(self) -> UserIntegrationConfig:
-        rows = (
-            self._client()
-            .table(self.table_name)
-            .select("encrypted_config")
-            .eq("owner_user_id", self.user_id)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
+        try:
+            rows = (
+                self._client()
+                .table(self.table_name)
+                .select("encrypted_config,encryption_key_id,version,updated_at")
+                .eq("owner_user_id", self.user_id)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception:
+            logger.exception(
+                "Supabase user integration read failed: owner_user_id=%s storage=%s",
+                self.user_id,
+                self.storage_label,
+            )
+            raise
         if not rows:
+            logger.info(
+                "Supabase user integration config not found: owner_user_id=%s storage=%s",
+                self.user_id,
+                self.storage_label,
+            )
             return UserIntegrationConfig()
         encrypted_config = rows[0].get("encrypted_config")
         if not isinstance(encrypted_config, str) or not encrypted_config.strip():
+            logger.error(
+                "Supabase user integration config is empty: owner_user_id=%s storage=%s",
+                self.user_id,
+                self.storage_label,
+            )
             return UserIntegrationConfig()
-        return _sanitize_hosted_user_config(_decrypt_config(encrypted_config))
+        stored_key_id = rows[0].get("encryption_key_id")
+        configured_key_id = _integration_encryption_key_id(_integration_encryption_secret())
+        if stored_key_id and stored_key_id != configured_key_id:
+            logger.error(
+                "Supabase user integration encryption key mismatch: owner_user_id=%s storage=%s "
+                "stored_key_id=%s configured_key_id=%s",
+                self.user_id,
+                self.storage_label,
+                stored_key_id,
+                configured_key_id,
+            )
+            raise RuntimeError(
+                "Stored provider settings were encrypted with a different BLUEPRINT_USER_SECRETS_KEY."
+            )
+        try:
+            config = _decrypt_config(encrypted_config)
+        except Exception:
+            logger.exception(
+                "Supabase user integration decrypt failed: owner_user_id=%s storage=%s "
+                "stored_key_id=%s configured_key_id=%s",
+                self.user_id,
+                self.storage_label,
+                stored_key_id,
+                configured_key_id,
+            )
+            raise
+        logger.info(
+            "Supabase user integration config loaded: owner_user_id=%s storage=%s version=%s updated_at=%s",
+            self.user_id,
+            self.storage_label,
+            rows[0].get("version"),
+            rows[0].get("updated_at"),
+        )
+        return _sanitize_hosted_user_config(config)
 
     def update_integration(
         self,
@@ -980,7 +1031,28 @@ class SupabaseUserIntegrationStore(UserIntegrationStore):
             "version": config.version,
             "updated_at": config.updated_at,
         }
-        self._client().table(self.table_name).upsert(record, on_conflict="owner_user_id").execute()
+        try:
+            self._client().table(self.table_name).upsert(record, on_conflict="owner_user_id").execute()
+        except Exception:
+            logger.exception(
+                "Supabase user integration upsert failed: owner_user_id=%s storage=%s "
+                "encryption_key_id=%s version=%s updated_at=%s",
+                self.user_id,
+                self.storage_label,
+                key_id,
+                config.version,
+                config.updated_at,
+            )
+            raise
+        logger.info(
+            "Supabase user integration config saved: owner_user_id=%s storage=%s "
+            "encryption_key_id=%s version=%s updated_at=%s",
+            self.user_id,
+            self.storage_label,
+            key_id,
+            config.version,
+            config.updated_at,
+        )
         return config
 
 
@@ -1248,11 +1320,17 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
     return desired
 
 
-def apply_user_integrations_to_environment(store: Optional[UserIntegrationStore] = None) -> UserIntegrationConfig:
+def apply_user_integrations_to_environment(
+    store: Optional[UserIntegrationStore] = None,
+    *,
+    fail_open: bool = True,
+) -> UserIntegrationConfig:
     resolved_store = store or default_integration_store()
     try:
         config = resolved_store.load()
     except Exception as exc:
+        if not fail_open:
+            raise
         logger.warning(
             "Integration config load failed from %s; using empty runtime config: %s",
             getattr(resolved_store, "storage_label", getattr(resolved_store, "path", "unknown")),
@@ -1318,7 +1396,7 @@ def _field_status_payload(
 
 def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> dict[str, object]:
     resolved_store = store or UserIntegrationStore()
-    config = apply_user_integrations_to_environment(resolved_store)
+    config = apply_user_integrations_to_environment(resolved_store, fail_open=False)
     hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore)
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:

@@ -23,7 +23,7 @@ Blueprint OSS turns prompts into structured hardware projects using a sequential
 - The backend runs an **ADK-style sequential workflow** implemented in `blueprint_core/agents/orchestrator.py`.
 - Live structured JSON output is routed through the reusable `blueprint_core.llm` package API.
 - Shared generation, provider, validation, model, and runtime utilities live under `blueprint_core` so the backend, CLI, smoke tests, and future workers use the same implementation.
-- Supported providers are `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, and `simulation`.
+- Supported providers are `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, and `simulation`.
 - Generic configuration uses `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `STRICT_LLM`, and `LLM_FALLBACK_MODEL`.
 - `/api/generate` can override the provider and model at runtime with optional `provider` and `model` fields. Overrides are checked against `LLM_ALLOWED_PROVIDERS` and provider-specific model allowlists before generation starts.
 - Gemini-specific variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_MODEL`, `STRICT_GEMINI`, `GEMINI_FALLBACK_MODEL`) remain supported as compatibility aliases.

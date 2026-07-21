@@ -1,5 +1,6 @@
 import base64
 import html
+import io
 import json
 import logging
 import os
@@ -23,8 +24,16 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_GMI_IMAGE_BASE_URL = "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests/v1"
+DEFAULT_GMI_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_GMI_IMAGE_QUALITY = "medium"
+DEFAULT_TOGETHER_IMAGE_BASE_URL = "https://api.together.ai/v1"
+DEFAULT_TOGETHER_IMAGE_MODEL = "openai/gpt-image-2"
+DEFAULT_TOGETHER_IMAGE_STEPS = 4
 DEFAULT_IMAGE_SIZE = "1024x1024"
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 120.0
+HUGGINGFACE_IMAGE_PROMPT_MAX_CHARS = 6000
+HUGGINGFACE_IMAGE_PROMPT_TARGET_CHARS = 4000
 
 
 @dataclass
@@ -42,6 +51,9 @@ class GeneratedImage:
     prompt_final_length: Optional[int] = None
     prompt_compacted: bool = False
     prompt_compaction_strategy: str = "none"
+    model_revision: Optional[str] = None
+    inference_provider: Optional[str] = None
+    model_license: Optional[str] = None
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -116,6 +128,10 @@ def _limit_list(values: List[Any], limit: int, item_limit: int = 140) -> List[st
 
 def _model_supports_gpt_image_params(model_name: str) -> bool:
     return model_name.strip().lower().startswith("gpt-image")
+
+
+def _together_model_supports_flux_params(model_name: str) -> bool:
+    return model_name.strip().lower().startswith("black-forest-labs/flux")
 
 
 def _mime_for_output_format(output_format: str) -> str:
@@ -234,7 +250,10 @@ class OpenAIImageProvider(ImageProvider):
         }
 
     def _headers(self, content_type: Optional[str] = "application/json") -> Dict[str, str]:
-        headers: Dict[str, str] = {}
+        headers: Dict[str, str] = {
+            "Accept": "application/json",
+            "User-Agent": "Blueprint-OSS/1.0",
+        }
         if content_type:
             headers["Content-Type"] = content_type
         if self.api_key:
@@ -492,8 +511,414 @@ class OpenAIImageProvider(ImageProvider):
                 view_id,
                 result.original_length,
                 result.final_length,
-            )
+        )
         return result
+
+
+class GMIImageProvider(OpenAIImageProvider):
+    def __init__(self, enabled: bool = True, force_enabled: bool = False) -> None:
+        ImageProvider.__init__(self)
+        self.provider_name = "gmi"
+        self.enabled = enabled or force_enabled
+        self.base_url = (
+            _first_env(
+                [
+                    "GMI_IMAGE_BASE_URL",
+                    "GMI_CLOUD_IMAGE_BASE_URL",
+                    "GMICLOUD_IMAGE_BASE_URL",
+                    "GMI_BASE_URL",
+                ],
+                DEFAULT_GMI_IMAGE_BASE_URL,
+            )
+            or DEFAULT_GMI_IMAGE_BASE_URL
+        ).rstrip("/")
+        self.api_key = _first_env(["GMI_IMAGE_API_KEY", "GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"])
+        self.organization_id = None
+        self.project_id = None
+        self.model_name = (
+            _first_env(["GMI_IMAGE_MODEL", "GMI_CLOUD_IMAGE_MODEL", "GMICLOUD_IMAGE_MODEL", "IMAGE_MODEL"], DEFAULT_GMI_IMAGE_MODEL)
+            or DEFAULT_GMI_IMAGE_MODEL
+        )
+        self.size = _first_env(["GMI_IMAGE_SIZE", "GMI_CLOUD_IMAGE_SIZE", "GMICLOUD_IMAGE_SIZE", "IMAGE_SIZE"], DEFAULT_IMAGE_SIZE) or DEFAULT_IMAGE_SIZE
+        self.quality = _first_env(
+            ["GMI_IMAGE_QUALITY", "GMI_CLOUD_IMAGE_QUALITY", "GMICLOUD_IMAGE_QUALITY", "IMAGE_QUALITY"],
+            DEFAULT_GMI_IMAGE_QUALITY,
+        )
+        self.output_format = (
+            _first_env(["GMI_IMAGE_OUTPUT_FORMAT", "GMI_CLOUD_IMAGE_OUTPUT_FORMAT", "GMICLOUD_IMAGE_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"], "png")
+            or "png"
+        )
+        self.timeout_seconds = _first_env_float(
+            ["GMI_IMAGE_TIMEOUT_SECONDS", "GMI_CLOUD_IMAGE_TIMEOUT_SECONDS", "GMICLOUD_IMAGE_TIMEOUT_SECONDS", "IMAGE_TIMEOUT_SECONDS"],
+            DEFAULT_IMAGE_TIMEOUT_SECONDS,
+        )
+        self.prompt_max_chars = _first_env_int(["GMI_IMAGE_PROMPT_MAX_CHARS", "IMAGE_PROMPT_MAX_CHARS"], OPENAI_IMAGE_PROMPT_MAX_CHARS)
+        self.prompt_target_chars = _first_env_int(
+            ["GMI_IMAGE_PROMPT_TARGET_CHARS", "IMAGE_PROMPT_TARGET_CHARS"],
+            DEFAULT_IMAGE_PROMPT_TARGET_CHARS,
+        )
+        self.prompt_compactor = PromptCompactionAgent()
+        self.allow_no_api_key = _first_env_bool(["GMI_IMAGE_ALLOW_NO_API_KEY", "IMAGE_ALLOW_NO_API_KEY"], default=False)
+        self.is_configured = bool(self.enabled and self.base_url and self.model_name and (self.api_key or self.allow_no_api_key))
+
+    def get_debug_config(self) -> Dict[str, Any]:
+        reason = None
+        if not self.enabled:
+            reason = "Image output is disabled."
+        elif not self.base_url:
+            reason = "GMI image base URL is missing."
+        elif not self.model_name:
+            reason = "GMI image model is missing."
+        elif not self.api_key and not self.allow_no_api_key:
+            reason = "GMI image API key is missing."
+
+        return {
+            **ImageProvider.get_debug_config(self),
+            "base_url": self.base_url,
+            "size": self.size,
+            "quality": self.quality,
+            "output_format": self.output_format,
+            "prompt_max_chars": self.prompt_max_chars,
+            "prompt_target_chars": self.prompt_target_chars,
+            "reason": reason,
+        }
+
+
+class TogetherImageProvider(OpenAIImageProvider):
+    def __init__(self, enabled: bool = True, force_enabled: bool = False) -> None:
+        ImageProvider.__init__(self)
+        self.provider_name = "together"
+        self.enabled = enabled or force_enabled
+        self.base_url = (
+            _first_env(["TOGETHER_IMAGE_BASE_URL", "TOGETHER_BASE_URL"], DEFAULT_TOGETHER_IMAGE_BASE_URL)
+            or DEFAULT_TOGETHER_IMAGE_BASE_URL
+        ).rstrip("/")
+        self.api_key = _first_env(["TOGETHER_IMAGE_API_KEY", "TOGETHER_API_KEY"])
+        self.organization_id = None
+        self.project_id = None
+        self.model_name = (
+            _first_env(["TOGETHER_IMAGE_MODEL", "TOGETHER_MODEL", "IMAGE_MODEL"], DEFAULT_TOGETHER_IMAGE_MODEL)
+            or DEFAULT_TOGETHER_IMAGE_MODEL
+        )
+        self.size = _first_env(["TOGETHER_IMAGE_SIZE", "IMAGE_SIZE"], DEFAULT_IMAGE_SIZE) or DEFAULT_IMAGE_SIZE
+        default_steps = DEFAULT_TOGETHER_IMAGE_STEPS if _together_model_supports_flux_params(self.model_name) else 0
+        self.num_inference_steps = _first_env_int(["TOGETHER_IMAGE_STEPS", "TOGETHER_IMAGE_NUM_INFERENCE_STEPS", "IMAGE_STEPS"], default_steps)
+        self.output_format = _first_env(["TOGETHER_IMAGE_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"], "png") or "png"
+        self.timeout_seconds = _first_env_float(["TOGETHER_IMAGE_TIMEOUT_SECONDS", "IMAGE_TIMEOUT_SECONDS"], DEFAULT_IMAGE_TIMEOUT_SECONDS)
+        self.prompt_max_chars = _first_env_int(["TOGETHER_IMAGE_PROMPT_MAX_CHARS", "IMAGE_PROMPT_MAX_CHARS"], HUGGINGFACE_IMAGE_PROMPT_MAX_CHARS)
+        self.prompt_target_chars = _first_env_int(
+            ["TOGETHER_IMAGE_PROMPT_TARGET_CHARS", "IMAGE_PROMPT_TARGET_CHARS"],
+            HUGGINGFACE_IMAGE_PROMPT_TARGET_CHARS,
+        )
+        self.prompt_compactor = PromptCompactionAgent()
+        self.allow_no_api_key = _first_env_bool(["TOGETHER_IMAGE_ALLOW_NO_API_KEY", "IMAGE_ALLOW_NO_API_KEY"], default=False)
+        self.is_configured = bool(self.enabled and self.base_url and self.model_name and (self.api_key or self.allow_no_api_key))
+
+    def _size_dimensions(self) -> Tuple[Optional[int], Optional[int]]:
+        normalized = (self.size or "").strip().lower()
+        if "x" not in normalized:
+            return None, None
+        width_raw, height_raw = normalized.split("x", 1)
+        try:
+            return int(width_raw), int(height_raw)
+        except ValueError:
+            return None, None
+
+    def get_debug_config(self) -> Dict[str, Any]:
+        reason = None
+        if not self.enabled:
+            reason = "Image output is disabled."
+        elif not self.base_url:
+            reason = "Together AI image base URL is missing."
+        elif not self.model_name:
+            reason = "Together AI image model is missing."
+        elif not self.api_key and not self.allow_no_api_key:
+            reason = "Together AI image API key is missing."
+
+        return {
+            **ImageProvider.get_debug_config(self),
+            "base_url": self.base_url,
+            "size": self.size,
+            "steps": self.num_inference_steps if _together_model_supports_flux_params(self.model_name) else None,
+            "output_format": self.output_format,
+            "prompt_max_chars": self.prompt_max_chars,
+            "prompt_target_chars": self.prompt_target_chars,
+            "reason": reason,
+        }
+
+    def _generate_image_from_prompt(
+        self,
+        image_prompt: str,
+        *,
+        view_id: str,
+        label: str,
+        reference_view_id: Optional[str],
+    ) -> GeneratedImage:
+        prompt_result = self._compact_image_prompt(image_prompt, view_id=view_id)
+        width, height = self._size_dimensions()
+        payload: Dict[str, Any] = {
+            "model": self.model_name,
+            "prompt": prompt_result.prompt,
+        }
+        if _together_model_supports_flux_params(self.model_name):
+            payload["n"] = 1
+            payload["response_format"] = "base64"
+            payload["output_format"] = self.output_format
+            if width and height:
+                payload["width"] = width
+                payload["height"] = height
+            if self.num_inference_steps:
+                payload["steps"] = self.num_inference_steps
+
+        response = self._request_json("images/generations", method="POST", payload=payload)
+        item = _first_image_item(response)
+        if not item:
+            raise RuntimeError("Together AI image response did not include image data.")
+
+        return GeneratedImage(
+            data_url=_image_data_url_from_item(item, self.output_format, self.provider_name),
+            provider=self.provider_name,
+            model=self.model_name,
+            size=self.size,
+            prompt=prompt_result.prompt,
+            output_format=self.output_format,
+            view_id=view_id,
+            label=label,
+            reference_view_id=reference_view_id,
+            prompt_original_length=prompt_result.original_length,
+            prompt_final_length=prompt_result.final_length,
+            prompt_compacted=prompt_result.was_compacted,
+            prompt_compaction_strategy=prompt_result.strategy,
+        )
+
+    def generate_project_image_sequence(self, user_prompt: str, ir: Any) -> List[GeneratedImage]:
+        if not self.is_configured:
+            return []
+        sequence: List[GeneratedImage] = []
+        for item in build_project_image_sequence_prompts(user_prompt, ir):
+            if item.get("generation_mode") == "deterministic_svg":
+                prompt_result = self._compact_image_prompt(item["prompt"], view_id=item["view_id"])
+                sequence.append(
+                    build_project_layout_diagram_image(
+                        user_prompt,
+                        ir,
+                        prompt=prompt_result.prompt,
+                        reference_view_id="visual_spec",
+                        prompt_compaction_result=prompt_result,
+                    )
+                )
+                continue
+            sequence.append(
+                self._generate_image_from_prompt(
+                    item["prompt"],
+                    view_id=item["view_id"],
+                    label=item["label"],
+                    reference_view_id=None,
+                )
+            )
+        return sequence
+
+
+class HuggingFaceImageProvider(ImageProvider):
+    provider_name = "huggingface"
+
+    def __init__(self, enabled: bool = True, force_enabled: bool = False) -> None:
+        self.enabled = enabled or force_enabled
+        self.api_key = _first_env(["HUGGINGFACE_IMAGE_API_KEY", "HF_IMAGE_TOKEN", "HF_TOKEN", "HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_API_TOKEN"])
+        self.model_name = _first_env(["HUGGINGFACE_IMAGE_MODEL", "HF_IMAGE_MODEL", "IMAGE_MODEL"], "black-forest-labs/FLUX.1-schnell") or "black-forest-labs/FLUX.1-schnell"
+        self.inference_provider = _first_env(["HUGGINGFACE_IMAGE_INFERENCE_PROVIDER", "HF_IMAGE_INFERENCE_PROVIDER", "HUGGINGFACE_INFERENCE_PROVIDER", "HF_INFERENCE_PROVIDER"])
+        self.model_revision = _first_env(["HUGGINGFACE_IMAGE_MODEL_REVISION", "HF_IMAGE_MODEL_REVISION", "HUGGINGFACE_MODEL_REVISION", "HF_MODEL_REVISION"])
+        self.model_license = _first_env(["HUGGINGFACE_IMAGE_MODEL_LICENSE", "HF_IMAGE_MODEL_LICENSE", "HUGGINGFACE_MODEL_LICENSE", "HF_MODEL_LICENSE"])
+        self.gated_models_enabled = _first_env_bool(["HUGGINGFACE_IMAGE_GATED_MODELS_ENABLED", "HF_IMAGE_GATED_MODELS_ENABLED", "HUGGINGFACE_GATED_MODELS_ENABLED", "HF_GATED_MODELS_ENABLED"])
+        self.size = _first_env(["HUGGINGFACE_IMAGE_SIZE", "HF_IMAGE_SIZE", "IMAGE_SIZE"], DEFAULT_IMAGE_SIZE) or DEFAULT_IMAGE_SIZE
+        self.guidance_scale = _first_env_float(["HUGGINGFACE_IMAGE_GUIDANCE_SCALE", "HF_IMAGE_GUIDANCE_SCALE"], 0.0)
+        self.num_inference_steps = _first_env_int(["HUGGINGFACE_IMAGE_STEPS", "HF_IMAGE_STEPS"], 0)
+        self.negative_prompt = _first_env(["HUGGINGFACE_IMAGE_NEGATIVE_PROMPT", "HF_IMAGE_NEGATIVE_PROMPT"])
+        self.seed = _first_env_int(["HUGGINGFACE_IMAGE_SEED", "HF_IMAGE_SEED"], 0)
+        self.output_format = _first_env(["HUGGINGFACE_IMAGE_OUTPUT_FORMAT", "HF_IMAGE_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"], "png") or "png"
+        self.timeout_seconds = _first_env_float(["HUGGINGFACE_IMAGE_TIMEOUT_SECONDS", "HF_IMAGE_TIMEOUT_SECONDS", "IMAGE_TIMEOUT_SECONDS"], DEFAULT_IMAGE_TIMEOUT_SECONDS)
+        self.prompt_max_chars = _first_env_int(
+            ["HUGGINGFACE_IMAGE_PROMPT_MAX_CHARS", "HF_IMAGE_PROMPT_MAX_CHARS", "IMAGE_PROMPT_MAX_CHARS"],
+            HUGGINGFACE_IMAGE_PROMPT_MAX_CHARS,
+        )
+        self.prompt_target_chars = _first_env_int(
+            ["HUGGINGFACE_IMAGE_PROMPT_TARGET_CHARS", "HF_IMAGE_PROMPT_TARGET_CHARS", "IMAGE_PROMPT_TARGET_CHARS"],
+            HUGGINGFACE_IMAGE_PROMPT_TARGET_CHARS,
+        )
+        self.prompt_compactor = PromptCompactionAgent()
+        self.is_configured = bool(self.enabled and self.api_key and self.model_name and (self.gated_models_enabled or not self._looks_gated_model()))
+
+    def _looks_gated_model(self) -> bool:
+        model = self.model_name.strip().lower()
+        return "flux.1-dev" in model or "gated" in model
+
+    def _size_dimensions(self) -> Tuple[Optional[int], Optional[int]]:
+        normalized = (self.size or "").strip().lower()
+        if "x" not in normalized:
+            return None, None
+        width_raw, height_raw = normalized.split("x", 1)
+        try:
+            return int(width_raw), int(height_raw)
+        except ValueError:
+            return None, None
+
+    def get_debug_config(self) -> Dict[str, Any]:
+        reason = None
+        if not self.enabled:
+            reason = "Image output is disabled."
+        elif not self.api_key:
+            reason = "Hugging Face image token is missing."
+        elif not self.model_name:
+            reason = "Hugging Face image model is missing."
+        elif self._looks_gated_model() and not self.gated_models_enabled:
+            reason = "Hugging Face gated image models are disabled until user access, terms, and license checks are confirmed."
+
+        return {
+            **super().get_debug_config(),
+            "size": self.size,
+            "output_format": self.output_format,
+            "inference_provider": self.inference_provider,
+            "model_revision": self.model_revision,
+            "model_license": self.model_license,
+            "gated_models_enabled": self.gated_models_enabled,
+            "prompt_max_chars": self.prompt_max_chars,
+            "prompt_target_chars": self.prompt_target_chars,
+            "reason": reason,
+        }
+
+    def _compact_image_prompt(self, image_prompt: str, *, view_id: str) -> PromptCompactionResult:
+        return self.prompt_compactor.compact_if_needed(
+            image_prompt,
+            max_chars=self.prompt_max_chars,
+            target_chars=self.prompt_target_chars,
+            label=f"huggingface image prompt {view_id}",
+        )
+
+    def _client(self) -> Any:
+        try:
+            from huggingface_hub import InferenceClient
+        except ImportError as exc:
+            raise RuntimeError("Hugging Face image generation requires huggingface-hub. Install the huggingface extra.") from exc
+        kwargs: Dict[str, Any] = {"api_key": self.api_key, "timeout": self.timeout_seconds}
+        if self.inference_provider:
+            kwargs["provider"] = self.inference_provider
+        return InferenceClient(**kwargs)
+
+    def _image_to_data_url(self, image: Any) -> str:
+        if isinstance(image, bytes):
+            encoded = base64.b64encode(image).decode("ascii")
+            return f"data:{_mime_for_output_format(self.output_format)};base64,{encoded}"
+        if isinstance(image, str):
+            if image.startswith("data:"):
+                return image
+            return f"data:{_mime_for_output_format(self.output_format)};base64,{image}"
+        if hasattr(image, "save"):
+            buffer = io.BytesIO()
+            pil_format = "JPEG" if self.output_format.lower() in {"jpg", "jpeg"} else self.output_format.upper()
+            image.save(buffer, format=pil_format)
+            encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+            return f"data:{_mime_for_output_format(self.output_format)};base64,{encoded}"
+        raise RuntimeError("Hugging Face image response did not include image bytes.")
+
+    def _generate_image_from_prompt(
+        self,
+        image_prompt: str,
+        *,
+        view_id: str,
+        label: str,
+        reference_view_id: Optional[str],
+    ) -> GeneratedImage:
+        prompt_result = self._compact_image_prompt(image_prompt, view_id=view_id)
+        width, height = self._size_dimensions()
+        parameters: Dict[str, Any] = {}
+        if width and height:
+            parameters["width"] = width
+            parameters["height"] = height
+        if self.guidance_scale:
+            parameters["guidance_scale"] = self.guidance_scale
+        if self.num_inference_steps:
+            parameters["num_inference_steps"] = self.num_inference_steps
+        if self.negative_prompt:
+            parameters["negative_prompt"] = self.negative_prompt
+        if self.seed:
+            parameters["seed"] = self.seed
+
+        logger.info(
+            "Requesting Hugging Face image: model=%s provider=%s view=%s size=%s timeout=%s",
+            self.model_name,
+            self.inference_provider or "auto",
+            view_id,
+            self.size,
+            self.timeout_seconds,
+        )
+        image = self._client().text_to_image(
+            prompt_result.prompt,
+            model=self.model_name,
+            **parameters,
+        )
+        logger.info(
+            "Hugging Face image response received: model=%s provider=%s view=%s response_type=%s",
+            self.model_name,
+            self.inference_provider or "auto",
+            view_id,
+            type(image).__name__,
+        )
+        return GeneratedImage(
+            data_url=self._image_to_data_url(image),
+            provider=self.provider_name,
+            model=self.model_name,
+            size=self.size,
+            prompt=prompt_result.prompt,
+            output_format=self.output_format,
+            view_id=view_id,
+            label=label,
+            reference_view_id=reference_view_id,
+            prompt_original_length=prompt_result.original_length,
+            prompt_final_length=prompt_result.final_length,
+            prompt_compacted=prompt_result.was_compacted,
+            prompt_compaction_strategy=prompt_result.strategy,
+            model_revision=self.model_revision,
+            inference_provider=self.inference_provider,
+            model_license=self.model_license,
+        )
+
+    def generate_project_image(self, user_prompt: str, ir: Any) -> Optional[GeneratedImage]:
+        if not self.is_configured:
+            return None
+        image_prompt = build_project_image_prompt(user_prompt, ir)
+        return self._generate_image_from_prompt(
+            image_prompt,
+            view_id="case",
+            label="Exterior case render",
+            reference_view_id=None,
+        )
+
+    def generate_project_image_sequence(self, user_prompt: str, ir: Any) -> List[GeneratedImage]:
+        if not self.is_configured:
+            return []
+        sequence: List[GeneratedImage] = []
+        for item in build_project_image_sequence_prompts(user_prompt, ir):
+            if item.get("generation_mode") == "deterministic_svg":
+                prompt_result = self._compact_image_prompt(item["prompt"], view_id=item["view_id"])
+                sequence.append(
+                    build_project_layout_diagram_image(
+                        user_prompt,
+                        ir,
+                        prompt=prompt_result.prompt,
+                        reference_view_id="visual_spec",
+                        prompt_compaction_result=prompt_result,
+                    )
+                )
+                continue
+            sequence.append(
+                self._generate_image_from_prompt(
+                    item["prompt"],
+                    view_id=item["view_id"],
+                    label=item["label"],
+                    reference_view_id=None,
+                )
+            )
+        return sequence
 
 
 def _image_data_url_from_item(item: Dict[str, Any], output_format: str, provider_name: str) -> str:
@@ -2065,6 +2490,12 @@ def build_image_provider(force_enabled: bool = False) -> ImageProvider:
     if not provider_name:
         if _first_env(["OPENAI_IMAGE_API_KEY", "OPENAI_API_KEY"]):
             provider_name = "openai"
+        elif _first_env(["GMI_IMAGE_API_KEY", "GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"]):
+            provider_name = "gmi"
+        elif _first_env(["TOGETHER_IMAGE_API_KEY", "TOGETHER_API_KEY"]):
+            provider_name = "together"
+        elif _first_env(["HUGGINGFACE_IMAGE_API_KEY", "HF_IMAGE_TOKEN", "HF_TOKEN", "HUGGINGFACE_API_KEY"]) and _first_env(["HUGGINGFACE_IMAGE_MODEL", "HF_IMAGE_MODEL"]):
+            provider_name = "huggingface"
         elif _first_env(["IMAGE_BASE_URL", "OPENAI_IMAGE_BASE_URL", "LLM_BASE_URL", "OPENAI_BASE_URL"]):
             provider_name = "openai-compatible"
         else:
@@ -2074,10 +2505,16 @@ def build_image_provider(force_enabled: bool = False) -> ImageProvider:
         return NoImageProvider()
     if provider_name in {"openai", "openai-compatible", "compatible"}:
         return OpenAIImageProvider(provider_name=provider_name, enabled=enabled, force_enabled=force_enabled)
+    if provider_name in {"gmi", "gmi-cloud", "gmicloud", "gemicloud"}:
+        return GMIImageProvider(enabled=enabled, force_enabled=force_enabled)
+    if provider_name in {"together", "together-ai", "togetherai"}:
+        return TogetherImageProvider(enabled=enabled, force_enabled=force_enabled)
+    if provider_name in {"huggingface", "hugging-face", "hf"}:
+        return HuggingFaceImageProvider(enabled=enabled, force_enabled=force_enabled)
 
     logger.warning("Unsupported IMAGE_PROVIDER %r; image output is disabled.", provider_name)
     return NoImageProvider(
-        f"Unsupported IMAGE_PROVIDER '{provider_name}'. Supported providers are openai, openai-compatible, and none."
+        f"Unsupported IMAGE_PROVIDER '{provider_name}'. Supported providers are openai, openai-compatible, gmi, together, huggingface, and none."
     )
 
 

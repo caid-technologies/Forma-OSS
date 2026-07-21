@@ -18,7 +18,7 @@ from blueprint_core.agents.workflows import (
     normalize_workflow_id,
 )
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.database import update_generated_project_hardware_ir
+from blueprint_core.database import save_generated_project, update_generated_project_hardware_ir
 from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from backend.job_store import JOB_STORE
 from blueprint_core.llm import get_llm_runtime_debug_config
@@ -36,6 +36,7 @@ from blueprint_core.runtime import (
     deployment_runtime_config,
     generation_unavailable_message,
 )
+from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
 from backend.storage import get_image_storage_config, upload_image_to_supabase_s3
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
 from blueprint_core.validation import validate_circuit
@@ -274,10 +275,25 @@ def _attach_stored_image_metadata(
         }
 
     if not stored:
+        storage_config = get_image_storage_config()
+        logger.info(
+            "Image storage skipped for %s: storage_enabled=%s bucket=%s",
+            metadata_prefix,
+            storage_config.get("enabled"),
+            storage_config.get("bucket"),
+        )
         return {
             f"{metadata_prefix}_storage_enabled": False,
-            f"{metadata_prefix}_storage_bucket": get_image_storage_config().get("bucket"),
+            f"{metadata_prefix}_storage_bucket": storage_config.get("bucket"),
         }
+    logger.info(
+        "Image stored for %s: method=%s bucket=%s key=%s url_present=%s",
+        metadata_prefix,
+        stored.method,
+        stored.bucket,
+        stored.key,
+        bool(stored.url),
+    )
     return {
         **stored.metadata(metadata_prefix),
         f"{metadata_prefix}_storage_enabled": True,
@@ -346,9 +362,20 @@ def _set_operation_status(
     ir.assembly_metadata = metadata
 
 
+def _safe_image_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    safe: Dict[str, Any] = {}
+    for key, value in (config or {}).items():
+        key_text = str(key)
+        if any(token in key_text.lower() for token in ("key", "token", "secret", "authorization")):
+            safe[key_text] = "<redacted>"
+        else:
+            safe[key_text] = value
+    return safe
+
+
 def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = False) -> None:
     image_provider = build_image_provider(force_enabled=generate_image)
-    image_config = image_provider.get_debug_config()
+    image_config = _safe_image_config(image_provider.get_debug_config())
     visual_spec = build_project_visual_spec(prompt_text, ir)
     image_status = "pending" if generate_image else "not_requested"
     metadata = {
@@ -360,6 +387,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         "image_output_configured": image_config.get("configured", False),
         "image_output_status": image_status,
         "image_output_reason": image_config.get("reason"),
+        "image_output_debug": image_config,
         "product_visual_spec": visual_spec,
     }
     ir.assembly_metadata = metadata
@@ -374,6 +402,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         enabled=image_config.get("enabled", False),
         configured=image_config.get("configured", False),
         reason=image_config.get("reason"),
+        details={"image_output_debug": image_config},
     )
 
     if not generate_image:
@@ -382,10 +411,11 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
     if not image_config.get("configured", False):
         error_message = image_config.get("reason") or "Image output was requested, but the image provider is not configured."
         logger.warning(
-            "Image generation operation failed before request: provider=%s model=%s reason=%s",
+            "Image generation operation failed before request: provider=%s model=%s reason=%s debug=%s",
             image_config.get("provider"),
             image_config.get("model_name"),
             error_message,
+            json.dumps(image_config, default=str, sort_keys=True),
         )
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
@@ -393,6 +423,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             "image_output_failed": True,
             "image_output_error": str(error_message)[:500],
             "image_output_error_type": "configuration",
+            "image_output_debug": image_config,
             "product_image_error": str(error_message)[:500],
         }
         _set_operation_status(
@@ -408,13 +439,22 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             reason=image_config.get("reason"),
             error=str(error_message)[:500],
             error_type="configuration",
+            details={"image_output_debug": image_config},
         )
         return
 
+    logger.info(
+        "Image generation operation starting: provider=%s model=%s size=%s request_capable=%s reason=%s",
+        image_config.get("provider"),
+        image_config.get("model_name"),
+        image_config.get("size"),
+        image_config.get("configured", False),
+        image_config.get("reason"),
+    )
     try:
         generated_images = image_provider.generate_project_image_sequence(prompt_text, ir)
     except Exception as exc:
-        logger.warning(
+        logger.exception(
             "Image generation operation failed: provider=%s model=%s error_type=%s error=%s",
             image_config.get("provider"),
             image_config.get("model_name"),
@@ -428,6 +468,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             "image_output_failed": True,
             "image_output_error": error_message,
             "image_output_error_type": exc.__class__.__name__,
+            "image_output_debug": image_config,
             "product_image_error": error_message,
         }
         _set_operation_status(
@@ -442,9 +483,16 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             configured=image_config.get("configured", False),
             error=error_message,
             error_type=exc.__class__.__name__,
+            details={"image_output_debug": image_config},
         )
         return
 
+    logger.info(
+        "Image generation provider returned: provider=%s model=%s generated_count=%s",
+        image_config.get("provider"),
+        image_config.get("model_name"),
+        len(generated_images),
+    )
     if not generated_images:
         error_message = "Image output was requested, but the image provider returned no images."
         logger.warning(
@@ -459,6 +507,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             "image_output_failed": True,
             "image_output_error": error_message,
             "image_output_error_type": "empty_response",
+            "image_output_debug": image_config,
             "product_image_error": error_message,
             "product_visual_sequence_count": 0,
         }
@@ -474,6 +523,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             configured=image_config.get("configured", False),
             error=error_message,
             error_type="empty_response",
+            details={"image_output_debug": image_config},
         )
         return
 
@@ -492,6 +542,16 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         view_id = generated_image.view_id or f"view_{index + 1}"
         metadata_prefix = f"product_{view_id}_image"
         object_prefix = f"product-{view_id}"
+        logger.info(
+            "Image generation view ready: index=%s view=%s provider=%s model=%s format=%s prompt_chars=%s compacted=%s",
+            index,
+            view_id,
+            generated_image.provider,
+            generated_image.model,
+            generated_image.output_format,
+            generated_image.prompt_final_length,
+            generated_image.prompt_compacted,
+        )
         storage_metadata = _attach_stored_image_metadata(
             ir,
             image_data=generated_image.data_url,
@@ -501,6 +561,29 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             allow_remote_url=True,
         )
         image_url = storage_metadata.get(f"{metadata_prefix}_url")
+        if storage_metadata.get(f"{metadata_prefix}_storage_error"):
+            logger.warning(
+                "Image generation view storage failed: view=%s provider=%s model=%s error=%s",
+                view_id,
+                generated_image.provider,
+                generated_image.model,
+                storage_metadata.get(f"{metadata_prefix}_storage_error"),
+            )
+        elif image_url:
+            logger.info(
+                "Image generation view stored: view=%s provider=%s model=%s url_present=true",
+                view_id,
+                generated_image.provider,
+                generated_image.model,
+            )
+        else:
+            logger.info(
+                "Image generation view kept inline: view=%s provider=%s model=%s data_url_chars=%s",
+                view_id,
+                generated_image.provider,
+                generated_image.model,
+                len(generated_image.data_url or ""),
+            )
         image_record: Dict[str, Any] = {
             "view_id": view_id,
             "label": generated_image.label,
@@ -508,6 +591,9 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             "model": generated_image.model,
             "size": generated_image.size,
             "output_format": generated_image.output_format,
+            "model_revision": generated_image.model_revision,
+            "inference_provider": generated_image.inference_provider,
+            "model_license": generated_image.model_license,
             "prompt": generated_image.prompt,
             "prompt_original_length": generated_image.prompt_original_length,
             "prompt_final_length": generated_image.prompt_final_length,
@@ -535,6 +621,9 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
                     "product_image_model": generated_image.model,
                     "product_image_size": generated_image.size,
                     "product_image_output_format": generated_image.output_format,
+                    "product_image_model_revision": generated_image.model_revision,
+                    "product_image_inference_provider": generated_image.inference_provider,
+                    "product_image_model_license": generated_image.model_license,
                     "product_image_prompt": generated_image.prompt,
                     "product_image_prompt_original_length": generated_image.prompt_original_length,
                     "product_image_prompt_final_length": generated_image.prompt_final_length,
@@ -561,6 +650,14 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         for record in product_visual_sequence
         if isinstance(record, dict) and record.get("storage_error")
     ]
+    logger.info(
+        "Image generation operation completed: provider=%s model=%s generated_count=%s stored_count=%s storage_errors=%s",
+        image_config.get("provider"),
+        image_config.get("model_name"),
+        len(generated_images),
+        len([record for record in product_visual_sequence if isinstance(record, dict) and record.get("url")]),
+        len(storage_errors),
+    )
     _set_operation_status(
         ir,
         "image_generation",
@@ -587,16 +684,46 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
     )
 
 
-def _persist_updated_project_ir(ir: Any) -> None:
+def _persist_updated_project_ir(
+    ir: Any,
+    *,
+    prompt_text: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+) -> None:
     metadata = ir.assembly_metadata or {}
     project_id = metadata.get("project_id")
     if not project_id:
         return
 
     try:
-        update_generated_project_hardware_ir(project_id, ir.model_dump())
+        hardware_ir = ir.model_dump()
+        updated = update_generated_project_hardware_ir(project_id, hardware_ir)
+        if updated:
+            return
+
+        title = (
+            getattr(getattr(ir, "overview", None), "title", None)
+            or (prompt_text or "").strip()
+            or "Untitled Blueprint Project"
+        )
+        created_at = metadata.get("created_at") if isinstance(metadata.get("created_at"), str) else _utc_now()
+        save_generated_project(
+            project_id=project_id,
+            title=title,
+            prompt=(prompt_text or metadata.get("source_prompt") or "").strip(),
+            hardware_ir=hardware_ir,
+            created_at=created_at,
+            chat_id=metadata.get("chat_id"),
+            owner_user_id=owner_user_id,
+            visibility="public",
+        )
     except Exception as exc:
         logger.warning("Failed to persist updated project metadata for %s: %s", project_id, exc)
+
+
+def _apply_owner_user_integrations(owner_user_id: Optional[str]) -> None:
+    if isinstance(owner_user_id, str) and owner_user_id.strip():
+        apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner_user_id.strip()))
 
 
 def build_generation_response(
@@ -612,6 +739,8 @@ def build_generation_response(
     frontend_job_id: Optional[str] = None,
     owner_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
+    _apply_owner_user_integrations(owner_user_id)
+
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
     has_prompt = bool(prompt_text)
@@ -718,6 +847,7 @@ def build_generation_response(
 
             if generate_image:
                 emit_agent_pipeline_event(workflow_id, "image_generation", "started")
+                _apply_owner_user_integrations(owner_user_id)
             _attach_product_image(prompt_text, ir, generate_image=generate_image)
             if generate_image:
                 image_status = (ir.assembly_metadata or {}).get("image_output_status")
@@ -727,7 +857,7 @@ def build_generation_response(
                     "failed" if image_status == "failed" else "completed",
                     details={"image_output_status": image_status},
                 )
-            _persist_updated_project_ir(ir)
+            _persist_updated_project_ir(ir, prompt_text=prompt_text, owner_user_id=owner_user_id)
 
             response = {
                 "project_id": (ir.assembly_metadata or {}).get("project_id"),
@@ -768,6 +898,10 @@ def build_generation_response(
 
 async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized = action.removeprefix("blueprint.")
+    owner_user_id = payload.get("owner_user_id")
+
+    if isinstance(owner_user_id, str) and owner_user_id.strip():
+        apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner_user_id.strip()))
 
     if normalized == "generate_project":
         return await asyncio.to_thread(

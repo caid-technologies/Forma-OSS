@@ -12,6 +12,8 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from blueprint_core.runtime import deployment_mode_enabled
+
 load_dotenv()
 
 try:
@@ -26,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
+DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
+DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 DEFAULT_TIMEOUT_SECONDS = 90.0
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 300.0
@@ -34,7 +39,7 @@ DEFAULT_RUNPOD_POLL_TIMEOUT_SECONDS = 1200.0
 DEFAULT_BASETEN_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 DEFAULT_GMI_MODEL = "anthropic/claude-fable-5"
 DEFAULT_HUGGINGFACE_MODEL = "Qwen/Qwen2.5-Coder-3B-Instruct:nscale"
-DEFAULT_NVIDIA_MODEL = "meta/llama-3.1-8b-instruct"
+DEFAULT_NVIDIA_MODEL = "nvidia/z-ai/glm-5.2"
 DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
@@ -65,6 +70,7 @@ class LLMProviderOutputError(RuntimeError):
 
 
 SUPPORTED_LLM_PROVIDERS = {
+    "anthropic",
     "baseten",
     "gemini",
     "gmi",
@@ -78,6 +84,8 @@ SUPPORTED_LLM_PROVIDERS = {
 }
 SIMULATION_PROVIDER_ALIASES = {"simulation", "simulated", "offline", "none", "mock"}
 PROVIDER_ALIASES = {
+    "claude": "anthropic",
+    "anthropic-claude": "anthropic",
     "baseten-model-apis": "baseten",
     "baseten-frontier": "baseten",
     "build-nvidia": "nvidia",
@@ -345,6 +353,8 @@ def _default_provider_name() -> str:
         return "runpod-serverless"
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         return "gemini"
+    if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]):
+        return "anthropic"
     if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"]):
         return "openai-compatible"
     if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"]):
@@ -371,6 +381,8 @@ def _default_provider_name() -> str:
 
 def _configured_provider_names(default_provider: str) -> List[str]:
     providers = {default_provider, "simulation"}
+    if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]):
+        providers.add("anthropic")
     if _first_env(["BASETEN_API_KEY"]) and _first_env(["BASETEN_BASE_URL", "LLM_BASE_URL"], DEFAULT_BASETEN_BASE_URL):
         providers.add("baseten")
     if _first_env(["GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"]) and _first_env(
@@ -414,6 +426,8 @@ def _allowed_provider_names(default_provider: str) -> Optional[List[str]]:
 
 
 def _default_model_for_provider(provider_name: str) -> str:
+    if provider_name == "anthropic":
+        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", "LLM_MODEL"], DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
     if provider_name == "baseten":
         return _first_env(["BASETEN_MODEL", "LLM_MODEL"], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
     if provider_name == "gemini":
@@ -442,6 +456,8 @@ def _default_model_for_provider(provider_name: str) -> str:
 
 
 def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
+    if provider_name == "anthropic":
+        return _first_env(["ANTHROPIC_FALLBACK_MODEL", "CLAUDE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "baseten":
         return _first_env(["BASETEN_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "gemini":
@@ -490,7 +506,9 @@ def _normalize_model_for_provider(provider_name: str, model_name: Optional[str])
 
 def _allowed_model_names(provider_name: str, default_model: str) -> Optional[List[str]]:
     env_names = ["LLM_ALLOWED_MODELS", "ALLOWED_LLM_MODELS"]
-    if provider_name == "baseten":
+    if provider_name == "anthropic":
+        env_names = ["ANTHROPIC_ALLOWED_MODELS", "CLAUDE_ALLOWED_MODELS", "ALLOWED_ANTHROPIC_MODELS", *env_names]
+    elif provider_name == "baseten":
         env_names = ["BASETEN_ALLOWED_MODELS", "ALLOWED_BASETEN_MODELS", *env_names]
     elif provider_name == "gmi":
         env_names = ["GMI_ALLOWED_MODELS", "GMI_CLOUD_ALLOWED_MODELS", "GMICLOUD_ALLOWED_MODELS", "ALLOWED_GMI_MODELS", *env_names]
@@ -530,6 +548,7 @@ def resolve_llm_runtime_config(
     model_name: Optional[str] = None,
 ) -> LLMRuntimeConfig:
     default_provider = _default_provider_name()
+    provider_requested = bool(provider_name and provider_name.strip())
     provider = normalize_llm_provider_name(provider_name) or default_provider
     if provider not in SUPPORTED_LLM_PROVIDERS:
         raise LLMProviderConfigError(
@@ -540,16 +559,26 @@ def resolve_llm_runtime_config(
     configured_providers = _configured_provider_names(default_provider)
     allowed_providers = _allowed_provider_names(default_provider)
     if allowed_providers is not None and provider not in allowed_providers:
-        raise LLMProviderConfigError(
-            f"Provider '{provider}' is not allowed for runtime selection. "
-            "Set LLM_ALLOWED_PROVIDERS to include it."
-        )
+        if provider_requested:
+            allowed_providers = sorted({*allowed_providers, provider})
+        else:
+            raise LLMProviderConfigError(
+                f"Provider '{provider}' is not allowed for runtime selection. "
+                "Set LLM_ALLOWED_PROVIDERS to include it."
+            )
 
     default_model = _default_model_for_provider(provider)
     requested_model = model_name.strip() if isinstance(model_name, str) else None
     requested_model = requested_model or None
     model = _normalize_model_for_provider(provider, requested_model or default_model)
     allowed_models = _allowed_model_names(provider, default_model)
+    if (
+        requested_model
+        and allowed_models is not None
+        and model not in allowed_models
+        and provider_requested
+    ):
+        allowed_models = sorted({*allowed_models, model})
     if allowed_models is not None and model not in allowed_models:
         raise LLMProviderConfigError(
             f"Model '{model}' is not allowed for provider '{provider}'. "
@@ -585,6 +614,27 @@ def _model_is_available(model_name: str, available_models: List[str]) -> bool:
 def _schema_name(schema_class: Any) -> str:
     raw_name = getattr(schema_class, "__name__", "StructuredResponse")
     return "".join(char if char.isalnum() or char in {"_", "-"} else "_" for char in raw_name)
+
+
+def _schema_with_closed_objects(schema: Any) -> Any:
+    """Return a JSON schema copy with every object type explicitly closed.
+
+    Anthropic's structured JSON schema endpoint rejects object schemas unless
+    `additionalProperties` is explicitly `false` on each object node.
+    """
+    if isinstance(schema, list):
+        return [_schema_with_closed_objects(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    normalized = {key: _schema_with_closed_objects(value) for key, value in schema.items()}
+    if normalized.get("type") == "object":
+        normalized["additionalProperties"] = False
+    return normalized
+
+
+def _is_anthropic_grammar_timeout(exc: Exception) -> bool:
+    return "Grammar compilation timed out" in str(exc)
 
 
 def _strip_json_markdown(text: str) -> str:
@@ -958,6 +1008,330 @@ class GeminiProvider(StructuredLLMProvider):
             ),
         )
         return _validate_structured_json(response.text, schema_class)
+
+
+class AnthropicProvider(StructuredLLMProvider):
+    provider_name = "anthropic"
+
+    def __init__(self, model_name: Optional[str] = None):
+        self.api_key = _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"])
+        self.base_url = (
+            _first_env(["ANTHROPIC_BASE_URL", "CLAUDE_BASE_URL"], DEFAULT_ANTHROPIC_BASE_URL)
+            or DEFAULT_ANTHROPIC_BASE_URL
+        ).rstrip("/")
+        self.requested_model = model_name or _first_env(
+            ["ANTHROPIC_MODEL", "CLAUDE_MODEL", "LLM_MODEL"],
+            DEFAULT_ANTHROPIC_MODEL,
+        ) or DEFAULT_ANTHROPIC_MODEL
+        self.fallback_model = _first_env(["ANTHROPIC_FALLBACK_MODEL", "CLAUDE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+        self.strict_mode = _first_env_bool(["STRICT_ANTHROPIC", "STRICT_CLAUDE", "STRICT_LLM"], default=True)
+        self.validate_models = _first_env_bool(["ANTHROPIC_VALIDATE_MODELS", "CLAUDE_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"], default=False)
+        self.timeout_seconds = _first_env_float(["ANTHROPIC_TIMEOUT_SECONDS", "CLAUDE_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"], DEFAULT_OPENAI_TIMEOUT_SECONDS)
+        self.max_tokens = _first_env_int(["ANTHROPIC_MAX_TOKENS", "CLAUDE_MAX_TOKENS", "LLM_MAX_TOKENS"])
+        self.temperature = _first_env_optional_float(["ANTHROPIC_TEMPERATURE", "CLAUDE_TEMPERATURE", "LLM_TEMPERATURE"], default=None)
+        self.anthropic_version = _first_env(["ANTHROPIC_VERSION", "CLAUDE_API_VERSION"], DEFAULT_ANTHROPIC_VERSION) or DEFAULT_ANTHROPIC_VERSION
+        self.use_output_config = _first_env_bool(["ANTHROPIC_JSON_SCHEMA_OUTPUT", "CLAUDE_JSON_SCHEMA_OUTPUT"], default=True)
+        self.model_name = self.requested_model
+        self._validation: Optional[LLMProviderValidation] = None
+        self.is_configured = bool(self.api_key and self.base_url)
+        if self.is_configured:
+            logger.info("Anthropic provider initialized for model %s.", self.requested_model)
+        else:
+            logger.warning("Anthropic provider is missing ANTHROPIC_API_KEY/CLAUDE_API_KEY or base URL.")
+
+    def _headers(self) -> Dict[str, str]:
+        return {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "User-Agent": os.getenv("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "x-api-key": self.api_key or "",
+            "anthropic-version": self.anthropic_version,
+        }
+
+    def _request_json(self, path: str, method: str = "GET", payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        url = f"{self.base_url}/{path.lstrip('/')}"
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"anthropic request failed with HTTP {exc.code}: {detail[:500]}") from exc
+        except (socket.timeout, TimeoutError) as exc:
+            raise RuntimeError(
+                f"anthropic request timed out after {self.timeout_seconds:.1f}s. "
+                "Increase ANTHROPIC_TIMEOUT_SECONDS/CLAUDE_TIMEOUT_SECONDS or use a lower-latency model."
+            ) from exc
+        except urllib.error.URLError as exc:
+            if isinstance(getattr(exc, "reason", None), (socket.timeout, TimeoutError)):
+                raise RuntimeError(
+                    f"anthropic request timed out after {self.timeout_seconds:.1f}s. "
+                    "Increase ANTHROPIC_TIMEOUT_SECONDS/CLAUDE_TIMEOUT_SECONDS or use a lower-latency model."
+                ) from exc
+            raise RuntimeError(f"anthropic request failed: {exc}") from exc
+
+        if not body.strip():
+            return {}
+        return json.loads(body)
+
+    def _list_models(self) -> List[str]:
+        payload = self._request_json("models")
+        data = payload.get("data", [])
+        if not isinstance(data, list):
+            return []
+        models: List[str] = []
+        for item in data:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("name")
+                if model_id:
+                    models.append(str(model_id))
+            elif isinstance(item, str):
+                models.append(item)
+        return models
+
+    def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
+        if self._validation:
+            if raise_on_strict and self._validation.validation_error and self.strict_mode:
+                raise LLMProviderConfigError(self._validation.validation_error)
+            return self._validation
+
+        if not self.is_configured:
+            self._validation = LLMProviderValidation(
+                provider=self.provider_name,
+                requested_model=self.requested_model,
+                actual_model=None,
+                requested_model_available=False,
+                strict_mode=self.strict_mode,
+                fallback_active=False,
+                fallback_model=self.fallback_model,
+                validation_error="anthropic provider is not configured. Set ANTHROPIC_API_KEY or CLAUDE_API_KEY.",
+                live_generation_enabled=False,
+            )
+            return self._validation
+
+        if not self.validate_models:
+            self.model_name = self.requested_model
+            self._validation = LLMProviderValidation(
+                provider=self.provider_name,
+                requested_model=self.requested_model,
+                actual_model=self.model_name,
+                requested_model_available=True,
+                strict_mode=self.strict_mode,
+                fallback_active=False,
+                fallback_model=self.fallback_model,
+                model_availability_checked=False,
+            )
+            return self._validation
+
+        try:
+            available_models = self._list_models()
+        except Exception as exc:
+            validation_error = f"Unable to validate Anthropic model availability: {exc}"
+            actual_model = self.fallback_model if (self.fallback_model and not self.strict_mode) else None
+            self._validation = LLMProviderValidation(
+                provider=self.provider_name,
+                requested_model=self.requested_model,
+                actual_model=actual_model,
+                requested_model_available=False,
+                strict_mode=self.strict_mode,
+                fallback_active=bool(actual_model),
+                fallback_model=self.fallback_model,
+                validation_error=validation_error,
+                model_availability_checked=True,
+            )
+            if self.strict_mode and raise_on_strict:
+                raise LLMProviderConfigError(validation_error)
+            self.model_name = actual_model or self.requested_model
+            return self._validation
+
+        requested_available = _model_is_available(self.requested_model, available_models)
+        if requested_available:
+            self.model_name = self.requested_model
+            self._validation = LLMProviderValidation(
+                provider=self.provider_name,
+                requested_model=self.requested_model,
+                actual_model=self.model_name,
+                requested_model_available=True,
+                strict_mode=self.strict_mode,
+                fallback_active=False,
+                fallback_model=self.fallback_model,
+                model_availability_checked=True,
+            )
+            return self._validation
+
+        if self.strict_mode or not self.fallback_model:
+            validation_error = f"Configured Anthropic model {self.requested_model} is not available for this API key."
+            self._validation = LLMProviderValidation(
+                provider=self.provider_name,
+                requested_model=self.requested_model,
+                actual_model=None,
+                requested_model_available=False,
+                strict_mode=self.strict_mode,
+                fallback_active=False,
+                fallback_model=self.fallback_model,
+                validation_error=validation_error,
+                model_availability_checked=True,
+            )
+            if raise_on_strict:
+                raise LLMProviderConfigError(validation_error)
+            return self._validation
+
+        self.model_name = self.fallback_model
+        self._validation = LLMProviderValidation(
+            provider=self.provider_name,
+            requested_model=self.requested_model,
+            actual_model=self.model_name,
+            requested_model_available=False,
+            strict_mode=False,
+            fallback_active=True,
+            fallback_model=self.fallback_model,
+            model_availability_checked=True,
+        )
+        return self._validation
+
+    def _build_structured_prompt(self, prompt: str, schema_class: Any, *, use_output_config: Optional[bool] = None) -> str:
+        should_use_output_config = self.use_output_config if use_output_config is None else use_output_config
+        if should_use_output_config:
+            return prompt
+        return (
+            f"{prompt}\n\n"
+            "Return only valid JSON. The JSON must conform to this schema:\n"
+            f"{json.dumps(schema_class.model_json_schema(), indent=2)}"
+        )
+
+    def _build_content(
+        self,
+        prompt: str,
+        schema_class: Any,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+        use_output_config: Optional[bool] = None,
+    ) -> Any:
+        structured_prompt = self._build_structured_prompt(prompt, schema_class, use_output_config=use_output_config)
+        content: List[Dict[str, Any]] = []
+        if image_bytes and image_mime_type:
+            content.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": image_mime_type,
+                        "data": base64.b64encode(image_bytes).decode("ascii"),
+                    },
+                }
+            )
+        content.append({"type": "text", "text": structured_prompt})
+        return content
+
+    def _structured_max_tokens(self, schema_class: Any) -> int:
+        budget = self.max_tokens or DEFAULT_STRUCTURED_MAX_TOKENS
+        schema_chars = len(json.dumps(schema_class.model_json_schema()))
+        if schema_chars >= LARGE_SCHEMA_CHAR_THRESHOLD and budget < STRUCTURED_MAX_TOKENS_FLOOR:
+            return STRUCTURED_MAX_TOKENS_FLOOR
+        return budget
+
+    def _extract_text(self, response: Dict[str, Any]) -> str:
+        content = response.get("content") or []
+        if not isinstance(content, list):
+            return ""
+        parts: List[str] = []
+        for item in content:
+            if isinstance(item, dict) and isinstance(item.get("text"), str):
+                parts.append(item["text"])
+        return "".join(parts).strip()
+
+    def generate_structured(
+        self,
+        prompt: str,
+        schema_class: Any,
+        image_bytes: Optional[bytes] = None,
+        image_mime_type: Optional[str] = None,
+    ) -> Any:
+        if not self.is_configured:
+            raise RuntimeError("anthropic provider is not configured.")
+
+        budget = self._structured_max_tokens(schema_class)
+        using_output_config = self.use_output_config
+        payload: Dict[str, Any] = {
+            "model": self.model_name,
+            "max_tokens": budget,
+            "system": "You produce concise, valid JSON only. Do not include markdown or commentary.",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": self._build_content(
+                        prompt,
+                        schema_class,
+                        image_bytes,
+                        image_mime_type,
+                        use_output_config=using_output_config,
+                    ),
+                }
+            ],
+        }
+        if self.temperature is not None:
+            payload["temperature"] = self.temperature
+        if using_output_config:
+            payload["output_config"] = {
+                "format": {
+                    "type": "json_schema",
+                    "schema": _schema_with_closed_objects(schema_class.model_json_schema()),
+                }
+            }
+
+        last_error: Optional[Exception] = None
+        stop_reason: Optional[str] = None
+        attempt = 0
+        while attempt < 2:
+            payload["max_tokens"] = budget
+            try:
+                response = self._request_json("messages", method="POST", payload=payload)
+            except RuntimeError as exc:
+                if using_output_config and _is_anthropic_grammar_timeout(exc):
+                    using_output_config = False
+                    payload.pop("output_config", None)
+                    payload["messages"] = [
+                        {
+                            "role": "user",
+                            "content": self._build_content(
+                                prompt,
+                                schema_class,
+                                image_bytes,
+                                image_mime_type,
+                                use_output_config=False,
+                            ),
+                        }
+                    ]
+                    logger.warning(
+                        "anthropic output_config grammar compilation timed out for %s; retrying with prompt-embedded schema.",
+                        _schema_name(schema_class),
+                    )
+                    continue
+                raise
+            stop_reason = response.get("stop_reason") if isinstance(response.get("stop_reason"), str) else None
+            content = self._extract_text(response)
+            if not content:
+                raise RuntimeError("anthropic response did not include text content.")
+            try:
+                return _validate_structured_json(content, schema_class)
+            except Exception as validation_error:
+                last_error = validation_error
+                attempt += 1
+                if attempt < 2:
+                    budget = min(max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR), STRUCTURED_MAX_TOKENS_CEILING)
+                    logger.warning(
+                        "anthropic produced unusable %s (stop_reason=%s, content=%d chars); retrying once with max_tokens=%d.",
+                        _schema_name(schema_class),
+                        stop_reason,
+                        len(content),
+                        budget,
+                    )
+
+        raise LLMProviderOutputError(
+            f"anthropic returned unusable structured output for {_schema_name(schema_class)} "
+            f"after retry (stop_reason={stop_reason}, max_tokens={budget}): {last_error}"
+        ) from last_error
 
 
 class OpenAICompatibleProvider(StructuredLLMProvider):
@@ -1772,6 +2146,8 @@ def build_llm_provider(
     runtime_config: Optional[LLMRuntimeConfig] = None,
 ) -> StructuredLLMProvider:
     runtime = runtime_config or resolve_llm_runtime_config(provider_name=provider_name, model_name=model_name)
+    if runtime.provider == "anthropic":
+        return AnthropicProvider(model_name=runtime.model)
     if runtime.provider == "gemini":
         return GeminiProvider(model_name=runtime.model)
     if runtime.provider in {"baseten", "gmi", "huggingface", "nvidia", "openai", "openai-compatible"}:
@@ -1785,7 +2161,7 @@ def build_llm_provider(
 
     message = (
         f"Unsupported LLM_PROVIDER '{runtime.provider}'. Supported providers are "
-        "baseten, gemini, gmi, huggingface, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
+        "anthropic, baseten, gemini, gmi, huggingface, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
     )
     logger.warning(message)
     return SimulationProvider(validation_error=message)

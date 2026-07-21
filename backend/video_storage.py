@@ -580,7 +580,14 @@ def list_project_videos(project_id: str) -> List[StoredVideo]:
     if blueprint_dev_mode_enabled():
         return []
 
-    config = ensure_video_storage_configured()
+    config = get_video_storage_config()
+    if not config.get("enabled"):
+        logger.info(
+            "Video gallery storage is not configured; returning empty list for project_id=%s reason=%s",
+            project_id,
+            config.get("disabled_reason") or "missing storage configuration",
+        )
+        return []
     if config["write_method"] == "supabase-client":
         return _list_supabase_project_videos(config, project_id)
     return _list_s3_project_videos(config, project_id)

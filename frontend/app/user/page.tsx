@@ -1,8 +1,5 @@
-import { notFound } from "next/navigation";
-import { showDeveloperTools } from "../../lib/server-feature-flags";
-import UserIntegrationsPage from "./user-integrations-page";
+import { redirect } from "next/navigation";
 
 export default function UserPage() {
-  if (!showDeveloperTools()) notFound();
-  return <UserIntegrationsPage />;
+  redirect("/settings");
 }

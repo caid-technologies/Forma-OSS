@@ -138,11 +138,12 @@ A2A_SOCKET_PORT=8766
 Notes:
 - Supabase mode uses `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`; it does not use a Postgres connection string.
 - Do not use anon, publishable, or `NEXT_PUBLIC_` Supabase keys for the backend. They obey RLS and cannot seed these tables by default.
-- `BLUEPRINT_DEV_MODE=true` forces SQLite for app data and A2A job metadata even if Supabase env vars are present. It also disables Supabase Storage writes, so reference and product image data is stored inline in the SQLite project record.
+- When using Supabase for signed-in BYOK settings, set `BLUEPRINT_USER_SECRETS_KEY` to a high-entropy server-only secret. User provider settings are encrypted before they are stored in `user_integration_configs`; losing or rotating this key without a migration makes existing saved API keys undecryptable.
+- `BLUEPRINT_DEV_MODE=true` forces SQLite for app data and A2A job metadata when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
 - `BLUEPRINT_DEPLOYMENT=true` enables the deployment-only alpha gate. When live LLM generation is unavailable, the frontend offers generated example projects plus a contact form that stores leads in `alpha_signups`.
-- `LLM_PROVIDER` can be `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
 - Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
@@ -154,18 +155,20 @@ Notes:
 - `BASETEN_API_KEY` enables Baseten Model APIs when `LLM_PROVIDER=baseten`; `BASETEN_BASE_URL` defaults to `https://inference.baseten.co/v1`.
 - `BASETEN_MODEL` selects the Baseten model slug, for example `deepseek-ai/DeepSeek-V4-Pro`.
 - `HF_TOKEN`, `HUGGINGFACE_API_KEY`, or `HUGGINGFACE_HUB_TOKEN` enables Hugging Face Inference Providers when `LLM_PROVIDER=huggingface`; `HUGGINGFACE_BASE_URL` defaults to `https://router.huggingface.co/v1`.
+- `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY` enables Claude when `LLM_PROVIDER=anthropic`; `ANTHROPIC_BASE_URL` defaults to `https://api.anthropic.com/v1`.
 - `HUGGINGFACE_MODEL` selects the Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
 - `NVIDIA_API_KEY` enables NVIDIA Build/NIM APIs when `LLM_PROVIDER=nvidia`; `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
-- `NVIDIA_MODEL` selects the NVIDIA model slug, for example `meta/llama-3.1-8b-instruct`.
+- `NVIDIA_MODEL` selects the NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`.
 - `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
 - `FIRECRAWL_API_KEY` or `FIRECRAWL_MCP_COMMAND` enables Firecrawl research. `FIRECRAWL_SEARCH_LIMIT` and `FIRECRAWL_MCP_TIMEOUT_SECONDS` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
 - `IMAGE_OUTPUT_ENABLED=true` makes generated product concept images the default. Leave it `false` and use the UI checkbox or `generate_image=true` API flag to opt in per job.
-- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, or `none`.
+- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, `huggingface`, or `none`.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
 - For `IMAGE_PROVIDER=openai`, image generation uses `OPENAI_IMAGE_API_KEY` or `OPENAI_API_KEY` and `OPENAI_IMAGE_BASE_URL` or `OPENAI_BASE_URL`. It does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; those belong to text-model routing and OpenAI-compatible providers.
 - For `IMAGE_PROVIDER=openai-compatible`, use `IMAGE_BASE_URL`/`IMAGE_API_KEY` or the compatible `LLM_BASE_URL`/`LLM_API_KEY` pair when you intentionally want a non-OpenAI image endpoint.
+- For `IMAGE_PROVIDER=huggingface`, use a Hugging Face fine-grained token with the Inference Providers permission (`HF_TOKEN` or `HUGGINGFACE_API_KEY`) plus `HUGGINGFACE_IMAGE_MODEL`. Record `HUGGINGFACE_IMAGE_INFERENCE_PROVIDER`, `HUGGINGFACE_IMAGE_MODEL_REVISION`, and `HUGGINGFACE_IMAGE_MODEL_LICENSE` when storing outputs.
 - When `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`/`SUPABASE_SECRET_KEY` are set, uploaded reference images and generated product images are stored in the Supabase Storage bucket from `SUPABASE_S3_BUCKET` (default `contents`) through the Supabase client. S3-compatible credentials are only a fallback. `BLUEPRINT_DEV_MODE=true` disables this storage path.
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS` controls how long refreshed Supabase Storage read URLs live when projects are loaded. It defaults to `86400`.
 - `LLM_API_KEY` is a generic provider key alias. Gemini aliases (`GEMINI_API_KEY` or `GOOGLE_API_KEY`) are still supported.

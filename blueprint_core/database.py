@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from sqlalchemy import Column, Float, Integer, JSON, String, Text, create_engine, text
@@ -123,6 +124,17 @@ def _supabase_url() -> Optional[str]:
     return _env("SUPABASE_URL") or _env("NEXT_PUBLIC_SUPABASE_URL")
 
 
+def _is_local_supabase_url(url: Optional[str]) -> bool:
+    if not url:
+        return False
+    try:
+        parsed = urlparse(url)
+    except Exception:
+        return False
+    host = (parsed.hostname or "").strip().lower()
+    return host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
+
+
 def _supabase_key() -> tuple[Optional[str], Optional[str]]:
     for name in SUPABASE_KEY_ENV_VARS:
         value = _env(name)
@@ -172,18 +184,21 @@ def _build_supabase_client(url: str, key: str):
 def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
     override = _backend_override()
     sqlite_url = _sqlite_database_url()
+    url = _supabase_url()
 
     if blueprint_dev_mode_enabled():
-        if override == "supabase":
-            logger.warning("BLUEPRINT_DEV_MODE=true overrides DATABASE_BACKEND=supabase; using SQLite.")
-        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
-        return DatabaseConfig(backend="sqlite", source="BLUEPRINT_DEV_MODE", url=sqlite_url), engine, None
+        if override == "supabase" and _is_local_supabase_url(url):
+            logger.info("BLUEPRINT_DEV_MODE=true with local DATABASE_BACKEND=supabase; using local Supabase.")
+        else:
+            if override == "supabase":
+                logger.warning("BLUEPRINT_DEV_MODE=true overrides remote DATABASE_BACKEND=supabase; using SQLite.")
+            engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
+            return DatabaseConfig(backend="sqlite", source="BLUEPRINT_DEV_MODE", url=sqlite_url), engine, None
 
     if override == "sqlite":
         engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
         return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), engine, None
 
-    url = _supabase_url()
     key, key_source = _supabase_key()
     public_key_sources = _public_supabase_key_sources()
     if override == "supabase" and (not url or not key):
@@ -318,6 +333,8 @@ def _verify_supabase_tables() -> None:
     client.table("project_chats").select("id").limit(1).execute()
     client.table("a2a_jobs").select("job_id").limit(1).execute()
     client.table("alpha_signups").select("id").limit(1).execute()
+    client.table("user_integration_configs").select("owner_user_id").limit(1).execute()
+    client.table("workspace_integration_configs").select("config_key").limit(1).execute()
 
 
 def init_db() -> None:

@@ -1,15 +1,30 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
+import re
+import hashlib
+import base64
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from cryptography.fernet import Fernet, InvalidToken
+
+from blueprint_core.runtime import deployment_mode_enabled
+from blueprint_core.selectors import parse_llm_selector
+
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_DIR = ".blueprint"
 DEFAULT_CONFIG_FILENAME = "user-integrations.json"
+WORKSPACE_CONFIG_KEY = "default"
+WORKSPACE_CONFIG_CACHE_TTL_SECONDS = 30.0
+WORKSPACE_CONFIG_FAILURE_TTL_SECONDS = 60.0
 CONFIG_PATH_ENV_NAMES = (
     "BLUEPRINT_USER_INTEGRATIONS_PATH",
     "BLUEPRINT_USER_CONFIG_PATH",
@@ -42,6 +57,16 @@ class IntegrationDefinition:
             if field_definition.id == field_id:
                 return field_definition
         raise KeyError(f"Unknown field {field_id!r} for integration {self.id!r}.")
+
+
+@dataclass(frozen=True)
+class HostedByokPolicy:
+    hosted_byok: str
+    local_byok: str
+    self_hosted_byok: str
+    note: str
+    blocked_secret_fields: tuple[str, ...] = ()
+    conditional_secret_fields: tuple[str, ...] = ()
 
 
 @dataclass
@@ -162,11 +187,53 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         label="Runtime Defaults",
         description="Default provider/model choices used when a job does not pass explicit runtime settings.",
         fields=(
-            IntegrationFieldDefinition("llm_provider", "LLM provider", ("LLM_PROVIDER",), placeholder="openai"),
-            IntegrationFieldDefinition("llm_model", "LLM model", ("LLM_MODEL",), placeholder="gpt-5.5"),
+            IntegrationFieldDefinition(
+                "llm_selector",
+                "Preferred model",
+                ("BLUEPRINT_LLM_SELECTOR",),
+                placeholder="anthropic/claude-sonnet-5",
+                help="Use provider/model. Saving this fills the provider and model runtime settings automatically.",
+            ),
+            IntegrationFieldDefinition(
+                "llm_provider",
+                "Provider override",
+                ("LLM_PROVIDER",),
+                placeholder="openai",
+                help="Advanced override. Leave blank when Preferred model is set.",
+            ),
+            IntegrationFieldDefinition(
+                "llm_model",
+                "Model override",
+                ("LLM_MODEL",),
+                placeholder="gpt-5.5",
+                help="Advanced override. Leave blank when Preferred model is set.",
+            ),
+            IntegrationFieldDefinition(
+                "allowed_providers",
+                "Provider allowlist",
+                ("LLM_ALLOWED_PROVIDERS",),
+                placeholder="auto",
+                help="Optional advanced override. Leave blank and Blueprint allows your configured providers automatically.",
+            ),
             IntegrationFieldDefinition("image_provider", "Image provider", ("IMAGE_PROVIDER",), placeholder="openai"),
-            IntegrationFieldDefinition("image_model", "Image model", ("IMAGE_MODEL", "OPENAI_IMAGE_MODEL"), placeholder="gpt-image-2"),
+            IntegrationFieldDefinition("image_model", "Image model", ("IMAGE_MODEL",), placeholder="gpt-image-2"),
             IntegrationFieldDefinition("external_source_provider", "Search provider", ("EXTERNAL_SOURCE_PROVIDER",), placeholder="firecrawl"),
+        ),
+    ),
+    IntegrationDefinition(
+        id="image",
+        label="Image Generation",
+        description="OpenAI-compatible image generation endpoint and model defaults.",
+        fields=(
+            IntegrationFieldDefinition("enabled", "Image output enabled", ("IMAGE_OUTPUT_ENABLED", "OPENAI_IMAGE_OUTPUT_ENABLED"), placeholder="true"),
+            IntegrationFieldDefinition("provider", "Image provider", ("IMAGE_PROVIDER",), placeholder="openai-compatible"),
+            IntegrationFieldDefinition("api_key", "API key", ("IMAGE_API_KEY",), secret=True, placeholder="provider key"),
+            IntegrationFieldDefinition("base_url", "Base URL", ("IMAGE_BASE_URL",), placeholder="https://provider.example/v1"),
+            IntegrationFieldDefinition("model", "Image model", ("IMAGE_MODEL",), placeholder="gpt-image-2"),
+            IntegrationFieldDefinition("size", "Image size", ("IMAGE_SIZE",), placeholder="1024x1024"),
+            IntegrationFieldDefinition("quality", "Image quality", ("IMAGE_QUALITY",), placeholder="medium"),
+            IntegrationFieldDefinition("output_format", "Output format", ("IMAGE_OUTPUT_FORMAT",), placeholder="png"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("IMAGE_TIMEOUT_SECONDS",), placeholder="120"),
         ),
     ),
     IntegrationDefinition(
@@ -174,12 +241,28 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         label="OpenAI",
         description="Text, image, and streaming jobs that use OpenAI-compatible OpenAI endpoints.",
         fields=(
-            IntegrationFieldDefinition("api_key", "API key", ("OPENAI_API_KEY", "OPENAI_IMAGE_API_KEY"), secret=True, placeholder="sk-..."),
+            IntegrationFieldDefinition("api_key", "API key", ("OPENAI_API_KEY",), secret=True, placeholder="sk-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("OPENAI_BASE_URL", "OPENAI_IMAGE_BASE_URL"), placeholder="https://api.openai.com/v1"),
             IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.5"),
-            IntegrationFieldDefinition("image_model", "Default image model", ("OPENAI_IMAGE_MODEL", "IMAGE_MODEL"), placeholder="gpt-image-2"),
-            IntegrationFieldDefinition("image_size", "Image size", ("OPENAI_IMAGE_SIZE", "IMAGE_SIZE"), placeholder="1024x1024"),
+            IntegrationFieldDefinition("image_model", "Default image model", ("OPENAI_IMAGE_MODEL",), placeholder="gpt-image-2"),
+            IntegrationFieldDefinition("image_size", "Image size", ("OPENAI_IMAGE_SIZE",), placeholder="1024x1024"),
+            IntegrationFieldDefinition("image_quality", "Image quality", ("OPENAI_IMAGE_QUALITY",), placeholder="medium"),
+            IntegrationFieldDefinition("image_output_format", "Image output format", ("OPENAI_IMAGE_OUTPUT_FORMAT",), placeholder="png"),
+            IntegrationFieldDefinition("image_timeout_seconds", "Image timeout seconds", ("OPENAI_IMAGE_TIMEOUT_SECONDS",), placeholder="120"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("OPENAI_TIMEOUT_SECONDS", "OPENAI_STREAM_TIMEOUT_SECONDS"), placeholder="1200"),
+        ),
+    ),
+    IntegrationDefinition(
+        id="anthropic",
+        label="Claude",
+        description="Anthropic Claude Messages API for structured hardware generation.",
+        fields=(
+            IntegrationFieldDefinition("api_key", "API key", ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"), secret=True, placeholder="sk-ant-..."),
+            IntegrationFieldDefinition("base_url", "Base URL", ("ANTHROPIC_BASE_URL", "CLAUDE_BASE_URL"), placeholder="https://api.anthropic.com/v1"),
+            IntegrationFieldDefinition("model", "Default model", ("ANTHROPIC_MODEL", "CLAUDE_MODEL"), placeholder="claude-sonnet-5"),
+            IntegrationFieldDefinition("fallback_model", "Fallback model", ("ANTHROPIC_FALLBACK_MODEL", "CLAUDE_FALLBACK_MODEL"), placeholder="claude-haiku-4-5"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("ANTHROPIC_TIMEOUT_SECONDS", "CLAUDE_TIMEOUT_SECONDS"), placeholder="300"),
+            IntegrationFieldDefinition("max_tokens", "Max tokens", ("ANTHROPIC_MAX_TOKENS", "CLAUDE_MAX_TOKENS"), placeholder="8192"),
         ),
     ),
     IntegrationDefinition(
@@ -213,11 +296,50 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         description="GMI/Fable LLM access plus GMI Cloud image/video generation settings.",
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"), secret=True, placeholder="gmi key"),
+            IntegrationFieldDefinition(
+                "key_delegation_confirmation",
+                "Key delegation confirmation",
+                (),
+                placeholder="project-scoped GMI key",
+                help="Hosted BYOK requires confirmation that this GMI key is scoped to a dedicated project or organization and may be stored server-side by Blueprint for your requests.",
+            ),
             IntegrationFieldDefinition("llm_base_url", "LLM base URL", ("GMI_BASE_URL",), placeholder="https://api.gmi-serving.com/v1"),
             IntegrationFieldDefinition("video_base_url", "Video base URL", ("GMI_CLOUD_BASE_URL", "GMICLOUD_BASE_URL"), placeholder="https://console.gmicloud.ai"),
             IntegrationFieldDefinition("model", "Default LLM model", ("GMI_MODEL", "GMI_STREAM_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL"), placeholder="anthropic/claude-fable-5"),
+            IntegrationFieldDefinition(
+                "image_base_url",
+                "Image base URL",
+                ("GMI_IMAGE_BASE_URL", "GMI_CLOUD_IMAGE_BASE_URL", "GMICLOUD_IMAGE_BASE_URL"),
+                placeholder="https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests/v1",
+            ),
+            IntegrationFieldDefinition("image_model", "Image model", ("GMI_IMAGE_MODEL", "GMI_CLOUD_IMAGE_MODEL", "GMICLOUD_IMAGE_MODEL"), placeholder="gpt-image-2"),
+            IntegrationFieldDefinition("image_size", "Image size", ("GMI_IMAGE_SIZE", "GMI_CLOUD_IMAGE_SIZE", "GMICLOUD_IMAGE_SIZE"), placeholder="1024x1024"),
+            IntegrationFieldDefinition("image_quality", "Image quality", ("GMI_IMAGE_QUALITY", "GMI_CLOUD_IMAGE_QUALITY", "GMICLOUD_IMAGE_QUALITY"), placeholder="medium"),
+            IntegrationFieldDefinition("image_output_format", "Image output format", ("GMI_IMAGE_OUTPUT_FORMAT", "GMI_CLOUD_IMAGE_OUTPUT_FORMAT", "GMICLOUD_IMAGE_OUTPUT_FORMAT"), placeholder="png"),
+            IntegrationFieldDefinition("image_timeout_seconds", "Image timeout seconds", ("GMI_IMAGE_TIMEOUT_SECONDS", "GMI_CLOUD_IMAGE_TIMEOUT_SECONDS", "GMICLOUD_IMAGE_TIMEOUT_SECONDS"), placeholder="120"),
             IntegrationFieldDefinition("image_to_video_model", "Image-to-video model", ("GMI_CLOUD_IMAGE_TO_VIDEO_MODEL",), placeholder="kling-v3-image-to-video"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("GMI_TIMEOUT_SECONDS", "GMI_STREAM_TIMEOUT_SECONDS", "GMI_CLOUD_TIMEOUT_SECONDS"), placeholder="1200"),
+        ),
+    ),
+    IntegrationDefinition(
+        id="together",
+        label="Together AI",
+        description="Together AI BYOK image generation with project-scoped keys.",
+        fields=(
+            IntegrationFieldDefinition("api_key", "API key", ("TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"), secret=True, placeholder="tgp_..."),
+            IntegrationFieldDefinition(
+                "project_key_confirmation",
+                "Project key confirmation",
+                (),
+                placeholder="project-scoped dedicated key",
+                help="Hosted BYOK requires a project-scoped Together AI key dedicated to Blueprint. Legacy or broad account keys are not accepted.",
+            ),
+            IntegrationFieldDefinition("image_base_url", "Image base URL", ("TOGETHER_IMAGE_BASE_URL", "TOGETHER_BASE_URL"), placeholder="https://api.together.ai/v1"),
+            IntegrationFieldDefinition("image_model", "Image model", ("TOGETHER_IMAGE_MODEL",), placeholder="openai/gpt-image-2"),
+            IntegrationFieldDefinition("image_size", "Image size", ("TOGETHER_IMAGE_SIZE",), placeholder="1024x1024"),
+            IntegrationFieldDefinition("image_steps", "Image inference steps", ("TOGETHER_IMAGE_STEPS",), placeholder="4"),
+            IntegrationFieldDefinition("image_output_format", "Image output format", ("TOGETHER_IMAGE_OUTPUT_FORMAT",), placeholder="png"),
+            IntegrationFieldDefinition("image_timeout_seconds", "Image timeout seconds", ("TOGETHER_IMAGE_TIMEOUT_SECONDS",), placeholder="120"),
         ),
     ),
     IntegrationDefinition(
@@ -226,10 +348,31 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         description="Hugging Face Router models and artifact upload configuration.",
         fields=(
             IntegrationFieldDefinition("api_key", "Token", ("HF_TOKEN", "HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_API_TOKEN"), secret=True, placeholder="hf_..."),
+            IntegrationFieldDefinition(
+                "token_scope_confirmation",
+                "Token scope confirmation",
+                (),
+                placeholder="fine-grained inference token",
+                help="Hosted BYOK requires a fine-grained token with only Make calls to Inference Providers, or an enterprise service-account token with equivalent scope.",
+            ),
             IntegrationFieldDefinition("base_url", "Router base URL", ("HUGGINGFACE_BASE_URL", "HF_BASE_URL"), placeholder="https://router.huggingface.co/v1"),
             IntegrationFieldDefinition("model", "Default model", ("HUGGINGFACE_MODEL", "HF_MODEL"), placeholder="Qwen/Qwen2.5-72B-Instruct:deepinfra"),
+            IntegrationFieldDefinition("model_revision", "Model revision", ("HUGGINGFACE_MODEL_REVISION", "HF_MODEL_REVISION"), placeholder="main"),
+            IntegrationFieldDefinition("inference_provider", "Inference provider", ("HUGGINGFACE_INFERENCE_PROVIDER", "HF_INFERENCE_PROVIDER"), placeholder="auto"),
+            IntegrationFieldDefinition("model_license", "Model license", ("HUGGINGFACE_MODEL_LICENSE", "HF_MODEL_LICENSE"), placeholder="apache-2.0"),
+            IntegrationFieldDefinition("image_model", "Image model", ("HUGGINGFACE_IMAGE_MODEL", "HF_IMAGE_MODEL"), placeholder="black-forest-labs/FLUX.1-schnell"),
+            IntegrationFieldDefinition("image_inference_provider", "Image inference provider", ("HUGGINGFACE_IMAGE_INFERENCE_PROVIDER", "HF_IMAGE_INFERENCE_PROVIDER"), placeholder="fal-ai"),
+            IntegrationFieldDefinition("image_model_revision", "Image model revision", ("HUGGINGFACE_IMAGE_MODEL_REVISION", "HF_IMAGE_MODEL_REVISION"), placeholder="main"),
+            IntegrationFieldDefinition("image_model_license", "Image model license", ("HUGGINGFACE_IMAGE_MODEL_LICENSE", "HF_IMAGE_MODEL_LICENSE"), placeholder="apache-2.0"),
+            IntegrationFieldDefinition("image_size", "Image size", ("HUGGINGFACE_IMAGE_SIZE", "HF_IMAGE_SIZE"), placeholder="1024x1024"),
+            IntegrationFieldDefinition("image_guidance_scale", "Image guidance scale", ("HUGGINGFACE_IMAGE_GUIDANCE_SCALE", "HF_IMAGE_GUIDANCE_SCALE"), placeholder="7.5"),
+            IntegrationFieldDefinition("image_steps", "Image inference steps", ("HUGGINGFACE_IMAGE_STEPS", "HF_IMAGE_STEPS"), placeholder="30"),
+            IntegrationFieldDefinition("image_output_format", "Image output format", ("HUGGINGFACE_IMAGE_OUTPUT_FORMAT", "HF_IMAGE_OUTPUT_FORMAT"), placeholder="png"),
+            IntegrationFieldDefinition("gated_models_enabled", "Gated models enabled", ("HUGGINGFACE_GATED_MODELS_ENABLED", "HF_GATED_MODELS_ENABLED"), placeholder="false"),
+            IntegrationFieldDefinition("image_gated_models_enabled", "Image gated models enabled", ("HUGGINGFACE_IMAGE_GATED_MODELS_ENABLED", "HF_IMAGE_GATED_MODELS_ENABLED"), placeholder="false"),
             IntegrationFieldDefinition("artifact_repo_id", "Artifact repo", ("HF_ARTIFACT_REPO_ID", "HUGGINGFACE_ARTIFACT_REPO_ID", "HF_DATASET_REPO_ID"), placeholder="user/dataset"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("HUGGINGFACE_TIMEOUT_SECONDS", "HF_TIMEOUT_SECONDS"), placeholder="1200"),
+            IntegrationFieldDefinition("image_timeout_seconds", "Image timeout seconds", ("HUGGINGFACE_IMAGE_TIMEOUT_SECONDS", "HF_IMAGE_TIMEOUT_SECONDS"), placeholder="120"),
         ),
     ),
     IntegrationDefinition(
@@ -239,7 +382,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"), secret=True, placeholder="nvapi-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"), placeholder="https://integrate.api.nvidia.com/v1"),
-            IntegrationFieldDefinition("model", "Default model", ("NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL"), placeholder="qwen/qwen2.5-coder-32b-instruct"),
+            IntegrationFieldDefinition("model", "Default model", ("NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL"), placeholder="nvidia/z-ai/glm-5.2"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NVIDIA_TIMEOUT_SECONDS", "NVIDIA_NIM_TIMEOUT_SECONDS", "NIM_TIMEOUT_SECONDS"), placeholder="1200"),
         ),
     ),
@@ -278,6 +421,141 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
 _DEFINITION_BY_ID = {definition.id: definition for definition in INTEGRATION_DEFINITIONS}
 _APPLIED_ENV_VALUES: dict[str, str] = {}
 _ORIGINAL_ENV_VALUES: dict[str, Optional[str]] = {}
+_WORKSPACE_CONFIG_CACHE: dict[str, tuple[float, UserIntegrationConfig]] = {}
+_WORKSPACE_CONFIG_FAILURE_CACHE: dict[str, tuple[float, UserIntegrationConfig, str]] = {}
+EXTRA_MANAGED_ENV_NAMES = {
+    "OPENAI_IMAGE_API_KEY",
+    "LLM_API_KEY",
+    "LLM_BASE_URL",
+    "LLM_ALLOWED_PROVIDERS",
+    "ANTHROPIC_ALLOWED_MODELS",
+    "BASETEN_ALLOWED_MODELS",
+    "GMI_ALLOWED_MODELS",
+    "HUGGINGFACE_ALLOWED_MODELS",
+    "NVIDIA_ALLOWED_MODELS",
+    "OPENAI_ALLOWED_MODELS",
+    "RUNPOD_ALLOWED_MODELS",
+}
+LLM_PROVIDER_INTEGRATION_IDS = {
+    "anthropic",
+    "baseten",
+    "gemini",
+    "gmi",
+    "huggingface",
+    "nvidia",
+    "openai",
+    "runpod",
+}
+PROVIDER_ALIASES = {
+    "claude": "anthropic",
+    "anthropic-claude": "anthropic",
+    "hf": "huggingface",
+    "hugging-face": "huggingface",
+    "nvidia-build": "nvidia",
+    "nvidia-nim": "nvidia",
+    "nim": "nvidia",
+    "google": "gemini",
+}
+MODEL_PREFIX_PROVIDERS = (
+    ("claude-", "anthropic"),
+    ("gpt-", "openai"),
+    ("o1", "openai"),
+    ("o3", "openai"),
+    ("o4", "openai"),
+    ("text-", "openai"),
+    ("meta/", "nvidia"),
+    ("nvidia/", "nvidia"),
+)
+PROVIDER_ALLOWED_MODEL_ENV = {
+    "anthropic": "ANTHROPIC_ALLOWED_MODELS",
+    "baseten": "BASETEN_ALLOWED_MODELS",
+    "gemini": "GEMINI_ALLOWED_MODELS",
+    "gmi": "GMI_ALLOWED_MODELS",
+    "huggingface": "HUGGINGFACE_ALLOWED_MODELS",
+    "nvidia": "NVIDIA_ALLOWED_MODELS",
+    "openai": "OPENAI_ALLOWED_MODELS",
+    "runpod": "RUNPOD_ALLOWED_MODELS",
+}
+HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
+    "openai": HostedByokPolicy(
+        hosted_byok="disabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        blocked_secret_fields=("api_key",),
+        note=(
+            "Blueprint Cloud does not accept user-supplied OpenAI API keys. "
+            "Use local or self-hosted Blueprint for OpenAI BYOK; hosted cloud uses a platform-managed key."
+        ),
+    ),
+    "image": HostedByokPolicy(
+        hosted_byok="disabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        blocked_secret_fields=("api_key",),
+        note=(
+            "Blueprint Cloud does not accept generic user-supplied image provider API keys by default. "
+            "Use local or self-hosted Blueprint for image BYOK until the provider terms and credential scopes are reviewed."
+        ),
+    ),
+    "anthropic": HostedByokPolicy(
+        hosted_byok="conditional",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        conditional_secret_fields=("api_key",),
+        note="Hosted Anthropic BYOK must use an Anthropic Console API key, not Claude.ai credentials or subscription tokens.",
+    ),
+    "baseten": HostedByokPolicy(
+        hosted_byok="enabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        conditional_secret_fields=("api_key",),
+        note="Hosted Baseten BYOK requires a team API key with inference-only permissions and environment scoping.",
+    ),
+    "gmi": HostedByokPolicy(
+        hosted_byok="conditional",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        conditional_secret_fields=("api_key",),
+        note=(
+            "Hosted GMI Cloud BYOK is conditional: use an organization or project-specific API key, confirm "
+            "third-party server-side key delegation, keep credentials server-side only, and avoid sensitive serverless "
+            "workloads unless retention, no-training, deletion, region, and data-processing terms are reviewed."
+        ),
+    ),
+    "huggingface": HostedByokPolicy(
+        hosted_byok="enabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        conditional_secret_fields=("api_key",),
+        note=(
+            "Hosted Hugging Face BYOK requires a fine-grained token with only Make calls to Inference Providers, "
+            "or an enterprise service-account token with equivalent scope. Broad repository, organization, billing, "
+            "deployment, or unrestricted account tokens are not accepted."
+        ),
+    ),
+    "together": HostedByokPolicy(
+        hosted_byok="enabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        conditional_secret_fields=("api_key",),
+        note=(
+            "Hosted Together AI image BYOK requires a project-scoped API key dedicated to Blueprint. "
+            "Legacy or broad account keys are not accepted; credentials stay backend-only and encrypted, "
+            "model IDs are recorded, output storage is enabled, and model-specific terms must be enforced."
+        ),
+    ),
+    "nvidia": HostedByokPolicy(
+        hosted_byok="disabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        blocked_secret_fields=("api_key",),
+        note=(
+            "Blueprint Cloud does not accept user-supplied NVIDIA Build/API Catalog keys. NVIDIA hosted endpoints are for "
+            "account-holder trial, evaluation, and developer use unless a separate paid NVIDIA or authorized-provider "
+            "agreement allows production, customer-facing application use, storage, and distribution."
+        ),
+    ),
+}
 
 
 def _utc_now() -> str:
@@ -304,6 +582,13 @@ def default_user_integrations_path() -> Path:
     return _configured_path() or (_repo_root() / DEFAULT_CONFIG_DIR / DEFAULT_CONFIG_FILENAME)
 
 
+def user_integrations_path_for_user(user_id: str) -> Path:
+    safe_user_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", user_id.strip())[:160]
+    if not safe_user_id:
+        raise ValueError("user_id is required")
+    return _repo_root() / DEFAULT_CONFIG_DIR / "users" / safe_user_id / DEFAULT_CONFIG_FILENAME
+
+
 def integration_definition_by_id(integration_id: str) -> IntegrationDefinition:
     definition = _DEFINITION_BY_ID.get(integration_id)
     if definition is None:
@@ -318,6 +603,23 @@ def list_integration_definitions() -> tuple[IntegrationDefinition, ...]:
 class UserIntegrationStore:
     def __init__(self, path: Optional[Path | str] = None) -> None:
         self.path = Path(path).expanduser() if path is not None else default_user_integrations_path()
+
+    @classmethod
+    def for_user(cls, user_id: Optional[str]) -> "UserIntegrationStore":
+        if not user_id:
+            return cls()
+        backend = _user_integration_backend()
+        if backend in {"file", "local", "json"}:
+            return cls(user_integrations_path_for_user(user_id))
+        if backend in {"supabase", "db", "database"} or _supabase_integrations_configured():
+            return SupabaseUserIntegrationStore(user_id)
+        try:
+            from blueprint_core.database import DATABASE_BACKEND
+        except Exception:
+            DATABASE_BACKEND = "sqlite"
+        if DATABASE_BACKEND == "supabase":
+            return SupabaseUserIntegrationStore(user_id)
+        return cls(user_integrations_path_for_user(user_id))
 
     def load(self) -> UserIntegrationConfig:
         if not self.path.exists():
@@ -378,6 +680,401 @@ class UserIntegrationStore:
         return self.save(config)
 
 
+def _workspace_integration_backend() -> str:
+    return (
+        os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND")
+        or os.getenv("BLUEPRINT_INTEGRATIONS_BACKEND")
+        or ""
+    ).strip().lower()
+
+
+def _user_integration_backend() -> str:
+    return (
+        os.getenv("BLUEPRINT_USER_INTEGRATIONS_BACKEND")
+        or os.getenv("BLUEPRINT_INTEGRATIONS_BACKEND")
+        or ""
+    ).strip().lower()
+
+
+def _supabase_url() -> Optional[str]:
+    value = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    return value.strip() if value and value.strip() else None
+
+
+def _supabase_service_key() -> Optional[str]:
+    for name in ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"):
+        value = os.getenv(name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _supabase_integrations_configured() -> bool:
+    return bool(_supabase_url() and _supabase_service_key())
+
+
+def _env_float(name: str, default: float) -> float:
+    value = os.getenv(name)
+    if not value or not value.strip():
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
+def _workspace_config_cache_ttl_seconds() -> float:
+    return max(0.0, _env_float("BLUEPRINT_WORKSPACE_CONFIG_CACHE_TTL_SECONDS", WORKSPACE_CONFIG_CACHE_TTL_SECONDS))
+
+
+def _workspace_config_failure_ttl_seconds() -> float:
+    return max(0.0, _env_float("BLUEPRINT_WORKSPACE_CONFIG_FAILURE_TTL_SECONDS", WORKSPACE_CONFIG_FAILURE_TTL_SECONDS))
+
+
+def _clone_config(config: UserIntegrationConfig) -> UserIntegrationConfig:
+    return UserIntegrationConfig.from_raw(config.as_json())
+
+
+def default_integration_store() -> UserIntegrationStore:
+    backend = _workspace_integration_backend()
+    if backend in {"file", "local", "json"}:
+        return UserIntegrationStore()
+    if backend in {"supabase", "db", "database"}:
+        return SupabaseWorkspaceIntegrationStore()
+    if _supabase_integrations_configured():
+        return SupabaseWorkspaceIntegrationStore()
+    return UserIntegrationStore()
+
+
+def _hosted_byok_policy(integration_id: str) -> Optional[HostedByokPolicy]:
+    return HOSTED_BYOK_POLICIES.get(integration_id)
+
+
+def _hosted_byok_policy_active() -> bool:
+    return deployment_mode_enabled()
+
+
+def _active_hosted_byok_policy(integration_id: str) -> Optional[HostedByokPolicy]:
+    if not _hosted_byok_policy_active():
+        return None
+    return _hosted_byok_policy(integration_id)
+
+
+def _is_hosted_blocked_secret_field(integration_id: str, field_id: str) -> bool:
+    policy = _active_hosted_byok_policy(integration_id)
+    return bool(policy and field_id in policy.blocked_secret_fields)
+
+
+def _sanitize_hosted_user_config(config: UserIntegrationConfig) -> UserIntegrationConfig:
+    if not _hosted_byok_policy_active():
+        return config
+    for integration in config.integrations:
+        policy = _hosted_byok_policy(integration.id)
+        if not policy or not policy.blocked_secret_fields:
+            continue
+        blocked = set(policy.blocked_secret_fields)
+        integration.fields = [field for field in integration.fields if field.id not in blocked]
+    return config
+
+
+def _truthy_confirmation(value: Optional[str]) -> bool:
+    return bool(
+        value
+        and value.strip().lower()
+        in {
+            "1",
+            "true",
+            "yes",
+            "y",
+            "confirmed",
+            "fine-grained",
+            "service-account",
+            "project-scoped",
+            "organization-scoped",
+            "dedicated-project",
+            "dedicated-to-blueprint",
+        }
+    )
+
+
+def _requires_hosted_huggingface_confirmation(integration_id: str, field_values: Optional[dict[str, Optional[str]]]) -> bool:
+    if integration_id != "huggingface":
+        return False
+    value = (field_values or {}).get("api_key")
+    return value is not None and str(value).strip() != ""
+
+
+def _requires_hosted_gmi_confirmation(integration_id: str, field_values: Optional[dict[str, Optional[str]]]) -> bool:
+    if integration_id != "gmi":
+        return False
+    value = (field_values or {}).get("api_key")
+    return value is not None and str(value).strip() != ""
+
+
+def _requires_hosted_together_confirmation(integration_id: str, field_values: Optional[dict[str, Optional[str]]]) -> bool:
+    if integration_id != "together":
+        return False
+    value = (field_values or {}).get("api_key")
+    return value is not None and str(value).strip() != ""
+
+
+def _integration_encryption_secret() -> str:
+    value = (
+        os.getenv("BLUEPRINT_USER_SECRETS_KEY")
+        or os.getenv("BLUEPRINT_INTEGRATION_ENCRYPTION_KEY")
+        or os.getenv("USER_INTEGRATIONS_ENCRYPTION_KEY")
+    )
+    if not value or not value.strip():
+        raise RuntimeError(
+            "Supabase user integrations require BLUEPRINT_USER_SECRETS_KEY. "
+            "Generate a high-entropy server-only secret and keep it out of NEXT_PUBLIC_* env vars."
+        )
+    return value.strip()
+
+
+def _integration_encryption_key_id(secret: str) -> str:
+    return hashlib.sha256(secret.encode("utf-8")).hexdigest()[:16]
+
+
+def _fernet_for_secret(secret: str) -> Fernet:
+    try:
+        return Fernet(secret.encode("utf-8"))
+    except Exception:
+        digest = hashlib.sha256(secret.encode("utf-8")).digest()
+        return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def _workspace_encryption_secret() -> str:
+    value = (
+        os.getenv("BLUEPRINT_WORKSPACE_SECRETS_KEY")
+        or os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
+        or os.getenv("WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
+    )
+    if value and value.strip():
+        return value.strip()
+    return _integration_encryption_secret()
+
+
+def _encrypt_config_with_secret(config: UserIntegrationConfig, secret: str) -> tuple[str, str]:
+    token = _fernet_for_secret(secret).encrypt(json.dumps(config.as_json(), separators=(",", ":"), sort_keys=True).encode("utf-8"))
+    return token.decode("ascii"), _integration_encryption_key_id(secret)
+
+
+def _decrypt_config_with_secret(token: str, secret: str) -> UserIntegrationConfig:
+    try:
+        plaintext = _fernet_for_secret(secret).decrypt(token.encode("ascii"))
+    except InvalidToken as exc:
+        raise RuntimeError("Stored user integrations could not be decrypted with the configured key.") from exc
+    return UserIntegrationConfig.from_raw(json.loads(plaintext.decode("utf-8")))
+
+
+def _encrypt_config(config: UserIntegrationConfig) -> tuple[str, str]:
+    return _encrypt_config_with_secret(config, _integration_encryption_secret())
+
+
+def _decrypt_config(token: str) -> UserIntegrationConfig:
+    return _decrypt_config_with_secret(token, _integration_encryption_secret())
+
+
+class SupabaseUserIntegrationStore(UserIntegrationStore):
+    table_name = "user_integration_configs"
+
+    def __init__(self, user_id: str) -> None:
+        self.user_id = user_id.strip()
+        if not self.user_id:
+            raise ValueError("user_id is required")
+        self.path = Path(f".blueprint/supabase/users/{re.sub(r'[^A-Za-z0-9_.-]+', '_', self.user_id)[:160]}/encrypted")
+        self.storage_label = f"supabase:{self.table_name}/{self.user_id}"
+
+    def _client(self) -> Any:
+        try:
+            from blueprint_core.database import get_supabase_client
+
+            return get_supabase_client()
+        except Exception:
+            url = _supabase_url()
+            key = _supabase_service_key()
+            if not url or not key:
+                raise
+            try:
+                from supabase import create_client
+            except ImportError as exc:
+                raise RuntimeError("Supabase client is not installed. Run pip install -r backend/requirements.txt.") from exc
+            return create_client(url, key)
+
+    def load(self) -> UserIntegrationConfig:
+        rows = (
+            self._client()
+            .table(self.table_name)
+            .select("encrypted_config")
+            .eq("owner_user_id", self.user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not rows:
+            return UserIntegrationConfig()
+        encrypted_config = rows[0].get("encrypted_config")
+        if not isinstance(encrypted_config, str) or not encrypted_config.strip():
+            return UserIntegrationConfig()
+        return _sanitize_hosted_user_config(_decrypt_config(encrypted_config))
+
+    def update_integration(
+        self,
+        integration_id: str,
+        *,
+        enabled: Optional[bool] = None,
+        field_values: Optional[dict[str, Optional[str]]] = None,
+        clear_fields: Iterable[str] = (),
+    ) -> UserIntegrationConfig:
+        blocked_fields = [
+            field_id
+            for field_id, value in (field_values or {}).items()
+            if value is not None and str(value).strip() and _is_hosted_blocked_secret_field(integration_id, field_id)
+        ]
+        if blocked_fields:
+            policy = _active_hosted_byok_policy(integration_id)
+            raise ValueError(policy.note if policy else "This hosted BYOK credential is not allowed.")
+        if _hosted_byok_policy_active() and _requires_hosted_huggingface_confirmation(integration_id, field_values):
+            confirmation = (field_values or {}).get("token_scope_confirmation")
+            existing_confirmation = self.load().integration_by_id("huggingface")
+            existing_value = existing_confirmation.field_value("token_scope_confirmation") if existing_confirmation else None
+            if not (_truthy_confirmation(str(confirmation) if confirmation is not None else None) or _truthy_confirmation(existing_value)):
+                raise ValueError(
+                    "Hosted Hugging Face BYOK requires confirmation that the token is fine-grained with only "
+                    "Make calls to Inference Providers, or an enterprise service-account token with equivalent scope."
+                )
+        if _hosted_byok_policy_active() and _requires_hosted_gmi_confirmation(integration_id, field_values):
+            confirmation = (field_values or {}).get("key_delegation_confirmation")
+            existing_confirmation = self.load().integration_by_id("gmi")
+            existing_value = existing_confirmation.field_value("key_delegation_confirmation") if existing_confirmation else None
+            if not (_truthy_confirmation(str(confirmation) if confirmation is not None else None) or _truthy_confirmation(existing_value)):
+                raise ValueError(
+                    "Hosted GMI Cloud BYOK requires confirmation that the key is scoped to a dedicated project or "
+                    "organization and that third-party server-side key storage by Blueprint is permitted for your requests."
+                )
+        if _hosted_byok_policy_active() and _requires_hosted_together_confirmation(integration_id, field_values):
+            confirmation = (field_values or {}).get("project_key_confirmation")
+            existing_confirmation = self.load().integration_by_id("together")
+            existing_value = existing_confirmation.field_value("project_key_confirmation") if existing_confirmation else None
+            if not (_truthy_confirmation(str(confirmation) if confirmation is not None else None) or _truthy_confirmation(existing_value)):
+                raise ValueError(
+                    "Hosted Together AI BYOK requires confirmation that the API key is project-scoped, "
+                    "dedicated to Blueprint, and is not a legacy or broad account key."
+                )
+        return super().update_integration(
+            integration_id,
+            enabled=enabled,
+            field_values=field_values,
+            clear_fields=clear_fields,
+        )
+
+    def save(self, config: UserIntegrationConfig) -> UserIntegrationConfig:
+        config.updated_at = _utc_now()
+        encrypted_config, key_id = _encrypt_config(config)
+        record = {
+            "owner_user_id": self.user_id,
+            "encrypted_config": encrypted_config,
+            "encryption_key_id": key_id,
+            "version": config.version,
+            "updated_at": config.updated_at,
+        }
+        self._client().table(self.table_name).upsert(record, on_conflict="owner_user_id").execute()
+        return config
+
+
+class SupabaseWorkspaceIntegrationStore(UserIntegrationStore):
+    table_name = "workspace_integration_configs"
+
+    def __init__(self, config_key: str = WORKSPACE_CONFIG_KEY) -> None:
+        self.config_key = (config_key or WORKSPACE_CONFIG_KEY).strip()
+        if not self.config_key:
+            raise ValueError("config_key is required")
+        self.path = Path(f".blueprint/supabase/workspace/{re.sub(r'[^A-Za-z0-9_.-]+', '_', self.config_key)[:160]}/encrypted")
+        self.storage_label = f"supabase:{self.table_name}/{self.config_key}"
+
+    def _client(self) -> Any:
+        try:
+            from blueprint_core.database import get_supabase_client
+
+            return get_supabase_client()
+        except Exception:
+            url = _supabase_url()
+            key = _supabase_service_key()
+            if not url or not key:
+                raise
+            try:
+                from supabase import create_client
+            except ImportError as exc:
+                raise RuntimeError("Supabase client is not installed. Run pip install -r backend/requirements.txt.") from exc
+            return create_client(url, key)
+
+    def load(self) -> UserIntegrationConfig:
+        cache_key = self.storage_label
+        now = time.monotonic()
+        success_ttl = _workspace_config_cache_ttl_seconds()
+        if success_ttl:
+            cached = _WORKSPACE_CONFIG_CACHE.get(cache_key)
+            if cached and now - cached[0] < success_ttl:
+                return _clone_config(cached[1])
+
+        failure_ttl = _workspace_config_failure_ttl_seconds()
+        if failure_ttl:
+            failed = _WORKSPACE_CONFIG_FAILURE_CACHE.get(cache_key)
+            if failed and now - failed[0] < failure_ttl:
+                return _clone_config(failed[1])
+
+        try:
+            rows = (
+                self._client()
+                .table(self.table_name)
+                .select("encrypted_config")
+                .eq("config_key", self.config_key)
+                .limit(1)
+                .execute()
+                .data
+                or []
+            )
+        except Exception as exc:
+            fallback = UserIntegrationConfig()
+            logger.warning(
+                "Supabase workspace integration config load failed for %s; using empty runtime config until Supabase is ready: %s",
+                self.storage_label,
+                exc,
+            )
+            _WORKSPACE_CONFIG_FAILURE_CACHE[cache_key] = (now, fallback, str(exc))
+            return _clone_config(fallback)
+        if not rows:
+            config = UserIntegrationConfig()
+            _WORKSPACE_CONFIG_CACHE[cache_key] = (now, config)
+            _WORKSPACE_CONFIG_FAILURE_CACHE.pop(cache_key, None)
+            return _clone_config(config)
+        encrypted_config = rows[0].get("encrypted_config")
+        if not isinstance(encrypted_config, str) or not encrypted_config.strip():
+            config = UserIntegrationConfig()
+        else:
+            config = _decrypt_config_with_secret(encrypted_config, _workspace_encryption_secret())
+        _WORKSPACE_CONFIG_CACHE[cache_key] = (now, config)
+        _WORKSPACE_CONFIG_FAILURE_CACHE.pop(cache_key, None)
+        return _clone_config(config)
+
+    def save(self, config: UserIntegrationConfig) -> UserIntegrationConfig:
+        config.updated_at = _utc_now()
+        encrypted_config, key_id = _encrypt_config_with_secret(config, _workspace_encryption_secret())
+        record = {
+            "config_key": self.config_key,
+            "encrypted_config": encrypted_config,
+            "encryption_key_id": key_id,
+            "version": config.version,
+            "updated_at": config.updated_at,
+        }
+        self._client().table(self.table_name).upsert(record, on_conflict="config_key").execute()
+        _WORKSPACE_CONFIG_CACHE[self.storage_label] = (time.monotonic(), _clone_config(config))
+        _WORKSPACE_CONFIG_FAILURE_CACHE.pop(self.storage_label, None)
+        return config
+
+
 def mask_secret(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -394,42 +1091,185 @@ def _first_env(env_names: Iterable[str]) -> Optional[str]:
     return None
 
 
+def _managed_environment_names() -> set[str]:
+    names = set(EXTRA_MANAGED_ENV_NAMES)
+    for definition in INTEGRATION_DEFINITIONS:
+        for field_definition in definition.fields:
+            names.update(field_definition.env_names)
+    names.update(PROVIDER_ALLOWED_MODEL_ENV.values())
+    return names
+
+
+def _normalize_provider_id(value: str) -> Optional[str]:
+    normalized = value.strip().lower().replace("_", "-")
+    if not normalized:
+        return None
+    normalized = PROVIDER_ALIASES.get(normalized, normalized)
+    return normalized if normalized in LLM_PROVIDER_INTEGRATION_IDS else None
+
+
+def _infer_provider_for_model(model: str) -> Optional[str]:
+    lowered = model.strip().lower()
+    for prefix, provider in MODEL_PREFIX_PROVIDERS:
+        if lowered.startswith(prefix):
+            return provider
+    return None
+
+
+def _parse_preferred_llm_selector(value: Optional[str]) -> tuple[Optional[str], Optional[str]]:
+    raw_value = (value or "").strip()
+    if not raw_value:
+        return None, None
+
+    if "/" in raw_value:
+        try:
+            selector = parse_llm_selector(raw_value)
+        except ValueError:
+            selector = None
+        if selector:
+            provider = _normalize_provider_id(selector.provider)
+            if provider:
+                return provider, selector.model
+
+    inferred_provider = _infer_provider_for_model(raw_value)
+    if inferred_provider:
+        return inferred_provider, raw_value
+    return None, raw_value
+
+
+def _model_env_names_for_provider(provider: str) -> tuple[str, ...]:
+    definition = _DEFINITION_BY_ID.get(provider)
+    if definition is None:
+        return ()
+    try:
+        return definition.field_by_id("model").env_names
+    except KeyError:
+        return ()
+
+
+def _merge_csv_value(existing: Optional[str], values: Iterable[str]) -> str:
+    merged = []
+    seen = set()
+    for item in [*(existing or "").split(","), *values]:
+        value = str(item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        merged.append(value)
+    return ",".join(merged)
+
+
 def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
     desired: dict[str, str] = {}
+    allowed_providers: set[str] = set()
+    allowed_models_by_provider: dict[str, set[str]] = {}
+    runtime_image_provider: Optional[str] = None
+    generic_image_provider: Optional[str] = None
+    inferred_image_provider: Optional[str] = None
+    inferred_image_provider_updated_at = ""
+
+    def remember_provider_model(provider: str, model: Optional[str]) -> None:
+        normalized_provider = _normalize_provider_id(provider)
+        if not normalized_provider:
+            return
+        allowed_providers.add(normalized_provider)
+        if model and model.strip():
+            allowed_models_by_provider.setdefault(normalized_provider, set()).add(model.strip())
+
+    def remember_image_provider(provider: str, integration: StoredIntegration) -> None:
+        nonlocal inferred_image_provider, inferred_image_provider_updated_at
+        updated_at = integration.updated_at or ""
+        if not inferred_image_provider or updated_at >= inferred_image_provider_updated_at:
+            inferred_image_provider = provider
+            inferred_image_provider_updated_at = updated_at
+
     for integration in config.integrations:
         if not integration.enabled:
             continue
         definition = _DEFINITION_BY_ID.get(integration.id)
         if definition is None:
             continue
+
+        if integration.id in LLM_PROVIDER_INTEGRATION_IDS:
+            has_config = any(integration.field_value(field.id) for field in definition.fields)
+            if has_config:
+                remember_provider_model(integration.id, integration.field_value("model"))
+            if integration.id == "huggingface" and integration.field_value("api_key") and integration.field_value("image_model"):
+                remember_image_provider("huggingface", integration)
+            elif integration.id == "openai" and integration.field_value("image_model"):
+                remember_image_provider("openai", integration)
+            elif integration.id == "gmi" and integration.field_value("api_key"):
+                remember_image_provider("gmi", integration)
+
+        if integration.id == "together" and integration.field_value("api_key"):
+            remember_image_provider("together", integration)
+
         for field_definition in definition.fields:
             value = integration.field_value(field_definition.id)
             if not value:
                 continue
             for env_name in field_definition.env_names:
+                if env_name == "IMAGE_PROVIDER" and integration.id in {"runtime", "image"}:
+                    continue
                 desired[env_name] = value
+
+        if integration.id == "runtime":
+            selector_provider, selector_model = _parse_preferred_llm_selector(integration.field_value("llm_selector"))
+            if selector_provider:
+                desired["LLM_PROVIDER"] = selector_provider
+                remember_provider_model(selector_provider, selector_model)
+                if selector_model:
+                    desired["LLM_MODEL"] = selector_model
+                    for env_name in _model_env_names_for_provider(selector_provider):
+                        desired[env_name] = selector_model
+            elif selector_model:
+                desired["LLM_MODEL"] = selector_model
+            if integration.field_value("image_provider"):
+                runtime_image_provider = integration.field_value("image_provider")
+        elif integration.id == "image" and integration.field_value("provider"):
+            generic_image_provider = integration.field_value("provider")
+
+    if generic_image_provider and not desired.get("IMAGE_PROVIDER"):
+        desired["IMAGE_PROVIDER"] = generic_image_provider
+    elif runtime_image_provider and not desired.get("IMAGE_PROVIDER"):
+        desired["IMAGE_PROVIDER"] = runtime_image_provider
+    elif inferred_image_provider and not desired.get("IMAGE_PROVIDER"):
+        desired["IMAGE_PROVIDER"] = inferred_image_provider
+
+    if allowed_providers and not desired.get("LLM_ALLOWED_PROVIDERS"):
+        desired["LLM_ALLOWED_PROVIDERS"] = ",".join(sorted(allowed_providers))
+    elif allowed_providers:
+        desired["LLM_ALLOWED_PROVIDERS"] = _merge_csv_value(desired.get("LLM_ALLOWED_PROVIDERS"), sorted(allowed_providers))
+
+    for provider, models in sorted(allowed_models_by_provider.items()):
+        env_name = PROVIDER_ALLOWED_MODEL_ENV.get(provider)
+        if env_name and models:
+            desired[env_name] = _merge_csv_value(desired.get(env_name), sorted(models))
     return desired
 
 
 def apply_user_integrations_to_environment(store: Optional[UserIntegrationStore] = None) -> UserIntegrationConfig:
-    resolved_store = store or UserIntegrationStore()
-    config = resolved_store.load()
+    resolved_store = store or default_integration_store()
+    try:
+        config = resolved_store.load()
+    except Exception as exc:
+        logger.warning(
+            "Integration config load failed from %s; using empty runtime config: %s",
+            getattr(resolved_store, "storage_label", getattr(resolved_store, "path", "unknown")),
+            exc,
+        )
+        config = UserIntegrationConfig()
     desired = _desired_environment(config)
+    managed_env_names = _managed_environment_names()
 
-    for env_name, applied_value in list(_APPLIED_ENV_VALUES.items()):
+    for env_name in managed_env_names:
         if env_name in desired:
             continue
-        if os.environ.get(env_name) == applied_value:
-            original_value = _ORIGINAL_ENV_VALUES.pop(env_name, None)
-            if original_value is None:
-                os.environ.pop(env_name, None)
-            else:
-                os.environ[env_name] = original_value
+        os.environ.pop(env_name, None)
         _APPLIED_ENV_VALUES.pop(env_name, None)
+        _ORIGINAL_ENV_VALUES.pop(env_name, None)
 
     for env_name, desired_value in desired.items():
-        if env_name not in _ORIGINAL_ENV_VALUES:
-            _ORIGINAL_ENV_VALUES[env_name] = os.environ.get(env_name)
         os.environ[env_name] = desired_value
         _APPLIED_ENV_VALUES[env_name] = desired_value
 
@@ -439,11 +1279,18 @@ def apply_user_integrations_to_environment(store: Optional[UserIntegrationStore]
 def _field_status_payload(
     integration: Optional[StoredIntegration],
     field_definition: IntegrationFieldDefinition,
+    *,
+    integration_id: str,
+    hosted_user_store: bool = False,
 ) -> dict[str, object]:
     saved_value = integration.field_value(field_definition.id) if integration else None
-    env_value = _first_env(field_definition.env_names)
-    active_value = saved_value or env_value
-    source = "saved" if saved_value else ("environment" if env_value else "unset")
+    policy = _active_hosted_byok_policy(integration_id) if hosted_user_store else None
+    blocked_by_policy = bool(policy and field_definition.id in policy.blocked_secret_fields)
+    conditional_by_policy = bool(policy and field_definition.id in policy.conditional_secret_fields)
+    if blocked_by_policy:
+        saved_value = None
+    active_value = saved_value
+    source = "saved" if saved_value else "unset"
     payload: dict[str, object] = {
         "id": field_definition.id,
         "label": field_definition.label,
@@ -454,6 +1301,11 @@ def _field_status_payload(
         "configured": bool(active_value),
         "saved": bool(saved_value),
         "source": source,
+        "editable": not blocked_by_policy,
+        "policy_status": policy.hosted_byok if policy else "enabled",
+        "policy_blocked": blocked_by_policy,
+        "policy_conditional": conditional_by_policy,
+        "policy_notice": policy.note if policy and (blocked_by_policy or conditional_by_policy) else "",
     }
     if field_definition.secret:
         payload["masked_value"] = mask_secret(active_value)
@@ -467,18 +1319,27 @@ def _field_status_payload(
 def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> dict[str, object]:
     resolved_store = store or UserIntegrationStore()
     config = apply_user_integrations_to_environment(resolved_store)
+    hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore)
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:
         stored = config.integration_by_id(definition.id)
         configured_fields = [
-            _field_status_payload(stored, field_definition)
+            _field_status_payload(
+                stored,
+                field_definition,
+                integration_id=definition.id,
+                hosted_user_store=hosted_user_store,
+            )
             for field_definition in definition.fields
         ]
+        policy = _active_hosted_byok_policy(definition.id) if hosted_user_store else None
         integrations.append(
             {
                 "id": definition.id,
                 "label": definition.label,
                 "description": definition.description,
+                "policy_status": policy.hosted_byok if policy else "enabled",
+                "policy_notice": policy.note if policy else "",
                 "enabled": stored.enabled if stored else True,
                 "saved": stored is not None,
                 "updated_at": stored.updated_at if stored else None,
@@ -489,6 +1350,7 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
     return {
         "version": config.version,
         "config_path": str(resolved_store.path),
+        "storage": getattr(resolved_store, "storage_label", str(resolved_store.path)),
         "updated_at": config.updated_at,
         "integrations": integrations,
     }
@@ -499,12 +1361,16 @@ __all__ = [
     "IntegrationFieldDefinition",
     "StoredIntegration",
     "StoredIntegrationField",
+    "SupabaseUserIntegrationStore",
+    "SupabaseWorkspaceIntegrationStore",
     "UserIntegrationConfig",
     "UserIntegrationStore",
     "apply_user_integrations_to_environment",
+    "default_integration_store",
     "default_user_integrations_path",
     "integration_definition_by_id",
     "integration_status_payload",
     "list_integration_definitions",
     "mask_secret",
+    "user_integrations_path_for_user",
 ]

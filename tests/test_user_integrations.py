@@ -7,23 +7,74 @@ import unittest
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
+from unittest.mock import patch
 
 from blueprint_core import user_integrations
 from blueprint_core.user_integrations import (
+    SupabaseUserIntegrationStore,
+    SupabaseWorkspaceIntegrationStore,
     UserIntegrationStore,
     apply_user_integrations_to_environment,
+    default_integration_store,
     integration_status_payload,
 )
+from blueprint_core.llm_providers import resolve_llm_runtime_config
 
 
 TEST_ENV_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_IMAGE_API_KEY",
+    "OPENAI_IMAGE_MODEL",
     "OPENAI_MODEL",
     "OPENAI_STREAM_MODEL",
+    "OPENAI_ALLOWED_MODELS",
     "BASETEN_API_KEY",
+    "NVIDIA_API_KEY",
+    "NVIDIA_MODEL",
     "LLM_PROVIDER",
     "LLM_MODEL",
+    "BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND",
+    "BLUEPRINT_USER_INTEGRATIONS_BACKEND",
+    "BLUEPRINT_INTEGRATIONS_BACKEND",
+    "SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_SECRET_KEY",
+    "BLUEPRINT_DEPLOYMENT",
+    "BLUEPRINT_DEPLOYMENT_MODE",
+    "DEPLOYMENT",
+    "DEPLOYMENT_MODE",
+    "NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT",
+    "IMAGE_PROVIDER",
+    "IMAGE_API_KEY",
+    "IMAGE_BASE_URL",
+    "IMAGE_MODEL",
+    "IMAGE_SIZE",
+    "IMAGE_QUALITY",
+    "IMAGE_OUTPUT_FORMAT",
+    "GMI_API_KEY",
+    "GMI_CLOUD_API_KEY",
+    "GMICLOUD_API_KEY",
+    "GMI_IMAGE_BASE_URL",
+    "GMI_CLOUD_IMAGE_BASE_URL",
+    "GMICLOUD_IMAGE_BASE_URL",
+    "GMI_IMAGE_MODEL",
+    "GMI_CLOUD_IMAGE_MODEL",
+    "GMICLOUD_IMAGE_MODEL",
+    "GMI_IMAGE_SIZE",
+    "GMI_IMAGE_OUTPUT_FORMAT",
+    "TOGETHER_API_KEY",
+    "TOGETHER_IMAGE_API_KEY",
+    "TOGETHER_IMAGE_BASE_URL",
+    "TOGETHER_BASE_URL",
+    "TOGETHER_IMAGE_MODEL",
+    "TOGETHER_IMAGE_SIZE",
+    "TOGETHER_IMAGE_STEPS",
+    "TOGETHER_IMAGE_OUTPUT_FORMAT",
+    "HF_TOKEN",
+    "HUGGINGFACE_API_KEY",
+    "HUGGINGFACE_IMAGE_MODEL",
+    "HUGGINGFACE_IMAGE_INFERENCE_PROVIDER",
 )
 
 
@@ -32,6 +83,8 @@ def isolated_integration_env() -> Iterator[None]:
     old_values = {key: os.environ.get(key) for key in TEST_ENV_KEYS}
     user_integrations._APPLIED_ENV_VALUES.clear()
     user_integrations._ORIGINAL_ENV_VALUES.clear()
+    user_integrations._WORKSPACE_CONFIG_CACHE.clear()
+    user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
     try:
         for key in TEST_ENV_KEYS:
             os.environ.pop(key, None)
@@ -43,6 +96,8 @@ def isolated_integration_env() -> Iterator[None]:
                 os.environ[key] = old_values[key] or ""
         user_integrations._APPLIED_ENV_VALUES.clear()
         user_integrations._ORIGINAL_ENV_VALUES.clear()
+        user_integrations._WORKSPACE_CONFIG_CACHE.clear()
+        user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
 
 
 def integration_by_id(payload: dict[str, object], integration_id: str) -> dict[str, object]:
@@ -91,9 +146,11 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertNotIn("sk-testsecret123456", str(payload))
             self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
-    def test_apply_sets_runtime_environment_and_restores_previous_env_values(self) -> None:
+    def test_apply_sets_runtime_environment_and_clears_previous_env_values(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-env-original"
+            os.environ["IMAGE_PROVIDER"] = "openai"
+            os.environ["OPENAI_IMAGE_MODEL"] = "gpt-image-2"
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
             store.update_integration(
                 "openai",
@@ -105,16 +162,35 @@ class UserIntegrationTests(unittest.TestCase):
 
             apply_user_integrations_to_environment(store)
             self.assertEqual("sk-user-managed", os.environ["OPENAI_API_KEY"])
-            self.assertEqual("sk-user-managed", os.environ["OPENAI_IMAGE_API_KEY"])
+            self.assertNotIn("OPENAI_IMAGE_API_KEY", os.environ)
             self.assertEqual("gpt-5.5", os.environ["OPENAI_MODEL"])
             self.assertEqual("gpt-5.5", os.environ["OPENAI_STREAM_MODEL"])
 
             store.clear_integration("openai")
             apply_user_integrations_to_environment(store)
-            self.assertEqual("sk-env-original", os.environ["OPENAI_API_KEY"])
+            self.assertNotIn("OPENAI_API_KEY", os.environ)
+            self.assertNotIn("IMAGE_PROVIDER", os.environ)
+            self.assertNotIn("OPENAI_IMAGE_MODEL", os.environ)
             self.assertNotIn("OPENAI_IMAGE_API_KEY", os.environ)
             self.assertNotIn("OPENAI_MODEL", os.environ)
             self.assertNotIn("OPENAI_STREAM_MODEL", os.environ)
+
+    def test_status_payload_does_not_treat_environment_as_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["OPENAI_API_KEY"] = "sk-env-original"
+            os.environ["IMAGE_PROVIDER"] = "openai"
+            os.environ["OPENAI_IMAGE_MODEL"] = "gpt-image-2"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+
+            payload = integration_status_payload(store)
+            openai = integration_by_id(payload, "openai")
+            runtime = integration_by_id(payload, "runtime")
+
+            self.assertFalse(openai["configured"])
+            self.assertEqual("unset", field_by_id(openai, "api_key")["source"])
+            self.assertFalse(field_by_id(openai, "api_key")["configured"])
+            self.assertEqual("unset", field_by_id(runtime, "image_provider")["source"])
+            self.assertFalse(field_by_id(runtime, "image_provider")["configured"])
 
     def test_disabled_integration_is_saved_but_not_applied(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -147,6 +223,677 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertEqual("gmi", os.environ["LLM_PROVIDER"])
             self.assertEqual("anthropic/claude-fable-5", os.environ["LLM_MODEL"])
+
+    def test_provider_model_saved_integration_updates_allowlist(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "openai",
+                field_values={
+                    "api_key": "sk-user-managed",
+                    "model": "gpt-5.5",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("gpt-5.5", os.environ["OPENAI_MODEL"])
+            self.assertEqual("gpt-5.5", os.environ["OPENAI_ALLOWED_MODELS"])
+
+    def test_saved_provider_config_overrides_stale_llm_allowed_providers(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["LLM_ALLOWED_PROVIDERS"] = "openai,simulation"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "baseten",
+                enabled=True,
+                field_values={
+                    "api_key": "baseten-secret",
+                    "base_url": "https://inference.baseten.co/v1",
+                    "model": "deepseek-ai/DeepSeek-V4-Pro",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+            runtime = resolve_llm_runtime_config("baseten", "deepseek-ai/DeepSeek-V4-Pro")
+
+            self.assertEqual(["baseten"], runtime.allowed_providers)
+            self.assertEqual("baseten", runtime.provider)
+            self.assertEqual("deepseek-ai/DeepSeek-V4-Pro", runtime.model)
+
+    def test_deployed_user_store_rejects_openai_api_key(self) -> None:
+        store = SupabaseUserIntegrationStore("user_policy_test")
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "does not accept user-supplied OpenAI API keys"):
+                store.update_integration("openai", field_values={"api_key": "sk-user-owned"})
+
+    def test_deployed_user_store_rejects_nvidia_build_api_key(self) -> None:
+        store = SupabaseUserIntegrationStore("user_nvidia_policy_test")
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "does not accept user-supplied NVIDIA Build/API Catalog keys"):
+                store.update_integration("nvidia", field_values={"api_key": "nvapi-user-owned"})
+
+    def test_deployed_user_store_requires_gmi_key_delegation_confirmation(self) -> None:
+        class FakeHostedGmiStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_gmi_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        store = FakeHostedGmiStore()
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "requires confirmation"):
+                store.update_integration("gmi", field_values={"api_key": "gmi-user-owned"})
+
+    def test_hosted_user_store_accepts_confirmed_gmi_key(self) -> None:
+        class FakeHostedGmiStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_gmi_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        store = FakeHostedGmiStore()
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = store.update_integration(
+                "gmi",
+                field_values={
+                    "api_key": "gmi-user-owned",
+                    "key_delegation_confirmation": "project-scoped",
+                    "model": "anthropic/claude-fable-5",
+                },
+            )
+        gmi = config.integration_by_id("gmi")
+
+        self.assertIsNotNone(gmi)
+        self.assertEqual("gmi-user-owned", gmi.field_value("api_key"))
+        self.assertEqual("project-scoped", gmi.field_value("key_delegation_confirmation"))
+
+    def test_deployed_user_store_requires_together_project_key_confirmation(self) -> None:
+        class FakeHostedTogetherStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_together_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        store = FakeHostedTogetherStore()
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "project-scoped"):
+                store.update_integration("together", field_values={"api_key": "together-user-owned"})
+
+    def test_hosted_user_store_accepts_confirmed_together_project_key(self) -> None:
+        class FakeHostedTogetherStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_together_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        store = FakeHostedTogetherStore()
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = store.update_integration(
+                "together",
+                field_values={
+                    "api_key": "together-user-owned",
+                    "project_key_confirmation": "dedicated-to-blueprint",
+                    "image_model": "openai/gpt-image-2",
+                },
+            )
+        together = config.integration_by_id("together")
+
+        self.assertIsNotNone(together)
+        self.assertEqual("together-user-owned", together.field_value("api_key"))
+        self.assertEqual("dedicated-to-blueprint", together.field_value("project_key_confirmation"))
+
+    def test_local_supabase_user_store_allows_openai_api_key(self) -> None:
+        class FakeLocalSupabaseStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_local_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        with isolated_integration_env():
+            store = FakeLocalSupabaseStore()
+            config = store.update_integration("openai", field_values={"api_key": "sk-user-owned"})
+            openai = config.integration_by_id("openai")
+
+            self.assertIsNotNone(openai)
+            self.assertEqual("sk-user-owned", openai.field_value("api_key"))
+
+            payload = integration_status_payload(store)
+            openai_payload = integration_by_id(payload, "openai")
+            api_key_payload = field_by_id(openai_payload, "api_key")
+
+            self.assertEqual("enabled", openai_payload["policy_status"])
+            self.assertEqual("", openai_payload["policy_notice"])
+            self.assertTrue(api_key_payload["editable"])
+
+    def test_local_file_store_allows_nvidia_for_development(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "nvidia",
+                field_values={
+                    "api_key": "nvapi-local-dev",
+                    "model": "nvidia/z-ai/glm-5.2",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("nvapi-local-dev", os.environ["NVIDIA_API_KEY"])
+            self.assertEqual("nvidia/z-ai/glm-5.2", os.environ["NVIDIA_MODEL"])
+
+    def test_local_image_integration_can_apply_openai_compatible_settings(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "image",
+                field_values={
+                    "provider": "openai-compatible",
+                    "api_key": "image-provider-secret",
+                    "base_url": "https://images.example.test/v1",
+                    "model": "vendor/image-model",
+                    "size": "1024x1024",
+                    "quality": "medium",
+                    "output_format": "png",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("openai-compatible", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("image-provider-secret", os.environ["IMAGE_API_KEY"])
+            self.assertEqual("https://images.example.test/v1", os.environ["IMAGE_BASE_URL"])
+            self.assertEqual("vendor/image-model", os.environ["IMAGE_MODEL"])
+            self.assertEqual("1024x1024", os.environ["IMAGE_SIZE"])
+            self.assertEqual("medium", os.environ["IMAGE_QUALITY"])
+            self.assertEqual("png", os.environ["IMAGE_OUTPUT_FORMAT"])
+
+    def test_huggingface_image_config_becomes_active_image_provider(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["OPENAI_API_KEY"] = "sk-env-openai"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "openai",
+                field_values={
+                    "model": "gpt-5.5",
+                    "image_model": "gpt-image-2",
+                },
+            )
+            store.update_integration(
+                "huggingface",
+                field_values={
+                    "api_key": "hf-scoped-token",
+                    "image_model": "black-forest-labs/FLUX.1-schnell",
+                    "image_inference_provider": "fal-ai",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("huggingface", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("black-forest-labs/FLUX.1-schnell", os.environ["HUGGINGFACE_IMAGE_MODEL"])
+            self.assertEqual("fal-ai", os.environ["HUGGINGFACE_IMAGE_INFERENCE_PROVIDER"])
+            self.assertNotIn("IMAGE_MODEL", os.environ)
+
+    def test_gmi_image_config_becomes_active_image_provider(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "gmi",
+                field_values={
+                    "api_key": "gmi-secret",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("gmi", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("gmi-secret", os.environ["GMI_API_KEY"])
+            self.assertNotIn("GMI_IMAGE_BASE_URL", os.environ)
+            self.assertNotIn("GMI_IMAGE_MODEL", os.environ)
+            self.assertNotIn("GMI_IMAGE_SIZE", os.environ)
+            self.assertNotIn("GMI_IMAGE_OUTPUT_FORMAT", os.environ)
+
+    def test_together_image_config_becomes_active_image_provider(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "together",
+                field_values={
+                    "api_key": "together-secret",
+                    "image_model": "openai/gpt-image-2",
+                    "image_size": "1024x1024",
+                    "image_steps": "4",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("together", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("together-secret", os.environ["TOGETHER_API_KEY"])
+            self.assertEqual("openai/gpt-image-2", os.environ["TOGETHER_IMAGE_MODEL"])
+            self.assertEqual("1024x1024", os.environ["TOGETHER_IMAGE_SIZE"])
+            self.assertEqual("4", os.environ["TOGETHER_IMAGE_STEPS"])
+
+    def test_selected_image_provider_wins_over_newer_provider_specific_config(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration("image", field_values={"provider": "gmi"})
+            store.update_integration(
+                "together",
+                field_values={
+                    "api_key": "together-secret",
+                    "image_model": "openai/gpt-image-2",
+                },
+            )
+            config = store.load()
+            image = config.integration_by_id("image")
+            together = config.integration_by_id("together")
+            assert image is not None
+            assert together is not None
+            image.updated_at = "2026-07-21T12:00:00Z"
+            together.updated_at = "2026-07-21T12:01:00Z"
+            store.save(config)
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("gmi", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("together-secret", os.environ["TOGETHER_API_KEY"])
+
+    def test_selected_image_provider_wins_over_stale_provider_specific_config(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "huggingface",
+                field_values={
+                    "api_key": "hf-scoped-token",
+                    "image_model": "black-forest-labs/FLUX.1-Krea-dev",
+                    "image_inference_provider": "fal-ai",
+                },
+            )
+            store.update_integration("image", field_values={"provider": "gmi"})
+            config = store.load()
+            huggingface = config.integration_by_id("huggingface")
+            image = config.integration_by_id("image")
+            assert huggingface is not None
+            assert image is not None
+            huggingface.updated_at = "2026-07-21T12:00:00Z"
+            image.updated_at = "2026-07-21T12:01:00Z"
+            store.save(config)
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("gmi", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("hf-scoped-token", os.environ["HF_TOKEN"])
+            self.assertEqual("black-forest-labs/FLUX.1-Krea-dev", os.environ["HUGGINGFACE_IMAGE_MODEL"])
+
+    def test_explicit_image_provider_override_wins_over_huggingface_image_config(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "runtime",
+                field_values={
+                    "image_provider": "openai",
+                    "image_model": "gpt-image-2",
+                },
+            )
+            store.update_integration(
+                "huggingface",
+                field_values={
+                    "api_key": "hf-scoped-token",
+                    "image_model": "black-forest-labs/FLUX.1-schnell",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("openai", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("gpt-image-2", os.environ["IMAGE_MODEL"])
+
+    def test_enabled_image_generation_provider_applies_when_runtime_defaults_are_disabled(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "runtime",
+                enabled=False,
+                field_values={
+                    "image_provider": "openai",
+                    "image_model": "gpt-image-2",
+                },
+            )
+            store.update_integration(
+                "image",
+                enabled=True,
+                field_values={"provider": "huggingface"},
+            )
+            store.update_integration(
+                "huggingface",
+                enabled=True,
+                field_values={
+                    "api_key": "hf-scoped-token",
+                    "image_model": "black-forest-labs/FLUX.1-schnell",
+                    "image_inference_provider": "fal-ai",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("huggingface", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("black-forest-labs/FLUX.1-schnell", os.environ["HUGGINGFACE_IMAGE_MODEL"])
+            self.assertEqual("fal-ai", os.environ["HUGGINGFACE_IMAGE_INFERENCE_PROVIDER"])
+            self.assertNotIn("IMAGE_MODEL", os.environ)
+
+    def test_deployed_user_store_rejects_generic_image_api_key(self) -> None:
+        store = SupabaseUserIntegrationStore("user_image_policy_test")
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "does not accept generic user-supplied image provider API keys"):
+                store.update_integration("image", field_values={"api_key": "image-provider-secret"})
+
+    def test_deployed_user_store_requires_huggingface_token_scope_confirmation(self) -> None:
+        class FakeHostedHuggingFaceStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_hf_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        store = FakeHostedHuggingFaceStore()
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "requires confirmation"):
+                store.update_integration("huggingface", field_values={"api_key": "hf_secret"})
+
+    def test_hosted_user_store_accepts_confirmed_huggingface_token(self) -> None:
+        class FakeHostedHuggingFaceStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_hf_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        store = FakeHostedHuggingFaceStore()
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = store.update_integration(
+                "huggingface",
+                field_values={
+                    "api_key": "hf_secret",
+                    "token_scope_confirmation": "fine-grained",
+                    "model": "Qwen/Qwen2.5-Coder-3B-Instruct:nscale",
+                    "model_license": "apache-2.0",
+                },
+            )
+        huggingface = config.integration_by_id("huggingface")
+
+        self.assertIsNotNone(huggingface)
+        self.assertEqual("hf_secret", huggingface.field_value("api_key"))
+        self.assertEqual("fine-grained", huggingface.field_value("token_scope_confirmation"))
+
+    def test_hosted_user_policy_sanitizes_saved_openai_api_key(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = user_integrations.UserIntegrationConfig()
+            integration = config.ensure_integration("openai")
+            integration.set_field("api_key", "sk-legacy-user-owned")
+            integration.set_field("model", "gpt-5.5")
+
+            sanitized = user_integrations._sanitize_hosted_user_config(config)
+            sanitized_openai = sanitized.integration_by_id("openai")
+
+            self.assertIsNotNone(sanitized_openai)
+            self.assertIsNone(sanitized_openai.field_value("api_key"))
+            self.assertEqual("gpt-5.5", sanitized_openai.field_value("model"))
+
+    def test_hosted_user_policy_sanitizes_saved_nvidia_api_key(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = user_integrations.UserIntegrationConfig()
+            integration = config.ensure_integration("nvidia")
+            integration.set_field("api_key", "nvapi-legacy-user-owned")
+            integration.set_field("model", "nvidia/z-ai/glm-5.2")
+
+            sanitized = user_integrations._sanitize_hosted_user_config(config)
+            sanitized_nvidia = sanitized.integration_by_id("nvidia")
+
+            self.assertIsNotNone(sanitized_nvidia)
+            self.assertIsNone(sanitized_nvidia.field_value("api_key"))
+            self.assertEqual("nvidia/z-ai/glm-5.2", sanitized_nvidia.field_value("model"))
+
+    def test_hosted_nvidia_status_marks_api_key_blocked(self) -> None:
+        class FakeHostedNvidiaStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_nvidia_status_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            store = FakeHostedNvidiaStore()
+            nvidia = store.config.ensure_integration("nvidia")
+            nvidia.set_field("api_key", "nvapi-legacy-user-owned")
+            nvidia.set_field("model", "nvidia/z-ai/glm-5.2")
+
+            payload = integration_status_payload(store)
+            nvidia_payload = integration_by_id(payload, "nvidia")
+            api_key_payload = field_by_id(nvidia_payload, "api_key")
+
+            self.assertEqual("disabled", nvidia_payload["policy_status"])
+            self.assertIn("does not accept user-supplied NVIDIA Build/API Catalog keys", nvidia_payload["policy_notice"])
+            self.assertFalse(api_key_payload["editable"])
+            self.assertTrue(api_key_payload["policy_blocked"])
+            self.assertFalse(api_key_payload["configured"])
+
+    def test_hosted_gmi_status_marks_api_key_conditional(self) -> None:
+        class FakeHostedGmiStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_gmi_status_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            store = FakeHostedGmiStore()
+            gmi = store.config.ensure_integration("gmi")
+            gmi.set_field("api_key", "gmi-user-owned")
+            gmi.set_field("key_delegation_confirmation", "project-scoped")
+
+            payload = integration_status_payload(store)
+            gmi_payload = integration_by_id(payload, "gmi")
+            api_key_payload = field_by_id(gmi_payload, "api_key")
+            confirmation_payload = field_by_id(gmi_payload, "key_delegation_confirmation")
+
+            self.assertEqual("conditional", gmi_payload["policy_status"])
+            self.assertIn("Hosted GMI Cloud BYOK is conditional", gmi_payload["policy_notice"])
+            self.assertTrue(api_key_payload["editable"])
+            self.assertTrue(api_key_payload["policy_conditional"])
+            self.assertTrue(api_key_payload["configured"])
+            self.assertTrue(confirmation_payload["configured"])
+
+    def test_hosted_together_status_marks_api_key_conditional(self) -> None:
+        class FakeHostedTogetherStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_together_status_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            store = FakeHostedTogetherStore()
+            together = store.config.ensure_integration("together")
+            together.set_field("api_key", "together-user-owned")
+            together.set_field("project_key_confirmation", "dedicated-to-blueprint")
+
+            payload = integration_status_payload(store)
+            together_payload = integration_by_id(payload, "together")
+            api_key_payload = field_by_id(together_payload, "api_key")
+            confirmation_payload = field_by_id(together_payload, "project_key_confirmation")
+
+            self.assertEqual("enabled", together_payload["policy_status"])
+            self.assertIn("Hosted Together AI image BYOK requires a project-scoped API key", together_payload["policy_notice"])
+            self.assertTrue(api_key_payload["editable"])
+            self.assertTrue(api_key_payload["policy_conditional"])
+            self.assertTrue(api_key_payload["configured"])
+            self.assertTrue(confirmation_payload["configured"])
+
+    def test_default_store_uses_local_file_unless_workspace_backend_is_supabase(self) -> None:
+        with isolated_integration_env():
+            os.environ.pop("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", None)
+            self.assertIs(type(default_integration_store()), UserIntegrationStore)
+
+    def test_user_store_uses_supabase_when_supabase_is_configured(self) -> None:
+        with isolated_integration_env():
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            store = UserIntegrationStore.for_user("user_123")
+
+            self.assertIsInstance(store, SupabaseUserIntegrationStore)
+            self.assertEqual("supabase:user_integration_configs/user_123", store.storage_label)
+
+    def test_user_store_file_backend_override_uses_local_file(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_USER_INTEGRATIONS_BACKEND"] = "file"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            store = UserIntegrationStore.for_user("user_123")
+
+            self.assertIs(type(store), UserIntegrationStore)
+            self.assertIn("user_123", str(store.path))
+
+    def test_default_store_uses_supabase_workspace_when_supabase_is_configured(self) -> None:
+        with isolated_integration_env():
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            store = default_integration_store()
+
+            self.assertIsInstance(store, SupabaseWorkspaceIntegrationStore)
+            self.assertEqual("supabase:workspace_integration_configs/default", store.storage_label)
+
+    def test_supabase_workspace_load_failure_does_not_crash_runtime_apply(self) -> None:
+        class BrokenWorkspaceStore(SupabaseWorkspaceIntegrationStore):
+            calls = 0
+
+            def _client(self):
+                type(self).calls += 1
+
+                class Execute:
+                    @property
+                    def data(self):
+                        return []
+
+                    def execute(self):
+                        raise RuntimeError(
+                            "{'message': 'Could not query the database for the schema cache. Retrying.', 'code': 'PGRST002'}"
+                        )
+
+                class Query:
+                    def select(self, *_args):
+                        return self
+
+                    def eq(self, *_args):
+                        return self
+
+                    def limit(self, *_args):
+                        return Execute()
+
+                class Client:
+                    def table(self, *_args):
+                        return Query()
+
+                return Client()
+
+        with isolated_integration_env(), self.assertLogs("blueprint_core.user_integrations", level="WARNING") as logs:
+            first = apply_user_integrations_to_environment(BrokenWorkspaceStore())
+            second = apply_user_integrations_to_environment(BrokenWorkspaceStore())
+
+        self.assertEqual([], first.integrations)
+        self.assertEqual([], second.integrations)
+        self.assertEqual(1, BrokenWorkspaceStore.calls)
+        self.assertIn("PGRST002", "\n".join(logs.output))
+        self.assertEqual(1, "\n".join(logs.output).count("PGRST002"))
 
 
 if __name__ == "__main__":

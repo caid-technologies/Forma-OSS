@@ -52,7 +52,7 @@ LLM configuration behavior:
 - `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `BLUEPRINT_DEV_MODE=true`: forces SQLite for app data and A2A job metadata even when Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `BLUEPRINT_DEPLOYMENT=true`: enables the deployment-only alpha gate. If live generation is unavailable, `/api/generate` is blocked and the frontend captures launch interest through `/api/alpha-signups`
-- `LLM_PROVIDER`: `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching. The backend validates them before generation and records requested/actual provider/model metadata on the project.
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
@@ -70,9 +70,11 @@ LLM configuration behavior:
 - `LANGFUSE_MAX_FIELD_CHARS`: optional per-field payload cap for traced prompt/output previews, defaulting to `20000`.
 - `LANGFUSE_ENABLED=false`: explicit opt-out when project keys are present in the runtime environment.
 - `IMAGE_OUTPUT_ENABLED=true`: make product concept image generation the default. Requests can opt in per job with `generate_image=true`
-- `IMAGE_PROVIDER`: `openai`, `openai-compatible`, or `none`
+- `IMAGE_PROVIDER`: `openai`, `openai-compatible`, `huggingface`, or `none`
 - `OPENAI_IMAGE_MODEL`: first-party OpenAI image model, for example `gpt-image-2`
 - `OPENAI_IMAGE_SIZE`: image output size, for example `1024x1024`
+- `HUGGINGFACE_IMAGE_MODEL` / `HUGGINGFACE_IMAGE_INFERENCE_PROVIDER`: Hugging Face text-to-image model and underlying inference provider when `IMAGE_PROVIDER=huggingface`
+- `HUGGINGFACE_IMAGE_MODEL_REVISION` / `HUGGINGFACE_IMAGE_MODEL_LICENSE`: optional policy metadata recorded with stored Hugging Face image outputs
 - `SUPABASE_S3_ENDPOINT`: Supabase Storage S3 endpoint associated with image uploads, defaulting from `SUPABASE_URL` when possible
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for reference and generated product images, defaulting to `contents`
 - `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `BLUEPRINT_DEV_MODE=true` disables these image uploads
@@ -89,9 +91,11 @@ LLM configuration behavior:
 - `BASETEN_MODEL`: Baseten model slug, for example `deepseek-ai/DeepSeek-V4-Pro`
 - `HF_TOKEN` / `HUGGINGFACE_API_KEY` / `HUGGINGFACE_HUB_TOKEN`: Hugging Face Inference Providers token when `LLM_PROVIDER=huggingface` or a request uses `provider=huggingface`
 - `HUGGINGFACE_BASE_URL`: Hugging Face OpenAI-compatible router URL. Defaults to `https://router.huggingface.co/v1`
+- `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`: Anthropic Claude key when `LLM_PROVIDER=anthropic` or a request uses `provider=anthropic`
+- `ANTHROPIC_BASE_URL`: Claude API base URL. Defaults to `https://api.anthropic.com/v1`
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`
 - `NVIDIA_API_KEY` / `NVIDIA_BASE_URL`: NVIDIA Build/NIM configuration when `LLM_PROVIDER=nvidia` or a request uses `provider=nvidia`. `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
-- `NVIDIA_MODEL`: NVIDIA model slug, for example `meta/llama-3.1-8b-instruct`
+- `NVIDIA_MODEL`: NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`
 - `RUNPOD_API_KEY` / `RUNPOD_OPENAI_BASE_URL`: Runpod OpenAI-compatible/vLLM configuration when `LLM_PROVIDER=runpod` or a request uses `provider=runpod`
 - `RUNPOD_ENDPOINT_ID` / `RUNPOD_ENDPOINT_URL`: Runpod Serverless queue configuration when `LLM_PROVIDER=runpod-serverless` or a request uses `provider=runpod-serverless`
 - `RUNPOD_MODEL_ENDPOINTS`: optional JSON object mapping model IDs to Runpod endpoint IDs or endpoint URLs when each model is hosted on a separate Serverless endpoint
@@ -143,7 +147,7 @@ Smoke-test configured LLM providers with a tiny structured prompt:
 ./scripts/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
 ./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
 ./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
-./scripts/verify-llm-providers.py --llm nvidia/meta/llama-3.1-8b-instruct
+./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
 ./sample.py "Describe a low-voltage plant watering monitor with OLED status"
 ./sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
 ```

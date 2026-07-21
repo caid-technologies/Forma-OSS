@@ -18,6 +18,12 @@ import ReactFlow, {
 import "reactflow/dist/style.css";
 import MechanicalScene from "../components/mechanical-scene";
 import {
+  activeLlmsFromIntegrations,
+  generationLlmKey,
+  type GenerationLlmOption,
+  type IntegrationsPayload,
+} from "../lib/active-llms";
+import {
   Sparkles,
   Wrench,
   Cpu,
@@ -50,6 +56,7 @@ import {
   ExternalLink,
   Handshake,
   KeyRound,
+  Settings,
   Terminal,
   MessageSquare,
   Star,
@@ -90,12 +97,6 @@ type GenerationWorkflowOption = {
   uses_web_research?: boolean;
   uses_firecrawl_mcp?: boolean;
   uses_external_sources?: boolean;
-};
-
-type GenerationLlmOption = {
-  provider: string;
-  model: string;
-  label: string;
 };
 
 type AgentPipelineStep = {
@@ -161,6 +162,8 @@ const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
 const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
+const ANTHROPIC_SONNET_MODEL = "claude-sonnet-5";
+const NVIDIA_GLM_MODEL = "nvidia/z-ai/glm-5.2";
 const NVIDIA_QWEN_CODER_32B_MODEL = "qwen/qwen2.5-coder-32b-instruct";
 const NVIDIA_LLAMA_8B_MODEL = "meta/llama-3.1-8b-instruct";
 
@@ -171,11 +174,14 @@ const localOnlyGenerationLlms: GenerationLlmOption[] =
 
 const defaultGenerationLlms: GenerationLlmOption[] = [
   { provider: "openai", model: "gpt-5.5", label: "OpenAI GPT-5.5" },
+  { provider: "anthropic", model: ANTHROPIC_SONNET_MODEL, label: "Claude Sonnet 5" },
+  { provider: "huggingface", model: "Qwen/Qwen2.5-Coder-3B-Instruct:nscale", label: "Hugging Face Qwen2.5 Coder" },
   { provider: "runpod", model: RUNPOD_PARTI_BASE_MODEL, label: "Runpod Parti Base" },
   { provider: "runpod-serverless", model: RUNPOD_PARTI_BASE_MODEL, label: RUNPOD_PARTI_BASE_MODEL },
   { provider: "baseten", model: BASETEN_GLM_MODEL, label: "GLM 5.2" },
   ...localOnlyGenerationLlms,
   { provider: "gmi", model: "anthropic/claude-fable-5", label: "GMI Claude Fable 5" },
+  { provider: "nvidia", model: NVIDIA_GLM_MODEL, label: "NVIDIA GLM 5.2" },
   { provider: "nvidia", model: NVIDIA_QWEN_CODER_32B_MODEL, label: "NVIDIA Qwen2.5 Coder 32B" },
   { provider: "nvidia", model: NVIDIA_LLAMA_8B_MODEL, label: "NVIDIA Llama 3.1 8B" },
 ];
@@ -264,16 +270,15 @@ const optionalImagePipelineStep: AgentPipelineStep = {
 
 const CHAT_DIAGNOSTIC_CHARACTER_LIMIT = 420;
 
-function generationLlmKey(option: Pick<GenerationLlmOption, "provider" | "model">) {
-  return `${option.provider}/${option.model}`;
-}
-
 function generationLlmLabel(provider: string, model: string) {
   if (provider === "runpod-serverless" && model === RUNPOD_PARTI_BASE_MODEL) return RUNPOD_PARTI_BASE_MODEL;
   if (provider === "runpod" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Parti Base";
   if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "GLM 5.2";
   if (provider === "baseten" && model === BASETEN_DEEPSEEK_MODEL) return "Baseten DeepSeek V4 Pro";
+  if (provider === "anthropic" && model === ANTHROPIC_SONNET_MODEL) return "Claude Sonnet 5";
+  if (provider === "huggingface") return `Hugging Face ${model}`;
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
+  if (provider === "nvidia" && model === NVIDIA_GLM_MODEL) return "NVIDIA GLM 5.2";
   if (provider === "nvidia" && model === NVIDIA_QWEN_CODER_32B_MODEL) return "NVIDIA Qwen2.5 Coder 32B";
   if (provider === "nvidia" && model === NVIDIA_LLAMA_8B_MODEL) return "NVIDIA Llama 3.1 8B";
   if (provider === "simulation") return "Local Simulation";
@@ -1277,6 +1282,7 @@ type ProjectGalleryItem = {
   partsCount: number;
   starCount: number;
   image: ProjectImageCandidate | null;
+  imageLoading: boolean;
 };
 
 type ChatListItem = {
@@ -2048,6 +2054,7 @@ export function BlueprintWorkspace({
   const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
   const [privateChatItems, setPrivateChatItems] = useState<ChatListItem[]>([]);
+  const [privateChatsLoaded, setPrivateChatsLoaded] = useState(false);
   const [chatIndexLoaded, setChatIndexLoaded] = useState(false);
   const [sessionChatItems, setSessionChatItems] = useState<ChatListItem[]>([]);
   const [a2aJobs, setA2aJobs] = useState<A2AJob[]>([]);
@@ -2086,6 +2093,7 @@ export function BlueprintWorkspace({
   const [selectedVideoReviewKey, setSelectedVideoReviewKey] = useState<string | null>(null);
   const [videoReviewMakeNewVideo, setVideoReviewMakeNewVideo] = useState(false);
   const [projectGalleryImages, setProjectGalleryImages] = useState<Record<string, ProjectImageCandidate | null>>({});
+  const [visibleProjectGalleryIds, setVisibleProjectGalleryIds] = useState<string[]>([]);
   const [routeProjectError, setRouteProjectError] = useState<string | null>(null);
   const [chatRouteTransition, setChatRouteTransition] = useState<ChatRouteTransition | null>(null);
   const [catalogComponents, setCatalogComponents] = useState<any[]>([]);
@@ -2139,20 +2147,6 @@ export function BlueprintWorkspace({
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
-  const projectGalleryItems = useMemo(
-    () => buildProjectGalleryItems(projectHistory, projectGalleryImages).map((item) => ({
-      ...item,
-      canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
-    })),
-    [authRequired, isSignedIn, projectHistory, projectGalleryImages]
-  );
-  const myProjectGalleryItems = useMemo(
-    () => buildProjectGalleryItems(myProjectHistory, projectGalleryImages).map((item) => ({
-      ...item,
-      canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
-    })),
-    [authRequired, isSignedIn, myProjectHistory, projectGalleryImages]
-  );
   const visibleChatSourceProjects = authRequired ? myProjectHistory : projectHistory;
   const visibleChatSourceItems = useMemo(
     () => authRequired ? mergeChatListItems(sessionChatItems, privateChatItems) : localChatItems,
@@ -2162,7 +2156,36 @@ export function BlueprintWorkspace({
     () => buildChatListItems(visibleChatSourceProjects, visibleChatSourceItems),
     [visibleChatSourceProjects, visibleChatSourceItems]
   );
+  const projectGalleryItems = useMemo(
+    () => buildProjectGalleryItems(
+      mergeProjectRecords(projectHistory, projectRecordsFromChatItems(chatListItems)),
+      projectGalleryImages
+    ).map((item) => ({
+      ...item,
+      canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
+    })),
+    [authRequired, chatListItems, isSignedIn, projectHistory, projectGalleryImages]
+  );
+  const myProjectGalleryItems = useMemo(
+    () => buildProjectGalleryItems(
+      mergeProjectRecords(myProjectHistory, projectRecordsFromChatItems(chatListItems)),
+      projectGalleryImages
+    ).map((item) => ({
+      ...item,
+      canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
+    })),
+    [authRequired, chatListItems, isSignedIn, myProjectHistory, projectGalleryImages]
+  );
   const chatHistoryLoaded = authRequired ? myProjectHistoryLoaded : projectHistoryLoaded;
+  const projectsPageLoading = !projectHistoryLoaded || !chatIndexLoaded;
+  const myProjectsPageLoading = authRequired
+    ? !authLoaded || !myProjectHistoryLoaded || !privateChatsLoaded || !chatIndexLoaded
+    : !projectHistoryLoaded || !chatIndexLoaded;
+  const handleVisibleProjectGalleryIdsChange = useCallback((projectIds: string[]) => {
+    setVisibleProjectGalleryIds((current) => (
+      sameStringList(current, projectIds) ? current : projectIds
+    ));
+  }, []);
   const chatMessageScrollKey = useMemo(
     () => `${activeChatId || ""}:${chatMessageIdentityKey(chatMessages)}`,
     [activeChatId, chatMessages]
@@ -2196,9 +2219,10 @@ export function BlueprintWorkspace({
     )
   );
   const selectedGenerationLlm = useMemo(
-    () => generationLlms.find((option) => generationLlmKey(option) === generationLlmKeyValue) || generationLlms[0] || defaultGenerationLlms[0],
+    () => generationLlms.find((option) => generationLlmKey(option) === generationLlmKeyValue) || generationLlms[0] || null,
     [generationLlmKeyValue, generationLlms]
   );
+  const generationLlmsReady = Boolean(selectedGenerationLlm);
   const appendChatMessage = (message: Omit<ChatMessage, "id" | "timestamp"> & { id?: string }) => {
     const nextMessage: ChatMessage = {
       id: message.id || newChatMessageId(),
@@ -2603,11 +2627,17 @@ export function BlueprintWorkspace({
 
   useEffect(() => {
     if (!authRequired) return;
+    if (!authLoaded) {
+      setMyProjectHistoryLoaded(false);
+      setPrivateChatsLoaded(false);
+      return;
+    }
     setMyProjectHistoryLoaded(false);
+    setPrivateChatsLoaded(false);
     void fetchMyProjectHistory();
     void fetchPrivateChats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authRequired, isSignedIn]);
+  }, [authLoaded, authRequired, isSignedIn]);
 
   useEffect(() => {
     fetchAgentPipelineSteps(generationWorkflow);
@@ -2656,7 +2686,32 @@ export function BlueprintWorkspace({
 
   const fetchRuntimeConfig = async () => {
     try {
-      const res = await fetch(`${API_URL}/debug/config`);
+      const applyActiveUserLlms = async () => {
+        try {
+          const integrationsResponse = await fetch(`${API_URL}/user/integrations`, {
+            cache: "no-store",
+            headers: await optionalAuthHeaders(),
+          });
+          if (!integrationsResponse.ok) return false;
+          const integrationsPayload = (await integrationsResponse.json()) as IntegrationsPayload;
+          const activeLlms = activeLlmsFromIntegrations(integrationsPayload, defaultGenerationLlms, generationLlmLabel);
+          if (activeLlms.length > 0) {
+            setGenerationLlms(activeLlms);
+            setGenerationLlmKeyValue((current) => (activeLlms.some((option) => generationLlmKey(option) === current) ? current : generationLlmKey(activeLlms[0])));
+          } else {
+            setGenerationLlms([]);
+            setGenerationLlmKeyValue("");
+          }
+          return true;
+        } catch (error) {
+          console.warn("Unable to load active user LLM settings", error);
+          return false;
+        }
+      };
+      const appliedActiveUserLlms = await applyActiveUserLlms();
+      const res = await fetch(`${API_URL}/debug/config`, {
+        headers: await optionalAuthHeaders(),
+      });
       if (!res.ok) return;
 
       const config = await res.json();
@@ -2679,6 +2734,7 @@ export function BlueprintWorkspace({
       if (Array.isArray(config.workflows) && config.workflows.length > 0) {
         setGenerationWorkflows(config.workflows);
       }
+      if (appliedActiveUserLlms) return;
       const runtime = config.runtime || {};
       const allowedProviders = Array.isArray(runtime.allowed_providers) ? runtime.allowed_providers.map((item: any) => String(item)) : null;
       const configuredProviders = Array.isArray(runtime.configured_providers) ? runtime.configured_providers.map((item: any) => String(item)) : null;
@@ -2837,6 +2893,10 @@ export function BlueprintWorkspace({
   };
 
   const fetchMyProjectHistory = async () => {
+    if (authRequired && !authLoaded) {
+      setMyProjectHistoryLoaded(false);
+      return;
+    }
     if (!authRequired || !isSignedIn) {
       setMyProjectHistory([]);
       setMyProjectHistoryLoaded(true);
@@ -2862,9 +2922,14 @@ export function BlueprintWorkspace({
   };
 
   const fetchPrivateChats = async () => {
+    if (authRequired && !authLoaded) {
+      setPrivateChatsLoaded(false);
+      return;
+    }
     if (!authRequired || !isSignedIn) {
       setPrivateChatItems([]);
       setSessionChatItems([]);
+      setPrivateChatsLoaded(true);
       return;
     }
 
@@ -2899,6 +2964,8 @@ export function BlueprintWorkspace({
       }
     } catch (e) {
       console.error("Error fetching private chats", e);
+    } finally {
+      setPrivateChatsLoaded(true);
     }
   };
 
@@ -3092,11 +3159,28 @@ export function BlueprintWorkspace({
 
   useEffect(() => {
     if (routeProjectId || projectIR) return;
+    const visibleProjectIds = new Set(visibleProjectGalleryIds);
+    if (!visibleProjectIds.size) return;
 
-    const imageProjects = mergeProjectRecords(projectHistory, myProjectHistory);
+    const imageProjects = mergeProjectRecords(
+      mergeProjectRecords(projectHistory, myProjectHistory),
+      projectRecordsFromChatItems(chatListItems)
+    ).filter((project: any) => {
+      const projectId = project?.project_id ? String(project.project_id) : "";
+      return projectId && visibleProjectIds.has(projectId);
+    });
     const missingProjects = imageProjects.filter((project: any) => {
       const projectId = project?.project_id ? String(project.project_id) : "";
-      return projectId && projectGalleryImages[projectId] === undefined;
+      const summaryImage =
+        resolveProjectImageCandidates({
+          product_visual_sequence: project.product_visual_sequence,
+          product_image_url: project.product_image_url,
+          product_image_data: project.product_image_data,
+          product_image_content_type: project.product_image_content_type,
+          product_image_model: project.product_image_model,
+          image_output_model: project.image_output_model,
+        })[0] || null;
+      return projectId && !summaryImage && projectGalleryImages[projectId] === undefined;
     });
     if (!missingProjects.length) return;
 
@@ -3107,14 +3191,13 @@ export function BlueprintWorkspace({
       missingProjects.map(async (project: any): Promise<[string, ProjectImageCandidate | null]> => {
         const projectId = String(project.project_id);
         try {
-          const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+          const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/image-summary`, {
             signal: controller.signal,
           });
           if (!res.ok) return [projectId, null];
 
           const data = await res.json();
-          const ir = withProjectResponseMetadata(data.project_ir, data);
-          return [projectId, resolveProjectImageCandidates(ir?.assembly_metadata || {})[0] || null];
+          return [projectId, resolveProjectImageCandidates(data || {})[0] || null];
         } catch (error) {
           if (!controller.signal.aborted) {
             console.error("Error fetching project image", error);
@@ -3137,7 +3220,7 @@ export function BlueprintWorkspace({
       cancelled = true;
       controller.abort();
     };
-  }, [myProjectHistory, projectHistory, projectGalleryImages, projectIR, routeProjectId]);
+  }, [chatListItems, myProjectHistory, projectHistory, projectGalleryImages, projectIR, routeProjectId, visibleProjectGalleryIds]);
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -3691,6 +3774,10 @@ export function BlueprintWorkspace({
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!(await requireSignedInForGeneration())) return;
+    if (!selectedGenerationLlm) {
+      setGenerationInputNotice("Turn on at least one model provider in Settings before building.");
+      return;
+    }
     const contextCheckpoint = pendingHumanContext;
     const validationSubject = contextCheckpoint ? contextCheckpoint.basePrompt : prompt;
     const validation = validateGenerationInput(validationSubject, Boolean(selectedImage));
@@ -5048,8 +5135,10 @@ export function BlueprintWorkspace({
               <ProjectGallery
                 sectionRef={projectsSectionRef}
                 items={projectGalleryItems}
+                loading={projectsPageLoading}
                 onOpenChat={(chatId) => router.push(chatRoute(chatId))}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
               />
             </>
@@ -5063,8 +5152,10 @@ export function BlueprintWorkspace({
               <ProjectGallery
                 sectionRef={projectsSectionRef}
                 items={authRequired ? myProjectGalleryItems : projectGalleryItems}
+                loading={myProjectsPageLoading}
                 onOpenChat={(chatId) => router.push(chatRoute(chatId))}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
               />
             </>
@@ -5335,7 +5426,7 @@ export function BlueprintWorkspace({
                       <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
                         <button
                           type="submit"
-                          disabled={isLoading}
+                          disabled={isLoading || !generationLlmsReady}
                           className="inline-flex h-10 items-center justify-center gap-2 bg-white px-4 text-xs font-black uppercase text-black hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -5402,7 +5493,7 @@ export function BlueprintWorkspace({
                     />
                     <button
                       type="submit"
-                      disabled={isLoading || !hasGenerationInput}
+                      disabled={isLoading || !hasGenerationInput || !generationLlmsReady}
                       className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
                       aria-label={generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
                       title={generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
@@ -5444,16 +5535,20 @@ export function BlueprintWorkspace({
                         <select
                           value={generationLlmKeyValue}
                           onChange={(event) => setGenerationLlmKeyValue(event.target.value)}
-                          disabled={isLoading}
+                          disabled={isLoading || !generationLlmsReady}
                           className="min-w-0 flex-1 bg-transparent text-xs font-black uppercase text-white outline-none disabled:cursor-not-allowed disabled:opacity-50 sm:max-w-[220px]"
                           aria-label="Generation LLM"
                           title="Generation LLM"
                         >
-                          {generationLlms.map((option) => (
-                            <option key={generationLlmKey(option)} value={generationLlmKey(option)} className="bg-[#17181d] text-white">
-                              {option.label}
-                            </option>
-                          ))}
+                          {generationLlms.length ? (
+                            generationLlms.map((option) => (
+                              <option key={generationLlmKey(option)} value={generationLlmKey(option)} className="bg-[#17181d] text-white">
+                                {option.label}
+                              </option>
+                            ))
+                          ) : (
+                            <option value="" className="bg-[#17181d] text-white">No active models</option>
+                          )}
                         </select>
                       </label>
                       <label className="col-span-2 inline-flex h-10 cursor-pointer items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white sm:col-span-1 sm:justify-start">
@@ -5662,6 +5757,28 @@ function mergeProjectRecords(primary: any[], secondary: any[]): any[] {
     if (projectId) merged.set(projectId, project);
   });
   return Array.from(merged.values());
+}
+
+function sameStringList(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function projectRecordsFromChatItems(chatItems: ChatListItem[]): any[] {
+  return chatItems
+    .filter((item) => item.projectId)
+    .map((item) => ({
+      project_id: item.projectId,
+      chat_id: item.chatId,
+      title: item.title || "Untitled project",
+      prompt: item.title || "",
+      created_at: item.createdAt || chatTimestamp(),
+      can_chat: true,
+      creator_display: "unknown",
+      creator_username: "unknown",
+      creator_image_url: null,
+      parts_count: 0,
+      star_count: 0,
+    }));
 }
 
 function formatSidebarDate(value: string | null) {
@@ -6073,17 +6190,15 @@ function ChatSidebar({
               {!compact && <span className="truncate">Listening jobs</span>}
             </Link>
           )}
-          {showDeveloperTools && (
-            <Link
-              href="/user"
-              onClick={onNavigate}
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-              title="User integrations"
-            >
-              <KeyRound className="h-5 w-5 text-slate-500" />
-              {!compact && <span className="truncate">Keys</span>}
-            </Link>
-          )}
+          <Link
+            href="/settings"
+            onClick={onNavigate}
+            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
+            title="Settings"
+          >
+            <Settings className="h-5 w-5 text-slate-500" />
+            {!compact && <span className="truncate">Settings</span>}
+          </Link>
           <Link
             href="/about"
             onClick={onNavigate}
@@ -6108,6 +6223,16 @@ function buildProjectGalleryItems(
     .map((project: any) => {
       const projectId = String(project.project_id);
       const chatId = String(project.chat_id || projectId);
+      const summaryImage =
+        resolveProjectImageCandidates({
+          product_visual_sequence: project.product_visual_sequence,
+          product_image_url: project.product_image_url,
+          product_image_data: project.product_image_data,
+          product_image_content_type: project.product_image_content_type,
+          product_image_model: project.product_image_model,
+          image_output_model: project.image_output_model,
+        })[0] || null;
+      const fetchedImage = projectImages[projectId];
       return {
         key: projectId,
         title: project.title || "Untitled project",
@@ -6129,7 +6254,8 @@ function buildProjectGalleryItems(
         createdAt: typeof project.created_at === "string" && project.created_at ? project.created_at : null,
         partsCount: Math.max(0, Number(project.parts_count || project.partsCount || 0)),
         starCount: Math.max(0, Number(project.star_count || project.starCount || 0)),
-        image: projectImages[projectId] || null,
+        image: fetchedImage || summaryImage,
+        imageLoading: !summaryImage && fetchedImage === undefined,
       };
     });
 }
@@ -6137,14 +6263,18 @@ function buildProjectGalleryItems(
 function ProjectGallery({
   sectionRef,
   items,
+  loading = false,
   onOpenChat,
   onOpenProjectPage,
+  onVisibleProjectIdsChange,
   standalone = false,
 }: {
   sectionRef: React.RefObject<HTMLElement>;
   items: ProjectGalleryItem[];
+  loading?: boolean;
   onOpenChat: (chatId: string) => void;
   onOpenProjectPage: (projectId: string) => void;
+  onVisibleProjectIdsChange?: (projectIds: string[]) => void;
   standalone?: boolean;
 }) {
   const pageSize = useProjectGalleryPageSize();
@@ -6152,7 +6282,14 @@ function ProjectGallery({
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const safePage = Math.min(currentPage, pageCount - 1);
   const firstVisibleItem = safePage * pageSize;
-  const visibleItems = items.slice(firstVisibleItem, firstVisibleItem + pageSize);
+  const visibleItems = useMemo(
+    () => items.slice(firstVisibleItem, firstVisibleItem + pageSize),
+    [firstVisibleItem, items, pageSize]
+  );
+  const visibleProjectIds = useMemo(
+    () => visibleItems.map((item) => item.projectId),
+    [visibleItems]
+  );
   const showingStart = items.length ? firstVisibleItem + 1 : 0;
   const showingEnd = Math.min(items.length, firstVisibleItem + visibleItems.length);
   const pageMarkers = buildProjectGalleryPageMarkers(safePage, pageCount);
@@ -6166,6 +6303,10 @@ function ProjectGallery({
       setCurrentPage(safePage);
     }
   }, [currentPage, safePage]);
+
+  useEffect(() => {
+    onVisibleProjectIdsChange?.(visibleProjectIds);
+  }, [onVisibleProjectIdsChange, visibleProjectIds]);
 
   const goToPage = (page: number) => {
     setCurrentPage(Math.min(Math.max(page, 0), pageCount - 1));
@@ -6181,11 +6322,15 @@ function ProjectGallery({
             </span>
             <h2 className="text-2xl font-black uppercase tracking-[0.22em] text-white">Projects</h2>
           </div>
-          <p className="mt-4 text-sm leading-6 text-slate-500">{items.length} saved projects.</p>
+          <p className="mt-4 text-sm leading-6 text-slate-500">
+            {loading ? "Loading projects..." : `${items.length} saved projects.`}
+          </p>
         </div>
       </div>
 
-      {items.length ? (
+      {loading ? (
+        <ProjectGallerySkeleton count={pageSize} />
+      ) : items.length ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {visibleItems.map((item) => (
@@ -6320,6 +6465,52 @@ function useProjectGalleryPageSize() {
   return pageSize;
 }
 
+function ProjectGallerySkeleton({ count }: { count: number }) {
+  const skeletonItems = Array.from({ length: Math.max(1, count) }, (_, index) => index);
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Loading projects">
+      {skeletonItems.map((item) => (
+        <div
+          key={item}
+          className="overflow-hidden border border-[#2c2f37] bg-[#17181d]"
+        >
+          <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
+            <ProjectImageLoadingPanel />
+          </div>
+          <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
+            <div className="space-y-2">
+              <div className="h-4 w-4/5 animate-pulse bg-[#252832]" />
+              <div className="h-4 w-3/5 animate-pulse bg-[#252832]" />
+            </div>
+            <div className="flex gap-4">
+              <div className="h-3 w-14 animate-pulse bg-[#252832]" />
+              <div className="h-3 w-10 animate-pulse bg-[#252832]" />
+              <div className="h-3 w-12 animate-pulse bg-[#252832]" />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="h-4 w-24 animate-pulse bg-[#252832]" />
+              <div className="h-9 w-24 animate-pulse border border-cyan-300/20 bg-[#111820]" />
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ProjectImageLoadingPanel() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center">
+      <div className="h-2 w-28 overflow-hidden bg-[#252832]">
+        <div className="h-full w-full animate-pulse bg-cyan-300/60" />
+      </div>
+      <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+        Loading image
+      </div>
+    </div>
+  );
+}
+
 function ProjectGalleryCard({
   item,
   onOpenChat,
@@ -6351,6 +6542,8 @@ function ProjectGalleryCard({
             alt={`${item.title} preview`}
             className="h-full w-full object-contain p-2 transition duration-300 group-hover:scale-[1.015] sm:object-cover sm:p-0"
           />
+        ) : item.imageLoading ? (
+          <ProjectImageLoadingPanel />
         ) : (
           <div className="flex h-full items-center justify-center text-xs font-black uppercase tracking-[0.18em] text-slate-600">
             No image
@@ -8647,6 +8840,11 @@ function JobRow({
       {summary.image_output_failed && summary.image_output_error && (
         <div className="break-anywhere mt-3 border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
           Image generation failed: {summary.image_output_error}
+          {summary.image_output_debug && (
+            <pre className="break-anywhere mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-amber-500/20 bg-black/25 p-2 font-mono text-[10px] leading-4 text-amber-100">
+              {JSON.stringify(summary.image_output_debug, null, 2)}
+            </pre>
+          )}
         </div>
       )}
 
@@ -8781,6 +8979,27 @@ function operationStatusTone(status: string) {
   return "border-slate-500/25 bg-slate-950/25 text-slate-400";
 }
 
+function compactOperationDetails(details: Record<string, any> | undefined) {
+  if (!details || typeof details !== "object") return "";
+  const imageDebug = details.image_output_debug && typeof details.image_output_debug === "object" ? details.image_output_debug : null;
+  const source = imageDebug || details;
+  const importantKeys = [
+    "provider",
+    "model_name",
+    "base_url",
+    "enabled",
+    "configured",
+    "reason",
+    "inference_provider",
+    "size",
+    "output_format",
+  ];
+  return importantKeys
+    .filter((key) => source[key] !== undefined && source[key] !== null && source[key] !== "")
+    .map((key) => `${key}: ${String(source[key])}`)
+    .join(" | ");
+}
+
 function OperationStatusList({ operations, compact = false }: { operations: Record<string, any>[]; compact?: boolean }) {
   if (!operations.length) return null;
   const visibleOperations = compact
@@ -8794,6 +9013,7 @@ function OperationStatusList({ operations, compact = false }: { operations: Reco
         const status = String(operation.status || "unknown");
         const providerModel = [operation.provider, operation.model].filter(Boolean).join("/");
         const error = operation.error || operation.reason;
+        const details = compactOperationDetails(operation.details);
         return (
           <div key={`${operation.id || operation.label || "operation"}-${index}`} className={`min-w-0 border p-3 ${operationStatusTone(status)}`}>
             <div className="flex min-w-0 items-center justify-between gap-2">
@@ -8806,6 +9026,11 @@ function OperationStatusList({ operations, compact = false }: { operations: Reco
             {error && (
               <div className="break-anywhere mt-2 line-clamp-3 text-[11px] leading-4 opacity-90">
                 {String(error)}
+              </div>
+            )}
+            {details && !compact && (
+              <div className="break-anywhere mt-2 border border-white/10 bg-black/20 p-2 font-mono text-[10px] leading-4 opacity-80">
+                {details}
               </div>
             )}
           </div>

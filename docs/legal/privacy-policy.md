@@ -73,6 +73,8 @@ Retention periods may vary by data type. For example, account data may be kept w
 
 We use reasonable administrative, technical, and organizational safeguards designed to protect information. No method of transmission or storage is completely secure. You are responsible for keeping your account credentials, API keys, and devices secure.
 
+Saved bring-your-own-key provider credentials are encrypted before database storage and are decrypted only by the server when needed to process your requests. We do not display saved credentials after storage; the settings UI shows only masked status information. You can clear saved provider credentials from Settings.
+
 Report suspected vulnerabilities to team@caid-technologies.com and see the [Security and Vulnerability Disclosure Policy](security-policy.md).
 
 ## 8. Your Choices

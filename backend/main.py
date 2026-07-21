@@ -46,7 +46,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from blueprint_core.user_integrations import apply_user_integrations_to_environment
+from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
 
 apply_user_integrations_to_environment()
 
@@ -239,6 +239,12 @@ def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
     return deployment_runtime_config(llm_config, signup_storage=get_database_config()["client"])
 
 
+def _apply_auth_user_integrations(auth_claims: Any) -> None:
+    user_id = clerk_user_id(auth_claims)
+    if user_id:
+        apply_user_integrations_to_environment(UserIntegrationStore.for_user(user_id))
+
+
 def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     payload = job.get("payload") if isinstance(job, dict) else None
     value = payload.get("owner_user_id") if isinstance(payload, dict) else None
@@ -303,10 +309,12 @@ def admin_session_endpoint(_auth_claims: Any = Depends(optional_deployed_clerk_a
 def debug_config_endpoint(
     provider: Optional[str] = Query(None, description="Optional runtime LLM provider override to validate."),
     model: Optional[str] = Query(None, description="Optional runtime LLM model override to validate."),
+    _auth_claims: Any = Depends(optional_deployed_clerk_auth),
 ):
     """
     Reports LLM provider and model resolution state without exposing credentials.
     """
+    _apply_auth_user_integrations(_auth_claims)
     try:
         orchestrator = HardwarePipelineOrchestrator(provider_name=provider, model_name=model)
         llm_config = orchestrator.get_debug_config()
@@ -343,6 +351,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
     """
+    _apply_auth_user_integrations(_auth_claims)
     try:
         llm_config = get_workflow_debug_config(
             request.workflow,
@@ -1280,6 +1289,21 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
     hardware_ir = getattr(project, "hardware_ir", None) if isinstance(getattr(project, "hardware_ir", None), dict) else {}
     components = hardware_ir.get("components") if isinstance(hardware_ir, dict) else []
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir, dict) and isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
+    hydrated_metadata = hydrate_image_storage_metadata(metadata, project.project_id) if metadata else {}
+    sequence = hydrated_metadata.get("product_visual_sequence")
+    first_sequence_image = None
+    if isinstance(sequence, list):
+        first_sequence_image = next((item for item in sequence if isinstance(item, dict) and item.get("url")), None)
+    product_image_url = (
+        (first_sequence_image.get("url") if isinstance(first_sequence_image, dict) else None)
+        or hydrated_metadata.get("product_case_image_url")
+        or hydrated_metadata.get("product_image_url")
+    )
+    product_image_content_type = (
+        (first_sequence_image.get("content_type") if isinstance(first_sequence_image, dict) else None)
+        or hydrated_metadata.get("product_case_image_content_type")
+        or hydrated_metadata.get("product_image_content_type")
+    )
     star_count = metadata.get("star_count", metadata.get("stars", 0))
     creator_display = creator_display_name(owner_user_id)
     creator_image_url = clerk_user_image_url(owner_user_id) if owner_user_id else None
@@ -1295,6 +1319,12 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         "creator_image_url": creator_image_url,
         "parts_count": len(components) if isinstance(components, list) else 0,
         "star_count": max(0, int(star_count) if isinstance(star_count, (int, float, str)) and str(star_count).isdigit() else 0),
+        "has_product_image": bool(product_image_url or hydrated_metadata.get("product_image_data")),
+        "product_image_url": product_image_url,
+        "product_image_content_type": product_image_content_type,
+        "product_image_model": hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
+        "product_visual_sequence": sequence if isinstance(sequence, list) else [],
+        "image_output_status": hydrated_metadata.get("image_output_status"),
     }
 
 
@@ -1351,6 +1381,19 @@ def list_my_projects_endpoint(_auth_claims: Any = Depends(require_deployed_clerk
         return [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/projects/{project_id}/image-summary")
+def get_project_image_summary_endpoint(project_id: str, _auth_claims: Any = Depends(optional_deployed_clerk_auth)):
+    """Returns gallery-safe project metadata without validating or expanding the full hardware IR."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    try:
+        return _project_summary_response(project, current_user_id=clerk_user_id(_auth_claims))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading project image summary: {str(e)}")
 
 
 @app.get("/projects/{project_id}")
@@ -1504,6 +1547,7 @@ def iterate_project_endpoint(
     _auth_claims: Any = Depends(require_deployed_clerk_auth),
 ):
     """Applies an iteration instruction to an existing project through blueprint_core."""
+    _apply_auth_user_integrations(_auth_claims)
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
@@ -1654,6 +1698,7 @@ def video_self_correct_project_endpoint(
     _auth_claims: Any = Depends(require_deployed_clerk_auth),
 ):
     """Reviews a generated project video with a Fireworks native video model and applies a corrective iteration."""
+    _apply_auth_user_integrations(_auth_claims)
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")

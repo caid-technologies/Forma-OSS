@@ -143,6 +143,7 @@ def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
         "image_output_error": metadata.get("image_output_error") or metadata.get("product_image_error"),
         "image_output_error_type": metadata.get("image_output_error_type"),
         "image_output_reason": metadata.get("image_output_reason"),
+        "image_output_debug": metadata.get("image_output_debug"),
         "image_output_generated_count": metadata.get("image_output_generated_count"),
         "product_image_provider": metadata.get("product_image_provider") or metadata.get("image_output_provider"),
         "product_image_model": metadata.get("product_image_model") or metadata.get("image_output_model"),

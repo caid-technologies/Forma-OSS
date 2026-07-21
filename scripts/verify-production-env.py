@@ -20,6 +20,7 @@ AUTH_ALLOWLIST_KEYS = (
     "CLERK_ADMIN_EMAILS",
 )
 PROVIDER_KEYS = {
+    "anthropic": ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "LLM_API_KEY"),
     "openai": ("OPENAI_API_KEY", "LLM_API_KEY"),
     "baseten": ("BASETEN_API_KEY", "LLM_API_KEY"),
     "gmi": ("GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY", "LLM_API_KEY"),

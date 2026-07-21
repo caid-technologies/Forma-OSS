@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import copy
 import json
 import unittest
 from contextlib import contextmanager
@@ -14,12 +15,33 @@ from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 LLM_ENV_KEYS = {
     "ALLOWED_LLM_MODELS",
     "ALLOWED_LLM_PROVIDERS",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "ANTHROPIC_JSON_SCHEMA_OUTPUT",
+    "ANTHROPIC_MAX_TOKENS",
+    "ANTHROPIC_MODEL",
+    "ANTHROPIC_TEMPERATURE",
+    "ANTHROPIC_VALIDATE_MODELS",
+    "ANTHROPIC_VERSION",
     "ALLOWED_OPENAI_MODELS",
     "ALLOWED_RUNPOD_MODELS",
     "BASETEN_ALLOWED_MODELS",
     "BASETEN_API_KEY",
     "BASETEN_BASE_URL",
     "BASETEN_MODEL",
+    "BLUEPRINT_DEPLOYMENT",
+    "BLUEPRINT_DEPLOYMENT_MODE",
+    "CLAUDE_API_KEY",
+    "CLAUDE_API_VERSION",
+    "CLAUDE_BASE_URL",
+    "CLAUDE_JSON_SCHEMA_OUTPUT",
+    "CLAUDE_MAX_TOKENS",
+    "CLAUDE_MODEL",
+    "CLAUDE_TEMPERATURE",
+    "CLAUDE_VALIDATE_MODELS",
+    "DEPLOYMENT",
+    "DEPLOYMENT_MODE",
+    "NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT",
     "GEMINI_ALLOWED_MODELS",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
@@ -98,6 +120,8 @@ LLM_ENV_KEYS = {
     "RUNPOD_SERVERLESS_MODEL",
     "RUNPOD_TEMPERATURE",
     "RUNPOD_VALIDATE_MODELS",
+    "STRICT_ANTHROPIC",
+    "STRICT_CLAUDE",
     "STRICT_GMI",
     "STRICT_GMI_CLOUD",
     "STRICT_GMICLOUD",
@@ -154,14 +178,40 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertTrue(runtime.model_overridden)
         self.assertEqual(["gpt-5.5"], runtime.allowed_models)
 
-    def test_runtime_rejects_disallowed_model_override(self) -> None:
+    def test_explicit_anthropic_request_extends_stale_provider_allowlist(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="simulation",
-            LLM_ALLOWED_PROVIDERS="simulation,openai",
-            OPENAI_ALLOWED_MODELS="gpt-5.5",
+            LLM_ALLOWED_PROVIDERS="openai,simulation",
+            ANTHROPIC_ALLOWED_MODELS="claude-old",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-sonnet-5")
+
+        self.assertEqual("anthropic", runtime.provider)
+        self.assertEqual("claude-sonnet-5", runtime.model)
+        self.assertIn("anthropic", runtime.allowed_providers or [])
+        self.assertIn("claude-sonnet-5", runtime.allowed_models or [])
+
+    def test_local_runtime_allows_configured_provider_model_override(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="baseten",
+            LLM_ALLOWED_PROVIDERS="baseten,simulation",
+            BASETEN_API_KEY="baseten-secret",
+        ):
+            runtime = resolve_llm_runtime_config("baseten", "zai-org/GLM-5.2")
+
+        self.assertEqual("baseten", runtime.provider)
+        self.assertEqual("zai-org/GLM-5.2", runtime.model)
+        self.assertIn("zai-org/GLM-5.2", runtime.allowed_models or [])
+
+    def test_env_default_provider_still_respects_allowlist(self) -> None:
+        with isolated_llm_env(
+            BLUEPRINT_DEPLOYMENT="true",
+            LLM_PROVIDER="openai",
+            LLM_ALLOWED_PROVIDERS="simulation",
         ):
             with self.assertRaises(LLMProviderConfigError):
-                resolve_llm_runtime_config("openai", "gpt-4o-mini")
+                resolve_llm_runtime_config()
 
     def test_runpod_serverless_model_endpoint_map_extends_allowed_models(self) -> None:
         with isolated_llm_env(
@@ -255,12 +305,28 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("https://router.huggingface.co/v1", provider.base_url)
         self.assertTrue(provider.is_configured)
 
-    def test_nvidia_runtime_allows_qwen_coder_32b_instruct(self) -> None:
+    def test_nvidia_runtime_uses_glm_52_default(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="nvidia",
             LLM_ALLOWED_PROVIDERS="nvidia,simulation",
             NVIDIA_API_KEY="nvapi_test",
-            NVIDIA_ALLOWED_MODELS="qwen/qwen2.5-coder-32b-instruct,meta/llama-3.1-8b-instruct",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("nvidia", runtime.provider)
+        self.assertEqual("nvidia/z-ai/glm-5.2", runtime.model)
+        self.assertIn("nvidia/z-ai/glm-5.2", runtime.allowed_models or [])
+        self.assertEqual("nvidia/z-ai/glm-5.2", provider.requested_model)
+        self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
+        self.assertTrue(provider.is_configured)
+
+    def test_nvidia_runtime_allows_qwen_coder_32b_instruct_override(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nvidia",
+            LLM_ALLOWED_PROVIDERS="nvidia,simulation",
+            NVIDIA_API_KEY="nvapi_test",
+            NVIDIA_ALLOWED_MODELS="qwen/qwen2.5-coder-32b-instruct,nvidia/z-ai/glm-5.2",
         ):
             runtime = resolve_llm_runtime_config("nvidia", "qwen/qwen2.5-coder-32b-instruct")
             provider = build_llm_provider(runtime_config=runtime)
@@ -269,8 +335,6 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("qwen/qwen2.5-coder-32b-instruct", runtime.model)
         self.assertIn("qwen/qwen2.5-coder-32b-instruct", runtime.allowed_models or [])
         self.assertEqual("qwen/qwen2.5-coder-32b-instruct", provider.requested_model)
-        self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
-        self.assertTrue(provider.is_configured)
 
     def test_gmi_runtime_uses_fable_default_and_aliases(self) -> None:
         with isolated_llm_env(
@@ -333,6 +397,90 @@ class LLMRuntimeTests(unittest.TestCase):
 
         self.assertEqual(123, payloads[0]["max_completion_tokens"])
         self.assertNotIn("max_tokens", payloads[0])
+
+    def test_anthropic_output_config_closes_object_schemas(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-test",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-test")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(payload or {})
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "title": "Test Project",
+                                "description": "A test project.",
+                                "difficulty": "Beginner",
+                                "estimated_cost": 1.0,
+                                "category": "IoT",
+                            }
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        schema = payloads[0]["output_config"]["format"]["schema"]
+        self.assertEqual(False, schema["additionalProperties"])
+
+    def test_anthropic_grammar_timeout_falls_back_to_prompt_schema(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-test",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-test")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            if len(payloads) == 1:
+                raise RuntimeError(
+                    'anthropic request failed with HTTP 400: {"type":"error","error":{"message":"Grammar compilation timed out."}}'
+                )
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "title": "Test Project",
+                                "description": "A test project.",
+                                "difficulty": "Beginner",
+                                "estimated_cost": 1.0,
+                                "category": "IoT",
+                            }
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Test Project", result.title)
+        self.assertIn("output_config", payloads[0])
+        self.assertNotIn("output_config", payloads[1])
+        prompt_text = payloads[1]["messages"][0]["content"][-1]["text"]
+        self.assertIn("Return only valid JSON", prompt_text)
+        self.assertIn('"title"', prompt_text)
 
 
 if __name__ == "__main__":

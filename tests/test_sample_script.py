@@ -33,7 +33,7 @@ class SampleScriptTests(unittest.TestCase):
         module = load_sample_module()
         first = module.LLMSelector("openai", "gpt-5.5")
         duplicate = module.LLMSelector("openai", "gpt-5.5")
-        second = module.LLMSelector("nvidia", "meta/llama-3.1-8b-instruct")
+        second = module.LLMSelector("nvidia", "nvidia/z-ai/glm-5.2")
 
         self.assertEqual([first, second], module.dedupe_candidates([first, duplicate, second]))
 

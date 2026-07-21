@@ -4,7 +4,7 @@ import { deployedAuthRequired } from "../lib/deployed-auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Blueprint | Build Hardware from Ideas",
+  title: "Forma | Build Hardware from Ideas",
   description: "Upload an image or describe an idea to generate parts, wiring, cost, and assembly notes.",
 };
 

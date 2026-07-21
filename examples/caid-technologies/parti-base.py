@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Probe caid-technologies/parti-base through the configured Runpod endpoint.
 
-This script intentionally does not create a Blueprint project and does not use
+This script intentionally does not create a Forma project and does not use
 generation fallback. It sends small raw chat/completions requests so the saved
 results show how the model itself behaves.
 """

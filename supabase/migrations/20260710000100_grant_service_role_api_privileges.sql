@@ -1,5 +1,5 @@
 -- Supabase CLI 2.106+ no longer auto-exposes newly-created public tables to API
--- roles by default. Blueprint's backend uses the server-side service role through
+-- roles by default. Forma's backend uses the server-side service role through
 -- supabase-py, so grant that role access to the tables and identity sequences.
 
 grant usage on schema public to service_role;

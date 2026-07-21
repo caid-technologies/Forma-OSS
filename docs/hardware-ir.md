@@ -1,6 +1,6 @@
 # Hardware IR
 
-Blueprint’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic. It is the single source of truth for generated projects and is intentionally structured for validation, UI rendering, and future export formats.
+Forma’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic. It is the single source of truth for generated projects and is intentionally structured for validation, UI rendering, and future export formats.
 
 ## Why a typed IR?
 - **Consistency:** Every agent writes into the same schema.

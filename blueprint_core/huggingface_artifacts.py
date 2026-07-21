@@ -102,7 +102,7 @@ class HuggingFaceUploadConfig:
     private: bool = False
     create_repo: bool = True
     path_prefix: str = DEFAULT_HF_ARTIFACT_PREFIX
-    commit_message: str = "Upload Blueprint artifacts"
+    commit_message: str = "Upload Forma artifacts"
 
     @classmethod
     def from_env(
@@ -133,7 +133,7 @@ class HuggingFaceUploadConfig:
             private=private,
             create_repo=create_repo,
             path_prefix=path_prefix or os.getenv("HF_ARTIFACT_PATH_PREFIX", DEFAULT_HF_ARTIFACT_PREFIX),
-            commit_message=commit_message or "Upload Blueprint artifacts",
+            commit_message=commit_message or "Upload Forma artifacts",
         )
 
 

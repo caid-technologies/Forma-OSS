@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Upload Blueprint output, benchmark, or eval artifacts to a Hugging Face dataset repo."""
+"""Upload Forma output, benchmark, or eval artifacts to a Hugging Face dataset repo."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def expand_inputs(paths: list[str], globs: list[str], *, artifact_type: str) -> 
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Upload Blueprint artifacts to Hugging Face.")
+    parser = argparse.ArgumentParser(description="Upload Forma artifacts to Hugging Face.")
     parser.add_argument("paths", nargs="*", help="Files or directories to upload. Defaults depend on --artifact-type.")
     parser.add_argument("--glob", action="append", default=[], help="Glob relative to the repo root. Can be repeated.")
     parser.add_argument(
@@ -63,7 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-path-prefix", default="blueprint", help="Path prefix inside the Hugging Face repo. Defaults to blueprint.")
     parser.add_argument("--hf-private", action="store_true", help="Create the Hugging Face repo as private when it does not exist.")
     parser.add_argument("--hf-no-create-repo", action="store_true", help="Do not create the Hugging Face repo before uploading.")
-    parser.add_argument("--hf-commit-message", default="Upload Blueprint artifacts", help="Commit message for Hugging Face uploads.")
+    parser.add_argument("--hf-commit-message", default="Upload Forma artifacts", help="Commit message for Hugging Face uploads.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable upload metadata.")
     parser.add_argument("--dry-run", action="store_true", help="List artifacts without uploading.")
     return parser

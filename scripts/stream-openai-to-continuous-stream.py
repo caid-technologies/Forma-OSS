@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stream an OpenAI Responses API call into a local Blueprint JSONL stream."""
+"""Stream an OpenAI Responses API call into a local Forma JSONL stream."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def reset_store(store: JsonlStreamStore) -> None:
         store.state_path.unlink()
     for path in store.agents_dir.glob("*.jsonl"):
         path.unlink()
-    store.save_state(ContinuousAgentState(current_prompt="Generate a precise Blueprint project output."))
+    store.save_state(ContinuousAgentState(current_prompt="Generate a precise Forma project output."))
 
 
 def main(argv: list[str] | None = None) -> int:

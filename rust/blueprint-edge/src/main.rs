@@ -1,7 +1,7 @@
 use blueprint_edge::{
     linux_snapshot_event, parse_json_payload, stream_llama_cpp_chat_to_agents,
     stream_ollama_chat_to_agents, stream_stdin_as_events, write_event_jsonl, AgentStreamWriter,
-    BlueprintEdgeEvent, EdgeConfig, EdgeError, EdgeRuntime, LiveTcpStreamHub,
+    FormaEdgeEvent, EdgeConfig, EdgeError, EdgeRuntime, LiveTcpStreamHub,
     LlamaCppChatStreamRequest, LocalSpacebaseStream, OllamaChatStreamRequest, SourceDescriptor,
     SpacebaseAgentConfig,
 };
@@ -14,7 +14,7 @@ use std::time::Duration;
 
 #[derive(Debug, Parser)]
 #[command(name = "blueprint-edge")]
-#[command(about = "Blueprint Rust integration process for source listeners and Linux edge events.")]
+#[command(about = "Forma Rust integration process for source listeners and Linux edge events.")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -130,7 +130,7 @@ fn main() -> Result<(), CliError> {
         } => {
             let payload = parse_json_payload(&payload)?;
             let source = SourceDescriptor::new("blueprint-edge", source_type, name);
-            let event = BlueprintEdgeEvent::new(kind, source, payload);
+            let event = FormaEdgeEvent::new(kind, source, payload);
             write_event_jsonl(io::stdout(), &event)?;
         }
         Command::Stdin { name, kind } => {

@@ -99,7 +99,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
       "image_gated_models_enabled",
       "image_timeout_seconds",
     ],
-    summary: "Hosted Hugging Face image inference. Add a scoped HF token; Blueprint preselects FLUX.",
+    summary: "Hosted Hugging Face image inference. Add a scoped HF token; Forma preselects FLUX.",
   },
   {
     id: "openai",
@@ -122,7 +122,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     credentialFieldIds: ["api_key", "key_delegation_confirmation"],
     configFieldIds: [],
     advancedFieldIds: ["image_model", "image_base_url", "image_size", "image_quality", "image_output_format", "image_timeout_seconds"],
-    summary: "GMI Cloud image generation. Add a GMI key and Blueprint uses provider defaults.",
+    summary: "GMI Cloud image generation. Add a GMI key and Forma uses provider defaults.",
   },
   {
     id: "together",
@@ -141,7 +141,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     credentialFieldIds: ["api_key", "project_key_confirmation"],
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_base_url", "image_size", "image_steps", "image_output_format", "image_timeout_seconds"],
-    summary: "Together AI image generation. Add a project-scoped key dedicated to Blueprint.",
+    summary: "Together AI image generation. Add a project-scoped key dedicated to Forma.",
   },
   {
     id: "openai-compatible",
@@ -221,10 +221,10 @@ function confirmationLabel(integration: IntegrationStatus, field: IntegrationFie
     return "I confirm this is a fine-grained Hugging Face token with only Make calls to Inference Providers, or an enterprise service-account token with equivalent scope.";
   }
   if (integration.id === "gmi" && field.id === "key_delegation_confirmation") {
-    return "I confirm this GMI key is scoped to a dedicated project or organization and may be stored server-side by Blueprint for requests from my account.";
+    return "I confirm this GMI key is scoped to a dedicated project or organization and may be stored server-side by Forma for requests from my account.";
   }
   if (integration.id === "together" && field.id === "project_key_confirmation") {
-    return "I confirm this Together AI key is project-scoped, dedicated to Blueprint, and not a legacy or broad account key.";
+    return "I confirm this Together AI key is project-scoped, dedicated to Forma, and not a legacy or broad account key.";
   }
   return "I confirm this credential is scoped for this integration and does not include broad account, repository, organization, billing, deployment, or unrestricted access.";
 }
@@ -263,7 +263,7 @@ async function responseErrorMessage(response: Response, fallback: string) {
 }
 
 function fieldPlaceholder(field: IntegrationFieldStatus) {
-  if (field.policy_blocked) return "Not accepted in Blueprint Cloud";
+  if (field.policy_blocked) return "Not accepted in Forma Cloud";
   if (field.secret && field.masked_value) return `Saved: ${field.masked_value}`;
   return field.placeholder || "";
 }
@@ -885,7 +885,7 @@ export default function UserIntegrationsPage() {
                 <h1 className="truncate text-lg font-black uppercase tracking-wide text-white">Settings</h1>
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                API keys, preferred models, and provider defaults for your Blueprint workspace.
+                API keys, preferred models, and provider defaults for your Forma workspace.
               </p>
             </div>
           </div>
@@ -1122,7 +1122,7 @@ export default function UserIntegrationsPage() {
                   const fieldValue = forms[selectedIntegration.id]?.fields[field.id] || "";
                   const confirmationField = isConfirmationField(field);
                   const placeholder = field.policy_blocked
-                    ? "Not accepted in Blueprint Cloud"
+                    ? "Not accepted in Forma Cloud"
                     : field.secret && field.masked_value
                     ? `Saved: ${field.masked_value}`
                     : field.placeholder || field.env_names[0] || "";

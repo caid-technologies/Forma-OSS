@@ -152,7 +152,7 @@ def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
         headers={
             "Authorization": f"Bearer {secret_key}",
             "Accept": "application/json",
-            "User-Agent": "Blueprint/1.0 (+https://github.com/caid-technologies/blueprint-oss)",
+            "User-Agent": "Forma/1.0 (+https://github.com/caid-technologies/blueprint-oss)",
         },
         method="GET",
     )
@@ -203,7 +203,7 @@ async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, An
         return verify_clerk_bearer_token(token)
     if not deployed_auth_required():
         return None
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Blueprint generation.")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
 
 
 async def optional_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:

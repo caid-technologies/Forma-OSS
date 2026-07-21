@@ -1,6 +1,6 @@
 # Local Setup
 
-Blueprint OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported for deployment through the Supabase client; the backend falls back to SQLite for local use.
+Forma OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported for deployment through the Supabase client; the backend falls back to SQLite for local use.
 
 ## Prerequisites
 - **Python 3.11+**

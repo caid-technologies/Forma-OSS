@@ -434,7 +434,7 @@ class PromptIteratorAgent:
         if not actionable:
             return None
         state.prompt_revision += 1
-        base_prompt = state.current_prompt or "Generate a precise Blueprint project output."
+        base_prompt = state.current_prompt or "Generate a precise Forma project output."
         correction = "; ".join(f"{finding.code}: {finding.message}" for finding in actionable[:6])
         proposal = PromptIterationProposal(
             revision=state.prompt_revision,

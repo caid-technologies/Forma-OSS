@@ -1,4 +1,4 @@
-"""Built-in Lattice agent cards for Blueprint project namespaces."""
+"""Built-in Lattice agent cards for Forma project namespaces."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from blueprint_core.project_objects import ProjectNamespaceDescriptor, list_proj
 
 
 class NamespaceAgentQuestion(BaseModel):
-    namespace: str = Field(..., description="Target Blueprint namespace, such as product.mech or product.bom.")
+    namespace: str = Field(..., description="Target Forma namespace, such as product.mech or product.bom.")
     prompt: str = Field(..., description="User request or upstream-agent instruction for this namespace.")
     project_context: dict[str, Any] = Field(default_factory=dict, description="Relevant project context.")
     current_payload: dict[str, Any] = Field(default_factory=dict, description="Existing namespace payload, if any.")
@@ -186,7 +186,7 @@ def namespace_agent_card(descriptor: ProjectNamespaceDescriptor) -> LatticeAgent
         capabilities=[capability],
         contracts=[contract],
         runtime_boundary=(
-            f"{descriptor.label} owns the {descriptor.name} namespace contract; Blueprint owns orchestration, "
+            f"{descriptor.label} owns the {descriptor.name} namespace contract; Forma owns orchestration, "
             "provider routing, validation, persistence, and cross-namespace coordination."
         ),
         tools_needed=profile.get("tools", ["schema validation", "project object inspection"]),

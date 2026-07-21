@@ -712,7 +712,7 @@ class WebResearchHardwarePipeline:
         try:
             save_generated_project(
                 project_id=project_id,
-                title=ir.overview.title if ir.overview else "Untitled Blueprint Project",
+                title=ir.overview.title if ir.overview else "Untitled Forma Project",
                 prompt=prompt,
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.utcnow().isoformat(),

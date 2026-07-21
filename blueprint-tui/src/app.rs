@@ -1,6 +1,6 @@
 use crate::agents::{
     default_agent_cards, now_string, read_file_payload, spawn_agent_workers, AgentCard, AgentEvent,
-    AgentJob, AgentObservation, AgentOutput, BlueprintMcpConfig, ChatInput, InputKind, MasterJob,
+    AgentJob, AgentObservation, AgentOutput, FormaMcpConfig, ChatInput, InputKind, MasterJob,
     OpenAiConfig, MASTER_AGENT_ID, MASTER_AGENT_NAME,
 };
 use crate::blueprint::fetch_lattice_agents;
@@ -131,7 +131,7 @@ impl ChatApp {
                     cards
                 }
                 Ok(_) => {
-                    status = format!("Blueprint MCP at {url} returned no agents; using defaults");
+                    status = format!("Forma MCP at {url} returned no agents; using defaults");
                     default_agent_cards()
                 }
                 Err(error) => {
@@ -165,7 +165,7 @@ impl ChatApp {
         } = spawn_agent_workers(
             &cards,
             config.openai.clone(),
-            BlueprintMcpConfig {
+            FormaMcpConfig {
                 url: config.mcp_url.clone(),
             },
             memory_store,
@@ -215,7 +215,7 @@ impl ChatApp {
             pending_initial_file: config.initial_file,
             active_master: None,
         };
-        app.push_system("Welcome to Blueprint TUI. Enter a short name, or type a prompt to start. The Blueprint Architect will synthesize the final output. Use /file path/to/file to submit a file.");
+        app.push_system("Welcome to Forma TUI. Enter a short name, or type a prompt to start. The Forma Architect will synthesize the final output. Use /file path/to/file to submit a file.");
         if app.mode == InputMode::Chat {
             app.submit_pending_initial_file();
         }

@@ -12,7 +12,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 const FILE_PREVIEW_LIMIT: usize = 16_000;
 const AGENT_MEMORY_LIMIT: usize = 8;
 pub const MASTER_AGENT_ID: &str = "blueprint.architect";
-pub const MASTER_AGENT_NAME: &str = "Blueprint Architect";
+pub const MASTER_AGENT_NAME: &str = "Forma Architect";
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 pub struct LatticeCapability {
@@ -86,11 +86,11 @@ impl OpenAiConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BlueprintMcpConfig {
+pub struct FormaMcpConfig {
     pub url: Option<String>,
 }
 
-impl BlueprintMcpConfig {
+impl FormaMcpConfig {
     pub fn disabled() -> Self {
         Self { url: None }
     }
@@ -103,21 +103,21 @@ impl BlueprintMcpConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
-pub struct BlueprintMcpTool {
+pub struct FormaMcpTool {
     pub name: String,
     #[serde(default)]
     pub description: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct BlueprintMcpContext {
+pub struct FormaMcpContext {
     pub url: Option<String>,
-    pub tools: Vec<BlueprintMcpTool>,
+    pub tools: Vec<FormaMcpTool>,
     pub agent_card: Option<AgentCard>,
     pub error: Option<String>,
 }
 
-impl BlueprintMcpContext {
+impl FormaMcpContext {
     pub fn disabled() -> Self {
         Self::default()
     }
@@ -128,8 +128,8 @@ impl BlueprintMcpContext {
 
     pub fn summary(&self) -> String {
         match (&self.url, &self.error) {
-            (None, _) => "Blueprint MCP: not configured.".to_string(),
-            (Some(url), Some(error)) => format!("Blueprint MCP: {url}; unavailable: {error}"),
+            (None, _) => "Forma MCP: not configured.".to_string(),
+            (Some(url), Some(error)) => format!("Forma MCP: {url}; unavailable: {error}"),
             (Some(url), None) => {
                 let tools = self
                     .tools
@@ -148,7 +148,7 @@ impl BlueprintMcpContext {
                     .as_ref()
                     .map(|card| format!("agent card: {} ({})", card.name, card.namespace_label()))
                     .unwrap_or_else(|| "agent card unavailable".to_string());
-                format!("Blueprint MCP: {url}; tools: {tools}; {card}.")
+                format!("Forma MCP: {url}; tools: {tools}; {card}.")
             }
         }
     }
@@ -401,7 +401,7 @@ fn card(agent_id: &str, namespace: &str, name: &str, domain: &str, summary: &str
 pub fn spawn_agent_workers(
     cards: &[AgentCard],
     openai: OpenAiConfig,
-    mcp: BlueprintMcpConfig,
+    mcp: FormaMcpConfig,
     memory_store: Option<AgentMemoryStore>,
 ) -> AgentEvent {
     let (response_tx, response_rx) = mpsc::channel();
@@ -437,7 +437,7 @@ fn master_loop(
     jobs: Receiver<MasterJob>,
     output: Sender<AgentOutput>,
     openai: OpenAiConfig,
-    mcp: BlueprintMcpConfig,
+    mcp: FormaMcpConfig,
     memory_store: Option<AgentMemoryStore>,
 ) {
     let mut memory = load_agent_memory(&memory_store, MASTER_AGENT_ID);
@@ -551,7 +551,7 @@ fn agent_loop(
     jobs: Receiver<AgentJob>,
     output: Sender<AgentOutput>,
     openai: OpenAiConfig,
-    mcp: BlueprintMcpConfig,
+    mcp: FormaMcpConfig,
     memory_store: Option<AgentMemoryStore>,
 ) {
     let mut memory = load_agent_memory(&memory_store, &card.agent_id);
@@ -635,13 +635,13 @@ fn agent_loop(
     }
 }
 
-fn mcp_context_for(mcp: &BlueprintMcpConfig, card: Option<&AgentCard>) -> BlueprintMcpContext {
+fn mcp_context_for(mcp: &FormaMcpConfig, card: Option<&AgentCard>) -> FormaMcpContext {
     let Some(url) = mcp.url.as_deref().filter(|value| !value.trim().is_empty()) else {
-        return BlueprintMcpContext::disabled();
+        return FormaMcpContext::disabled();
     };
     match fetch_agent_mcp_context(url, card) {
         Ok(context) => context,
-        Err(error) => BlueprintMcpContext {
+        Err(error) => FormaMcpContext {
             url: Some(url.to_string()),
             tools: Vec::new(),
             agent_card: None,
@@ -723,7 +723,7 @@ fn stream_local_master_notes(
     agents: &[AgentCard],
     output: &Sender<AgentOutput>,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> Result<(), String> {
     let stream_id = master_stream_id_for(input);
     output
@@ -754,7 +754,7 @@ fn stream_local_master_final(
     observations: &[AgentObservation],
     output: &Sender<AgentOutput>,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> Result<String, String> {
     let stream_id = master_stream_id_for(input);
     output
@@ -785,7 +785,7 @@ fn stream_openai_master_notes(
     config: &OpenAiConfig,
     output: &Sender<AgentOutput>,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> Result<(), String> {
     let stream_id = master_stream_id_for(input);
     let agent_list = agents
@@ -841,7 +841,7 @@ fn stream_openai_master_final(
     config: &OpenAiConfig,
     output: &Sender<AgentOutput>,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> Result<String, String> {
     let stream_id = master_stream_id_for(input);
     let observations = observations_prompt(observations);
@@ -899,7 +899,7 @@ pub fn analyze_for_agent(card: &AgentCard, input: &ChatInput) -> AgentResponse {
         card,
         input,
         &AgentMemory::default(),
-        &BlueprintMcpContext::disabled(),
+        &FormaMcpContext::disabled(),
     )
 }
 
@@ -907,7 +907,7 @@ pub fn analyze_for_agent_with_context(
     card: &AgentCard,
     input: &ChatInput,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> AgentResponse {
     let namespace = card.namespace_label();
     let lower = input.body.to_lowercase();
@@ -952,7 +952,7 @@ fn stream_openai_for_agent(
     config: &OpenAiConfig,
     output: &Sender<AgentOutput>,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> Result<String, String> {
     let stream_id = stream_id_for(card, input);
     let captured = Arc::new(Mutex::new(String::new()));
@@ -1113,16 +1113,16 @@ where
 fn agent_system_prompt(
     card: &AgentCard,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> String {
     format!(
-        "You are {name}, an independent Blueprint Lattice namespace agent.\n\
+        "You are {name}, an independent Forma Lattice namespace agent.\n\
          Namespace: {namespace}\n\
          Domain: {domain}\n\
          Summary: {summary}\n\
          {memory}\n\
          {mcp}\n\
-         Act only from your namespace perspective. Be concise. Use memory only when it is relevant to the current request. Use Blueprint MCP context for handoff/tool suggestions, and explicitly name useful Blueprint MCP tools when they are relevant. Do not pretend other agents agree with you.",
+         Act only from your namespace perspective. Be concise. Use memory only when it is relevant to the current request. Use Forma MCP context for handoff/tool suggestions, and explicitly name useful Forma MCP tools when they are relevant. Do not pretend other agents agree with you.",
         name = card.name,
         namespace = card.namespace_label(),
         domain = card.domain,
@@ -1135,7 +1135,7 @@ fn agent_system_prompt(
 fn user_prompt(
     input: &ChatInput,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> String {
     let source = match &input.kind {
         InputKind::Text => "text".to_string(),
@@ -1154,7 +1154,7 @@ fn user_prompt(
 }
 
 fn master_notes_prompt() -> String {
-    "You are Blueprint Architect, the master coordination agent for a lattice of specialized Blueprint namespace agents.\n\
+    "You are Forma Architect, the master coordination agent for a lattice of specialized Forma namespace agents.\n\
      Stream concise visible working notes only. These notes are user-facing coordination notes: routing, assumptions to check, risks to watch, and which namespace agents matter.\n\
      Do not reveal private chain-of-thought or hidden deliberation. Do not give the final answer in this phase.\n\
      Use 3 to 5 short bullets."
@@ -1162,7 +1162,7 @@ fn master_notes_prompt() -> String {
 }
 
 fn master_final_prompt() -> String {
-    "You are Blueprint Architect, the master coordination agent for Blueprint.\n\
+    "You are Forma Architect, the master coordination agent for Forma.\n\
      Produce the final synthesized output for the user from the request and the independent namespace observations.\n\
      Be direct and builder-facing. Preserve uncertainty, call out safety/review gates, and turn the agent observations into a clear next action.\n\
      Do not claim consensus where observations conflict or are incomplete."
@@ -1173,7 +1173,7 @@ fn local_master_notes(
     input: &ChatInput,
     agents: &[AgentCard],
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> String {
     let source = source_label(input);
     let agent_names = agents
@@ -1209,7 +1209,7 @@ fn local_master_final(
     input: &ChatInput,
     observations: &[AgentObservation],
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> String {
     let lower = input.body.to_lowercase();
     let material_hint = if lower.contains("cardboard") {
@@ -1241,7 +1241,7 @@ fn local_master_final(
     };
 
     format!(
-        "{}, final output: {}\n\n{}\n\nMemory used: {} prior Architect turn(s). Blueprint MCP: {}\n\nNext action: define the measurable target first, then ask Fabricator and Mechanical for material coupons and geometry limits, BOM for candidate materials, Assembly for build order, and Validation for gates before any physical build.",
+        "{}, final output: {}\n\n{}\n\nMemory used: {} prior Architect turn(s). Forma MCP: {}\n\nNext action: define the measurable target first, then ask Fabricator and Mechanical for material coupons and geometry limits, BOM for candidate materials, Assembly for build order, and Validation for gates before any physical build.",
         input.user_name,
         material_hint,
         signal,
@@ -1293,7 +1293,7 @@ fn compact_line(value: &str, max_chars: usize) -> String {
 fn with_context_notes(
     mut body: String,
     memory: &AgentMemory,
-    mcp_context: &BlueprintMcpContext,
+    mcp_context: &FormaMcpContext,
 ) -> String {
     let mut notes = Vec::new();
     if !memory.is_empty() {
@@ -1407,7 +1407,7 @@ fn fabricator_reply(user_name: &str, source_note: &str, lower: &str) -> String {
         } else {
             "primitive characterization before choosing a fabrication route"
         };
-    format!("{user_name}, Fabricator read on the {source_note}: I would start with {route}. I will keep this conceptual and ask Blueprint for inventory, device discovery, simulation, and review gates.")
+    format!("{user_name}, Fabricator read on the {source_note}: I would start with {route}. I will keep this conceptual and ask Forma for inventory, device discovery, simulation, and review gates.")
 }
 
 fn missing_terms(lower: &str, terms: &[&str]) -> String {
@@ -1522,7 +1522,7 @@ mod tests {
             &card,
             &second,
             &memory,
-            &BlueprintMcpContext::disabled(),
+            &FormaMcpContext::disabled(),
         );
 
         assert!(response.body.contains("Memory: carrying 1 prior turn"));
@@ -1530,9 +1530,9 @@ mod tests {
 
     #[test]
     fn mcp_context_summary_lists_tools_and_agent_card() {
-        let context = BlueprintMcpContext {
+        let context = FormaMcpContext {
             url: Some("http://127.0.0.1:8000/api/mcp".to_string()),
-            tools: vec![BlueprintMcpTool {
+            tools: vec![FormaMcpTool {
                 name: "blueprint.lattice.get_agent_card".to_string(),
                 description: "Fetch an agent card".to_string(),
             }],

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate Blueprint production environment variables without printing secrets."""
+"""Validate Forma production environment variables without printing secrets."""
 
 from __future__ import annotations
 
@@ -120,7 +120,7 @@ def validate(env: dict[str, str], *, require_live_clerk: bool) -> CheckReport:
     report.check("Supabase service/secret key present", bool(first_present(env, ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"))))
     report.check("Database backend is Supabase", value("DATABASE_BACKEND").lower() == "supabase", f"DATABASE_BACKEND={value('DATABASE_BACKEND') or '<unset>'}")
     report.check("Job metadata not forced to SQLite", value("JOB_METADATA_BACKEND").lower() != "sqlite", f"JOB_METADATA_BACKEND={value('JOB_METADATA_BACKEND') or '<unset>'}")
-    report.check("Blueprint dev mode disabled", not is_true(env, "BLUEPRINT_DEV_MODE"))
+    report.check("Forma dev mode disabled", not is_true(env, "BLUEPRINT_DEV_MODE"))
     report.check("Frontend dev mode disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEV_MODE"))
     report.check("Backend debug disabled", not is_true(env, "BLUEPRINT_DEBUG"))
     report.check("Frontend debug disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEBUG"))

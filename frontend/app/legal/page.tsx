@@ -4,8 +4,8 @@ import { ArrowLeft, ArrowRight, FileText } from "lucide-react";
 import { legalDocuments, legalEntityName, legalLastUpdated } from "../../lib/legal-docs";
 
 export const metadata: Metadata = {
-  title: "Legal | Blueprint",
-  description: "Blueprint legal, privacy, safety, copyright, security, and accessibility documents.",
+  title: "Legal | Forma",
+  description: "Forma legal, privacy, safety, copyright, security, and accessibility documents.",
 };
 
 export default function LegalIndexPage() {
@@ -17,7 +17,7 @@ export default function LegalIndexPage() {
           className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black"
         >
           <ArrowLeft className="h-4 w-4" />
-          Blueprint
+          Forma
         </Link>
         <div className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400">
           <FileText className="h-4 w-4 text-cyan-300" />
@@ -31,7 +31,7 @@ export default function LegalIndexPage() {
           <h1 className="mt-4 text-4xl font-semibold leading-tight text-white sm:text-6xl">Legal</h1>
         </div>
         <p className="max-w-2xl text-base leading-7 text-slate-400 lg:justify-self-end">
-          Terms, privacy, safety, acceptable use, copyright, security, and accessibility documents for Blueprint.
+          Terms, privacy, safety, acceptable use, copyright, security, and accessibility documents for Forma.
         </p>
       </section>
 

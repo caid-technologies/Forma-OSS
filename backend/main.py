@@ -181,7 +181,7 @@ def _attach_generation_timing_metadata(response: Dict[str, Any], job: Optional[D
     return response
 
 app = FastAPI(
-    title="Blueprint Open-Source API",
+    title="Forma Open-Source API",
     description="AI-native prompt-to-hardware compilation, validation, and design generation platform.",
     version="1.0.0",
     docs_url="/docs",
@@ -265,7 +265,7 @@ def _require_job_reader(job: Dict[str, Any], auth_claims: Any) -> None:
 # Initialize and seed database on startup
 @app.on_event("startup")
 async def startup_event():
-    logger.info("Starting up Blueprint server...")
+    logger.info("Starting up Forma server...")
     try:
         init_db()
         count = count_component_templates()
@@ -290,7 +290,7 @@ async def shutdown_event():
 def read_root():
     return {
         "status": "online",
-        "service": "Blueprint Open-Source Hardware Compiler",
+        "service": "Forma Open-Source Hardware Compiler",
         "version": "1.0.0",
         "docs_url": "/api/docs"
     }
@@ -298,7 +298,7 @@ def read_root():
 
 @app.get("/admin/session")
 def admin_session_endpoint(_auth_claims: Any = Depends(optional_deployed_clerk_auth)):
-    """Reports whether the current signed-in user has Blueprint admin access."""
+    """Reports whether the current signed-in user has Forma admin access."""
     return {
         "is_admin": clerk_user_is_admin(_auth_claims),
         "user_id": clerk_user_id(_auth_claims),
@@ -1017,7 +1017,7 @@ def alpha_signup_endpoint(request: AlphaSignupRequest):
 
 @app.get("/a2a/capabilities")
 def a2a_capabilities_endpoint():
-    """Advertises Blueprint's A2A transports, actions, and MCP tools."""
+    """Advertises Forma's A2A transports, actions, and MCP tools."""
     return get_a2a_capabilities()
 
 
@@ -1274,7 +1274,7 @@ async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
 
 @app.post("/mcp")
 async def mcp_endpoint(payload: Any = Body(...), _auth_claims: Any = Depends(require_deployed_admin_auth)):
-    """MCP-style JSON-RPC endpoint exposing Blueprint tools."""
+    """MCP-style JSON-RPC endpoint exposing Forma tools."""
     return await handle_mcp_json_rpc(payload)
 
 
@@ -1522,7 +1522,7 @@ def delete_chat_endpoint(chat_id: str, _auth_claims: Any = Depends(require_deplo
 
 @app.get("/projects/{project_id}/video-prompt")
 def generate_project_video_prompt_endpoint(project_id: str):
-    """Builds an image-to-video prompt from Blueprint project namespaces."""
+    """Builds an image-to-video prompt from Forma project namespaces."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")

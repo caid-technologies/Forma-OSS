@@ -5,7 +5,7 @@ Publication note: This is a draft template. Replace bracketed placeholders and h
 Last updated: July 8, 2026  
 Effective date: [EFFECTIVE DATE]
 
-Blueprint welcomes good-faith security research and vulnerability reports. This policy explains how to report issues safely.
+Forma welcomes good-faith security research and vulnerability reports. This policy explains how to report issues safely.
 
 ## 1. Reporting
 
@@ -25,10 +25,10 @@ Do not include secrets, personal data, or exploit code beyond what is needed to 
 
 Unless we publish a more specific scope, reports may cover:
 
-- the public Blueprint web application;
-- documented Blueprint APIs;
+- the public Forma web application;
+- documented Forma APIs;
 - authentication, authorization, project access, and integration handling;
-- public repository code maintained by Blueprint.
+- public repository code maintained by Forma.
 
 ## 3. Out of Scope
 
@@ -43,7 +43,7 @@ The following are out of scope unless we give written permission:
 
 ## 4. Safe Harbor
 
-If you act in good faith, follow this policy, avoid privacy violations and disruption, and report issues promptly, Blueprint will not pursue legal action against you for the research itself. This safe harbor does not apply to unlawful conduct, extortion, data theft, public disclosure before resolution, or activity outside this policy.
+If you act in good faith, follow this policy, avoid privacy violations and disruption, and report issues promptly, Forma will not pursue legal action against you for the research itself. This safe harbor does not apply to unlawful conduct, extortion, data theft, public disclosure before resolution, or activity outside this policy.
 
 ## 5. Coordinated Disclosure
 
@@ -51,7 +51,7 @@ Give us a reasonable opportunity to investigate and fix issues before public dis
 
 ## 6. Bounty
 
-Unless a separate bounty program is announced, Blueprint does not offer payment, rewards, swag, or compensation for reports.
+Unless a separate bounty program is announced, Forma does not offer payment, rewards, swag, or compensation for reports.
 
 ## 7. Security Contact
 

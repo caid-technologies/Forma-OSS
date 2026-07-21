@@ -1,6 +1,6 @@
 # Database
 
-Blueprint stores component templates and generated projects in Supabase when configured, with a **SQLite fallback** for local development.
+Forma stores component templates and generated projects in Supabase when configured, with a **SQLite fallback** for local development.
 
 Database selection is configured in `backend/database.py`:
 - Supabase mode uses the Supabase Python client with `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`.

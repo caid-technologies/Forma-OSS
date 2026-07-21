@@ -252,7 +252,7 @@ class OpenAIImageProvider(ImageProvider):
     def _headers(self, content_type: Optional[str] = "application/json") -> Dict[str, str]:
         headers: Dict[str, str] = {
             "Accept": "application/json",
-            "User-Agent": "Blueprint-OSS/1.0",
+            "User-Agent": "Forma-OSS/1.0",
         }
         if content_type:
             headers["Content-Type"] = content_type
@@ -289,7 +289,7 @@ class OpenAIImageProvider(ImageProvider):
         fields: Dict[str, Any],
         files: List[Tuple[str, str, bytes, str]],
     ) -> Dict[str, Any]:
-        boundary = f"----BlueprintImageBoundary{uuid.uuid4().hex}"
+        boundary = f"----FormaImageBoundary{uuid.uuid4().hex}"
         body_parts: List[bytes] = []
 
         for name, value in fields.items():
@@ -939,7 +939,7 @@ def _image_bytes_from_data(image_data: str) -> Tuple[bytes, str]:
         raise ValueError("Reference image data is empty.")
 
     if image_data.startswith(("http://", "https://")):
-        request = urllib.request.Request(image_data, headers={"User-Agent": "Blueprint-OSS/1.0"})
+        request = urllib.request.Request(image_data, headers={"User-Agent": "Forma-OSS/1.0"})
         with urllib.request.urlopen(request, timeout=60) as response:
             return response.read(), response.headers.get_content_type() or "image/png"
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run deterministic local benchmarks for the Blueprint core package."""
+"""Run deterministic local benchmarks for the Forma core package."""
 
 from __future__ import annotations
 
@@ -381,7 +381,7 @@ def benchmark_async_scheduler(task_count: int, concurrency: int, sleep_ms: float
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Run deterministic offline Blueprint benchmarks.")
+    parser = argparse.ArgumentParser(description="Run deterministic offline Forma benchmarks.")
     parser.add_argument("--iterations", type=int, default=DEFAULT_ITERATIONS, help=f"Iterations for CPU benchmarks. Defaults to {DEFAULT_ITERATIONS}.")
     parser.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY, help=f"Concurrency for async scheduler benchmark. Defaults to {DEFAULT_CONCURRENCY}.")
     parser.add_argument("--scheduler-tasks", type=int, default=DEFAULT_SCHEDULER_TASKS, help=f"Fake provider tasks for async benchmark. Defaults to {DEFAULT_SCHEDULER_TASKS}.")
@@ -396,7 +396,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--hf-path-prefix", default="blueprint", help="Path prefix inside the Hugging Face repo. Defaults to blueprint.")
     parser.add_argument("--hf-private", action="store_true", help="Create the Hugging Face repo as private when it does not exist.")
     parser.add_argument("--hf-no-create-repo", action="store_true", help="Do not create the Hugging Face repo before uploading.")
-    parser.add_argument("--hf-commit-message", default="Upload Blueprint offline benchmark artifacts", help="Commit message for Hugging Face uploads.")
+    parser.add_argument("--hf-commit-message", default="Upload Forma offline benchmark artifacts", help="Commit message for Hugging Face uploads.")
     return parser
 
 

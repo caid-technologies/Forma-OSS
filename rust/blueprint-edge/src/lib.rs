@@ -423,7 +423,7 @@ impl SourceDescriptor {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BlueprintEdgeEvent {
+pub struct FormaEdgeEvent {
     pub schema_version: u16,
     pub event_id: String,
     pub observed_at_unix_ms: u128,
@@ -433,7 +433,7 @@ pub struct BlueprintEdgeEvent {
     pub metadata: Value,
 }
 
-impl BlueprintEdgeEvent {
+impl FormaEdgeEvent {
     pub fn new(kind: impl Into<String>, source: SourceDescriptor, payload: Value) -> Self {
         let observed_at_unix_ms = unix_time_millis();
         Self {
@@ -457,13 +457,13 @@ pub fn parse_json_payload(raw: &str) -> Result<Value, serde_json::Error> {
     serde_json::from_str(raw)
 }
 
-pub fn event_to_json_line(event: &BlueprintEdgeEvent) -> Result<String, serde_json::Error> {
+pub fn event_to_json_line(event: &FormaEdgeEvent) -> Result<String, serde_json::Error> {
     serde_json::to_string(event)
 }
 
 pub fn write_event_jsonl(
     mut writer: impl Write,
-    event: &BlueprintEdgeEvent,
+    event: &FormaEdgeEvent,
 ) -> Result<(), EdgeError> {
     writeln!(writer, "{}", event_to_json_line(event)?)?;
     Ok(())
@@ -478,7 +478,7 @@ pub fn stream_stdin_as_events(
     let mut count = 0;
     for line in reader.lines() {
         let line = line?;
-        let event = BlueprintEdgeEvent::new(kind, source.clone(), json!({ "line": line }));
+        let event = FormaEdgeEvent::new(kind, source.clone(), json!({ "line": line }));
         write_event_jsonl(&mut writer, &event)?;
         count += 1;
     }
@@ -499,7 +499,7 @@ impl Default for OllamaChatStreamRequest {
     fn default() -> Self {
         Self {
             model: OllamaSourceConfig::default().default_model,
-            prompt: "Say hello from Blueprint Edge.".to_string(),
+            prompt: "Say hello from Forma Edge.".to_string(),
             system: None,
             options: None,
             keep_alive: None,
@@ -528,7 +528,7 @@ impl Default for LlamaCppChatStreamRequest {
     fn default() -> Self {
         Self {
             model: LlamaCppSourceConfig::default().default_model,
-            prompt: "Say hello from Blueprint Edge.".to_string(),
+            prompt: "Say hello from Forma Edge.".to_string(),
             system: None,
             temperature: None,
             max_tokens: None,
@@ -946,7 +946,7 @@ pub fn stream_llama_cpp_chat_to_agents<W: Write>(
 
 pub fn fanout_event_to_agents<W: Write>(
     outputs: &mut [AgentStreamWriter<W>],
-    event: &BlueprintEdgeEvent,
+    event: &FormaEdgeEvent,
 ) -> Result<(), EdgeError> {
     for output in outputs {
         let routed = event.clone().with_metadata(merge_metadata_field(
@@ -966,7 +966,7 @@ pub fn ollama_stream_chunk_event(
     model: &str,
     sequence: u64,
     chunk: Value,
-) -> BlueprintEdgeEvent {
+) -> FormaEdgeEvent {
     let content = chunk
         .pointer("/message/content")
         .or_else(|| chunk.get("response"))
@@ -976,7 +976,7 @@ pub fn ollama_stream_chunk_event(
     let source = SourceDescriptor::new("ollama", "llm.stream", &config.sources.ollama.name)
         .with_uri(ollama_chat_endpoint(&config.sources.ollama.base_url));
 
-    BlueprintEdgeEvent::new(
+    FormaEdgeEvent::new(
         "llm.ollama.chat.chunk",
         source,
         json!({
@@ -1000,7 +1000,7 @@ pub fn llama_cpp_stream_chunk_event(
     model: &str,
     sequence: u64,
     chunk: Value,
-) -> BlueprintEdgeEvent {
+) -> FormaEdgeEvent {
     let content = chunk
         .pointer("/choices/0/delta/content")
         .or_else(|| chunk.pointer("/choices/0/message/content"))
@@ -1012,7 +1012,7 @@ pub fn llama_cpp_stream_chunk_event(
     let source = SourceDescriptor::new("llama.cpp", "llm.stream", &config.sources.llama_cpp.name)
         .with_uri(llama_cpp_chat_endpoint(&config.sources.llama_cpp.base_url));
 
-    BlueprintEdgeEvent::new(
+    FormaEdgeEvent::new(
         "llm.llama_cpp.chat.chunk",
         source,
         json!({
@@ -1035,10 +1035,10 @@ pub fn llama_cpp_stream_done_event(
     config: &EdgeConfig,
     model: &str,
     sequence: u64,
-) -> BlueprintEdgeEvent {
+) -> FormaEdgeEvent {
     let source = SourceDescriptor::new("llama.cpp", "llm.stream", &config.sources.llama_cpp.name)
         .with_uri(llama_cpp_chat_endpoint(&config.sources.llama_cpp.base_url));
-    BlueprintEdgeEvent::new(
+    FormaEdgeEvent::new(
         "llm.llama_cpp.chat.done",
         source,
         json!({
@@ -1128,14 +1128,14 @@ fn merge_metadata_field(metadata: &Value, key: &str, value: Value) -> Value {
     Value::Object(object)
 }
 
-pub fn linux_snapshot_event(source_name: &str) -> BlueprintEdgeEvent {
+pub fn linux_snapshot_event(source_name: &str) -> FormaEdgeEvent {
     linux_snapshot_event_from_config(&LinuxSourceConfig {
         name: source_name.to_string(),
         ..LinuxSourceConfig::default()
     })
 }
 
-pub fn linux_snapshot_event_from_config(config: &LinuxSourceConfig) -> BlueprintEdgeEvent {
+pub fn linux_snapshot_event_from_config(config: &LinuxSourceConfig) -> FormaEdgeEvent {
     let source =
         SourceDescriptor::new("blueprint-edge", "linux", &config.name).with_uri("linux://proc");
     let mut payload = serde_json::Map::new();
@@ -1162,7 +1162,7 @@ pub fn linux_snapshot_event_from_config(config: &LinuxSourceConfig) -> Blueprint
         );
     }
 
-    BlueprintEdgeEvent::new("linux.snapshot", source, Value::Object(payload))
+    FormaEdgeEvent::new("linux.snapshot", source, Value::Object(payload))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1335,7 +1335,7 @@ fn handle_mcp_tool_call(config: &EdgeConfig, id: Option<Value>, params: Option<&
     }
 }
 
-fn mcp_emit_event(config: &EdgeConfig, arguments: &Value) -> BlueprintEdgeEvent {
+fn mcp_emit_event(config: &EdgeConfig, arguments: &Value) -> FormaEdgeEvent {
     let source_type = string_argument(arguments, "source_type", "manual");
     let name = string_argument(arguments, "name", "manual");
     let kind = string_argument(arguments, "kind", "source.event");
@@ -1345,7 +1345,7 @@ fn mcp_emit_event(config: &EdgeConfig, arguments: &Value) -> BlueprintEdgeEvent 
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    BlueprintEdgeEvent::new(
+    FormaEdgeEvent::new(
         kind,
         SourceDescriptor::new(provider, source_type, name),
         payload,
@@ -1357,7 +1357,7 @@ fn mcp_emit_event(config: &EdgeConfig, arguments: &Value) -> BlueprintEdgeEvent 
     }))
 }
 
-fn mcp_linux_snapshot_event(config: &EdgeConfig) -> BlueprintEdgeEvent {
+fn mcp_linux_snapshot_event(config: &EdgeConfig) -> FormaEdgeEvent {
     linux_snapshot_event_from_config(&config.sources.linux).with_metadata(json!({
         "tool": "edge.linux.snapshot",
         "collection": "best_effort",
@@ -1369,7 +1369,7 @@ fn mcp_linux_snapshot_event(config: &EdgeConfig) -> BlueprintEdgeEvent {
 fn mcp_poll_sources(
     config: &EdgeConfig,
     arguments: &Value,
-) -> Result<Vec<BlueprintEdgeEvent>, String> {
+) -> Result<Vec<FormaEdgeEvent>, String> {
     let source_id = arguments
         .get("source_id")
         .and_then(Value::as_str)
@@ -1416,7 +1416,7 @@ fn mcp_read_spacebase_stream(
 fn mcp_write_spacebase_event(
     config: &EdgeConfig,
     arguments: &Value,
-) -> Result<BlueprintEdgeEvent, EdgeError> {
+) -> Result<FormaEdgeEvent, EdgeError> {
     let stream_id = arguments
         .get("stream_id")
         .and_then(Value::as_str)
@@ -1427,7 +1427,7 @@ fn mcp_write_spacebase_event(
         .get("payload")
         .cloned()
         .unwrap_or_else(|| json!({}));
-    let event = BlueprintEdgeEvent::new(
+    let event = FormaEdgeEvent::new(
         kind,
         SourceDescriptor::new("spacebase.local", "stream.store", stream_id),
         payload,
@@ -1461,7 +1461,7 @@ fn mcp_tools() -> Value {
     json!([
         {
             "name": "edge.config.get",
-            "description": "Return the loaded Blueprint Edge config and registered sources.",
+            "description": "Return the loaded Forma Edge config and registered sources.",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
@@ -1700,7 +1700,7 @@ mod tests {
 
     #[test]
     fn event_serializes_as_json_line() {
-        let event = BlueprintEdgeEvent::new(
+        let event = FormaEdgeEvent::new(
             "source.sample",
             SourceDescriptor::new("unit", "manual", "demo"),
             json!({"ok": true}),
@@ -1866,7 +1866,7 @@ mod tests {
 
     #[test]
     fn fanout_routes_event_to_each_agent_writer() {
-        let event = BlueprintEdgeEvent::new(
+        let event = FormaEdgeEvent::new(
             "unit.chunk",
             SourceDescriptor::new("unit", "llm.stream", "demo"),
             json!({"content": "hello"}),
@@ -1900,7 +1900,7 @@ mod tests {
     #[test]
     fn live_tcp_hub_replays_memory_events_to_listener() {
         let (hub, addr) = LiveTcpStreamHub::bind("127.0.0.1:0", 8).expect("live hub should bind");
-        let event = BlueprintEdgeEvent::new(
+        let event = FormaEdgeEvent::new(
             "unit.live",
             SourceDescriptor::new("unit", "live", "tcp"),
             json!({"content": "instant"}),
@@ -1964,7 +1964,7 @@ mod tests {
         let mut outputs = stream
             .open_agent_outputs(&config.agents, true)
             .expect("spacebase outputs should open");
-        let event = BlueprintEdgeEvent::new(
+        let event = FormaEdgeEvent::new(
             "unit.stream",
             SourceDescriptor::new("unit", "stream", "spacebase"),
             json!({"content": "hello"}),

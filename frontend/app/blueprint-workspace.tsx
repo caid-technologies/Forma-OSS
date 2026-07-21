@@ -970,7 +970,7 @@ function projectChatGenerationPrompt(projectIR: any, userMessage: string, active
     ? projectIR.components.slice(0, 10).map((component: any) => `${component.ref_des || ""} ${component.name || component.part_number || ""}`.trim()).filter(Boolean)
     : [];
   return [
-    "Create a new Blueprint hardware project from this project chat message.",
+    "Create a new Forma hardware project from this project chat message.",
     `Source project id: ${projectId}`,
     `Source project title: ${title}`,
     description ? `Source project description: ${description}` : "",
@@ -1083,7 +1083,7 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
     {
       id: "outputs",
       label: "Artifacts",
-      question: "What should Blueprint optimize in the first version?",
+      question: "What should Forma optimize in the first version?",
       placeholder: "Example: wiring accuracy, mechanical concept, product images, validation, BOM...",
       suggestions: ["Wiring accuracy", "Mechanical design", "Product images"],
     },
@@ -2023,7 +2023,7 @@ type HomeProps = {
   authRequired?: boolean;
 };
 
-export function BlueprintWorkspace({
+export function FormaWorkspace({
   routeProjectId = null,
   routeChatId = null,
   showDeveloperTools = DEFAULT_SHOW_DEVELOPER_TOOLS,
@@ -3947,7 +3947,7 @@ export function BlueprintWorkspace({
       if (!res.ok) {
         const apiError = await readApiError(res);
         if (apiError.debug) {
-          console.error("Blueprint API debug trace", apiError);
+          console.error("Forma API debug trace", apiError);
         }
         const errorMessage = apiError.message;
         const displayErrorMessage = compactDiagnosticText(errorMessage) || errorMessage;
@@ -4203,7 +4203,7 @@ export function BlueprintWorkspace({
       if (!res.ok) {
         const apiError = await readApiError(res);
         if (apiError.debug) {
-          console.error("Blueprint API debug trace", apiError);
+          console.error("Forma API debug trace", apiError);
         }
         if (res.status === 503 && apiError.code === "alpha_generation_unavailable") {
           setAlphaGateConfig({ gateActive: true });
@@ -5336,7 +5336,7 @@ export function BlueprintWorkspace({
                               ) : (
                                 <Cpu className="h-3.5 w-3.5 text-slate-400" />
                               )}
-                              <span>{isUser ? "You" : "Blueprint"}</span>
+                              <span>{isUser ? "You" : "Forma"}</span>
                               <span className="text-slate-700">/</span>
                               <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                             </div>
@@ -5450,7 +5450,7 @@ export function BlueprintWorkspace({
                       <img src={selectedImage} alt="Attached reference" className="h-16 w-24 object-cover" />
                       <div className="min-w-0 flex-1">
                         <div className="text-xs font-semibold text-white">Image attached</div>
-                        <div className="mt-1 text-[11px] text-slate-500">Blueprint will use this image with your next message.</div>
+                        <div className="mt-1 text-[11px] text-slate-500">Forma will use this image with your next message.</div>
                       </div>
                       <button type="button" onClick={removeSelectedImage} className="p-2 text-slate-500 hover:text-white" aria-label="Remove image">
                         <X className="h-4 w-4" />
@@ -5485,7 +5485,7 @@ export function BlueprintWorkspace({
                       placeholder={
                         pendingHumanContext
                           ? "Optional: add final context notes before building..."
-                          : "Ask Blueprint to build a lab-on-chip reader, self-assembling tent, sensor node, robot fixture..."
+                          : "Ask Forma to build a lab-on-chip reader, self-assembling tent, sensor node, robot fixture..."
                       }
                       aria-invalid={Boolean(visibleGenerationInputNotice)}
                       aria-describedby={visibleGenerationInputNotice ? "generation-input-notice" : undefined}
@@ -5665,7 +5665,7 @@ export function BlueprintWorkspace({
   );
 }
 
-export default BlueprintWorkspace;
+export default FormaWorkspace;
 
 function buildChatListItems(projectHistory: any[], localChatItems: ChatListItem[] = []): ChatListItem[] {
   const groups = new Map<string, { latest: any; projectCount: number }>();
@@ -5845,7 +5845,7 @@ function MobileWorkspaceBar({
     <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
       <div className="min-w-0 flex flex-1 items-center gap-2">
-        <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Blueprint</span>
+        <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
         <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
       </div>
       <span
@@ -6038,7 +6038,7 @@ function ChatSidebar({
           </button>
           {!compact && (
             <div className="min-w-0 flex items-center gap-2">
-              <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Blueprint</span>
+              <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
               <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
               <span
                 className={`inline-flex h-7 w-7 shrink-0 items-center justify-center border ${apiStatusTone}`}
@@ -6618,7 +6618,7 @@ function ProjectRouteFallback({
               <span className="flex h-9 w-9 items-center justify-center border border-[#2c2f37] bg-black text-white">
                 <Cpu className="h-4 w-4" />
               </span>
-              <span className="hidden text-sm font-black uppercase tracking-[0.22em] text-white sm:block">Blueprint</span>
+              <span className="hidden text-sm font-black uppercase tracking-[0.22em] text-white sm:block">Forma</span>
             </span>
           </button>
         </div>
@@ -8236,7 +8236,7 @@ function ProjectChatPanel({
                         }`}
                       >
                         <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
-                          <span>{isUser ? "You" : isSystem ? "Context" : "Blueprint"}</span>
+                          <span>{isUser ? "You" : isSystem ? "Context" : "Forma"}</span>
                           <span className="text-slate-700">/</span>
                           <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                           {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
@@ -8382,7 +8382,7 @@ function AgentPipelineProgressView({
         {isError ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" /> : isLoading ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-cyan-300" /> : <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
         <div className="min-w-0">
           <div className="truncate text-xs font-black uppercase text-white">{activeStep?.label || "Preparing job"}</div>
-          <div className="mt-1 truncate text-[11px] font-bold text-cyan-200">{activeStep?.agent || "Blueprint runtime"}</div>
+          <div className="mt-1 truncate text-[11px] font-bold text-cyan-200">{activeStep?.agent || "Forma runtime"}</div>
           {activeStep?.description && !compact && (
             <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{activeStep.description}</div>
           )}

@@ -116,7 +116,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
         self.assertEqual("openai/gpt-image-2", provider.model_name)
         self.assertEqual("1024x1024", provider.size)
         self.assertEqual(0, provider.num_inference_steps)
-        self.assertEqual("Blueprint-OSS/1.0", provider._headers()["User-Agent"])
+        self.assertEqual("Forma-OSS/1.0", provider._headers()["User-Agent"])
         self.assertEqual("application/json", provider._headers()["Accept"])
         self.assertTrue(provider.is_configured)
 

@@ -633,7 +633,7 @@ def update_generated_project_metadata(
         return False
     updates: Dict[str, Any] = {}
     if title is not None:
-        updates["title"] = title.strip() or "Untitled Blueprint Project"
+        updates["title"] = title.strip() or "Untitled Forma Project"
     if prompt is not None:
         updates["prompt"] = prompt.strip()
     if visibility is not None:

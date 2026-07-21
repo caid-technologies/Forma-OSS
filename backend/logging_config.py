@@ -205,7 +205,7 @@ def _ensure_console_handler(
 
 
 def configure_backend_logging() -> None:
-    """Configure Blueprint backend logging for console and optional file output."""
+    """Configure Forma backend logging for console and optional file output."""
     level = _log_level(os.getenv("LOG_LEVEL") or ("DEBUG" if debug_mode_enabled() else None))
     formatter = logging.Formatter(os.getenv("BACKEND_LOG_FORMAT", DEFAULT_LOG_FORMAT))
     namespaces = _log_namespaces()

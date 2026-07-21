@@ -1,6 +1,6 @@
 # Lattice
 
-Lattice is Blueprint's typed contract layer for composable domain agents.
+Lattice is Forma's typed contract layer for composable domain agents.
 
 Each meaningful project namespace can be represented as its own Lattice agent:
 
@@ -29,4 +29,4 @@ Every Lattice agent card describes:
 - the handoff actions it can request
 - safety and human-review boundaries
 
-Blueprint remains the runtime boundary for provider selection, MCP/tool calls, logging, validation, persistence, and cross-namespace orchestration.
+Forma remains the runtime boundary for provider selection, MCP/tool calls, logging, validation, persistence, and cross-namespace orchestration.

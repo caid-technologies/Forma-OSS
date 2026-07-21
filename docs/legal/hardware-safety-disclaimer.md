@@ -5,19 +5,19 @@ Publication note: This is a draft template. Replace bracketed placeholders and h
 Last updated: July 8, 2026  
 Effective date: [EFFECTIVE DATE]
 
-Blueprint generates early-stage hardware project information with AI assistance. This document explains important safety limits.
+Forma generates early-stage hardware project information with AI assistance. This document explains important safety limits.
 
 ## 1. Not Professional Engineering Advice
 
-Blueprint outputs are not professional electrical, mechanical, industrial, product safety, legal, regulatory, medical, or manufacturing advice. Generated designs, diagrams, BOMs, validation reports, and assembly notes may be wrong, incomplete, unsafe, outdated, or unsuitable for your intended use.
+Forma outputs are not professional electrical, mechanical, industrial, product safety, legal, regulatory, medical, or manufacturing advice. Generated designs, diagrams, BOMs, validation reports, and assembly notes may be wrong, incomplete, unsafe, outdated, or unsuitable for your intended use.
 
 Consult qualified professionals before building, testing, selling, deploying, or relying on any generated design.
 
 ## 2. Intended Low-Voltage Scope
 
-Blueprint is intended for low-voltage maker electronics, typically 3.3V to 5V DC educational prototypes and hobby projects.
+Forma is intended for low-voltage maker electronics, typically 3.3V to 5V DC educational prototypes and hobby projects.
 
-Do not use Blueprint outputs for:
+Do not use Forma outputs for:
 
 - mains AC wiring or line-powered products;
 - high-voltage, high-current, high-temperature, or high-energy systems;
@@ -43,10 +43,10 @@ Use safe lab practices, including current-limited bench supplies, fuses, insulat
 
 ## 5. Supplier and Part Risk
 
-Blueprint may reference component names, suppliers, marketplaces, or search links. We do not endorse, inspect, certify, or guarantee those parts or suppliers. Counterfeit, substituted, unavailable, mislabeled, or out-of-spec parts can create safety risks.
+Forma may reference component names, suppliers, marketplaces, or search links. We do not endorse, inspect, certify, or guarantee those parts or suppliers. Counterfeit, substituted, unavailable, mislabeled, or out-of-spec parts can create safety risks.
 
 ## 6. Your Responsibility
 
-You assume all risk for building, testing, modifying, distributing, selling, or using any design or output generated through Blueprint. Stop immediately if a build overheats, smells, smokes, sparks, behaves unexpectedly, or causes any safety concern.
+You assume all risk for building, testing, modifying, distributing, selling, or using any design or output generated through Forma. Stop immediately if a build overheats, smells, smokes, sparks, behaves unexpectedly, or causes any safety concern.
 
 Report dangerous outputs or safety issues to team@caid-technologies.com.

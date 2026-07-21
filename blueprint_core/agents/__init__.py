@@ -1,4 +1,4 @@
-"""Generation agents and workflow selection for Blueprint."""
+"""Generation agents and workflow selection for Forma."""
 
 __all__ = [
     "HardwarePipelineOrchestrator",

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a product image from a Blueprint HardwareIR and show it in the terminal."""
+"""Generate a product image from a Forma HardwareIR and show it in the terminal."""
 
 from __future__ import annotations
 
@@ -79,7 +79,7 @@ def image_bytes_from_data_url_or_url(value: str) -> tuple[bytes, str]:
     if not image_data:
         raise ImageGenerationScriptError("Generated image data was empty.")
     if image_data.startswith(("http://", "https://")):
-        request = urllib.request.Request(image_data, headers={"User-Agent": "Blueprint-OSS/1.0"})
+        request = urllib.request.Request(image_data, headers={"User-Agent": "Forma-OSS/1.0"})
         with urllib.request.urlopen(request, timeout=120) as response:
             return response.read(), response.headers.get_content_type() or "image/png"
     if "," in image_data:

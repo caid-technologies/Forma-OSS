@@ -213,7 +213,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 "Provider allowlist",
                 ("LLM_ALLOWED_PROVIDERS",),
                 placeholder="auto",
-                help="Optional advanced override. Leave blank and Blueprint allows your configured providers automatically.",
+                help="Optional advanced override. Leave blank and Forma allows your configured providers automatically.",
             ),
             IntegrationFieldDefinition("image_provider", "Image provider", ("IMAGE_PROVIDER",), placeholder="openai"),
             IntegrationFieldDefinition("image_model", "Image model", ("IMAGE_MODEL",), placeholder="gpt-image-2"),
@@ -301,7 +301,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 "Key delegation confirmation",
                 (),
                 placeholder="project-scoped GMI key",
-                help="Hosted BYOK requires confirmation that this GMI key is scoped to a dedicated project or organization and may be stored server-side by Blueprint for your requests.",
+                help="Hosted BYOK requires confirmation that this GMI key is scoped to a dedicated project or organization and may be stored server-side by Forma for your requests.",
             ),
             IntegrationFieldDefinition("llm_base_url", "LLM base URL", ("GMI_BASE_URL",), placeholder="https://api.gmi-serving.com/v1"),
             IntegrationFieldDefinition("video_base_url", "Video base URL", ("GMI_CLOUD_BASE_URL", "GMICLOUD_BASE_URL"), placeholder="https://console.gmicloud.ai"),
@@ -332,7 +332,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 "Project key confirmation",
                 (),
                 placeholder="project-scoped dedicated key",
-                help="Hosted BYOK requires a project-scoped Together AI key dedicated to Blueprint. Legacy or broad account keys are not accepted.",
+                help="Hosted BYOK requires a project-scoped Together AI key dedicated to Forma. Legacy or broad account keys are not accepted.",
             ),
             IntegrationFieldDefinition("image_base_url", "Image base URL", ("TOGETHER_IMAGE_BASE_URL", "TOGETHER_BASE_URL"), placeholder="https://api.together.ai/v1"),
             IntegrationFieldDefinition("image_model", "Image model", ("TOGETHER_IMAGE_MODEL",), placeholder="openai/gpt-image-2"),
@@ -483,8 +483,8 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
         self_hosted_byok="enabled",
         blocked_secret_fields=("api_key",),
         note=(
-            "Blueprint Cloud does not accept user-supplied OpenAI API keys. "
-            "Use local or self-hosted Blueprint for OpenAI BYOK; hosted cloud uses a platform-managed key."
+            "Forma Cloud does not accept user-supplied OpenAI API keys. "
+            "Use local or self-hosted Forma for OpenAI BYOK; hosted cloud uses a platform-managed key."
         ),
     ),
     "image": HostedByokPolicy(
@@ -493,8 +493,8 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
         self_hosted_byok="enabled",
         blocked_secret_fields=("api_key",),
         note=(
-            "Blueprint Cloud does not accept generic user-supplied image provider API keys by default. "
-            "Use local or self-hosted Blueprint for image BYOK until the provider terms and credential scopes are reviewed."
+            "Forma Cloud does not accept generic user-supplied image provider API keys by default. "
+            "Use local or self-hosted Forma for image BYOK until the provider terms and credential scopes are reviewed."
         ),
     ),
     "anthropic": HostedByokPolicy(
@@ -539,7 +539,7 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
         self_hosted_byok="enabled",
         conditional_secret_fields=("api_key",),
         note=(
-            "Hosted Together AI image BYOK requires a project-scoped API key dedicated to Blueprint. "
+            "Hosted Together AI image BYOK requires a project-scoped API key dedicated to Forma. "
             "Legacy or broad account keys are not accepted; credentials stay backend-only and encrypted, "
             "model IDs are recorded, output storage is enabled, and model-specific terms must be enforced."
         ),
@@ -550,7 +550,7 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
         self_hosted_byok="enabled",
         blocked_secret_fields=("api_key",),
         note=(
-            "Blueprint Cloud does not accept user-supplied NVIDIA Build/API Catalog keys. NVIDIA hosted endpoints are for "
+            "Forma Cloud does not accept user-supplied NVIDIA Build/API Catalog keys. NVIDIA hosted endpoints are for "
             "account-holder trial, evaluation, and developer use unless a separate paid NVIDIA or authorized-provider "
             "agreement allows production, customer-facing application use, storage, and distribution."
         ),
@@ -952,7 +952,7 @@ class SupabaseUserIntegrationStore(UserIntegrationStore):
             if not (_truthy_confirmation(str(confirmation) if confirmation is not None else None) or _truthy_confirmation(existing_value)):
                 raise ValueError(
                     "Hosted GMI Cloud BYOK requires confirmation that the key is scoped to a dedicated project or "
-                    "organization and that third-party server-side key storage by Blueprint is permitted for your requests."
+                    "organization and that third-party server-side key storage by Forma is permitted for your requests."
                 )
         if _hosted_byok_policy_active() and _requires_hosted_together_confirmation(integration_id, field_values):
             confirmation = (field_values or {}).get("project_key_confirmation")
@@ -961,7 +961,7 @@ class SupabaseUserIntegrationStore(UserIntegrationStore):
             if not (_truthy_confirmation(str(confirmation) if confirmation is not None else None) or _truthy_confirmation(existing_value)):
                 raise ValueError(
                     "Hosted Together AI BYOK requires confirmation that the API key is project-scoped, "
-                    "dedicated to Blueprint, and is not a legacy or broad account key."
+                    "dedicated to Forma, and is not a legacy or broad account key."
                 )
         return super().update_integration(
             integration_id,

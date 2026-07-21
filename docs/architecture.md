@@ -1,6 +1,6 @@
 # Architecture
 
-Blueprint OSS turns prompts into structured hardware projects using a sequential, validation-aware agent pipeline. The system is intentionally scoped to low-voltage maker electronics and emphasizes traceable, typed outputs.
+Forma OSS turns prompts into structured hardware projects using a sequential, validation-aware agent pipeline. The system is intentionally scoped to low-voltage maker electronics and emphasizes traceable, typed outputs.
 
 ## System pipeline
 1. **Prompt + optional image** enters the system.
@@ -52,7 +52,7 @@ flowchart TD
 ## Core subsystems
 - **Frontend (Next.js + React Flow):** Visualizes the structured project, nets, BOM, and instructions.
 - **Backend (FastAPI):** Hosts the orchestration layer, validation, and storage APIs.
-- **A2A broker:** Lets external agents register, send messages, listen for queued events, or call Blueprint tools through MCP-style JSON-RPC.
+- **A2A broker:** Lets external agents register, send messages, listen for queued events, or call Forma tools through MCP-style JSON-RPC.
 - **Rust edge integration (`rust/`):** Hosts low-level source listeners and Linux-facing integrations as standalone JSONL event processes.
 - **Database (Supabase client/SQLite):** Stores component templates and generated projects.
 - **Utilities:** Render Mermaid and SVG schematics from the IR.

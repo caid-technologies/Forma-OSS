@@ -5,7 +5,7 @@ Publication note: This is a draft template. Replace bracketed placeholders and h
 Last updated: July 8, 2026  
 Effective date: [EFFECTIVE DATE]
 
-This Privacy Policy explains how CAID TECHNOLOGIES, INC. ("Blueprint," "we," "us," or "our") collects, uses, discloses, and protects information when you use Blueprint's website, hosted application, APIs, and related services (the "Service").
+This Privacy Policy explains how CAID TECHNOLOGIES, INC. ("Forma," "we," "us," or "our") collects, uses, discloses, and protects information when you use Forma's website, hosted application, APIs, and related services (the "Service").
 
 ## 1. Scope
 
@@ -22,7 +22,7 @@ We may collect the following categories of information:
 - Project and generation content, such as prompts, uploaded images, project descriptions, chat history, generated hardware IR, BOMs, diagrams, validation results, assembly notes, and concept images.
 - Usage and device information, such as pages viewed, features used, timestamps, browser type, device type, IP address, approximate location, logs, diagnostics, and error reports.
 - Communications, such as support requests, feedback, survey responses, security reports, and email preferences.
-- Payment and billing information, if paid features are offered. Payment card details should be processed by a payment provider and not stored directly by Blueprint.
+- Payment and billing information, if paid features are offered. Payment card details should be processed by a payment provider and not stored directly by Forma.
 - Cookies and local storage data, as described in the [Cookie and Local Storage Notice](cookie-and-local-storage-notice.md).
 
 Do not submit sensitive personal information, regulated data, export-controlled information, medical information, financial account data, or confidential third-party information unless we expressly support that use in writing.
@@ -45,7 +45,7 @@ We use information to:
 
 ## 4. AI Providers and Generated Content
 
-Blueprint may send prompts, uploaded images, project content, and related metadata to AI model providers, image generation providers, hosting providers, or compatible infrastructure selected or configured for a generation request.
+Forma may send prompts, uploaded images, project content, and related metadata to AI model providers, image generation providers, hosting providers, or compatible infrastructure selected or configured for a generation request.
 
 Provider data practices may vary. Before using live model or image providers, review the applicable provider terms and privacy policies, especially if you use your own provider credentials or route data to self-hosted, marketplace, or third-party endpoints.
 
@@ -92,11 +92,11 @@ To make a privacy request, contact team@caid-technologies.com. We may need to ve
 
 ## 9. California Privacy Notice
 
-If the California Consumer Privacy Act, as amended, applies to Blueprint, California residents may have rights to know, access, correct, delete, opt out of sale or sharing, limit certain use of sensitive personal information, and not be discriminated against for exercising privacy rights.
+If the California Consumer Privacy Act, as amended, applies to Forma, California residents may have rights to know, access, correct, delete, opt out of sale or sharing, limit certain use of sensitive personal information, and not be discriminated against for exercising privacy rights.
 
 The categories of personal information we may collect are described in Section 2. The purposes are described in Section 3. The categories of recipients are described in Section 5.
 
-As currently designed, Blueprint does not sell personal information for money and does not knowingly sell or share personal information of users under 16. If that changes, we will update this Policy and provide required opt-out mechanisms.
+As currently designed, Forma does not sell personal information for money and does not knowingly sell or share personal information of users under 16. If that changes, we will update this Policy and provide required opt-out mechanisms.
 
 To exercise California rights, contact team@caid-technologies.com. Authorized agents may submit requests if they provide proof of authorization and we can verify the request.
 

@@ -168,7 +168,7 @@ def build_iteration_prompt(
             f"{json.dumps(namespace_payload(current_ir, normalized_namespace), indent=2, sort_keys=True)}\n"
         )
     return (
-        "You are Blueprint's project iteration engine. Revise an existing HardwareIR project.\n"
+        "You are Forma's project iteration engine. Revise an existing HardwareIR project.\n"
         "Return one complete HardwareIR JSON document, not a patch and not markdown.\n"
         "Preserve every part of the project that the instruction does not explicitly change.\n"
         "Keep the existing project_id, reference designators, and stable net IDs unless a requested change requires updates.\n"

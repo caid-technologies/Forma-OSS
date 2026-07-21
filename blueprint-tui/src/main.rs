@@ -5,13 +5,13 @@ use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
 #[command(name = "blueprint-tui")]
-#[command(about = "Terminal chatbot for Blueprint Lattice namespace agents.")]
+#[command(about = "Terminal chatbot for Forma Lattice namespace agents.")]
 struct Cli {
     /// User name to skip the startup name prompt.
     #[arg(long)]
     name: Option<String>,
 
-    /// Optional Blueprint MCP HTTP endpoint, for example http://127.0.0.1:8000/api/mcp.
+    /// Optional Forma MCP HTTP endpoint, for example http://127.0.0.1:8000/api/mcp.
     #[arg(long)]
     mcp_url: Option<String>,
 

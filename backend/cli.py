@@ -255,7 +255,7 @@ def _summarize_payload(payload: Any) -> Any:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="blueprint-backend",
-        description="Backend utility CLI for the Blueprint FastAPI service.",
+        description="Backend utility CLI for the Forma FastAPI service.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 

@@ -5,11 +5,11 @@ Publication note: This is a draft template. Replace bracketed placeholders and h
 Last updated: July 8, 2026  
 Effective date: [EFFECTIVE DATE]
 
-This Acceptable Use Policy ("Policy") applies to use of Blueprint's website, hosted application, APIs, generated outputs, documentation, and related services (the "Service"). This Policy is part of the [Terms of Service](terms-of-service.md).
+This Acceptable Use Policy ("Policy") applies to use of Forma's website, hosted application, APIs, generated outputs, documentation, and related services (the "Service"). This Policy is part of the [Terms of Service](terms-of-service.md).
 
 ## 1. Safety-First Scope
 
-Blueprint is intended for low-voltage maker electronics, educational prototypes, and early design exploration. You may not use the Service to create or facilitate unsafe, illegal, abusive, or rights-violating activity.
+Forma is intended for low-voltage maker electronics, educational prototypes, and early design exploration. You may not use the Service to create or facilitate unsafe, illegal, abusive, or rights-violating activity.
 
 ## 2. Prohibited Hardware and Physical-World Uses
 

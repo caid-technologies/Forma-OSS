@@ -1,1 +1,1 @@
-"""Benchmark helpers for Blueprint core and provider integrations."""
+"""Benchmark helpers for Forma core and provider integrations."""

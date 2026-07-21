@@ -1,4 +1,4 @@
-"""Reusable Blueprint generation core.
+"""Reusable Forma generation core.
 
 Provider/runtime logic lives here so the API server, CLI, scripts, and future
 workers can share the same model selection behavior.
@@ -8,7 +8,7 @@ from blueprint_core._version import __version__
 from blueprint_core.selectors import LLMSelector, parse_llm_selector
 from blueprint_core.iteration import ProjectIterator, ProjectSelfCorrectionAgent, iterate_project
 from blueprint_core.project_objects import (
-    BlueprintProjectObject,
+    FormaProjectObject,
     ProjectAttributeItemMeta,
     ProjectAttributeItemObject,
     ProjectAttributeMeta,
@@ -148,7 +148,7 @@ from blueprint_core.user_integrations import (
 )
 
 __all__ = [
-    "BlueprintProjectObject",
+    "FormaProjectObject",
     "HuggingFaceArtifact",
     "HuggingFaceUploadConfig",
     "HuggingFaceUploadResult",

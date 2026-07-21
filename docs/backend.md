@@ -44,7 +44,7 @@ The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `bluepri
 Generation behavior is packaged under `blueprint_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `blueprint_core.generation` for high-level generation, `blueprint_core.models` for Hardware IR schemas, `blueprint_core.validation` for electrical checks, `blueprint_core.llm` for provider resolution and structured generation, `blueprint_core.images` for image providers and visual prompt construction, `blueprint_core.runtime` for deployment gating, and `blueprint_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
 
 ## A2A layer
-The A2A layer exposes Blueprint to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses `JOB_METADATA_BACKEND=auto`, storing in Supabase when the main app database is Supabase and otherwise falling back to SQLite at `JOB_METADATA_DB_PATH` (default `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite for job metadata. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
+The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses `JOB_METADATA_BACKEND=auto`, storing in Supabase when the main app database is Supabase and otherwise falling back to SQLite at `JOB_METADATA_DB_PATH` (default `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite for job metadata. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
 
 LLM configuration behavior:
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
@@ -64,7 +64,7 @@ LLM configuration behavior:
 - `OPENAI_REASONING_EFFORT`: optional reasoning effort for GPT-5/o-series models, for example `low`
 - `OPENAI_TEMPERATURE`: optional first-party OpenAI sampling temperature. Omitted by default so models that only support their default temperature can run
 - `OPENAI_PROJECT_ID` / `OPENAI_ORG_ID`: optional OpenAI project and organization routing headers
-- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`: optional Langfuse project keys. When both are set, Blueprint traces each generation request and structured LLM step.
+- `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY`: optional Langfuse project keys. When both are set, Forma traces each generation request and structured LLM step.
 - `LANGFUSE_BASE_URL`: optional Langfuse host, defaulting to `https://cloud.langfuse.com`.
 - `LANGFUSE_TRACING_ENVIRONMENT` / `LANGFUSE_TRACING_RELEASE`: optional trace attributes for environment and release filtering.
 - `LANGFUSE_MAX_FIELD_CHARS`: optional per-field payload cap for traced prompt/output previews, defaulting to `20000`.

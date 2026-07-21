@@ -2,12 +2,12 @@
 
 Publication note: This is a draft template. Replace bracketed placeholders and have counsel review before publishing.
 
-If Blueprint hosts user-generated content, counsel should confirm whether to register a DMCA designated agent with the U.S. Copyright Office and publish matching agent contact information.
+If Forma hosts user-generated content, counsel should confirm whether to register a DMCA designated agent with the U.S. Copyright Office and publish matching agent contact information.
 
 Last updated: July 8, 2026  
 Effective date: [EFFECTIVE DATE]
 
-Blueprint respects intellectual property rights and expects users to do the same.
+Forma respects intellectual property rights and expects users to do the same.
 
 ## 1. Copyright Complaints
 
@@ -36,7 +36,7 @@ We may forward notices and counter-notices to affected users and other parties.
 
 ## 3. Repeat Infringers
 
-Blueprint may suspend or terminate accounts of repeat infringers and may remove content that appears to infringe intellectual property rights.
+Forma may suspend or terminate accounts of repeat infringers and may remove content that appears to infringe intellectual property rights.
 
 ## 4. Misrepresentation
 

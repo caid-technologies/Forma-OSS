@@ -20,12 +20,12 @@ export const legalDocuments: LegalDocument[] = [
   {
     slug: "terms-of-service",
     title: "Terms of Service",
-    summary: "The terms that govern access to and use of Blueprint.",
+    summary: "The terms that govern access to and use of Forma.",
     sections: [
       {
         heading: "The Service",
         paragraphs: [
-          "Blueprint is an AI-assisted tool for generating low-voltage maker electronics project information, including structured hardware descriptions, parts lists, wiring notes, validation warnings, assembly notes, diagrams, and concept images.",
+          "Forma is an AI-assisted tool for generating low-voltage maker electronics project information, including structured hardware descriptions, parts lists, wiring notes, validation warnings, assembly notes, diagrams, and concept images.",
           "Generated content can be incomplete, inaccurate, unsafe, non-unique, or unsuitable for a particular purpose. You are responsible for independent review, testing, and professional validation before building, purchasing parts for, manufacturing, selling, or deploying any generated design.",
         ],
       },
@@ -39,19 +39,19 @@ export const legalDocuments: LegalDocument[] = [
         heading: "Accounts, Content, and Outputs",
         paragraphs: [
           "You are responsible for activity under your account and for keeping credentials, API keys, integration tokens, and devices secure.",
-          "You grant Blueprint permission to host, store, reproduce, process, transmit, display, and use prompts, uploads, project data, and related content as needed to provide, secure, improve, and support the Service.",
-          "As between you and Blueprint, you may use generated outputs for lawful purposes, subject to these terms and applicable third-party rights or provider terms.",
+          "You grant Forma permission to host, store, reproduce, process, transmit, display, and use prompts, uploads, project data, and related content as needed to provide, secure, improve, and support the Service.",
+          "As between you and Forma, you may use generated outputs for lawful purposes, subject to these terms and applicable third-party rights or provider terms.",
         ],
       },
       {
         heading: "Hardware Safety",
         paragraphs: [
-          "Blueprint is not a substitute for professional engineering review, certified electrical design, laboratory testing, safety certification, legal advice, medical advice, or product compliance work.",
+          "Forma is not a substitute for professional engineering review, certified electrical design, laboratory testing, safety certification, legal advice, medical advice, or product compliance work.",
         ],
         bullets: [
-          "Do not use Blueprint for mains AC, high-voltage, high-current, or unsafe battery systems without qualified professional oversight.",
-          "Do not use Blueprint for weapons, harmful devices, medical devices, automotive systems, aviation systems, industrial controls, public infrastructure, or other safety-critical systems.",
-          "Do not sell or deploy products based on Blueprint outputs without qualified engineering, regulatory, and safety review.",
+          "Do not use Forma for mains AC, high-voltage, high-current, or unsafe battery systems without qualified professional oversight.",
+          "Do not use Forma for weapons, harmful devices, medical devices, automotive systems, aviation systems, industrial controls, public infrastructure, or other safety-critical systems.",
+          "Do not sell or deploy products based on Forma outputs without qualified engineering, regulatory, and safety review.",
         ],
       },
       {
@@ -63,8 +63,8 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "Disclaimers and Liability",
         paragraphs: [
-          "The Service and outputs are provided as is and as available. To the maximum extent permitted by law, Blueprint disclaims warranties of merchantability, fitness for a particular purpose, title, non-infringement, accuracy, safety, availability, and quiet enjoyment.",
-          "To the maximum extent permitted by law, Blueprint will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, lost data, business interruption, personal injury, property damage, product liability, or cost of substitute services.",
+          "The Service and outputs are provided as is and as available. To the maximum extent permitted by law, Forma disclaims warranties of merchantability, fitness for a particular purpose, title, non-infringement, accuracy, safety, availability, and quiet enjoyment.",
+          "To the maximum extent permitted by law, Forma will not be liable for indirect, incidental, special, consequential, exemplary, or punitive damages, or for lost profits, lost data, business interruption, personal injury, property damage, product liability, or cost of substitute services.",
         ],
       },
       {
@@ -76,7 +76,7 @@ export const legalDocuments: LegalDocument[] = [
   {
     slug: "privacy-policy",
     title: "Privacy Policy",
-    summary: "How Blueprint collects, uses, shares, and protects information.",
+    summary: "How Forma collects, uses, shares, and protects information.",
     sections: [
       {
         heading: "Information We Collect",
@@ -96,7 +96,7 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "AI Providers",
         paragraphs: [
-          "Blueprint may send prompts, uploaded images, project content, and related metadata to AI model providers, image generation providers, hosting providers, or compatible infrastructure selected or configured for a generation request.",
+          "Forma may send prompts, uploaded images, project content, and related metadata to AI model providers, image generation providers, hosting providers, or compatible infrastructure selected or configured for a generation request.",
           "Provider data practices may vary. Review provider terms and privacy policies before using live model, image, storage, or infrastructure providers.",
         ],
       },
@@ -137,12 +137,12 @@ export const legalDocuments: LegalDocument[] = [
   {
     slug: "acceptable-use-policy",
     title: "Acceptable Use Policy",
-    summary: "Rules for safe, lawful, and respectful use of Blueprint.",
+    summary: "Rules for safe, lawful, and respectful use of Forma.",
     sections: [
       {
         heading: "Safety-First Scope",
         paragraphs: [
-          "Blueprint is intended for low-voltage maker electronics, educational prototypes, and early design exploration. You may not use the Service to create or facilitate unsafe, illegal, abusive, or rights-violating activity.",
+          "Forma is intended for low-voltage maker electronics, educational prototypes, and early design exploration. You may not use the Service to create or facilitate unsafe, illegal, abusive, or rights-violating activity.",
         ],
       },
       {
@@ -183,13 +183,13 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "Not Professional Engineering Advice",
         paragraphs: [
-          "Blueprint outputs are not professional electrical, mechanical, industrial, product safety, legal, regulatory, medical, or manufacturing advice. Generated designs, diagrams, BOMs, validation reports, and assembly notes may be wrong, incomplete, unsafe, outdated, or unsuitable for your intended use.",
+          "Forma outputs are not professional electrical, mechanical, industrial, product safety, legal, regulatory, medical, or manufacturing advice. Generated designs, diagrams, BOMs, validation reports, and assembly notes may be wrong, incomplete, unsafe, outdated, or unsuitable for your intended use.",
         ],
       },
       {
         heading: "Intended Scope",
         paragraphs: [
-          "Blueprint is intended for low-voltage maker electronics, typically 3.3V to 5V DC educational prototypes and hobby projects.",
+          "Forma is intended for low-voltage maker electronics, typically 3.3V to 5V DC educational prototypes and hobby projects.",
         ],
       },
       {
@@ -217,10 +217,10 @@ export const legalDocuments: LegalDocument[] = [
   {
     slug: "cookie-and-local-storage-notice",
     title: "Cookie and Local Storage Notice",
-    summary: "How Blueprint may use browser storage and similar technologies.",
+    summary: "How Forma may use browser storage and similar technologies.",
     sections: [
       {
-        heading: "How Blueprint Uses Storage",
+        heading: "How Forma Uses Storage",
         bullets: [
           "Keeping users signed in and supporting secure sessions.",
           "Remembering settings, preferences, selected project state, and UI state.",
@@ -268,7 +268,7 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "Repeat Infringers",
         paragraphs: [
-          "Blueprint may suspend or terminate accounts of repeat infringers and may remove content that appears to infringe intellectual property rights.",
+          "Forma may suspend or terminate accounts of repeat infringers and may remove content that appears to infringe intellectual property rights.",
         ],
       },
       {
@@ -289,10 +289,10 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "In Scope",
         bullets: [
-          "The public Blueprint web application.",
-          "Documented Blueprint APIs.",
+          "The public Forma web application.",
+          "Documented Forma APIs.",
           "Authentication, authorization, project access, and integration handling.",
-          "Public repository code maintained by Blueprint.",
+          "Public repository code maintained by Forma.",
         ],
       },
       {
@@ -308,7 +308,7 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "Safe Harbor",
         paragraphs: [
-          "If you act in good faith, follow this policy, avoid privacy violations and disruption, and report issues promptly, Blueprint will not pursue legal action against you for the research itself.",
+          "If you act in good faith, follow this policy, avoid privacy violations and disruption, and report issues promptly, Forma will not pursue legal action against you for the research itself.",
         ],
       },
     ],
@@ -316,12 +316,12 @@ export const legalDocuments: LegalDocument[] = [
   {
     slug: "accessibility-statement",
     title: "Accessibility Statement",
-    summary: "Blueprint's accessibility commitment and feedback path.",
+    summary: "Forma's accessibility commitment and feedback path.",
     sections: [
       {
         heading: "Commitment",
         paragraphs: [
-          "Blueprint is committed to making the Service accessible and usable for as many people as possible.",
+          "Forma is committed to making the Service accessible and usable for as many people as possible.",
           "Our goal is to substantially conform to the Web Content Accessibility Guidelines (WCAG) 2.2 Level AA where practical for the current product stage.",
         ],
       },

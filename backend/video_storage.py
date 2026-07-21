@@ -207,7 +207,7 @@ def _content_type_from_url(video_url: str) -> str:
 
 
 def _download_video(video_url: str) -> tuple[bytes, str]:
-    request = urllib.request.Request(video_url, headers={"User-Agent": "Blueprint-OSS/1.0"})
+    request = urllib.request.Request(video_url, headers={"User-Agent": "Forma-OSS/1.0"})
     with urllib.request.urlopen(request, timeout=180) as response:
         content = response.read()
         content_type = response.headers.get_content_type() or _content_type_from_url(video_url)

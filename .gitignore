@@ -22,6 +22,7 @@ __pycache__/
 .env
 .env.local
 .env.development.local
+.env.staging
 .env.test.local
 .env.production.local
 supabase/.temp/

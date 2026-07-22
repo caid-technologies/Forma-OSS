@@ -1300,12 +1300,14 @@ type ChatRouteTransition = {
   error?: string | null;
 };
 
-type AlphaGateConfig = {
-  gateActive: boolean;
-};
-
 type VideoGenerationConfig = {
   configured: boolean | null;
+  reason: string | null;
+};
+
+type ImageGenerationConfig = {
+  configured: boolean | null;
+  provider: string | null;
   reason: string | null;
 };
 
@@ -2100,9 +2102,6 @@ export function FormaWorkspace({
   const [serverStatus, setServerStatus] = useState<"connected" | "disconnected">("disconnected");
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
-  const [alphaGateConfig, setAlphaGateConfig] = useState<AlphaGateConfig>({
-    gateActive: false,
-  });
   const [videoGenerationConfig, setVideoGenerationConfig] = useState<VideoGenerationConfig>({
     configured: null,
     reason: null,
@@ -2111,22 +2110,21 @@ export function FormaWorkspace({
     configured: null,
     reason: null,
   });
+  const [imageGenerationConfig, setImageGenerationConfig] = useState<ImageGenerationConfig>({
+    configured: null,
+    provider: null,
+    reason: null,
+  });
+  const [imageGenerationConfigLoaded, setImageGenerationConfigLoaded] = useState(false);
   const [videoReviewStatus, setVideoReviewStatus] = useState("idle");
   const [videoReviewMessage, setVideoReviewMessage] = useState<string | null>(null);
-  const [alphaSignupForm, setAlphaSignupForm] = useState({
-    name: "",
-    email: "",
-    organization: "",
-    additionalInfo: "",
-  });
-  const [alphaSignupStatus, setAlphaSignupStatus] = useState<"idle" | "submitting" | "success" | "error">("idle");
-  const [alphaSignupMessage, setAlphaSignupMessage] = useState<string | null>(null);
   const [generateProductImage, setGenerateProductImage] = useState(false);
   const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
   const [agentPipelineSteps, setAgentPipelineSteps] = useState<AgentPipelineStep[]>(defaultAgentPipelineSteps);
-  const [generationLlms, setGenerationLlms] = useState<GenerationLlmOption[]>(defaultGenerationLlms);
-  const [generationLlmKeyValue, setGenerationLlmKeyValue] = useState(generationLlmKey(defaultGenerationLlms[0]));
+  const [generationLlms, setGenerationLlms] = useState<GenerationLlmOption[]>(() => authRequired ? [] : defaultGenerationLlms);
+  const [generationLlmKeyValue, setGenerationLlmKeyValue] = useState(() => authRequired ? "" : generationLlmKey(defaultGenerationLlms[0]));
+  const [generationLlmsLoaded, setGenerationLlmsLoaded] = useState(!authRequired);
   const [mechElectricalActive, setMechElectricalActive] = useState(true);
   const [mechToggles, setMechToggles] = useState({
     structural: true,
@@ -2144,6 +2142,7 @@ export function FormaWorkspace({
   const chatEndRef = useRef<HTMLDivElement>(null);
   const projectChatEndRef = useRef<HTMLDivElement>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
+  const generationLlmRequestIdRef = useRef(0);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
@@ -2199,10 +2198,7 @@ export function FormaWorkspace({
     () => validateGenerationInput(pendingHumanContext?.basePrompt || prompt, Boolean(selectedImage)),
     [pendingHumanContext, prompt, selectedImage]
   );
-  const visibleGenerationInputNotice =
-    generationInputNotice || ((prompt.trim() || pendingHumanContext) && !generationInputValidation.isValid ? generationInputValidation.message : null);
   const hasGenerationInput = Boolean(prompt.trim() || selectedImage || pendingHumanContext);
-  const alphaGateActive = alphaGateConfig.gateActive;
   const canViewJobs = isAdmin;
   const canViewAdminTools = showDeveloperTools || isAdmin;
   const selectedGenerationWorkflow = useMemo(
@@ -2223,6 +2219,15 @@ export function FormaWorkspace({
     [generationLlmKeyValue, generationLlms]
   );
   const generationLlmsReady = Boolean(selectedGenerationLlm);
+  const needsGenerationProvider = generationLlmsLoaded && !generationLlmsReady && (!authRequired || authLoaded);
+  const needsImageProvider = imageGenerationConfigLoaded && imageGenerationConfig.configured !== true && (!authRequired || authLoaded);
+  const visibleGenerationInputNotice =
+    generationInputNotice ||
+    (needsGenerationProvider
+      ? "No model provider is active. Add and enable one in Settings before building."
+      : (prompt.trim() || pendingHumanContext) && !generationInputValidation.isValid
+        ? generationInputValidation.message
+        : null);
   const appendChatMessage = (message: Omit<ChatMessage, "id" | "timestamp"> & { id?: string }) => {
     const nextMessage: ChatMessage = {
       id: message.id || newChatMessageId(),
@@ -2611,7 +2616,7 @@ export function FormaWorkspace({
 
   useEffect(() => {
     checkServerStatus();
-    fetchRuntimeConfig();
+    if (!authRequired) void fetchRuntimeConfig();
     fetchGenerationWorkflows();
     fetchVideoModels();
     fetchCatalog();
@@ -2623,7 +2628,21 @@ export function FormaWorkspace({
         ? [{ ...current[0], timestamp: chatTimestamp() }]
         : current
     ));
-	  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!authRequired || !authLoaded) return;
+    setGenerationLlmsLoaded(false);
+    setGenerationLlms([]);
+    setGenerationLlmKeyValue("");
+    setImageGenerationConfig({ configured: null, provider: null, reason: null });
+    setImageGenerationConfigLoaded(false);
+    void fetchRuntimeConfig();
+    // Reload BYOK providers once Clerk has resolved the current user. The
+    // initial production render cannot safely query user integrations yet.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoaded, authRequired, isSignedIn]);
 
   useEffect(() => {
     if (!authRequired) return;
@@ -2685,6 +2704,8 @@ export function FormaWorkspace({
   };
 
   const fetchRuntimeConfig = async () => {
+    const requestId = ++generationLlmRequestIdRef.current;
+    const requestIsCurrent = () => generationLlmRequestIdRef.current === requestId;
     try {
       const applyActiveUserLlms = async () => {
         try {
@@ -2694,6 +2715,7 @@ export function FormaWorkspace({
           });
           if (!integrationsResponse.ok) return false;
           const integrationsPayload = (await integrationsResponse.json()) as IntegrationsPayload;
+          if (!requestIsCurrent()) return false;
           const activeLlms = activeLlmsFromIntegrations(integrationsPayload, defaultGenerationLlms, generationLlmLabel);
           if (activeLlms.length > 0) {
             setGenerationLlms(activeLlms);
@@ -2709,16 +2731,14 @@ export function FormaWorkspace({
         }
       };
       const appliedActiveUserLlms = await applyActiveUserLlms();
+      if (!requestIsCurrent()) return;
       const res = await fetch(`${API_URL}/debug/config`, {
         headers: await optionalAuthHeaders(),
       });
       if (!res.ok) return;
 
       const config = await res.json();
-      const deployment = config.deployment || {};
-      setAlphaGateConfig({
-        gateActive: Boolean(deployment.alpha_generation_gate_active),
-      });
+      if (!requestIsCurrent()) return;
       if (config.video_generation) {
         setVideoGenerationConfig({
           configured: Boolean(config.video_generation.configured),
@@ -2730,6 +2750,20 @@ export function FormaWorkspace({
           configured: Boolean(config.video_self_correction.configured),
           reason: typeof config.video_self_correction.reason === "string" ? config.video_self_correction.reason : null,
         });
+      }
+      if (config.image_output) {
+        const imageOutput = config.image_output;
+        const imageProviderConfigured = Boolean(imageOutput.request_capable ?? imageOutput.configured);
+        setImageGenerationConfig({
+          configured: imageProviderConfigured,
+          provider: typeof imageOutput.request_provider === "string"
+            ? imageOutput.request_provider
+            : typeof imageOutput.provider === "string"
+              ? imageOutput.provider
+              : null,
+          reason: typeof imageOutput.reason === "string" ? imageOutput.reason : null,
+        });
+        if (!imageProviderConfigured) setGenerateProductImage(false);
       }
       if (Array.isArray(config.workflows) && config.workflows.length > 0) {
         setGenerationWorkflows(config.workflows);
@@ -2760,9 +2794,17 @@ export function FormaWorkspace({
       if (nextLlms.length > 0) {
         setGenerationLlms(nextLlms);
         setGenerationLlmKeyValue((current) => (nextLlms.some((option) => generationLlmKey(option) === current) ? current : generationLlmKey(nextLlms[0])));
+      } else {
+        setGenerationLlms([]);
+        setGenerationLlmKeyValue("");
       }
     } catch (e) {
-      console.error("Error fetching runtime config", e);
+      if (requestIsCurrent()) console.error("Error fetching runtime config", e);
+    } finally {
+      if (requestIsCurrent()) {
+        setGenerationLlmsLoaded(true);
+        setImageGenerationConfigLoaded(true);
+      }
     }
   };
 
@@ -3976,9 +4018,6 @@ export function FormaWorkspace({
           return;
         }
         if (res.status === 503) {
-          if (apiError.code === "alpha_generation_unavailable") {
-            setAlphaGateConfig({ gateActive: true });
-          }
           setGenerationInputNotice(displayErrorMessage);
           updateChatMessage(assistantMessageId, {
             content: displayErrorMessage,
@@ -4046,11 +4085,6 @@ export function FormaWorkspace({
       fetchA2aJobs(jobStatusFilter, { silent: true });
       generatedProject = true;
     } catch (error) {
-      if (alphaGateActive) {
-        setAlphaSignupMessage("Generation is not available in this alpha deployment yet. Leave your information and we will follow up when it opens.");
-        return;
-      }
-
       console.warn("Using local simulation fallback", error);
       try {
         const mockRes = await runMockCompilation(promptText, imageData);
@@ -4205,9 +4239,6 @@ export function FormaWorkspace({
         if (apiError.debug) {
           console.error("Forma API debug trace", apiError);
         }
-        if (res.status === 503 && apiError.code === "alpha_generation_unavailable") {
-          setAlphaGateConfig({ gateActive: true });
-        }
         throw new Error(compactDiagnosticText(apiError.message) || apiError.message);
       }
 
@@ -4262,41 +4293,6 @@ export function FormaWorkspace({
     } finally {
       if (progressPollId !== null) window.clearInterval(progressPollId);
       setIsLoading(false);
-    }
-  };
-
-  const handleAlphaSignup = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setAlphaSignupStatus("submitting");
-    setAlphaSignupMessage(null);
-
-    try {
-      const res = await fetch(`${API_URL}/alpha-signups`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: alphaSignupForm.name,
-          email: alphaSignupForm.email,
-          organization: alphaSignupForm.organization || null,
-          additional_info: alphaSignupForm.additionalInfo || null,
-        }),
-      });
-
-      if (!res.ok) throw new Error(await readApiErrorMessage(res));
-
-      const data = await res.json();
-      setAlphaSignupStatus("success");
-      setAlphaSignupMessage(data.message || "Thanks. We will follow up when generation opens.");
-      setAlphaSignupForm({
-        name: "",
-        email: "",
-        organization: "",
-        additionalInfo: "",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Signup failed. Please try again.";
-      setAlphaSignupStatus("error");
-      setAlphaSignupMessage(message);
     }
   };
 
@@ -5214,7 +5210,7 @@ export function FormaWorkspace({
             <>
             <section
               className={`${
-                !activeSidebarChatStarted && !alphaGateActive
+                !activeSidebarChatStarted
                   ? "fixed bottom-[276px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none"
                   : "w-full max-w-none"
               } flex min-h-0 flex-1 flex-col text-center`}
@@ -5230,85 +5226,7 @@ export function FormaWorkspace({
               </div>
             )}
 
-            {alphaGateActive ? (
-              <div className="mt-8 grid gap-3 text-left md:grid-cols-[0.95fr_1.05fr]">
-                <div className="border border-[#2c2f37] bg-[#17181d] p-5 shadow-2xl shadow-black/30">
-                  <div className="inline-flex items-center gap-2 border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-xs font-black uppercase text-cyan-200">
-                    <Sparkles className="h-4 w-4" />
-                    Alpha
-                  </div>
-                  <h2 className="mt-5 text-2xl font-semibold leading-tight text-white">Generation is opening soon.</h2>
-                  <p className="mt-4 text-sm leading-6 text-slate-400">
-                    We are currently in alpha right now. Please view our generated projects below. To learn more about this project and when generation will be available, leave your information.
-                  </p>
-                  <div className="mt-5 border-t border-[#2c2f37] pt-4 text-xs leading-5 text-slate-500">
-                    Live generation is paused for this deployment while the model backend is being configured.
-                  </div>
-                </div>
-
-                <form onSubmit={handleAlphaSignup} className="border border-[#2c2f37] bg-[#17181d] p-5 shadow-2xl shadow-black/30">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-xs font-semibold uppercase text-slate-500">
-                      Name
-                      <input
-                        required
-                        value={alphaSignupForm.name}
-                        onChange={(event) => setAlphaSignupForm((form) => ({ ...form, name: event.target.value }))}
-                        className="mt-2 h-11 w-full border border-[#2c2f37] bg-black px-3 text-sm normal-case text-white outline-none focus:border-cyan-300"
-                      />
-                    </label>
-                    <label className="block text-xs font-semibold uppercase text-slate-500">
-                      Email
-                      <input
-                        required
-                        type="email"
-                        value={alphaSignupForm.email}
-                        onChange={(event) => setAlphaSignupForm((form) => ({ ...form, email: event.target.value }))}
-                        className="mt-2 h-11 w-full border border-[#2c2f37] bg-black px-3 text-sm normal-case text-white outline-none focus:border-cyan-300"
-                      />
-                    </label>
-                  </div>
-                  <label className="mt-3 block text-xs font-semibold uppercase text-slate-500">
-                    Organization
-                    <input
-                      value={alphaSignupForm.organization}
-                      onChange={(event) => setAlphaSignupForm((form) => ({ ...form, organization: event.target.value }))}
-                      className="mt-2 h-11 w-full border border-[#2c2f37] bg-black px-3 text-sm normal-case text-white outline-none focus:border-cyan-300"
-                    />
-                  </label>
-                  <label className="mt-3 block text-xs font-semibold uppercase text-slate-500">
-                    Additional info
-                    <textarea
-                      value={alphaSignupForm.additionalInfo}
-                      onChange={(event) => setAlphaSignupForm((form) => ({ ...form, additionalInfo: event.target.value }))}
-                      className="mt-2 min-h-[96px] w-full resize-none border border-[#2c2f37] bg-black px-3 py-3 text-sm normal-case leading-6 text-white outline-none focus:border-cyan-300"
-                    />
-                  </label>
-                  <button
-                    type="submit"
-                    disabled={alphaSignupStatus === "submitting"}
-                    className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 bg-white px-4 text-sm font-semibold text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {alphaSignupStatus === "submitting" ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                    Join alpha updates
-                  </button>
-                  {alphaSignupMessage && (
-                    <div
-                      role="status"
-                      className={`mt-3 flex items-start gap-2 border px-3 py-2 text-xs leading-5 ${
-                        alphaSignupStatus === "success"
-                          ? "border-emerald-300/30 bg-emerald-300/10 text-emerald-100"
-                          : "border-amber-300/30 bg-amber-300/10 text-amber-100"
-                      }`}
-                    >
-                      {alphaSignupStatus === "success" ? <CheckCircle className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />}
-                      <span>{alphaSignupMessage}</span>
-                    </div>
-                  )}
-                </form>
-              </div>
-            ) : (
-              <div className={`${activeSidebarChatStarted ? "mt-0" : "mt-4 sm:mt-5"} flex min-h-0 flex-1 flex-col overflow-hidden border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
+            <div className={`${activeSidebarChatStarted ? "mt-0" : "mt-4 sm:mt-5"} flex min-h-0 flex-1 flex-col overflow-hidden border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
                 {activeSidebarChatStarted && (
                   <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
                     {chatMessages.map((message) => {
@@ -5445,6 +5363,51 @@ export function FormaWorkspace({
                     </div>
                   )}
 
+                  {(needsGenerationProvider || needsImageProvider) && (
+                    <section className="mb-3 border border-cyan-300/30 bg-cyan-300/5 p-3 text-left sm:p-4" aria-label="Bring your own key setup">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-100">
+                            <KeyRound className="h-4 w-4 text-cyan-300" />
+                            Bring your own key (BYOK)
+                          </div>
+                          <p className="mt-1 text-xs leading-5 text-slate-400">
+                            Provider credentials are configured per account and are not taken from the public frontend environment.
+                          </p>
+                        </div>
+                        <Link
+                          href="/settings"
+                          className="inline-flex h-9 shrink-0 items-center gap-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-slate-200"
+                        >
+                          <Settings className="h-3.5 w-3.5" />
+                          Open Settings
+                        </Link>
+                      </div>
+                      <div className={`mt-3 grid gap-2 ${needsGenerationProvider && needsImageProvider ? "md:grid-cols-2" : ""}`}>
+                        {needsGenerationProvider && (
+                          <div className="border border-[#2c2f37] bg-[#111216] p-3">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-white">LLM provider required</div>
+                            <ol className="mt-2 space-y-1 text-xs leading-5 text-slate-400">
+                              <li>1. Open Settings and choose a model provider.</li>
+                              <li>2. Enter its scoped API key and model.</li>
+                              <li>3. Turn Enabled on, save, then return here.</li>
+                            </ol>
+                          </div>
+                        )}
+                        {needsImageProvider && (
+                          <div className="border border-[#2c2f37] bg-[#111216] p-3">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-white">Image provider required</div>
+                            <ol className="mt-2 space-y-1 text-xs leading-5 text-slate-400">
+                              <li>1. Open Settings and select Image Generation.</li>
+                              <li>2. Choose a provider and add its scoped key, model, and required confirmation.</li>
+                              <li>3. Enable and save it before turning Images on.</li>
+                            </ol>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+                  )}
+
                   {selectedImage && (
                     <div className="mb-3 flex items-center gap-3 border border-[#2c2f37] bg-black/30 p-2">
                       <img src={selectedImage} alt="Attached reference" className="h-16 w-24 object-cover" />
@@ -5465,7 +5428,7 @@ export function FormaWorkspace({
                       className="mb-3 flex items-start gap-2 border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100"
                     >
                       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                      <span className="break-anywhere min-w-0">{visibleGenerationInputNotice}</span>
+                      <span className="break-anywhere min-w-0 flex-1">{visibleGenerationInputNotice}</span>
                     </div>
                   )}
 
@@ -5547,15 +5510,25 @@ export function FormaWorkspace({
                               </option>
                             ))
                           ) : (
-                            <option value="" className="bg-[#17181d] text-white">No active models</option>
+                            <option value="" className="bg-[#17181d] text-white">
+                              {generationLlmsLoaded ? "No active models" : "Loading models..."}
+                            </option>
                           )}
                         </select>
                       </label>
-                      <label className="col-span-2 inline-flex h-10 cursor-pointer items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white sm:col-span-1 sm:justify-start">
+                      <label
+                        className={`col-span-2 inline-flex h-10 items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase sm:col-span-1 sm:justify-start ${
+                          imageGenerationConfigLoaded && !needsImageProvider
+                            ? "cursor-pointer text-slate-400 hover:border-slate-500 hover:text-white"
+                            : "cursor-not-allowed text-slate-600"
+                        }`}
+                        title={needsImageProvider ? "Configure an image provider in Settings first" : "Generate product images"}
+                      >
                         <input
                           type="checkbox"
                           checked={generateProductImage}
                           onChange={(event) => setGenerateProductImage(event.target.checked)}
+                          disabled={isLoading || !imageGenerationConfigLoaded || needsImageProvider}
                           className="peer sr-only"
                         />
                         <Sparkles className={`h-4 w-4 ${generateProductImage ? "text-cyan-300" : "text-slate-500"}`} />
@@ -5569,8 +5542,7 @@ export function FormaWorkspace({
                 </form>
                 {activeSidebarChatStarted && <div className="h-[276px] shrink-0 md:hidden" aria-hidden="true" />}
 
-              </div>
-            )}
+            </div>
           </section>
             </>
           )}

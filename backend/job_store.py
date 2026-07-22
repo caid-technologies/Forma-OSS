@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 from dotenv import load_dotenv
 
 from blueprint_core.job_source_usage import infer_source_usage
+from blueprint_core.pipeline import PipelineCancelledError
 from blueprint_core.runtime import blueprint_dev_mode_enabled
 
 load_dotenv()
@@ -17,6 +18,13 @@ load_dotenv()
 DEFAULT_JOB_DB_PATH = "./blueprint_jobs.db"
 OPTIONAL_SUPABASE_COLUMNS = {"source_usage_json", "error_debug_json", "progress_events_json"}
 logger = logging.getLogger(__name__)
+
+
+class JobCancelledError(PipelineCancelledError):
+    """Raised inside a worker when its persisted job was cancelled."""
+
+
+TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled", "canceled"}
 
 
 def _utc_now() -> str:
@@ -354,6 +362,8 @@ class JobMetadataStore:
 
         if self.backend == "supabase":
             current = self.get_job(job_id) or {}
+            if str(current.get("status") or "").lower() in {"cancelled", "canceled"}:
+                raise JobCancelledError(f"Job {job_id} was cancelled.")
             events = list(current.get("progress_events") or [])
             events.append(event_payload)
             self._execute_supabase_mutation(
@@ -366,9 +376,11 @@ class JobMetadataStore:
             return
 
         with self._locked_connection() as conn:
-            row = conn.execute("SELECT progress_events_json FROM a2a_jobs WHERE job_id = ?", (job_id,)).fetchone()
+            row = conn.execute("SELECT status, progress_events_json FROM a2a_jobs WHERE job_id = ?", (job_id,)).fetchone()
             if row is None:
                 return
+            if str(row["status"] or "").lower() in {"cancelled", "canceled"}:
+                raise JobCancelledError(f"Job {job_id} was cancelled.")
             events = _json_loads(row["progress_events_json"]) or []
             if not isinstance(events, list):
                 events = []
@@ -387,13 +399,16 @@ class JobMetadataStore:
         now = _utc_now()
         if self.backend == "supabase":
             current = self.get_job(job_id) or {}
+            current_status = str(current.get("status") or "").lower()
+            if current_status in TERMINAL_JOB_STATUSES:
+                return
             self._client.table("a2a_jobs").update(
                 {
                     "status": "running",
                     "started_at": current.get("started_at") or now,
                     "updated_at": now,
                 }
-            ).eq("job_id", job_id).execute()
+            ).eq("job_id", job_id).eq("status", current_status).execute()
             return
 
         with self._locked_connection() as conn:
@@ -401,7 +416,7 @@ class JobMetadataStore:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, started_at = COALESCE(started_at, ?), updated_at = ?
-                WHERE job_id = ?
+                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')
                 """,
                 ("running", now, now, job_id),
             )
@@ -414,6 +429,8 @@ class JobMetadataStore:
         now = _utc_now()
         result_summary = summarize_result(result)
         current = self.get_job(job_id) or {}
+        if str(current.get("status") or "").lower() in {"cancelled", "canceled"}:
+            return
         source_usage = infer_source_usage(
             action=current.get("action"),
             payload=current.get("payload"),
@@ -423,7 +440,7 @@ class JobMetadataStore:
         )
         if self.backend == "supabase":
             self._execute_supabase_mutation(
-                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id),
+                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id).eq("status", str(current.get("status") or "")),
                 {
                     "status": "succeeded",
                     "completed_at": now,
@@ -441,7 +458,7 @@ class JobMetadataStore:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, completed_at = ?, updated_at = ?, result_summary_json = ?, source_usage_json = ?, error_debug_json = NULL, error = NULL
-                WHERE job_id = ?
+                WHERE job_id = ? AND status NOT IN ('cancelled', 'canceled')
                 """,
                 ("succeeded", now, now, _json_dumps(result_summary), _json_dumps(source_usage), job_id),
             )
@@ -450,8 +467,11 @@ class JobMetadataStore:
         self.init_db()
         now = _utc_now()
         if self.backend == "supabase":
+            current = self.get_job(job_id) or {}
+            if str(current.get("status") or "").lower() in {"cancelled", "canceled"}:
+                return
             self._execute_supabase_mutation(
-                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id),
+                lambda values: self._client.table("a2a_jobs").update(values).eq("job_id", job_id).eq("status", str(current.get("status") or "")),
                 {
                     "status": "failed",
                     "completed_at": now,
@@ -467,10 +487,44 @@ class JobMetadataStore:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, completed_at = ?, updated_at = ?, error = ?, error_debug_json = ?
-                WHERE job_id = ?
+                WHERE job_id = ? AND status NOT IN ('cancelled', 'canceled')
                 """,
                 ("failed", now, now, error, _json_dumps(error_debug) if error_debug else None, job_id),
             )
+
+    def mark_cancelled(self, job_id: str, reason: str = "Cancelled by user.") -> Optional[Dict[str, Any]]:
+        """Cancel a queued or running job without overwriting completed jobs."""
+        self.init_db()
+        now = _utc_now()
+        if self.backend == "supabase":
+            current = self.get_job(job_id)
+            current_status = str((current or {}).get("status") or "").lower()
+            if not current or current_status in TERMINAL_JOB_STATUSES:
+                return current
+            self._client.table("a2a_jobs").update(
+                {
+                    "status": "cancelled",
+                    "completed_at": now,
+                    "updated_at": now,
+                    "error": reason,
+                }
+            ).eq("job_id", job_id).eq("status", current_status).execute()
+            return self.get_job(job_id)
+
+        with self._locked_connection() as conn:
+            conn.execute(
+                """
+                UPDATE a2a_jobs
+                SET status = ?, completed_at = ?, updated_at = ?, error = ?
+                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')
+                """,
+                ("cancelled", now, now, reason, job_id),
+            )
+        return self.get_job(job_id)
+
+    def is_cancelled(self, job_id: str) -> bool:
+        job = self.get_job(job_id)
+        return str((job or {}).get("status") or "").lower() in {"cancelled", "canceled"}
 
     def get_job(self, job_id: str) -> Optional[Dict[str, Any]]:
         self.init_db()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-from backend.job_store import JobMetadataStore
+from backend.job_store import JobCancelledError, JobMetadataStore
 from blueprint_core.models import GenerateProjectRequest
 
 
@@ -45,6 +45,41 @@ class JobProgressTests(unittest.TestCase):
         request = GenerateProjectRequest(prompt="blink", client_job_id="job_frontend_abc-123")
 
         self.assertEqual("job_frontend_abc-123", request.client_job_id)
+
+    def test_cancelled_job_stays_cancelled_and_stops_progress(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".db") as file:
+            store = JobMetadataStore(file.name, backend="sqlite")
+            store.create_job(
+                job_id="job_frontend_cancelled",
+                message_id="msg_frontend_cancelled",
+                correlation_id=None,
+                action="blueprint.generate_project",
+                sender="frontend",
+                recipient="blueprint",
+                payload={"prompt": "blink an LED", "workflow": "default"},
+                server_owned=True,
+            )
+            store.mark_running("job_frontend_cancelled")
+            cancelled = store.mark_cancelled("job_frontend_cancelled")
+
+            self.assertIsNotNone(cancelled)
+            assert cancelled is not None
+            self.assertEqual("cancelled", cancelled["status"])
+            self.assertIsNotNone(cancelled["completed_at"])
+            with self.assertRaises(JobCancelledError):
+                store.append_progress_event(
+                    "job_frontend_cancelled",
+                    {"workflow": "default", "step_id": "intent_parser", "status": "completed"},
+                )
+
+            store.mark_succeeded("job_frontend_cancelled", {"project_ir": {}})
+            store.mark_failed("job_frontend_cancelled", "late failure")
+            final_job = store.get_job("job_frontend_cancelled")
+
+        self.assertIsNotNone(final_job)
+        assert final_job is not None
+        self.assertEqual("cancelled", final_job["status"])
+        self.assertEqual("Cancelled by user.", final_job["error"])
 
     def test_generate_request_accepts_external_source_provider(self) -> None:
         request = GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="Firecrawl")

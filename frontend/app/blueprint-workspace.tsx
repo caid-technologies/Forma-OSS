@@ -65,6 +65,7 @@ import {
   Wifi,
   WifiOff,
   ChevronDown,
+  Square,
 } from "lucide-react";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
@@ -136,11 +137,22 @@ type ChatMessage = {
   id: string;
   role: "assistant" | "user" | "system";
   content: string;
-  status?: "idle" | "loading" | "success" | "error";
+  status?: "idle" | "loading" | "success" | "error" | "cancelled";
   timestamp: string;
   projectId?: string | null;
   pipelineProgress?: AgentPipelineProgress | null;
 };
+
+type ActiveGenerationRun = {
+  kind: "chat" | "project-chat";
+  controller: AbortController;
+  jobId: string | null;
+  chatId: string;
+  assistantMessageId: string | null;
+  cancelled: boolean;
+};
+
+type ActiveGenerationState = Pick<ActiveGenerationRun, "kind" | "jobId">;
 
 type HumanContextQuestion = {
   id: string;
@@ -363,7 +375,7 @@ function initialChatMessages(timestamp: string = INITIAL_CHAT_TIMESTAMP): ChatMe
 }
 
 function validChatStatus(value: any): ChatMessage["status"] {
-  return ["idle", "loading", "success", "error"].includes(value) ? value : "idle";
+  return ["idle", "loading", "success", "error", "cancelled"].includes(value) ? value : "idle";
 }
 
 function validChatRole(value: any): ChatMessage["role"] {
@@ -625,6 +637,12 @@ function jobFailureMessage(job: A2AJob) {
 
 function terminalJobMessagePatch(job: A2AJob, message: ChatMessage): Partial<Omit<ChatMessage, "id">> | null {
   if (message.status !== "loading") return null;
+  if (["cancelled", "canceled"].includes(String(job.status || "").toLowerCase())) {
+    return {
+      content: "Generation stopped by you.",
+      status: "cancelled",
+    };
+  }
   if (job.status === "failed") {
     return {
       content: generationFailureChatMessage(jobFailureMessage(job), true),
@@ -1126,11 +1144,12 @@ function normalizeHumanContextQuestions(value: any): HumanContextQuestion[] {
     .filter((question: HumanContextQuestion | null): question is HumanContextQuestion => Boolean(question));
 }
 
-async function requestHumanContextQuestions(promptText: string, workflow: string, hasImage: boolean) {
+async function requestHumanContextQuestions(promptText: string, workflow: string, hasImage: boolean, signal?: AbortSignal) {
   try {
     const res = await fetch(`${API_URL}/clarifying-questions`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      signal,
       body: JSON.stringify({
         prompt: promptText,
         workflow,
@@ -1148,6 +1167,7 @@ async function requestHumanContextQuestions(promptText: string, workflow: string
       questions,
     };
   } catch (error) {
+    if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
     console.warn("Context Clarifier Agent unavailable; using local fallback questions.", error);
     const questions = humanContextQuestionsForPrompt(promptText);
     return {
@@ -2060,6 +2080,7 @@ export function FormaWorkspace({
   const [projectChatInput, setProjectChatInput] = useState("");
   const [projectChatVisible, setProjectChatVisible] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
   const [projectIR, setProjectIR] = useState<any>(null);
   const [mermaidCode, setMermaidCode] = useState<string>("");
@@ -2157,6 +2178,7 @@ export function FormaWorkspace({
   const projectChatEndRef = useRef<HTMLDivElement>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
   const generationLlmRequestIdRef = useRef(0);
+  const activeGenerationRef = useRef<ActiveGenerationRun | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
@@ -3827,8 +3849,76 @@ export function FormaWorkspace({
     setEdges(newEdges);
   };
 
+  const beginGenerationRun = (kind: ActiveGenerationRun["kind"], chatId: string): ActiveGenerationRun => {
+    const run: ActiveGenerationRun = {
+      kind,
+      controller: new AbortController(),
+      jobId: null,
+      chatId,
+      assistantMessageId: null,
+      cancelled: false,
+    };
+    activeGenerationRef.current = run;
+    setActiveGeneration({ kind, jobId: null });
+    setIsLoading(true);
+    return run;
+  };
+
+  const setGenerationRunJob = (run: ActiveGenerationRun, jobId: string, assistantMessageId: string) => {
+    run.jobId = jobId;
+    run.assistantMessageId = assistantMessageId;
+    if (activeGenerationRef.current === run) {
+      setActiveGeneration({ kind: run.kind, jobId });
+    }
+  };
+
+  const finishGenerationRun = (run: ActiveGenerationRun) => {
+    if (activeGenerationRef.current !== run) return;
+    activeGenerationRef.current = null;
+    setActiveGeneration(null);
+    setIsLoading(false);
+  };
+
+  const cancelGenerationJob = async (jobId: string) => {
+    // The stop click can win the race with the server creating the job, so retry
+    // a short-lived 404 before giving up.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        const res = await fetch(`${API_URL}/a2a/jobs/${encodeURIComponent(jobId)}/cancel`, {
+          method: "POST",
+          headers: await generationRequestHeaders(),
+        });
+        if (res.ok || res.status !== 404) return;
+      } catch (error) {
+        console.warn("Could not notify the backend that generation was stopped.", error);
+        return;
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+  };
+
+  const stopActiveGeneration = () => {
+    const run = activeGenerationRef.current;
+    if (!run) return;
+
+    run.cancelled = true;
+    run.controller.abort();
+    if (run.assistantMessageId) {
+      const patch: Partial<Omit<ChatMessage, "id">> = {
+        content: "Generation stopped by you.",
+        status: "cancelled",
+      };
+      if (run.kind === "chat") updateChatMessage(run.assistantMessageId, patch);
+      updateThreadMessage(run.chatId, run.assistantMessageId, patch);
+    }
+    setGenerationInputNotice("Generation stopped. You can send another message whenever you're ready.");
+    if (run.jobId) void cancelGenerationJob(run.jobId);
+    finishGenerationRun(run);
+  };
+
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!selectedGenerationLlm) {
       setGenerationInputNotice("Turn on at least one model provider in Settings before building.");
@@ -3854,12 +3944,18 @@ export function FormaWorkspace({
       : validationSubject.trim() || "Infer a buildable hardware project from the uploaded reference image.";
     const imageData = selectedImage;
     const requestChatId = activeChatId || newBuildChatId();
+    const generationRun = beginGenerationRun("chat", requestChatId);
 
     if (!contextCheckpoint) {
-      setIsLoading(true);
       setGenerationInputNotice(null);
       try {
-        const clarification = await requestHumanContextQuestions(validationSubject.trim(), generationWorkflow, Boolean(imageData));
+        const clarification = await requestHumanContextQuestions(
+          validationSubject.trim(),
+          generationWorkflow,
+          Boolean(imageData),
+          generationRun.controller.signal
+        );
+        if (generationRun.cancelled) return;
         if (clarification.shouldAsk) {
           const answers = Object.fromEntries(clarification.questions.map((question) => [question.id, ""]));
           setActiveChatId(requestChatId);
@@ -3906,12 +4002,17 @@ export function FormaWorkspace({
           });
           setPrompt("");
           setGenerationInputNotice(clarification.reason || "Answer the context questions, then build.");
+          finishGenerationRun(generationRun);
           return;
         }
-      } finally {
-        setIsLoading(false);
+      } catch (error) {
+        if (generationRun.cancelled || (error instanceof Error && error.name === "AbortError")) return;
+        finishGenerationRun(generationRun);
+        throw error;
       }
     }
+
+    if (generationRun.cancelled) return;
 
     const finalContextNotes = contextCheckpoint ? prompt.trim() : "";
     const promptText = contextCheckpoint
@@ -3972,11 +4073,11 @@ export function FormaWorkspace({
       status: "loading",
       pipelineProgress,
     });
+    setGenerationRunJob(generationRun, frontendJobId, assistantMessageId);
 
     setGenerationInputNotice(null);
     setPendingHumanContext(null);
     setPrompt("");
-    setIsLoading(true);
     checkServerStatus();
     progressPollId = window.setInterval(() => {
       void syncProgressFromJob();
@@ -3987,6 +4088,7 @@ export function FormaWorkspace({
       const res = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: await generationRequestHeaders(),
+        signal: generationRun.controller.signal,
         body: JSON.stringify({
           prompt: promptText,
           workflow: generationWorkflow,
@@ -4099,6 +4201,17 @@ export function FormaWorkspace({
       fetchA2aJobs(jobStatusFilter, { silent: true });
       generatedProject = true;
     } catch (error) {
+      if (generationRun.cancelled || (error instanceof Error && error.name === "AbortError")) {
+        updateChatMessage(assistantMessageId, {
+          content: "Generation stopped by you.",
+          status: "cancelled",
+        });
+        updateThreadMessage(requestChatId, assistantMessageId, {
+          content: "Generation stopped by you.",
+          status: "cancelled",
+        });
+        return;
+      }
       console.warn("Using local simulation fallback", error);
       try {
         const mockRes = await runMockCompilation(promptText, imageData);
@@ -4170,12 +4283,13 @@ export function FormaWorkspace({
       if (generatedProjectId) {
         refreshProjectAndChatLists();
       }
-      setIsLoading(false);
+      finishGenerationRun(generationRun);
     }
   };
 
   const handleProjectChatGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!currentProjectCanChat) {
       setGenerationInputNotice("You can only chat with projects you own.");
@@ -4190,6 +4304,7 @@ export function FormaWorkspace({
     const sourceProjectTitle = projectTitle;
     const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
     const promptText = projectChatGenerationPrompt(projectIR, userMessage, activeTab);
+    const generationRun = beginGenerationRun("project-chat", sourceChatId);
     setActiveChatId(sourceChatId);
     rememberChatItem({
       chatId: sourceChatId,
@@ -4214,6 +4329,7 @@ export function FormaWorkspace({
       status: "loading",
       pipelineProgress,
     });
+    setGenerationRunJob(generationRun, frontendJobId, assistantMessageId);
     let progressPollId: number | null = null;
     const syncProgressFromJob = async () => {
       const job = await fetchA2aJob(frontendJobId);
@@ -4223,7 +4339,6 @@ export function FormaWorkspace({
 
     setProjectChatInput("");
     setGenerationInputNotice(null);
-    setIsLoading(true);
     checkServerStatus();
     progressPollId = window.setInterval(() => {
       void syncProgressFromJob();
@@ -4234,6 +4349,7 @@ export function FormaWorkspace({
       const res = await fetch(`${API_URL}/generate`, {
         method: "POST",
         headers: await generationRequestHeaders(),
+        signal: generationRun.controller.signal,
         body: JSON.stringify({
           prompt: promptText,
           workflow: generationWorkflow,
@@ -4299,6 +4415,13 @@ export function FormaWorkspace({
       refreshProjectAndChatLists();
       fetchA2aJobs(jobStatusFilter, { silent: true });
     } catch (error) {
+      if (generationRun.cancelled || (error instanceof Error && error.name === "AbortError")) {
+        updateThreadMessage(sourceChatId, assistantMessageId, {
+          content: "Generation stopped by you.",
+          status: "cancelled",
+        });
+        return;
+      }
       const message = error instanceof Error ? error.message : "Project chat generation failed.";
       updateThreadMessage(sourceChatId, assistantMessageId, {
         content: message,
@@ -4306,7 +4429,7 @@ export function FormaWorkspace({
       });
     } finally {
       if (progressPollId !== null) window.clearInterval(progressPollId);
-      setIsLoading(false);
+      finishGenerationRun(generationRun);
     }
   };
 
@@ -5280,6 +5403,8 @@ export function FormaWorkspace({
                           ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
                           : message.status === "success"
                             ? "border-emerald-400/35 bg-emerald-950/25 text-emerald-50"
+                            : message.status === "cancelled"
+                              ? "border-amber-300/35 bg-amber-950/20 text-amber-50"
                             : isUser
                               ? "border-cyan-300/45 bg-cyan-300/10 text-white"
                               : "border-[#30333d] bg-[#17181d] text-slate-100";
@@ -5293,6 +5418,8 @@ export function FormaWorkspace({
                                 <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
                               ) : message.status === "error" ? (
                                 <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
+                              ) : message.status === "cancelled" ? (
+                                <Square className="h-3.5 w-3.5 fill-current text-amber-300" />
                               ) : isUser ? (
                                 <ArrowRight className="h-3.5 w-3.5 text-cyan-300" />
                               ) : (
@@ -5486,6 +5613,7 @@ export function FormaWorkspace({
                       onKeyDown={(event) => {
                         if (event.key === "Enter" && !event.shiftKey) {
                           event.preventDefault();
+                          if (isLoading) return;
                           event.currentTarget.form?.requestSubmit();
                         }
                       }}
@@ -5499,13 +5627,14 @@ export function FormaWorkspace({
                       className={`${pendingHumanContext ? "min-h-[72px] sm:min-h-[96px]" : "min-h-[98px] sm:min-h-[104px]"} w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-3 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:p-4 sm:pr-16 sm:leading-7`}
                     />
                     <button
-                      type="submit"
-                      disabled={isLoading || !hasGenerationInput || !generationLlmsReady}
+                      type={activeGeneration ? "button" : "submit"}
+                      onClick={activeGeneration ? stopActiveGeneration : undefined}
+                      disabled={!activeGeneration && (isLoading || !hasGenerationInput || !generationLlmsReady)}
                       className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
-                      aria-label={generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
-                      title={generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
+                      aria-label={activeGeneration ? "Stop generation" : generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
+                      title={activeGeneration ? "Stop generation" : generationInputValidation.isValid ? "Send build request" : "Check hardware idea"}
                     >
-                      {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                      {activeGeneration ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                     </button>
                   </div>
 
@@ -5658,6 +5787,8 @@ export function FormaWorkspace({
               setInput={setProjectChatInput}
               onSubmit={handleProjectChatGenerate}
               isLoading={isLoading}
+              canStop={activeGeneration?.kind === "project-chat"}
+              onStop={stopActiveGeneration}
               canChat={currentProjectCanChat}
               endRef={projectChatEndRef}
               namespaceTabs={visibleWorkspaceTabs}
@@ -8196,6 +8327,8 @@ function ProjectChatPanel({
   setInput,
   onSubmit,
   isLoading,
+  canStop,
+  onStop,
   canChat,
   endRef,
   namespaceTabs,
@@ -8216,6 +8349,8 @@ function ProjectChatPanel({
   setInput: (value: string) => void;
   onSubmit: (event: React.FormEvent) => void;
   isLoading: boolean;
+  canStop: boolean;
+  onStop: () => void;
   canChat: boolean;
   endRef: React.RefObject<HTMLDivElement>;
   namespaceTabs: typeof workspaceTabs;
@@ -8313,6 +8448,8 @@ function ProjectChatPanel({
                             ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-50"
                             : message.status === "error"
                               ? "border-rose-400/30 bg-rose-950/25 text-rose-100"
+                              : message.status === "cancelled"
+                                ? "border-amber-300/30 bg-amber-950/20 text-amber-50"
                               : isSystem
                                 ? "border-[#2a2c33] bg-black/25 text-slate-400"
                                 : "border-[#2a2c33] bg-[#17181d] text-slate-200"
@@ -8323,6 +8460,7 @@ function ProjectChatPanel({
                           <span className="text-slate-700">/</span>
                           <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                           {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
+                          {message.status === "cancelled" && <Square className="h-3 w-3 fill-current text-amber-300" />}
                         </div>
                         <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                         <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
@@ -8358,6 +8496,7 @@ function ProjectChatPanel({
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && !event.shiftKey) {
                       event.preventDefault();
+                      if (isLoading) return;
                       event.currentTarget.form?.requestSubmit();
                     }
                   }}
@@ -8365,13 +8504,14 @@ function ProjectChatPanel({
                   className="min-h-[92px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-4 pr-16 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300"
                 />
                 <button
-                  type="submit"
-                  disabled={isLoading || !projectId || !input.trim()}
+                  type={canStop ? "button" : "submit"}
+                  onClick={canStop ? onStop : undefined}
+                  disabled={!canStop && (isLoading || !projectId || !input.trim())}
                   className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label="Generate project from chat"
-                  title={`Generate project from ${activeNamespaceName}`}
+                  aria-label={canStop ? "Stop generation" : "Generate project from chat"}
+                  title={canStop ? "Stop generation" : `Generate project from ${activeNamespaceName}`}
                 >
-                  {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                  {canStop ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -8412,6 +8552,7 @@ function AgentPipelineProgressView({
   const lastEventMs = pipelineEventTimestampMs(lastEvent);
   const quietMs = lastEventMs === null ? null : nowMs - lastEventMs;
   const isLoading = status === "loading";
+  const isCancelled = status === "cancelled";
   const hasFailedEvent = events.some((event) => isFailedPipelineStatus(event.status));
   const isError = status === "error" || hasFailedEvent;
   const waitingForFirstEvent = isLoading && !events.length && startedMs !== null && nowMs - startedMs >= PIPELINE_STALE_AFTER_MS;
@@ -8421,6 +8562,8 @@ function AgentPipelineProgressView({
   const visibleEvents = events.slice(compact ? -4 : -6);
   const signalLabel = isError
     ? "error"
+    : isCancelled
+    ? "stopped"
     : progress.synced
     ? backendQuiet
       ? "backend quiet"
@@ -8430,6 +8573,8 @@ function AgentPipelineProgressView({
       : "estimated";
   const signalTone = isError
     ? "border-rose-400/35 bg-rose-950/25 text-rose-200"
+    : isCancelled
+    ? "border-amber-300/35 bg-amber-950/20 text-amber-100"
     : backendQuiet || waitingForFirstEvent
     ? "border-amber-400/35 bg-amber-950/25 text-amber-200"
     : progress.synced
@@ -8443,7 +8588,7 @@ function AgentPipelineProgressView({
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Agent pipeline</span>
             <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${signalTone}`}>
-              {isError ? <AlertTriangle className="h-3 w-3" /> : isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
+              {isError ? <AlertTriangle className="h-3 w-3" /> : isCancelled ? <Square className="h-3 w-3 fill-current" /> : isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
               {signalLabel}
             </span>
           </div>
@@ -8458,11 +8603,11 @@ function AgentPipelineProgressView({
       </div>
 
       <div className="mt-3 h-1.5 bg-[#111216]">
-        <div className={`h-full ${isError ? "bg-rose-300" : backendQuiet || waitingForFirstEvent ? "bg-amber-300" : "bg-cyan-300"}`} style={{ width: `${progressPercent}%` }} />
+        <div className={`h-full ${isError ? "bg-rose-300" : isCancelled ? "bg-amber-300" : backendQuiet || waitingForFirstEvent ? "bg-amber-300" : "bg-cyan-300"}`} style={{ width: `${progressPercent}%` }} />
       </div>
 
       <div className="mt-3 flex min-w-0 items-start gap-2 border border-[#25272e] bg-[#111216] p-3">
-        {isError ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" /> : isLoading ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-cyan-300" /> : <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+        {isError ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" /> : isCancelled ? <Square className="mt-0.5 h-4 w-4 shrink-0 fill-current text-amber-300" /> : isLoading ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-cyan-300" /> : <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
         <div className="min-w-0">
           <div className="truncate text-xs font-black uppercase text-white">{activeStep?.label || "Preparing job"}</div>
           <div className="mt-1 truncate text-[11px] font-bold text-cyan-200">{activeStep?.agent || "Forma runtime"}</div>

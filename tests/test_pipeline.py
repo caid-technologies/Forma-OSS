@@ -1,8 +1,18 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 
-from blueprint_core.pipeline import agent_pipeline_step, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.pipeline import (
+    PipelineCancelledError,
+    agent_pipeline_step,
+    ensure_agent_pipeline_active,
+    list_agent_pipeline_steps,
+    observe_agent_pipeline,
+    pipeline_workflow_id,
+)
 
 
 class PipelineMetadataTests(unittest.TestCase):
@@ -47,6 +57,35 @@ class PipelineMetadataTests(unittest.TestCase):
 
         self.assertEqual("image_generation", steps[-1]["id"])
         self.assertTrue(steps[-1]["optional"])
+
+    def test_pipeline_cancellation_check_blocks_persistence_work(self) -> None:
+        with observe_agent_pipeline(lambda event: None, cancellation_check=lambda: True):
+            with self.assertRaises(PipelineCancelledError):
+                ensure_agent_pipeline_active()
+
+    def test_cancelled_live_pipeline_does_not_enter_simulation_fallback(self) -> None:
+        orchestrator = HardwarePipelineOrchestrator.__new__(HardwarePipelineOrchestrator)
+        orchestrator._active_generation_metadata = {}
+        orchestrator.use_simulation = False
+        orchestrator.llm_provider = SimpleNamespace(provider_name="anthropic", model_name="claude-sonnet-5")
+        orchestrator.runtime_config = SimpleNamespace(
+            provider="anthropic",
+            model="claude-sonnet-5",
+            requested_provider="anthropic",
+            requested_model="claude-sonnet-5",
+            provider_overridden=False,
+            model_overridden=False,
+        )
+        orchestrator.validate_configured_model = Mock(
+            return_value=SimpleNamespace(provider="anthropic", actual_model="claude-sonnet-5")
+        )
+        orchestrator._call_llm_structured = Mock(side_effect=PipelineCancelledError("cancelled"))
+        orchestrator._generate_simulated_project = Mock()
+
+        with self.assertRaises(PipelineCancelledError):
+            orchestrator.generate_project("environment monitor")
+
+        orchestrator._generate_simulated_project.assert_not_called()
 
     def test_unknown_workflow_falls_back_to_default(self) -> None:
         self.assertEqual("default", pipeline_workflow_id("does-not-exist"))

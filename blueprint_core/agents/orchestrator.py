@@ -11,6 +11,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from blueprint_core.database import (
+    delete_generated_project,
     get_component_template_by_part_number,
     list_component_templates,
     save_generated_project,
@@ -24,7 +25,7 @@ from blueprint_core.llm import (
     resolve_llm_runtime_config,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import agent_pipeline_step, emit_agent_pipeline_event
+from blueprint_core.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -961,6 +962,8 @@ class HardwarePipelineOrchestrator:
                 self.save_project_to_db(user_prompt, project_ir)
             return project_ir
 
+        except PipelineCancelledError:
+            raise
         except LLMProviderConfigError:
             raise
         except LLMProviderOutputError:
@@ -1408,6 +1411,7 @@ class HardwarePipelineOrchestrator:
 
     def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         """Saves a successfully generated HardwareIR to the configured database."""
+        ensure_agent_pipeline_active()
         project_id = canonical_project_uuid((ir.assembly_metadata or {}).get("project_id"))
         generation_metadata = self._active_generation_metadata or {}
         public_generation_metadata = {
@@ -1431,8 +1435,17 @@ class HardwarePipelineOrchestrator:
                 owner_user_id=generation_metadata.get("owner_user_id"),
                 visibility="public",
             )
+            try:
+                ensure_agent_pipeline_active()
+            except PipelineCancelledError:
+                owner_user_id = generation_metadata.get("owner_user_id")
+                if owner_user_id:
+                    delete_generated_project(project_id, owner_user_id)
+                raise
             logger.info(f"Project saved to database with ID: {project_id}")
             return project_id
+        except PipelineCancelledError:
+            raise
         except Exception as e:
             logger.error(f"Failed to save project to database: {e}")
             return ""

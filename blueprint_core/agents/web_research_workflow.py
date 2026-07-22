@@ -16,7 +16,7 @@ from blueprint_core.agents.orchestrator import (
     extract_buses,
     extract_power_rails,
 )
-from blueprint_core.database import save_generated_project
+from blueprint_core.database import delete_generated_project, save_generated_project
 from blueprint_core.job_source_usage import source_usage_for_workflow
 from blueprint_core.llm import (
     LLMProviderConfigError,
@@ -36,7 +36,7 @@ from blueprint_core.models import (
     ValidationIssue,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import agent_pipeline_step, emit_agent_pipeline_event
+from blueprint_core.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -697,6 +697,7 @@ class WebResearchHardwarePipeline:
         return issues
 
     def _save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
+        ensure_agent_pipeline_active()
         project_id = canonical_project_uuid((ir.assembly_metadata or {}).get("project_id"))
         generation_metadata = self._active_generation_metadata or {}
         public_generation_metadata = {
@@ -720,8 +721,17 @@ class WebResearchHardwarePipeline:
                 owner_user_id=generation_metadata.get("owner_user_id"),
                 visibility="public",
             )
+            try:
+                ensure_agent_pipeline_active()
+            except PipelineCancelledError:
+                owner_user_id = generation_metadata.get("owner_user_id")
+                if owner_user_id:
+                    delete_generated_project(project_id, owner_user_id)
+                raise
             logger.info("Web research workflow project saved to database with ID: %s", project_id)
             return project_id
+        except PipelineCancelledError:
+            raise
         except Exception as exc:
             logger.error("Failed to save web research workflow project: %s", exc)
             return ""

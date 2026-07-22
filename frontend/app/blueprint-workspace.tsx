@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import ReactFlow, {
   Background,
   Controls,
-  Node,
+  Node as FlowNode,
   Edge,
   Handle,
   NodeProps,
@@ -23,6 +23,7 @@ import {
   type GenerationLlmOption,
   type IntegrationsPayload,
 } from "../lib/active-llms";
+import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
 import {
   Sparkles,
   Wrench,
@@ -63,6 +64,7 @@ import {
   Clock3,
   Wifi,
   WifiOff,
+  ChevronDown,
 } from "lucide-react";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
@@ -299,6 +301,18 @@ function normalizeApiUrl(value: string) {
 
 function isTruthyEnv(value: string | undefined) {
   return ["1", "true", "yes", "on"].includes((value || "").trim().toLowerCase());
+}
+
+function downloadBrowserFile(contents: string, filename: string, mimeType: string) {
+  const blob = new Blob([contents], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
 }
 
 const samplePrompts = [
@@ -3617,7 +3631,7 @@ export function FormaWorkspace({
   const buildReactFlowGraph = (ir: any) => {
     if (!ir?.components) return;
 
-    const newNodes: Node[] = [];
+    const newNodes: FlowNode[] = [];
     const newEdges: Edge[] = [];
     const electricalParts = ir.components.filter(
       (component: any) => !["mechanical", "3d print"].includes(component.category?.toLowerCase())
@@ -4615,15 +4629,37 @@ export function FormaWorkspace({
       }
       return;
     }
-    const jsonStr = JSON.stringify(projectIR, null, 2);
-    const blob = new Blob([jsonStr], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
     const title = projectIR.overview?.title || "blueprint_project";
-    link.href = url;
-    link.download = `${title.toLowerCase().replace(/\s+/g, "_")}_blueprint.json`;
-    link.click();
-    URL.revokeObjectURL(url);
+    downloadBrowserFile(
+      JSON.stringify(projectIR, null, 2),
+      `${title.toLowerCase().replace(/\s+/g, "_")}_blueprint.json`,
+      "application/json"
+    );
+  };
+
+  const downloadMarkdownDocs = () => {
+    if (!projectIR) return;
+    if (!currentProjectCanChat) {
+      if (authRequired && !isSignedIn) {
+        openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
+      }
+      return;
+    }
+
+    const title = projectIR.overview?.title || "Untitled Hardware Project";
+    const markdown = buildProjectDocsMarkdown({
+      title,
+      description: projectIR.overview?.description,
+      assembly: projectIR.assembly || [],
+      issues: [
+        ...(projectIR.validation?.critical || []),
+        ...(projectIR.validation?.warning || []),
+        ...(projectIR.validation?.info || []),
+        ...(projectIR.validation_issues || []),
+      ],
+    });
+
+    downloadBrowserFile(markdown, docsExportFilename(title), "text/markdown;charset=utf-8");
   };
 
   const getOverviewMetrics = () => {
@@ -4820,7 +4856,15 @@ export function FormaWorkspace({
           </div>
         );
       case "assembly":
-        return <AssemblyPanel assembly={assembly} issues={issues} onDownload={downloadJSONIR} canDownloadAssets={currentProjectCanDownloadAssets} />;
+        return (
+          <AssemblyPanel
+            assembly={assembly}
+            issues={issues}
+            onDownloadJSON={downloadJSONIR}
+            onDownloadMarkdown={downloadMarkdownDocs}
+            canDownloadAssets={currentProjectCanDownloadAssets}
+          />
+        );
       case "video":
         return (
           <VideoPanel
@@ -7210,14 +7254,40 @@ function MechanicalPanel({
 function AssemblyPanel({
   assembly,
   issues,
-  onDownload,
+  onDownloadJSON,
+  onDownloadMarkdown,
   canDownloadAssets,
 }: {
   assembly: any[];
   issues: any[];
-  onDownload: () => void;
+  onDownloadJSON: () => void;
+  onDownloadMarkdown: () => void;
   canDownloadAssets: boolean;
 }) {
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const exportButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) setExportMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setExportMenuOpen(false);
+      exportButtonRef.current?.focus();
+    };
+
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [exportMenuOpen]);
+
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
       <div className="mb-6 flex flex-col gap-4 border-b border-[#2a2c33] pb-5 sm:flex-row sm:items-center sm:justify-between">
@@ -7225,15 +7295,56 @@ function AssemblyPanel({
           <h2 className="break-words text-lg font-black uppercase tracking-[0.12em] text-white sm:text-xl sm:tracking-[0.18em]">Build Instructions</h2>
           <p className="mt-2 text-xs text-slate-500">Sequential assembly from the generated hardware graph.</p>
         </div>
-        <button
-          onClick={onDownload}
-          disabled={!canDownloadAssets}
-          title={canDownloadAssets ? "Export project JSON" : "Files are available only on projects you generated."}
-          className="flex shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
-        >
-          <Download className="h-4 w-4" />
-          Export
-        </button>
+        <div ref={exportMenuRef} className="relative shrink-0">
+          <button
+            ref={exportButtonRef}
+            type="button"
+            onClick={() => setExportMenuOpen((open) => !open)}
+            disabled={!canDownloadAssets}
+            aria-haspopup="menu"
+            aria-expanded={exportMenuOpen}
+            aria-controls="docs-export-menu"
+            title={canDownloadAssets ? "Choose an export format" : "Files are available only on projects you generated."}
+            className="flex items-center justify-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
+          >
+            <Download className="h-4 w-4" />
+            Export
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {exportMenuOpen && (
+            <div
+              id="docs-export-menu"
+              role="menu"
+              className="absolute right-0 top-full z-30 mt-2 w-64 border border-[#34363f] bg-[#17181d] p-1 shadow-2xl"
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setExportMenuOpen(false);
+                  onDownloadJSON();
+                }}
+                className="group block w-full px-3 py-3 text-left hover:bg-white hover:text-black"
+              >
+                <span className="block text-xs font-black uppercase tracking-widest">Project JSON</span>
+                <span className="mt-1 block text-[10px] font-medium normal-case tracking-normal text-slate-500 group-hover:text-black">Full project data (.json)</span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setExportMenuOpen(false);
+                  onDownloadMarkdown();
+                }}
+                className="group block w-full border-t border-[#2a2c33] px-3 py-3 text-left hover:bg-white hover:text-black"
+              >
+                <span className="block text-xs font-black uppercase tracking-widest">Markdown</span>
+                <span className="mt-1 block text-[10px] font-medium normal-case tracking-normal text-slate-500 group-hover:text-black">Build instructions and safety audit (.md)</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[1fr_340px]">

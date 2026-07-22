@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -716,7 +716,7 @@ class WebResearchHardwarePipeline:
                 title=ir.overview.title if ir.overview else "Untitled Forma Project",
                 prompt=prompt,
                 hardware_ir=ir.model_dump(),
-                created_at=datetime.utcnow().isoformat(),
+                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 chat_id=generation_metadata.get("chat_id"),
                 owner_user_id=generation_metadata.get("owner_user_id"),
                 visibility="public",

@@ -911,6 +911,32 @@ function writeStoredChatIndex(items: ChatListItem[]) {
   }
 }
 
+function chatListItemTime(value: string | null | undefined): number {
+  const normalizedValue = value?.trim() || "";
+  // Project creation timestamps have historically been emitted as UTC without a
+  // timezone suffix. Treat them as UTC so they compare correctly with chat
+  // updated_at values, which include "Z".
+  const timestamp = Date.parse(
+    normalizedValue && !/(?:z|[+-]\d{2}:?\d{2})$/i.test(normalizedValue)
+      ? `${normalizedValue}Z`
+      : normalizedValue
+  );
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function latestChatListItemDate(
+  left: string | null | undefined,
+  right: string | null | undefined
+): string | null {
+  return chatListItemTime(right) > chatListItemTime(left) ? right || null : left || right || null;
+}
+
+function sortChatListItems(items: ChatListItem[]): ChatListItem[] {
+  return [...items].sort(
+    (left, right) => chatListItemTime(right.createdAt) - chatListItemTime(left.createdAt)
+  );
+}
+
 function upsertChatListItem(items: ChatListItem[], item: Partial<ChatListItem> & { chatId: string }): ChatListItem[] {
   const existing = items.find((current) => current.chatId === item.chatId);
   const incomingTitle = item.title?.trim() || "";
@@ -925,12 +951,7 @@ function upsertChatListItem(items: ChatListItem[], item: Partial<ChatListItem> &
     createdAt: item.createdAt || existing?.createdAt || chatTimestamp(),
     projectCount: Math.max(item.projectCount ?? existing?.projectCount ?? 0, 0),
   };
-  return [nextItem, ...items.filter((current) => current.chatId !== item.chatId)]
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.createdAt || "");
-      const rightTime = Date.parse(right.createdAt || "");
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
-    })
+  return sortChatListItems([nextItem, ...items.filter((current) => current.chatId !== item.chatId)])
     .slice(0, MAX_CHAT_INDEX_ITEMS);
 }
 
@@ -5854,15 +5875,16 @@ function buildChatListItems(projectHistory: any[], localChatItems: ChatListItem[
     if (item.chatId) merged.set(item.chatId, item);
   });
   savedItems.forEach((item) => {
-    merged.set(item.chatId, item);
+    const existing = merged.get(item.chatId);
+    merged.set(item.chatId, {
+      ...existing,
+      ...item,
+      createdAt: latestChatListItemDate(existing?.createdAt, item.createdAt),
+      projectCount: Math.max(existing?.projectCount || 0, item.projectCount),
+    });
   });
 
-  return Array.from(merged.values())
-    .sort((left, right) => {
-      const leftTime = Date.parse(left.createdAt || "");
-      const rightTime = Date.parse(right.createdAt || "");
-      return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
-    });
+  return sortChatListItems(Array.from(merged.values()));
 }
 
 function normalizePrivateChatItems(value: any): ChatListItem[] {
@@ -5888,9 +5910,16 @@ function mergeChatListItems(primary: ChatListItem[], secondary: ChatListItem[]):
     if (item.chatId) merged.set(item.chatId, item);
   });
   primary.forEach((item) => {
-    if (item.chatId) merged.set(item.chatId, item);
+    if (!item.chatId) return;
+    const existing = merged.get(item.chatId);
+    merged.set(item.chatId, {
+      ...existing,
+      ...item,
+      createdAt: latestChatListItemDate(existing?.createdAt, item.createdAt),
+      projectCount: Math.max(existing?.projectCount || 0, item.projectCount),
+    });
   });
-  return Array.from(merged.values());
+  return sortChatListItems(Array.from(merged.values()));
 }
 
 function mergeProjectRecords(primary: any[], secondary: any[]): any[] {

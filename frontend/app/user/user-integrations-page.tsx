@@ -51,8 +51,6 @@ type IntegrationStatus = {
 
 type IntegrationsPayload = {
   version: number;
-  config_path: string;
-  storage?: string;
   updated_at: string;
   integrations: IntegrationStatus[];
 };
@@ -949,10 +947,7 @@ export default function UserIntegrationsPage() {
               <KeyRound className="h-4 w-4 text-cyan-300" />
               Model Providers
             </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">
-              {payload?.integrations.length || 0} integrations. Storage:{" "}
-              <span className="break-all font-mono text-slate-400">{payload?.storage || payload?.config_path || "loading"}</span>
-            </p>
+            <p className="mt-3 text-xs leading-5 text-slate-500">Choose a provider to manage its credentials and defaults.</p>
           </div>
 
           <div className="max-h-[calc(100vh-220px)] overflow-y-auto p-3">

@@ -51,7 +51,7 @@ LLM configuration behavior:
 - `BACKEND_LOG_FILE`: optional rotating log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `BLUEPRINT_DEV_MODE=true`: forces SQLite for app data and A2A job metadata even when Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
-- `BLUEPRINT_DEPLOYMENT=true`: enables the deployment-only alpha gate. If live generation is unavailable, `/api/generate` is blocked and the frontend captures launch interest through `/api/alpha-signups`
+- `BLUEPRINT_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
 - `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching. The backend validates them before generation and records requested/actual provider/model metadata on the project.

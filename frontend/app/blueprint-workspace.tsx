@@ -9514,21 +9514,27 @@ function getSourcesForComponent(component: any): Array<{ label: string; classNam
   if (category === "actuator") {
     return [
       { label: "AliExpress", className: "bg-orange-600" },
-      { label: "amazon", className: "bg-amber-400" },
+      { label: "Amazon", className: "bg-amber-400" },
       { label: "eBay", className: "bg-blue-600 text-white" },
+      { label: "Newegg", className: "bg-orange-500" },
     ].map(withHref);
   }
   if (category === "power" && component.name?.toLowerCase().includes("charger")) {
     return [
-      { label: "amazon", className: "bg-amber-400" },
+      { label: "Amazon", className: "bg-amber-400" },
       { label: "eBay", className: "bg-blue-600 text-white" },
+      { label: "Newegg", className: "bg-orange-500" },
+    ].map(withHref);
+  }
+  if (category === "mechanical" || category === "3d print") {
+    return [
+      { label: "fabricate", className: "bg-blue-600 text-white" },
     ].map(withHref);
   }
   return [
-    {
-      label: component.category?.toLowerCase() === "mechanical" || component.category?.toLowerCase() === "3d print" ? "fabricate" : "eBay",
-      className: "bg-blue-600 text-white",
-    },
+    { label: "eBay", className: "bg-blue-600 text-white" },
+    { label: "Amazon", className: "bg-amber-400" },
+    { label: "Newegg", className: "bg-orange-500" },
   ].map(withHref);
 }
 
@@ -9544,6 +9550,7 @@ function sourceHrefForComponent(component: any, label: string) {
   if (normalizedLabel === "aliexpress") return `https://www.aliexpress.com/wholesale?SearchText=${query}`;
   if (normalizedLabel === "amazon") return `https://www.amazon.com/s?k=${query}`;
   if (normalizedLabel === "ebay") return `https://www.ebay.com/sch/i.html?_nkw=${query}`;
+  if (normalizedLabel === "newegg") return `https://www.newegg.com/p/pl?d=${query}`;
   if (normalizedLabel === "fabricate") {
     const explicitUrl = firstComponentSourceUrl(component);
     return explicitUrl || `https://www.printables.com/search/models?q=${query}`;

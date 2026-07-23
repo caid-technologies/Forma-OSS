@@ -3,7 +3,7 @@ import logging
 import os
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -1430,7 +1430,7 @@ class HardwarePipelineOrchestrator:
                 title=ir.overview.title,
                 prompt=prompt,
                 hardware_ir=ir.model_dump(),
-                created_at=datetime.utcnow().isoformat(),
+                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 chat_id=generation_metadata.get("chat_id"),
                 owner_user_id=generation_metadata.get("owner_user_id"),
                 visibility="public",

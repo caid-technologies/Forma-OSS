@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import time
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -8,10 +10,13 @@ from pydantic import BaseModel, Field
 
 from blueprint_core.user_integrations import (
     UserIntegrationStore,
+    apply_user_integrations_to_environment,
     integration_status_payload,
 )
 from backend.auth import clerk_user_id, require_deployed_clerk_auth
-from blueprint_core.debug import api_error_detail, redact_debug_text
+from blueprint_core.debug import api_error_detail, redact_debug_text, redact_debug_value
+from blueprint_core.images import build_image_provider
+from blueprint_core.runtime import deployment_mode_enabled
 
 
 router = APIRouter(prefix="/user", tags=["user"])
@@ -22,6 +27,27 @@ class IntegrationUpdateRequest(BaseModel):
     enabled: Optional[bool] = None
     fields: dict[str, Optional[str]] = Field(default_factory=dict)
     clear_fields: list[str] = Field(default_factory=list)
+
+
+class ImageModelTestRequest(BaseModel):
+    provider: str = Field(min_length=1, max_length=80)
+    model: str = Field(min_length=1, max_length=300)
+    prompt: str = Field(min_length=1, max_length=2000)
+
+
+def image_model_test_available() -> bool:
+    vercel_env = (os.getenv("VERCEL_ENV") or "").strip().lower()
+    if vercel_env in {"preview", "development"}:
+        return True
+    if vercel_env == "production" or os.getenv("VERCEL") == "1":
+        return False
+    return not deployment_mode_enabled()
+
+
+def _status_payload(store: UserIntegrationStore) -> dict[str, object]:
+    payload = integration_status_payload(store)
+    payload["image_model_test_available"] = image_model_test_available()
+    return payload
 
 
 def _store_for_auth(auth_claims: Any) -> UserIntegrationStore:
@@ -73,7 +99,7 @@ def _unexpected_storage_error(
 def get_user_integrations(auth_claims: Any = Depends(require_deployed_clerk_auth)) -> dict[str, object]:
     store = _store_for_auth(auth_claims)
     try:
-        return integration_status_payload(store)
+        return _status_payload(store)
     except Exception as exc:
         raise _unexpected_storage_error(
             operation="load",
@@ -87,7 +113,7 @@ def get_user_integrations(auth_claims: Any = Depends(require_deployed_clerk_auth
 def reload_user_integrations(auth_claims: Any = Depends(require_deployed_clerk_auth)) -> dict[str, object]:
     store = _store_for_auth(auth_claims)
     try:
-        return integration_status_payload(store)
+        return _status_payload(store)
     except Exception as exc:
         raise _unexpected_storage_error(
             operation="reload",
@@ -148,7 +174,7 @@ def update_user_integration(
         sorted(request.clear_fields),
     )
     try:
-        return integration_status_payload(store)
+        return _status_payload(store)
     except Exception as exc:
         raise _unexpected_storage_error(
             operation="post_save_reload",
@@ -191,7 +217,7 @@ def clear_user_integration(
         _storage_label(store),
     )
     try:
-        return integration_status_payload(store)
+        return _status_payload(store)
     except Exception as exc:
         raise _unexpected_storage_error(
             operation="post_clear_reload",
@@ -200,3 +226,97 @@ def clear_user_integration(
             exc=exc,
             integration_id=integration_id,
         ) from exc
+
+
+@router.post("/integrations/image-model-test")
+def test_image_model(
+    request: ImageModelTestRequest,
+    auth_claims: Any = Depends(require_deployed_clerk_auth),
+) -> dict[str, object]:
+    if not image_model_test_available():
+        raise HTTPException(status_code=404, detail="Image model testing is only available locally and in preview deployments.")
+
+    store = _store_for_auth(auth_claims)
+    try:
+        apply_user_integrations_to_environment(store, fail_open=False)
+    except Exception as exc:
+        raise _unexpected_storage_error(
+            operation="image_model_test_load",
+            store=store,
+            auth_claims=auth_claims,
+            exc=exc,
+        ) from exc
+
+    provider = build_image_provider(force_enabled=True)
+    config = redact_debug_value(provider.get_debug_config())
+    actual_provider = str(getattr(provider, "provider_name", "") or "")
+    actual_model = str(getattr(provider, "model_name", "") or "")
+    requested_provider = request.provider.strip().lower().replace("_", "-")
+    requested_model = request.model.strip()
+
+    if actual_provider != requested_provider or actual_model != requested_model:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "image_model_test_settings_not_saved",
+                "message": (
+                    f"Saved image settings resolve to {actual_provider or 'none'}/{actual_model or 'none'}, "
+                    f"not {requested_provider}/{requested_model}. Save the current image settings before testing."
+                ),
+                "provider": actual_provider,
+                "model": actual_model,
+                "config": config,
+            },
+        )
+
+    if not bool(config.get("configured")):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "image_model_test_not_configured",
+                "message": str(config.get("reason") or "The selected image provider is not configured."),
+                "provider": actual_provider,
+                "model": actual_model,
+                "config": config,
+            },
+        )
+
+    started_at = time.monotonic()
+    try:
+        image = provider.generate_test_image(request.prompt.strip())
+    except Exception as exc:
+        elapsed_ms = round((time.monotonic() - started_at) * 1000)
+        logger.exception(
+            "Direct image model test failed: owner_user_id=%s provider=%s model=%s elapsed_ms=%s error_type=%s",
+            clerk_user_id(auth_claims),
+            actual_provider,
+            actual_model,
+            elapsed_ms,
+            type(exc).__name__,
+        )
+        detail = api_error_detail(
+            code="image_model_test_failed",
+            message=f"{type(exc).__name__}: {redact_debug_text(str(exc))}",
+            exc=exc,
+            provider=actual_provider,
+            model=actual_model,
+            context={"elapsed_ms": elapsed_ms, "config": config},
+        )
+        detail.update({"elapsed_ms": elapsed_ms, "config": config, "error_type": type(exc).__name__})
+        raise HTTPException(status_code=502, detail=detail) from exc
+
+    elapsed_ms = round((time.monotonic() - started_at) * 1000)
+    return {
+        "ok": True,
+        "provider": image.provider,
+        "model": image.model,
+        "size": image.size,
+        "output_format": image.output_format,
+        "elapsed_ms": elapsed_ms,
+        "prompt": image.prompt,
+        "prompt_original_length": image.prompt_original_length,
+        "prompt_final_length": image.prompt_final_length,
+        "prompt_compacted": image.prompt_compacted,
+        "image_data_url": image.data_url,
+        "config": config,
+    }

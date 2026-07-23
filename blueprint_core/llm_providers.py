@@ -619,8 +619,8 @@ def _schema_name(schema_class: Any) -> str:
 def _schema_with_closed_objects(schema: Any) -> Any:
     """Return a JSON schema copy with every object type explicitly closed.
 
-    Anthropic's structured JSON schema endpoint rejects object schemas unless
-    `additionalProperties` is explicitly `false` on each object node.
+    Anthropic and GMI's structured JSON schema endpoints reject object schemas
+    unless `additionalProperties` is explicitly `false` on each object node.
     """
     if isinstance(schema, list):
         return [_schema_with_closed_objects(item) for item in schema]
@@ -1740,7 +1740,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         return self._validation
 
     def _build_structured_prompt(self, prompt: str, schema_class: Any) -> str:
-        schema_json = json.dumps(schema_class.model_json_schema(), indent=2)
+        schema_json = json.dumps(_schema_with_closed_objects(schema_class.model_json_schema()), indent=2)
         return (
             f"{prompt}\n\n"
             "Return only valid JSON. The JSON must conform to this schema:\n"
@@ -1820,7 +1820,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
                 "type": "json_schema",
                 "json_schema": {
                     "name": _schema_name(schema_class),
-                    "schema": schema_class.model_json_schema(),
+                    "schema": _schema_with_closed_objects(schema_class.model_json_schema()),
                     "strict": False,
                 },
             }

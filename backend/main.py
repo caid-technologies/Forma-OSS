@@ -96,14 +96,14 @@ from blueprint_core.iteration import ProjectIterator
 from blueprint_core.llm import LLMProviderConfigError
 from blueprint_core.llm import LLMProviderOutputError
 from blueprint_core.project_objects import build_project_object, list_project_namespaces
-from blueprint_core.pipeline import list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from blueprint_core.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVideoSelfCorrectionAgent
 from backend.logs_api import router as logs_router
 from backend.streams_api import router as streams_router
 from backend.user_integrations_api import router as user_integrations_router
 from backend.auth import clerk_user_display_name, clerk_user_id, clerk_user_image_url, clerk_user_is_admin, deployed_auth_required, optional_deployed_clerk_auth, require_deployed_admin_auth, require_deployed_clerk_auth
-from backend.job_store import JOB_STORE
+from backend.job_store import JOB_STORE, JobCancelledError
 from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
 from blueprint_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
@@ -260,6 +260,44 @@ def _require_job_reader(job: Dict[str, Any], auth_claims: Any) -> None:
     if owner_user_id and owner_user_id == clerk_user_id(auth_claims):
         return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only view your own jobs.")
+
+
+def _delete_cancelled_generation_projects(job_id: str, job: Optional[Dict[str, Any]] = None) -> None:
+    """Remove project artifacts persisted by a worker after its job was cancelled."""
+    current_job = job or JOB_STORE.get_job(job_id) or {}
+    owner_user_id = _job_owner_user_id(current_job)
+    if not owner_user_id:
+        return
+    deleted_chats: List[tuple[str, str]] = []
+    for project in list_generated_projects(owner_user_id=owner_user_id):
+        hardware_ir = getattr(project, "hardware_ir", None)
+        project_id = getattr(project, "project_id", None)
+        if not isinstance(hardware_ir, dict) or not isinstance(project_id, str):
+            continue
+        metadata = hardware_ir.get("assembly_metadata")
+        if not isinstance(metadata, dict) or metadata.get("frontend_job_id") != job_id:
+            continue
+        if delete_generated_project(project_id, owner_user_id):
+            chat_id = getattr(project, "chat_id", None)
+            title = getattr(project, "title", None)
+            if isinstance(chat_id, str) and isinstance(title, str):
+                deleted_chats.append((chat_id, title))
+            logger.info("Removed project %s created after cancelled job %s.", project_id, job_id)
+
+    payload = current_job.get("payload") if isinstance(current_job.get("payload"), dict) else {}
+    prompt_title = str(payload.get("prompt") or "").splitlines()[0].strip()[:80] or "Cancelled project"
+    for chat_id, deleted_title in deleted_chats:
+        chat = get_project_chat(chat_id, owner_user_id)
+        if not chat or getattr(chat, "title", None) != deleted_title:
+            continue
+        upsert_project_chat(
+            chat_id=chat_id,
+            owner_user_id=owner_user_id,
+            title=prompt_title,
+            messages=getattr(chat, "messages", None) or [],
+            created_at=getattr(chat, "created_at", None) or datetime.now(timezone.utc).isoformat(),
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
 
 
 # Initialize and seed database on startup
@@ -443,7 +481,10 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
     JOB_STORE.mark_running(job_id)
 
     try:
-        with observe_agent_pipeline(lambda event: JOB_STORE.append_progress_event(job_id, event.as_dict())):
+        with observe_agent_pipeline(
+            lambda event: JOB_STORE.append_progress_event(job_id, event.as_dict()),
+            cancellation_check=lambda: JOB_STORE.is_cancelled(job_id),
+        ):
             response = build_generation_response(
                 request.prompt,
                 request.image_data,
@@ -457,8 +498,12 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
                 frontend_job_id=job_id,
                 owner_user_id=owner_user_id,
             )
+        if JOB_STORE.is_cancelled(job_id):
+            raise JobCancelledError(f"Job {job_id} was cancelled.")
         JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
+        if str((job or {}).get("status") or "").lower() in {"cancelled", "canceled"}:
+            raise JobCancelledError(f"Job {job_id} was cancelled.")
         response = _attach_generation_timing_metadata(response, job)
         metadata = (response.get("project_ir", {}).get("assembly_metadata") or {})
         project_id = metadata.get("project_id")
@@ -474,6 +519,20 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
             "job_id": job_id,
             "job": job,
         }
+    except PipelineCancelledError as e:
+        JOB_STORE.mark_cancelled(job_id)
+        _delete_cancelled_generation_projects(job_id)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=api_error_detail(
+                code="generation_cancelled",
+                message="Generation was stopped by the user.",
+                exc=e,
+                job_id=job_id,
+                provider=request.provider,
+                model=request.model,
+            ),
+        ) from e
     except ValueError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, str(e), error_debug)
@@ -1069,6 +1128,19 @@ def get_a2a_job(job_id: str, _auth_claims: Any = Depends(require_deployed_clerk_
         raise HTTPException(status_code=404, detail="A2A job not found.")
     _require_job_reader(job, _auth_claims)
     return job
+
+
+@app.post("/a2a/jobs/{job_id}/cancel")
+def cancel_a2a_job(job_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+    """Stops a queued or running job owned by the current user."""
+    job = JOB_STORE.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="A2A job not found.")
+    _require_job_reader(job, _auth_claims)
+    cancelled_job = JOB_STORE.mark_cancelled(job_id) or job
+    if str(cancelled_job.get("status") or "").lower() in {"cancelled", "canceled"}:
+        _delete_cancelled_generation_projects(job_id, cancelled_job)
+    return cancelled_job
 
 
 def _parse_example_job_time(value: Any) -> datetime:

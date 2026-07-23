@@ -1,13 +1,23 @@
 from __future__ import annotations
 
+import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
 from backend.auth import require_deployed_clerk_auth
-from backend.user_integrations_api import get_user_integrations, router, update_user_integration, IntegrationUpdateRequest
+from backend.user_integrations_api import (
+    ImageModelTestRequest,
+    IntegrationUpdateRequest,
+    get_user_integrations,
+    image_model_test_available,
+    router,
+    test_image_model,
+    update_user_integration,
+)
 
 
 class BrokenIntegrationStore:
@@ -73,6 +83,60 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
         self.assertIn("update persisted", output)
         self.assertIn("post_save_reload failed", output)
         self.assertNotIn("test-secret", output)
+
+    def test_image_model_test_is_limited_to_local_and_preview(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertTrue(image_model_test_available())
+        with patch.dict(os.environ, {"VERCEL": "1", "VERCEL_ENV": "preview"}, clear=True):
+            self.assertTrue(image_model_test_available())
+        with patch.dict(os.environ, {"VERCEL": "1", "VERCEL_ENV": "production"}, clear=True):
+            self.assertFalse(image_model_test_available())
+        with patch.dict(os.environ, {"BLUEPRINT_DEPLOYMENT": "true"}, clear=True):
+            self.assertFalse(image_model_test_available())
+
+    def test_image_model_test_calls_provider_directly(self) -> None:
+        class FakeProvider:
+            provider_name = "gmi"
+            model_name = "seedream-5.0-pro"
+
+            def get_debug_config(self):
+                return {"provider": "gmi", "model_name": self.model_name, "configured": True, "api_key": "must-redact"}
+
+            def generate_test_image(self, prompt):
+                self.prompt = prompt
+                return SimpleNamespace(
+                    provider="gmi",
+                    model=self.model_name,
+                    size="2048x2048",
+                    output_format="jpeg",
+                    prompt=prompt,
+                    prompt_original_length=len(prompt),
+                    prompt_final_length=len(prompt),
+                    prompt_compacted=False,
+                    data_url="data:image/jpeg;base64,ZmFrZQ==",
+                )
+
+        provider = FakeProvider()
+        request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="  test render  ")
+        with patch.dict(os.environ, {}, clear=True), patch(
+            "backend.user_integrations_api._store_for_auth", return_value=object()
+        ), patch("backend.user_integrations_api.apply_user_integrations_to_environment"), patch(
+            "backend.user_integrations_api.build_image_provider", return_value=provider
+        ):
+            response = test_image_model(request, {"sub": "user_test"})
+
+        self.assertTrue(response["ok"])
+        self.assertEqual("test render", provider.prompt)
+        self.assertEqual("data:image/jpeg;base64,ZmFrZQ==", response["image_data_url"])
+        self.assertEqual("<redacted>", response["config"]["api_key"])
+
+    def test_image_model_test_route_is_hidden_in_production(self) -> None:
+        request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="test render")
+        with patch.dict(os.environ, {"VERCEL": "1", "VERCEL_ENV": "production"}, clear=True):
+            with self.assertRaises(HTTPException) as raised:
+                test_image_model(request, {"sub": "user_test"})
+
+        self.assertEqual(404, raised.exception.status_code)
 
 
 if __name__ == "__main__":

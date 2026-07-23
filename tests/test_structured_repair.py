@@ -291,9 +291,21 @@ class StructuredRepairTests(unittest.TestCase):
         response_format = captured[0]["response_format"]
         self.assertEqual("json_schema", response_format["type"])
         self.assertEqual(
-            MechanicalNotes.model_json_schema(),
+            _schema_with_closed_objects(MechanicalNotes.model_json_schema()),
             response_format["json_schema"]["schema"],
         )
+
+        def assert_objects_closed(node: Any, path: str = "schema") -> None:
+            if isinstance(node, dict):
+                if node.get("type") == "object":
+                    self.assertEqual(False, node.get("additionalProperties"), path)
+                for key, value in node.items():
+                    assert_objects_closed(value, f"{path}.{key}")
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    assert_objects_closed(value, f"{path}[{index}]")
+
+        assert_objects_closed(response_format["json_schema"]["schema"])
 
     def test_anthropic_closed_schema_marks_nested_objects(self) -> None:
         schema = _schema_with_closed_objects(MechanicalNotes.model_json_schema())

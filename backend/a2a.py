@@ -30,7 +30,7 @@ from blueprint_core.observability import (
     start_observation,
     update_observation,
 )
-from blueprint_core.pipeline import emit_agent_pipeline_event, observe_agent_pipeline
+from blueprint_core.pipeline import emit_agent_pipeline_event, ensure_agent_pipeline_active, observe_agent_pipeline
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
@@ -815,6 +815,7 @@ def build_generation_response(
                     "external_source_provider": external_source_provider,
                 },
             )
+            ensure_agent_pipeline_active()
             ir.assembly_metadata = {
                 **(ir.assembly_metadata or {}),
                 "chat_id": chat_id or (ir.assembly_metadata or {}).get("chat_id"),
@@ -857,6 +858,7 @@ def build_generation_response(
                     "failed" if image_status == "failed" else "completed",
                     details={"image_output_status": image_status},
                 )
+            ensure_agent_pipeline_active()
             _persist_updated_project_ir(ir, prompt_text=prompt_text, owner_user_id=owner_user_id)
 
             response = {
@@ -1004,7 +1006,10 @@ async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
 async def _process_server_message(message: A2AMessage) -> None:
     JOB_STORE.mark_running(message.job_id)
     try:
-        with observe_agent_pipeline(lambda event: JOB_STORE.append_progress_event(message.job_id, event.as_dict())):
+        with observe_agent_pipeline(
+            lambda event: JOB_STORE.append_progress_event(message.job_id, event.as_dict()),
+            cancellation_check=lambda: JOB_STORE.is_cancelled(message.job_id),
+        ):
             result = await call_blueprint_action(message.action, message.payload)
         JOB_STORE.mark_succeeded(message.job_id, result)
         event = A2AEvent(

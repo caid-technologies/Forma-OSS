@@ -7,12 +7,22 @@ import {
   AlertTriangle,
   ArrowLeft,
   CheckCircle,
+  ChevronDown,
+  FlaskConical,
   KeyRound,
   RefreshCw,
   Save,
+  Search,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
+import {
+  gmiImageSettingFieldIds,
+  IMAGE_MODEL_OPTIONS,
+  modelOptionsForField,
+  settingOptionsForField,
+  type ProviderModelOption,
+} from "../../lib/provider-model-catalog";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
 const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
@@ -51,10 +61,24 @@ type IntegrationStatus = {
 
 type IntegrationsPayload = {
   version: number;
-  config_path: string;
-  storage?: string;
   updated_at: string;
   integrations: IntegrationStatus[];
+  image_model_test_available?: boolean;
+};
+
+type ImageModelTestResult = {
+  ok: boolean;
+  provider: string;
+  model: string;
+  size: string;
+  output_format: string;
+  elapsed_ms: number;
+  prompt: string;
+  prompt_original_length: number | null;
+  prompt_final_length: number | null;
+  prompt_compacted: boolean;
+  image_data_url: string;
+  config: Record<string, unknown>;
 };
 
 type IntegrationFormState = {
@@ -67,7 +91,7 @@ type ImageProviderOption = {
   label: string;
   integrationId: string | null;
   modelFieldId: string | null;
-  models: string[];
+  models: ProviderModelOption[];
   preconfigured?: boolean;
   credentialFieldIds: string[];
   configFieldIds: string[];
@@ -81,12 +105,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     label: "Hugging Face",
     integrationId: "huggingface",
     modelFieldId: "image_model",
-    models: [
-      "black-forest-labs/FLUX.1-schnell",
-      "black-forest-labs/FLUX.1-Krea-dev",
-      "Qwen/Qwen-Image",
-      "stabilityai/stable-diffusion-xl-base-1.0",
-    ],
+    models: IMAGE_MODEL_OPTIONS.huggingface,
     credentialFieldIds: ["api_key", "token_scope_confirmation"],
     configFieldIds: ["image_model", "image_inference_provider"],
     advancedFieldIds: [
@@ -106,7 +125,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     label: "OpenAI",
     integrationId: "openai",
     modelFieldId: "image_model",
-    models: ["gpt-image-2", "gpt-image-1"],
+    models: IMAGE_MODEL_OPTIONS.openai,
     credentialFieldIds: ["api_key"],
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_size", "image_quality", "image_output_format", "image_timeout_seconds", "base_url"],
@@ -117,27 +136,29 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     label: "GMI",
     integrationId: "gmi",
     modelFieldId: "image_model",
-    models: ["gpt-image-2", "black-forest-labs/FLUX.1-schnell", "black-forest-labs/FLUX.1-Krea-dev"],
-    preconfigured: true,
+    models: IMAGE_MODEL_OPTIONS.gmi,
     credentialFieldIds: ["api_key", "key_delegation_confirmation"],
-    configFieldIds: [],
-    advancedFieldIds: ["image_model", "image_base_url", "image_size", "image_quality", "image_output_format", "image_timeout_seconds"],
-    summary: "GMI Cloud image generation. Add a GMI key and Forma uses provider defaults.",
+    configFieldIds: ["image_model"],
+    advancedFieldIds: [
+      "image_base_url",
+      "image_size",
+      "image_quality",
+      "image_output_format",
+      "image_output_compression",
+      "image_background",
+      "image_moderation",
+      "image_resolution",
+      "image_aspect_ratio",
+      "image_timeout_seconds",
+    ],
+    summary: "GMI Cloud image generation through its native GPT Image endpoint or request queue, with model-specific settings.",
   },
   {
     id: "together",
     label: "Together AI",
     integrationId: "together",
     modelFieldId: "image_model",
-    models: [
-      "openai/gpt-image-2",
-      "black-forest-labs/FLUX.1-schnell-Free",
-      "black-forest-labs/FLUX.1-schnell",
-      "black-forest-labs/FLUX.1.1-pro",
-      "black-forest-labs/FLUX.2-dev",
-      "google/imagen-4.0-fast",
-      "Qwen/Qwen-Image",
-    ],
+    models: IMAGE_MODEL_OPTIONS.together,
     credentialFieldIds: ["api_key", "project_key_confirmation"],
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_base_url", "image_size", "image_steps", "image_output_format", "image_timeout_seconds"],
@@ -148,7 +169,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     label: "OpenAI-compatible",
     integrationId: "image",
     modelFieldId: "model",
-    models: ["gpt-image-2", "black-forest-labs/FLUX.1-schnell", "vendor/image-model"],
+    models: IMAGE_MODEL_OPTIONS["openai-compatible"],
     credentialFieldIds: ["api_key", "base_url"],
     configFieldIds: ["model"],
     advancedFieldIds: ["size", "quality", "output_format", "timeout_seconds"],
@@ -167,7 +188,97 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
   },
 ];
 
-const IMAGE_SETUP_DETAIL_IDS = new Set(["image"]);
+type IntegrationView = "all" | "llm" | "image";
+
+type IntegrationNavigationDefinition = {
+  integrationId: string;
+  view: IntegrationView;
+  label?: string;
+  imageProviderId?: string;
+};
+
+const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: IntegrationNavigationDefinition[] }> = [
+  { id: "workspace", label: "Workspace", items: [{ integrationId: "runtime", view: "all" }] },
+  {
+    id: "llm",
+    label: "Language Model Providers",
+    items: [
+      { integrationId: "openai", view: "llm", label: "OpenAI LLM" },
+      { integrationId: "anthropic", view: "llm" },
+      { integrationId: "gemini", view: "llm" },
+      { integrationId: "baseten", view: "llm" },
+      { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
+      { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },
+      { integrationId: "nvidia", view: "llm" },
+      { integrationId: "runpod", view: "llm" },
+      { integrationId: "ollama", view: "llm" },
+    ],
+  },
+  {
+    id: "image",
+    label: "Image Providers",
+    items: [
+      { integrationId: "openai", view: "image", label: "OpenAI Images", imageProviderId: "openai" },
+      { integrationId: "gmi", view: "image", label: "GMI Cloud Images", imageProviderId: "gmi" },
+      { integrationId: "huggingface", view: "image", label: "Hugging Face Images", imageProviderId: "huggingface" },
+      { integrationId: "together", view: "image", label: "Together AI Images", imageProviderId: "together" },
+      { integrationId: "image", view: "image", label: "Image Output & Custom" },
+    ],
+  },
+  { id: "tools", label: "Tools & Search", items: [{ integrationId: "firecrawl", view: "all" }] },
+];
+
+type IntegrationNavigationItem = IntegrationNavigationDefinition & {
+  key: string;
+  label: string;
+  integration: IntegrationStatus;
+};
+
+type IntegrationNavigationGroup = {
+  id: string;
+  label: string;
+  items: IntegrationNavigationItem[];
+};
+
+function integrationNavigationGroups(integrations: IntegrationStatus[]) {
+  const includedIds = new Set<string>(INTEGRATION_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.integrationId)));
+  const groups: IntegrationNavigationGroup[] = INTEGRATION_NAV_GROUPS.map((group) => ({
+    id: group.id,
+    label: group.label,
+    items: group.items.flatMap((item) => {
+      const integration = integrations.find((candidate) => candidate.id === item.integrationId);
+      if (!integration) return [];
+      return [{ ...item, key: `${item.integrationId}:${item.view}`, label: item.label || integration.label, integration }];
+    }),
+  })).filter((group) => group.items.length > 0);
+  const other = integrations.filter((integration) => !includedIds.has(integration.id));
+  if (other.length) {
+    groups.push({
+      id: "other",
+      label: "Other",
+      items: other.map((integration) => ({
+        integrationId: integration.id,
+        view: "all",
+        key: `${integration.id}:all`,
+        label: integration.label,
+        integration,
+      })),
+    });
+  }
+  return groups;
+}
+
+function navigationDescription(item: IntegrationNavigationItem | null) {
+  if (!item) return "";
+  if (item.view === "llm") return `Language model credentials, models, and connection settings for ${item.integration.label}.`;
+  if (item.view === "image") return `Image generation credentials, models, and rendering settings for ${item.integration.label}.`;
+  return item.integration.description;
+}
+
+function imageNavigationKey(provider: string) {
+  const option = IMAGE_PROVIDER_OPTIONS.find((candidate) => candidate.id === provider);
+  return `${option?.integrationId || "image"}:image`;
+}
 
 function normalizeApiUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
@@ -245,8 +356,13 @@ function newestConfiguredImageProvider(candidates: Array<{ provider: string; int
     .sort((a, b) => String(b.integration?.updated_at || "").localeCompare(String(a.integration?.updated_at || "")))[0]?.provider || "";
 }
 
-function uniqueValues(values: Array<string | null | undefined>) {
-  return Array.from(new Set(values.map((value) => (value || "").trim()).filter(Boolean)));
+function uniqueModelOptions(options: ProviderModelOption[]) {
+  const values = new Set<string>();
+  return options.filter((option) => {
+    if (values.has(option.value)) return false;
+    values.add(option.value);
+    return true;
+  });
 }
 
 async function responseErrorMessage(response: Response, fallback: string) {
@@ -283,6 +399,188 @@ function fieldHasValue(forms: Record<string, IntegrationFormState>, integration:
   return Boolean((forms[integration.id]?.fields[field.id] || "").trim() || field.configured || field.saved);
 }
 
+type IntegrationFieldGroup = {
+  id: string;
+  label: string;
+  description: string;
+  fields: IntegrationFieldStatus[];
+};
+
+const LANGUAGE_MODEL_FIELD_IDS = new Set([
+  "model",
+  "fallback_model",
+  "max_tokens",
+  "model_revision",
+  "model_license",
+  "inference_provider",
+  "gated_models_enabled",
+]);
+
+function integrationFieldGroups(integration: IntegrationStatus, view: IntegrationView = "all"): IntegrationFieldGroup[] {
+  if (integration.id === "runtime") {
+    const runtimeGroups = [
+      {
+        id: "language",
+        label: "Language Model Defaults",
+        description: "Choose the default LLM and optional runtime restrictions.",
+        fieldIds: ["llm_selector", "llm_provider", "llm_model", "allowed_providers"],
+      },
+      {
+        id: "image",
+        label: "Image Defaults",
+        description: "Fallback image provider and model values for generated visuals.",
+        fieldIds: ["image_provider", "image_model"],
+      },
+      {
+        id: "research",
+        label: "Research Tools",
+        description: "Select the external source used for web research.",
+        fieldIds: ["external_source_provider"],
+      },
+    ];
+    return runtimeGroups
+      .map((group) => ({
+        ...group,
+        fields: group.fieldIds
+          .map((fieldId) => integration.fields.find((field) => field.id === fieldId))
+          .filter(Boolean) as IntegrationFieldStatus[],
+      }))
+      .filter((group) => group.fields.length > 0);
+  }
+
+  const groups: IntegrationFieldGroup[] = [
+    { id: "credentials", label: "Credentials", description: "Authentication and required credential-scope confirmations.", fields: [] },
+    { id: "language", label: "Language Models", description: "Text model defaults and generation settings.", fields: [] },
+    { id: "image", label: "Image Generation", description: "Image model defaults and rendering settings.", fields: [] },
+    { id: "video", label: "Video Generation", description: "Video endpoints and model defaults.", fields: [] },
+    { id: "connection", label: "Connection & Advanced", description: "Endpoint, timeout, storage, and provider-specific settings.", fields: [] },
+  ];
+  const byId = new Map(groups.map((group) => [group.id, group]));
+
+  integration.fields.forEach((field) => {
+    if (field.secret || isConfirmationField(field)) {
+      byId.get("credentials")?.fields.push(field);
+    } else if (field.id.startsWith("video_") || field.id === "image_to_video_model") {
+      byId.get("video")?.fields.push(field);
+    } else if (integration.id === "image" || integration.id === "together" || field.id.startsWith("image_")) {
+      byId.get("image")?.fields.push(field);
+    } else if (LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
+      byId.get("language")?.fields.push(field);
+    } else {
+      byId.get("connection")?.fields.push(field);
+    }
+  });
+  const populatedGroups = groups.filter((group) => group.fields.length > 0);
+  if (view === "llm") return populatedGroups.filter((group) => ["credentials", "language", "connection"].includes(group.id));
+  if (view === "image") return populatedGroups.filter((group) => ["credentials", "image"].includes(group.id));
+  return populatedGroups;
+}
+
+function ModelCombobox({
+  id,
+  value,
+  options,
+  placeholder,
+  disabled,
+  suggestionType = "model",
+  onChange,
+}: {
+  id: string;
+  value: string;
+  options: ProviderModelOption[];
+  placeholder: string;
+  disabled?: boolean;
+  suggestionType?: "model" | "setting";
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const normalizedValue = value.trim().toLowerCase();
+  const hasExactMatch = options.some((option) => option.value.toLowerCase() === normalizedValue);
+  const filteredOptions = (normalizedValue && !hasExactMatch
+    ? options.filter((option) => `${option.label} ${option.value} ${option.detail || ""}`.toLowerCase().includes(normalizedValue))
+    : options
+  ).slice(0, 100);
+  const listId = `${id}-options`;
+
+  return (
+    <div
+      className="relative min-w-0 flex-1"
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <div className="flex h-11 border border-[#2c2f37] bg-black focus-within:border-cyan-300">
+        <Search className="ml-3 h-4 w-4 shrink-0 self-center text-slate-600" />
+        <input
+          id={id}
+          role="combobox"
+          aria-autocomplete="list"
+          aria-controls={listId}
+          aria-expanded={open}
+          value={value}
+          onChange={(event) => {
+            onChange(event.target.value);
+            setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder={placeholder}
+          disabled={disabled}
+          autoComplete="off"
+          className="h-full min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-600"
+        />
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          disabled={disabled}
+          aria-label={`Show ${suggestionType} suggestions`}
+          className="inline-flex w-10 shrink-0 items-center justify-center border-l border-[#2c2f37] text-slate-500 hover:bg-white hover:text-black disabled:cursor-not-allowed"
+        >
+          <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
+        </button>
+      </div>
+
+      {open && !disabled && (
+        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto border border-[#3a3d46] bg-[#0f1013] shadow-2xl">
+          {filteredOptions.length ? (
+            filteredOptions.map((option, index) => (
+              <React.Fragment key={option.value}>
+                {option.group && option.group !== filteredOptions[index - 1]?.group && (
+                  <div className="sticky top-0 border-b border-[#3a3d46] bg-[#17181d] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">
+                    {option.group}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  role="option"
+                  aria-selected={option.value === value}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                  }}
+                  className={`block w-full border-b border-[#24262c] px-3 py-3 text-left last:border-b-0 hover:bg-cyan-300/10 ${
+                    option.value === value ? "bg-cyan-300/10" : ""
+                  }`}
+                >
+                  <span className="block text-sm font-black text-white">{option.label}</span>
+                  <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">{option.value}</span>
+                  {option.detail && <span className="mt-1 block text-[11px] text-slate-400">{option.detail}</span>}
+                </button>
+              </React.Fragment>
+            ))
+          ) : (
+            <div className="px-3 py-3 text-xs leading-5 text-slate-400">No matching suggestion. Keep your custom model ID and save it.</div>
+          )}
+          <div className="sticky bottom-0 border-t border-[#3a3d46] bg-[#17181d] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+            {suggestionType === "model"
+              ? `${options.length} suggestions · any model ID is allowed`
+              : "Suggestions only · custom values are allowed"}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 type ImageProviderSetupProps = {
   forms: Record<string, IntegrationFormState>;
   provider: string;
@@ -290,7 +588,7 @@ type ImageProviderSetupProps = {
   providerIntegration: IntegrationStatus | undefined;
   imageIntegration: IntegrationStatus | undefined;
   model: string;
-  modelOptions: string[];
+  modelOptions: ProviderModelOption[];
   saving: boolean;
   showAdvanced: boolean;
   onProviderChange: (provider: string) => void;
@@ -323,7 +621,10 @@ function ImageProviderSetup({
   const enabled = provider !== "none" && (forms.image?.enabled ?? imageIntegration?.enabled ?? true);
   const credentialFields = providerFields(providerIntegration, providerOption.credentialFieldIds);
   const configFields = providerFields(providerIntegration, providerOption.configFieldIds).filter((field) => field.id !== providerOption.modelFieldId);
-  const advancedFields = providerFields(providerIntegration, providerOption.advancedFieldIds);
+  const advancedFieldIds = provider === "gmi"
+    ? ["image_base_url", ...gmiImageSettingFieldIds(model), "image_timeout_seconds"]
+    : providerOption.advancedFieldIds;
+  const advancedFields = providerFields(providerIntegration, advancedFieldIds);
   const missingRequiredFields = credentialFields.filter((field) => !fieldHasValue(forms, providerIntegration, field));
   const readyCount = credentialFields.filter((field) => fieldHasValue(forms, providerIntegration, field)).length;
   const requiredCount = credentialFields.length;
@@ -485,13 +786,12 @@ function ImageProviderSetup({
                   <label htmlFor={`image-model-${providerOption.id}`} className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
                     Image model
                   </label>
-                  <input
+                  <ModelCombobox
                     id={`image-model-${providerOption.id}`}
                     value={model}
-                    onChange={(event) => onModelChange(event.target.value)}
-                    list="image-model-options"
-                    placeholder={providerOption.models[0] || modelField.placeholder || "provider/model-name"}
-                    className="h-11 w-full border border-[#2c2f37] bg-black px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 focus:border-cyan-300"
+                    onChange={onModelChange}
+                    options={modelOptions}
+                    placeholder={providerOption.models[0]?.value || modelField.placeholder || "provider/model-name"}
                   />
                 </div>
               )}
@@ -502,12 +802,6 @@ function ImageProviderSetup({
                   {model ? <span className="font-mono"> Current override: {model}</span> : null}
                 </div>
               )}
-
-              <datalist id="image-model-options">
-                {modelOptions.map((option) => (
-                  <option key={option} value={option} />
-                ))}
-              </datalist>
 
               {configFields.length > 0 && (
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
@@ -565,6 +859,11 @@ function ImageSetupField({
   if (!integration) return null;
   const fieldValue = forms[integration.id]?.fields[field.id] || "";
   const confirmationField = isConfirmationField(field);
+  const isModelField = field.id === "image_model" || field.id === "model";
+  const modelOptions = uniqueModelOptions(modelOptionsForField(integration.id, field.id));
+  const selectedImageModel = forms[integration.id]?.fields.image_model || integrationField(integration, "image_model")?.value || "";
+  const settingOptions = uniqueModelOptions(settingOptionsForField(integration.id, field.id, selectedImageModel));
+  const hasSettingOptions = settingOptions.length > 0;
 
   return (
     <div>
@@ -601,6 +900,16 @@ function ImageSetupField({
           />
           <span>{confirmationLabel(integration, field)}</span>
         </label>
+      ) : isModelField || hasSettingOptions ? (
+        <ModelCombobox
+          id={`image-setup-${integration.id}-${field.id}`}
+          value={fieldValue}
+          options={isModelField ? modelOptions : settingOptions}
+          onChange={(value) => onFieldChange(integration.id, field.id, value)}
+          placeholder={fieldPlaceholder(field)}
+          disabled={!field.editable}
+          suggestionType={isModelField ? "model" : "setting"}
+        />
       ) : (
         <input
           id={`image-setup-${integration.id}-${field.id}`}
@@ -619,21 +928,273 @@ function ImageSetupField({
   );
 }
 
+function IntegrationFieldEditor({
+  integration,
+  field,
+  value,
+  saving,
+  onChange,
+  onClearSaved,
+}: {
+  integration: IntegrationStatus;
+  field: IntegrationFieldStatus;
+  value: string;
+  saving: boolean;
+  onChange: (value: string) => void;
+  onClearSaved: () => void;
+}) {
+  const confirmationField = isConfirmationField(field);
+  const placeholder = field.policy_blocked
+    ? "Not accepted in Forma Cloud"
+    : field.secret && field.masked_value
+    ? `Saved: ${field.masked_value}`
+    : field.placeholder || field.env_names[0] || "";
+  const isModelField = ["model", "fallback_model", "llm_selector", "llm_model", "image_model"].includes(field.id);
+  const modelOptions = uniqueModelOptions(modelOptionsForField(integration.id, field.id));
+  const inputId = `${integration.id}-${field.id}`;
+
+  return (
+    <div className="border border-[#2c2f37] bg-[#141519] p-4">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0">
+          <label htmlFor={inputId} className="text-sm font-black uppercase tracking-wide text-white">
+            {field.label}
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <span className="border border-[#2c2f37] px-2 py-1 text-[10px] font-black uppercase text-slate-500">{sourceLabel(field)}</span>
+            {isModelField && (
+              <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
+                Type or choose
+              </span>
+            )}
+            {field.secret && (
+              <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">Secret</span>
+            )}
+            {field.policy_blocked && (
+              <span className="border border-rose-400/40 bg-rose-500/10 px-2 py-1 text-[10px] font-black uppercase text-rose-200">
+                Not accepted in Cloud
+              </span>
+            )}
+            {!field.policy_blocked && field.policy_conditional && (
+              <span className="border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-200">Conditional</span>
+            )}
+          </div>
+        </div>
+        <p className="min-w-0 break-all font-mono text-[11px] leading-5 text-slate-500 md:text-right">{field.env_names.join(", ")}</p>
+      </div>
+
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        {confirmationField ? (
+          <label
+            htmlFor={inputId}
+            className="flex min-h-11 flex-1 cursor-pointer items-start gap-3 border border-amber-400/35 bg-amber-500/10 px-3 py-3 text-sm leading-5 text-amber-100"
+          >
+            <input
+              id={inputId}
+              type="checkbox"
+              checked={isTruthyFieldValue(value)}
+              onChange={(event) => onChange(event.target.checked ? "confirmed" : "")}
+              disabled={!field.editable}
+              className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-300"
+            />
+            <span>{confirmationLabel(integration, field)}</span>
+          </label>
+        ) : isModelField ? (
+          <ModelCombobox
+            id={inputId}
+            value={value}
+            options={modelOptions}
+            onChange={onChange}
+            placeholder={placeholder}
+            disabled={!field.editable}
+          />
+        ) : (
+          <input
+            id={inputId}
+            type={field.secret ? "password" : "text"}
+            value={value}
+            onChange={(event) => onChange(event.target.value)}
+            placeholder={placeholder}
+            disabled={!field.editable}
+            autoComplete="off"
+            className="h-11 min-w-0 flex-1 border border-[#2c2f37] bg-black px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 focus:border-cyan-300 disabled:cursor-not-allowed disabled:border-rose-400/25 disabled:text-slate-600 disabled:placeholder:text-rose-200/50"
+          />
+        )}
+        {field.saved && (
+          <button
+            type="button"
+            onClick={onClearSaved}
+            disabled={saving}
+            className="inline-flex h-11 items-center justify-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            Clear saved
+          </button>
+        )}
+      </div>
+      {field.help && <p className="mt-2 text-xs leading-5 text-slate-500">{field.help}</p>}
+      {isModelField && <p className="mt-2 text-xs leading-5 text-slate-500">Search the suggestions or enter any model ID supported by this provider.</p>}
+      {field.policy_notice && <p className="mt-2 text-xs leading-5 text-amber-200">{field.policy_notice}</p>}
+    </div>
+  );
+}
+
+function ImageModelTestPanel({
+  provider,
+  model,
+  prompt,
+  running,
+  result,
+  error,
+  errorDetails,
+  onPromptChange,
+  onRun,
+}: {
+  provider: string;
+  model: string;
+  prompt: string;
+  running: boolean;
+  result: ImageModelTestResult | null;
+  error: string | null;
+  errorDetails: unknown;
+  onPromptChange: (value: string) => void;
+  onRun: () => void;
+}) {
+  const diagnostics = result
+    ? {
+        ...result,
+        image_data_url: result.image_data_url.startsWith("data:")
+          ? `<data URL omitted · ${result.image_data_url.length.toLocaleString()} characters>`
+          : result.image_data_url,
+      }
+    : errorDetails;
+
+  return (
+    <section className="mt-4 border border-fuchsia-400/40 bg-[#17181d] p-5">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <FlaskConical className="h-4 w-4 text-fuchsia-300" />
+            <h2 className="text-sm font-black uppercase tracking-wide text-white">Test Image Model</h2>
+            <span className="border border-fuchsia-400/35 bg-fuchsia-400/10 px-2 py-1 text-[10px] font-black uppercase text-fuchsia-200">
+              Local / Preview only
+            </span>
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+            Makes one direct provider request. It does not run the main agent, create a project, or execute the image sequence.
+          </p>
+          <p className="mt-2 break-all font-mono text-[11px] text-cyan-200">
+            {provider || "none"}/{model || "no model"}
+          </p>
+        </div>
+        <div className="border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
+          Uses saved settings and may incur one provider image-generation charge.
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3">
+        <label htmlFor="image-model-test-prompt" className="text-xs font-black uppercase tracking-wide text-white">
+          Test prompt
+        </label>
+        <textarea
+          id="image-model-test-prompt"
+          value={prompt}
+          onChange={(event) => onPromptChange(event.target.value)}
+          rows={3}
+          maxLength={2000}
+          placeholder="A clean studio product render of a compact electronics enclosure..."
+          className="w-full resize-y border border-[#2c2f37] bg-black px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-700 focus:border-fuchsia-300"
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-[11px] text-slate-500">Save provider/model changes above before testing.</span>
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={running || !prompt.trim() || provider === "none" || !model}
+            className="inline-flex h-11 items-center gap-2 bg-fuchsia-300 px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-fuchsia-200 disabled:cursor-wait disabled:opacity-50"
+          >
+            <FlaskConical className={`h-4 w-4 ${running ? "animate-pulse" : ""}`} />
+            {running ? "Testing model..." : "Generate one test image"}
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="mt-5 border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
+          <div className="flex items-center gap-2 font-black uppercase tracking-wide">
+            <AlertTriangle className="h-4 w-4" />
+            Test failed
+          </div>
+          <p className="mt-2 break-words">{error}</p>
+        </div>
+      )}
+
+      {result && (
+        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <div className="flex min-h-72 items-center justify-center border border-[#2c2f37] bg-black p-3">
+            {/* Provider results can be data URLs or short-lived remote URLs, so Next image optimization is not appropriate here. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={result.image_data_url} alt="Direct image model test result" className="max-h-[640px] w-full object-contain" />
+          </div>
+          <div className="grid content-start gap-3">
+            <div className="border border-emerald-400/35 bg-emerald-400/10 p-3 text-emerald-100">
+              <div className="text-[10px] font-black uppercase tracking-widest">Request succeeded</div>
+              <div className="mt-2 font-mono text-sm">{result.elapsed_ms.toLocaleString()} ms</div>
+            </div>
+            <div className="border border-[#2c2f37] p-3 text-xs leading-5 text-slate-400">
+              <div><span className="text-slate-600">Provider:</span> {result.provider}</div>
+              <div><span className="text-slate-600">Model:</span> {result.model}</div>
+              <div><span className="text-slate-600">Size:</span> {result.size || "Provider default"}</div>
+              <div><span className="text-slate-600">Format:</span> {result.output_format}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {diagnostics != null && (
+        <details className="mt-4 border border-[#2c2f37] bg-black">
+          <summary className="cursor-pointer px-3 py-3 text-xs font-black uppercase tracking-widest text-slate-400">
+            Raw diagnostics
+          </summary>
+          <pre className="max-h-96 overflow-auto border-t border-[#2c2f37] p-3 text-[11px] leading-5 text-slate-400">
+            {JSON.stringify(diagnostics, null, 2)}
+          </pre>
+        </details>
+      )}
+    </section>
+  );
+}
+
 export default function UserIntegrationsPage() {
   const { getToken, isLoaded, isSignedIn } = useAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
   const [forms, setForms] = useState<Record<string, IntegrationFormState>>({});
-  const [selectedId, setSelectedId] = useState<string>("runtime");
+  const [selectedNavigationKey, setSelectedNavigationKey] = useState("runtime:all");
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [showImageAdvanced, setShowImageAdvanced] = useState(false);
+  const [imageTestPrompt, setImageTestPrompt] = useState(
+    "A clean studio product render of a compact matte-black electronics enclosure, three-quarter view, neutral background, realistic materials."
+  );
+  const [imageTestRunning, setImageTestRunning] = useState(false);
+  const [imageTestResult, setImageTestResult] = useState<ImageModelTestResult | null>(null);
+  const [imageTestError, setImageTestError] = useState<string | null>(null);
+  const [imageTestErrorDetails, setImageTestErrorDetails] = useState<unknown>(null);
 
-  const selectedIntegration = useMemo(() => {
-    if (!payload?.integrations.length) return null;
-    return payload.integrations.find((integration) => integration.id === selectedId) || payload.integrations[0];
-  }, [payload, selectedId]);
+  const navigationGroups = useMemo(
+    () => integrationNavigationGroups(payload?.integrations || []),
+    [payload]
+  );
+
+  const selectedNavigationItem = useMemo(
+    () => navigationGroups.flatMap((group) => group.items).find((item) => item.key === selectedNavigationKey) || null,
+    [navigationGroups, selectedNavigationKey]
+  );
+
+  const selectedIntegration = selectedNavigationItem?.integration || payload?.integrations[0] || null;
+  const selectedView = selectedNavigationItem?.view || "all";
 
   const integrationById = useCallback(
     (integrationId: string) => payload?.integrations.find((integration) => integration.id === integrationId),
@@ -675,10 +1236,16 @@ export default function UserIntegrationsPage() {
     const providerOption = IMAGE_PROVIDER_OPTIONS.find((option) => option.id === provider) || IMAGE_PROVIDER_OPTIONS[0];
     const providerIntegration = providerOption.integrationId ? integrationById(providerOption.integrationId) : undefined;
     const providerModel = providerOption.modelFieldId ? formFieldValue(forms, providerIntegration, providerOption.modelFieldId) : "";
-    const model = providerModel || (providerOption.preconfigured ? "" : providerOption.models[0] || "");
-    const modelOptions = uniqueValues([model, ...providerOption.models]);
+    const model = providerModel || (providerOption.preconfigured ? "" : providerOption.models[0]?.value || "");
+    const modelOptions = uniqueModelOptions(providerOption.models);
     return { provider: providerOption.id, model, modelOptions, providerOption, providerIntegration };
   }, [forms, integrationById]);
+
+  useEffect(() => {
+    setImageTestResult(null);
+    setImageTestError(null);
+    setImageTestErrorDetails(null);
+  }, [imageDefaults.provider, imageDefaults.model]);
 
   const optionalAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     if (!isSignedIn) return {};
@@ -709,7 +1276,10 @@ export default function UserIntegrationsPage() {
       const data = (await response.json()) as IntegrationsPayload;
       setPayload(data);
       setForms(Object.fromEntries(data.integrations.map((integration) => [integration.id, formFromIntegration(integration)])));
-      setSelectedId((current) => data.integrations.some((integration) => integration.id === current) ? current : data.integrations[0]?.id || "runtime");
+      const availableNavigationItems = integrationNavigationGroups(data.integrations).flatMap((group) => group.items);
+      setSelectedNavigationKey((current) =>
+        availableNavigationItems.some((item) => item.key === current) ? current : availableNavigationItems[0]?.key || "runtime:all"
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load integrations.");
     } finally {
@@ -747,13 +1317,14 @@ export default function UserIntegrationsPage() {
   function updateImageProvider(provider: string) {
     const providerOption = IMAGE_PROVIDER_OPTIONS.find((option) => option.id === provider);
     updateField("image", "provider", provider);
+    setSelectedNavigationKey(imageNavigationKey(provider));
     updateField("image", "enabled", provider === "none" ? "false" : "true");
     updateEnabled("image", provider !== "none");
     if (providerOption?.integrationId) updateEnabled(providerOption.integrationId, provider !== "none");
     if (providerOption?.integrationId && providerOption.modelFieldId && !providerOption.preconfigured) {
       const providerIntegration = integrationById(providerOption.integrationId);
       const existingModel = formFieldValue(forms, providerIntegration, providerOption.modelFieldId);
-      if (!existingModel && providerOption.models[0]) updateField(providerOption.integrationId, providerOption.modelFieldId, providerOption.models[0]);
+      if (!existingModel && providerOption.models[0]) updateField(providerOption.integrationId, providerOption.modelFieldId, providerOption.models[0].value);
     }
   }
 
@@ -873,6 +1444,56 @@ export default function UserIntegrationsPage() {
     }
   }
 
+  async function runImageModelTest() {
+    if (!isSignedIn || !imageTestPrompt.trim()) return;
+    setImageTestRunning(true);
+    setImageTestResult(null);
+    setImageTestError(null);
+    setImageTestErrorDetails(null);
+    try {
+      const response = await fetch(`${API_URL}/user/integrations/image-model-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(await optionalAuthHeaders()) },
+        body: JSON.stringify({
+          provider: imageDefaults.provider,
+          model: imageDefaults.model,
+          prompt: imageTestPrompt.trim(),
+        }),
+      });
+      const responseText = await response.text();
+      let body: ImageModelTestResult & {
+        detail?: string | { message?: string; code?: string; [key: string]: unknown };
+      };
+      try {
+        body = JSON.parse(responseText) as typeof body;
+      } catch {
+        setImageTestError(`Image model test returned HTTP ${response.status} with a non-JSON response.`);
+        setImageTestErrorDetails({
+          status: response.status,
+          status_text: response.statusText,
+          response_preview: responseText.slice(0, 2000),
+        });
+        return;
+      }
+      if (!response.ok) {
+        const detail = body.detail;
+        const message = typeof detail === "string"
+          ? detail
+          : detail?.message || `Image model test failed with HTTP ${response.status}.`;
+        const code = typeof detail === "object" && detail?.code ? ` (${detail.code})` : "";
+        setImageTestError(`${message}${code}`);
+        setImageTestErrorDetails(detail || body);
+        return;
+      }
+      setImageTestResult(body);
+    } catch (err) {
+      setImageTestError(err instanceof Error ? err.message : "Image model test failed.");
+      setImageTestErrorDetails({ error_type: err instanceof Error ? err.name : "UnknownError" });
+    } finally {
+      setImageTestRunning(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-[#141519] font-sans text-slate-100">
       <header className="border-b border-[#292b31] bg-[#141519]/95 px-4 py-4">
@@ -947,45 +1568,58 @@ export default function UserIntegrationsPage() {
           <div className="border-b border-[#2c2f37] p-4">
             <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
               <KeyRound className="h-4 w-4 text-cyan-300" />
-              Model Providers
+              Provider & Model Settings
             </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">
-              {payload?.integrations.length || 0} integrations. Storage:{" "}
-              <span className="break-all font-mono text-slate-400">{payload?.storage || payload?.config_path || "loading"}</span>
-            </p>
+            <p className="mt-3 text-xs leading-5 text-slate-500">Language models, image generation, and tools are separated by purpose.</p>
           </div>
 
           <div className="max-h-[calc(100vh-220px)] overflow-y-auto p-3">
             {loading && !payload ? (
               <div className="border border-[#2c2f37] p-4 text-sm text-slate-500">Loading integrations...</div>
             ) : (
-              payload?.integrations.map((integration) => (
-                <button
-                  key={integration.id}
-                  type="button"
-                  onClick={() => setSelectedId(integration.id)}
-                  className={`mb-3 block w-full border p-4 text-left transition ${
-                    selectedIntegration?.id === integration.id
-                      ? "border-cyan-300 bg-cyan-300/10"
-                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-black uppercase tracking-wide text-white">{integration.label}</span>
-                    <span
-                      className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
-                        integration.configured
-                          ? integration.enabled
-                            ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                            : "border-amber-400/40 bg-amber-500/10 text-amber-300"
-                          : "border-[#2c2f37] text-slate-500"
+              navigationGroups.map((group) => (
+                <section key={group.id} className="mb-5 last:mb-0">
+                  <div className="mb-2 flex items-center gap-2 px-1">
+                    <span className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{group.label}</span>
+                    <span className="h-px flex-1 bg-[#2c2f37]" />
+                  </div>
+                  {group.items.map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => {
+                        if (item.imageProviderId) updateImageProvider(item.imageProviderId);
+                        else setSelectedNavigationKey(item.key);
+                      }}
+                      className={`mb-2 block w-full border p-3 text-left transition ${
+                        selectedNavigationKey === item.key
+                          ? "border-cyan-300 bg-cyan-300/10"
+                          : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
                       }`}
                     >
-                      {integration.configured ? (integration.enabled ? "Ready" : "Off") : "Unset"}
-                    </span>
-                  </div>
-                  <p className="mt-3 line-clamp-2 text-xs leading-5 text-slate-500">{integration.description}</p>
-                </button>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate text-sm font-black uppercase tracking-wide text-white">{item.label}</span>
+                        <span
+                          className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
+                            item.integration.configured
+                              ? item.integration.enabled
+                                ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                                : "border-amber-400/40 bg-amber-500/10 text-amber-300"
+                              : "border-[#2c2f37] text-slate-500"
+                          }`}
+                        >
+                          {item.integration.configured ? (item.integration.enabled ? "Ready" : "Off") : "Unset"}
+                        </span>
+                      </div>
+                      <div className="mt-2 flex items-center justify-between gap-3">
+                        <p className="line-clamp-1 min-w-0 text-xs text-slate-500">{navigationDescription(item)}</p>
+                        <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-cyan-300/70">
+                          {item.view === "llm" ? "LLM" : item.view === "image" ? "Image" : item.integration.id === "firecrawl" ? "Search" : "Defaults"}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </section>
               ))
             )}
           </div>
@@ -1012,7 +1646,7 @@ export default function UserIntegrationsPage() {
             </div>
           )}
 
-          {payload && (
+          {payload && selectedView === "image" && (
             <section className="mb-4 border border-cyan-300/40 bg-[#17181d] p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div className="min-w-0">
@@ -1045,31 +1679,49 @@ export default function UserIntegrationsPage() {
             </section>
           )}
 
-          {payload && selectedIntegration && IMAGE_SETUP_DETAIL_IDS.has(selectedIntegration.id) ? (
-            <ImageProviderSetup
-              forms={forms}
-              provider={imageDefaults.provider}
-              providerOption={imageDefaults.providerOption}
-              providerIntegration={imageDefaults.providerIntegration}
-              imageIntegration={integrationById("image")}
-              model={imageDefaults.model}
-              modelOptions={imageDefaults.modelOptions}
-              saving={savingId !== null}
-              showAdvanced={showImageAdvanced}
-              onProviderChange={updateImageProvider}
-              onModelChange={updateImageModel}
-              onFieldChange={updateField}
-              onEnabledChange={updateEnabled}
-              onSave={saveImageDefaults}
-              onClear={clearIntegration}
-              onToggleAdvanced={() => setShowImageAdvanced((current) => !current)}
-            />
+          {payload && selectedIntegration && selectedView === "image" ? (
+            <>
+              <ImageProviderSetup
+                forms={forms}
+                provider={imageDefaults.provider}
+                providerOption={imageDefaults.providerOption}
+                providerIntegration={imageDefaults.providerIntegration}
+                imageIntegration={integrationById("image")}
+                model={imageDefaults.model}
+                modelOptions={imageDefaults.modelOptions}
+                saving={savingId !== null}
+                showAdvanced={showImageAdvanced}
+                onProviderChange={updateImageProvider}
+                onModelChange={updateImageModel}
+                onFieldChange={updateField}
+                onEnabledChange={updateEnabled}
+                onSave={saveImageDefaults}
+                onClear={clearIntegration}
+                onToggleAdvanced={() => setShowImageAdvanced((current) => !current)}
+              />
+              {payload.image_model_test_available && (
+                <ImageModelTestPanel
+                  provider={imageDefaults.provider}
+                  model={imageDefaults.model}
+                  prompt={imageTestPrompt}
+                  running={imageTestRunning}
+                  result={imageTestResult}
+                  error={imageTestError}
+                  errorDetails={imageTestErrorDetails}
+                  onPromptChange={setImageTestPrompt}
+                  onRun={runImageModelTest}
+                />
+              )}
+            </>
           ) : selectedIntegration ? (
             <article className="border border-[#2c2f37] bg-[#17181d]">
               <div className="flex flex-col gap-4 border-b border-[#2c2f37] p-5 xl:flex-row xl:items-start xl:justify-between">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-black uppercase tracking-wide text-white">{selectedIntegration.label}</h2>
+                    <h2 className="text-xl font-black uppercase tracking-wide text-white">{selectedNavigationItem?.label || selectedIntegration.label}</h2>
+                    {selectedView === "llm" && (
+                      <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">LLM only</span>
+                    )}
                     <span
                       className={`border px-2 py-1 text-[10px] font-black uppercase ${
                         selectedIntegration.configured
@@ -1085,7 +1737,7 @@ export default function UserIntegrationsPage() {
                       </span>
                     )}
                   </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{selectedIntegration.description}</p>
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{navigationDescription(selectedNavigationItem)}</p>
                   {selectedIntegration.policy_notice && (
                     <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{selectedIntegration.policy_notice}</p>
                   )}
@@ -1123,95 +1775,28 @@ export default function UserIntegrationsPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 p-5">
-                {selectedIntegration.fields.map((field) => {
-                  const fieldValue = forms[selectedIntegration.id]?.fields[field.id] || "";
-                  const confirmationField = isConfirmationField(field);
-                  const placeholder = field.policy_blocked
-                    ? "Not accepted in Forma Cloud"
-                    : field.secret && field.masked_value
-                    ? `Saved: ${field.masked_value}`
-                    : field.placeholder || field.env_names[0] || "";
-                  return (
-                    <div key={field.id} className="border border-[#2c2f37] bg-[#141519] p-4">
-                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                        <div className="min-w-0">
-                          <label htmlFor={`${selectedIntegration.id}-${field.id}`} className="text-sm font-black uppercase tracking-wide text-white">
-                            {field.label}
-                          </label>
-                          <div className="mt-2 flex flex-wrap gap-2">
-                            <span className="border border-[#2c2f37] px-2 py-1 text-[10px] font-black uppercase text-slate-500">
-                              {sourceLabel(field)}
-                            </span>
-                            {field.secret && (
-                              <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-                                Secret
-                              </span>
-                            )}
-                            {field.policy_blocked && (
-                              <span className="border border-rose-400/40 bg-rose-500/10 px-2 py-1 text-[10px] font-black uppercase text-rose-200">
-                                Not accepted in Cloud
-                              </span>
-                            )}
-                            {!field.policy_blocked && field.policy_conditional && (
-                              <span className="border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-200">
-                                Conditional
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <div className="min-w-0 text-left md:text-right">
-                          <p className="break-all font-mono text-[11px] leading-5 text-slate-500">
-                            {field.env_names.join(", ")}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-                        {confirmationField ? (
-                          <label
-                            htmlFor={`${selectedIntegration.id}-${field.id}`}
-                            className="flex min-h-11 flex-1 cursor-pointer items-start gap-3 border border-amber-400/35 bg-amber-500/10 px-3 py-3 text-sm leading-5 text-amber-100"
-                          >
-                            <input
-                              id={`${selectedIntegration.id}-${field.id}`}
-                              type="checkbox"
-                              checked={isTruthyFieldValue(fieldValue)}
-                              onChange={(event) => updateField(selectedIntegration.id, field.id, event.target.checked ? "confirmed" : "")}
-                              disabled={!field.editable}
-                              className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-300"
-                            />
-                            <span>{confirmationLabel(selectedIntegration, field)}</span>
-                          </label>
-                        ) : (
-                          <input
-                            id={`${selectedIntegration.id}-${field.id}`}
-                            type={field.secret ? "password" : "text"}
-                            value={fieldValue}
-                            onChange={(event) => updateField(selectedIntegration.id, field.id, event.target.value)}
-                            placeholder={placeholder}
-                            disabled={!field.editable}
-                            autoComplete="off"
-                            className="h-11 min-w-0 flex-1 border border-[#2c2f37] bg-black px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 focus:border-cyan-300 disabled:cursor-not-allowed disabled:border-rose-400/25 disabled:text-slate-600 disabled:placeholder:text-rose-200/50"
-                          />
-                        )}
-                        {field.saved && (
-                          <button
-                            type="button"
-                            onClick={() => saveIntegration(selectedIntegration, [field.id])}
-                            disabled={savingId === selectedIntegration.id}
-                            className="inline-flex h-11 items-center justify-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                            Clear saved
-                          </button>
-                        )}
-                      </div>
-                      {field.help && <p className="mt-2 text-xs leading-5 text-slate-500">{field.help}</p>}
-                      {field.policy_notice && <p className="mt-2 text-xs leading-5 text-amber-200">{field.policy_notice}</p>}
+              <div className="grid gap-5 p-5">
+                {integrationFieldGroups(selectedIntegration, selectedView).map((group) => (
+                  <section key={group.id} className="border border-[#2c2f37] bg-[#101115] p-4">
+                    <div className="mb-4 border-b border-[#2c2f37] pb-4">
+                      <h3 className="text-sm font-black uppercase tracking-wide text-white">{group.label}</h3>
+                      <p className="mt-2 text-xs leading-5 text-slate-500">{group.description}</p>
                     </div>
-                  );
-                })}
+                    <div className="grid gap-4">
+                      {group.fields.map((field) => (
+                        <IntegrationFieldEditor
+                          key={field.id}
+                          integration={selectedIntegration}
+                          field={field}
+                          value={forms[selectedIntegration.id]?.fields[field.id] || ""}
+                          saving={savingId === selectedIntegration.id}
+                          onChange={(value) => updateField(selectedIntegration.id, field.id, value)}
+                          onClearSaved={() => saveIntegration(selectedIntegration, [field.id])}
+                        />
+                      ))}
+                    </div>
+                  </section>
+                ))}
               </div>
             </article>
           ) : (

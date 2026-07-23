@@ -357,6 +357,47 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIsNone(provider.temperature)
         self.assertTrue(provider.is_configured)
 
+    def test_gmi_json_schema_closes_object_schema(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="gmi",
+            LLM_ALLOWED_PROVIDERS="gmi,simulation",
+            GMI_API_KEY="gmi_test",
+            GMI_MODEL="anthropic/claude-fable-5",
+            GMI_RESPONSE_FORMAT="json_schema",
+            GMI_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("gmi", "anthropic/claude-fable-5")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "title": "Test Project",
+                                    "description": "A test project.",
+                                    "difficulty": "Beginner",
+                                    "estimated_cost": 1.0,
+                                    "category": "IoT",
+                                }
+                            )
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+
+        provider._request_json = fake_request
+        provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        schema = payloads[0]["response_format"]["json_schema"]["schema"]
+        self.assertEqual(False, schema["additionalProperties"])
+
     def test_openai_provider_uses_max_completion_tokens(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="openai",

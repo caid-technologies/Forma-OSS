@@ -4,8 +4,10 @@ import io
 import json
 import logging
 import os
+import time
 import uuid
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
@@ -27,6 +29,7 @@ DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_GMI_IMAGE_BASE_URL = "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests/v1"
 DEFAULT_GMI_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_GMI_IMAGE_QUALITY = "medium"
+DEFAULT_GMI_IMAGE_POLL_INTERVAL_SECONDS = 2.0
 DEFAULT_TOGETHER_IMAGE_BASE_URL = "https://api.together.ai/v1"
 DEFAULT_TOGETHER_IMAGE_MODEL = "openai/gpt-image-2"
 DEFAULT_TOGETHER_IMAGE_STEPS = 4
@@ -34,6 +37,14 @@ DEFAULT_IMAGE_SIZE = "1024x1024"
 DEFAULT_IMAGE_TIMEOUT_SECONDS = 120.0
 HUGGINGFACE_IMAGE_PROMPT_MAX_CHARS = 6000
 HUGGINGFACE_IMAGE_PROMPT_TARGET_CHARS = 4000
+
+GMI_GEMINI_IMAGE_MODELS = {
+    "gemini-2.5-flash-image",
+    "gemini-3-pro-image-preview",
+    "gemini-3.1-flash-image-preview",
+}
+GMI_WAN_IMAGE_MODELS = {"wan2.7-image", "wan2.7-image-pro"}
+GMI_SEEDREAM_5_IMAGE_MODELS = {"seedream-5.0-lite", "seedream-5.0-pro"}
 
 
 @dataclass
@@ -108,6 +119,17 @@ def _first_env_int(names: List[str], default: int) -> int:
         return default
 
 
+def _first_env_optional_int(names: List[str]) -> Optional[int]:
+    raw_value = _first_env(names)
+    if raw_value is None:
+        return None
+    try:
+        return int(raw_value)
+    except ValueError:
+        logger.warning("Invalid optional image integer config value %r; ignoring it.", raw_value)
+        return None
+
+
 def _truncate(value: Any, limit: int) -> str:
     text = str(value or "").strip()
     if len(text) <= limit:
@@ -163,6 +185,21 @@ class ImageProvider:
     def generate_project_image_sequence(self, user_prompt: str, ir: Any) -> List[GeneratedImage]:
         image = self.generate_project_image(user_prompt, ir)
         return [image] if image else []
+
+    def generate_test_image(self, prompt: str) -> GeneratedImage:
+        """Generate one image directly, without running the project or agent pipeline."""
+        if not self.is_configured:
+            reason = self.get_debug_config().get("reason") or "Image provider is not configured."
+            raise RuntimeError(str(reason))
+        generator = getattr(self, "_generate_image_from_prompt", None)
+        if not callable(generator):
+            raise RuntimeError(f"{self.provider_name} does not support direct image model tests.")
+        return generator(
+            prompt,
+            view_id="image-model-test",
+            label="Image model test",
+            reference_view_id=None,
+        )
 
 
 class NoImageProvider(ImageProvider):
@@ -539,20 +576,57 @@ class GMIImageProvider(OpenAIImageProvider):
             _first_env(["GMI_IMAGE_MODEL", "GMI_CLOUD_IMAGE_MODEL", "GMICLOUD_IMAGE_MODEL", "IMAGE_MODEL"], DEFAULT_GMI_IMAGE_MODEL)
             or DEFAULT_GMI_IMAGE_MODEL
         )
-        self.size = _first_env(["GMI_IMAGE_SIZE", "GMI_CLOUD_IMAGE_SIZE", "GMICLOUD_IMAGE_SIZE", "IMAGE_SIZE"], DEFAULT_IMAGE_SIZE) or DEFAULT_IMAGE_SIZE
+        default_size = "2048x2048" if self.model_name in GMI_SEEDREAM_5_IMAGE_MODELS else DEFAULT_IMAGE_SIZE
+        self.size = _first_env(
+            ["GMI_IMAGE_SIZE", "GMI_CLOUD_IMAGE_SIZE", "GMICLOUD_IMAGE_SIZE", "IMAGE_SIZE"],
+            default_size,
+        ) or default_size
         self.quality = _first_env(
             ["GMI_IMAGE_QUALITY", "GMI_CLOUD_IMAGE_QUALITY", "GMICLOUD_IMAGE_QUALITY", "IMAGE_QUALITY"],
             DEFAULT_GMI_IMAGE_QUALITY,
         )
-        self.output_format = (
-            _first_env(["GMI_IMAGE_OUTPUT_FORMAT", "GMI_CLOUD_IMAGE_OUTPUT_FORMAT", "GMICLOUD_IMAGE_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"], "png")
-            or "png"
+        default_output_format = "jpeg" if self.model_name == "seedream-5.0-pro" else "png"
+        self.output_format = _first_env(
+            ["GMI_IMAGE_OUTPUT_FORMAT", "GMI_CLOUD_IMAGE_OUTPUT_FORMAT", "GMICLOUD_IMAGE_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"],
+            default_output_format,
+        ) or default_output_format
+        self.output_compression = _first_env_optional_int(
+            ["GMI_IMAGE_OUTPUT_COMPRESSION", "GMI_CLOUD_IMAGE_OUTPUT_COMPRESSION"]
         )
+        if self.output_compression is not None and not 0 <= self.output_compression <= 100:
+            logger.warning("GMI image output compression must be between 0 and 100; ignoring %s.", self.output_compression)
+            self.output_compression = None
+        self.background = _first_env(["GMI_IMAGE_BACKGROUND", "GMI_CLOUD_IMAGE_BACKGROUND"], "auto") or "auto"
+        self.moderation = _first_env(["GMI_IMAGE_MODERATION", "GMI_CLOUD_IMAGE_MODERATION"], "auto") or "auto"
+        default_resolution = "2K" if self.model_name in GMI_WAN_IMAGE_MODELS else "1K"
+        self.resolution = (
+            _first_env(["GMI_IMAGE_RESOLUTION", "GMI_CLOUD_IMAGE_RESOLUTION"], default_resolution)
+            or default_resolution
+        )
+        self.aspect_ratio = _first_env(["GMI_IMAGE_ASPECT_RATIO", "GMI_CLOUD_IMAGE_ASPECT_RATIO"], "1:1") or "1:1"
+        self.seed = _first_env_optional_int(["GMI_IMAGE_SEED", "GMI_CLOUD_IMAGE_SEED"])
+        self.prompt_upsampling = _first_env_bool(["GMI_IMAGE_PROMPT_UPSAMPLING", "GMI_CLOUD_IMAGE_PROMPT_UPSAMPLING"], default=False)
+        self.safety_tolerance = _first_env_int(["GMI_IMAGE_SAFETY_TOLERANCE", "GMI_CLOUD_IMAGE_SAFETY_TOLERANCE"], 2)
+        if not 0 <= self.safety_tolerance <= 6:
+            logger.warning("GMI image safety tolerance must be between 0 and 6; using 2.")
+            self.safety_tolerance = 2
+        self.sequential_generation = (
+            _first_env(["GMI_IMAGE_SEQUENTIAL_GENERATION", "GMI_CLOUD_IMAGE_SEQUENTIAL_GENERATION"], "disabled") or "disabled"
+        )
+        self.watermark = _first_env_bool(["GMI_IMAGE_WATERMARK", "GMI_CLOUD_IMAGE_WATERMARK"], default=False)
         self.timeout_seconds = _first_env_float(
             ["GMI_IMAGE_TIMEOUT_SECONDS", "GMI_CLOUD_IMAGE_TIMEOUT_SECONDS", "GMICLOUD_IMAGE_TIMEOUT_SECONDS", "IMAGE_TIMEOUT_SECONDS"],
             DEFAULT_IMAGE_TIMEOUT_SECONDS,
         )
-        self.prompt_max_chars = _first_env_int(["GMI_IMAGE_PROMPT_MAX_CHARS", "IMAGE_PROMPT_MAX_CHARS"], OPENAI_IMAGE_PROMPT_MAX_CHARS)
+        self.poll_interval_seconds = _first_env_float(
+            ["GMI_IMAGE_POLL_INTERVAL_SECONDS", "GMI_CLOUD_IMAGE_POLL_INTERVAL_SECONDS"],
+            DEFAULT_GMI_IMAGE_POLL_INTERVAL_SECONDS,
+        )
+        documented_prompt_max = 2000 if self.model_name == "flux-kontext-pro" else 5000 if self.model_name in GMI_WAN_IMAGE_MODELS else OPENAI_IMAGE_PROMPT_MAX_CHARS
+        self.prompt_max_chars = _first_env_int(
+            ["GMI_IMAGE_PROMPT_MAX_CHARS", "IMAGE_PROMPT_MAX_CHARS"],
+            documented_prompt_max,
+        )
         self.prompt_target_chars = _first_env_int(
             ["GMI_IMAGE_PROMPT_TARGET_CHARS", "IMAGE_PROMPT_TARGET_CHARS"],
             DEFAULT_IMAGE_PROMPT_TARGET_CHARS,
@@ -560,6 +634,149 @@ class GMIImageProvider(OpenAIImageProvider):
         self.prompt_compactor = PromptCompactionAgent()
         self.allow_no_api_key = _first_env_bool(["GMI_IMAGE_ALLOW_NO_API_KEY", "IMAGE_ALLOW_NO_API_KEY"], default=False)
         self.is_configured = bool(self.enabled and self.base_url and self.model_name and (self.api_key or self.allow_no_api_key))
+
+    def _queue_base_url(self) -> str:
+        base_url = self.base_url.rstrip("/")
+        marker = "/api/v1/ie/requestqueue/apikey/requests"
+        if marker in base_url:
+            return f"{base_url.split(marker, 1)[0]}{marker}"
+        if base_url.endswith("/v1"):
+            return base_url[:-3]
+        return base_url
+
+    def _request_queue_json(
+        self,
+        *,
+        method: str,
+        request_id: Optional[str] = None,
+        payload: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        url = self._queue_base_url()
+        if request_id:
+            url = f"{url}/{urllib.parse.quote(request_id, safe='')}"
+        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        request = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+                body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"GMI image queue request failed with HTTP {exc.code}: {detail[:500]}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"GMI image queue request failed: {exc}") from exc
+        return json.loads(body) if body.strip() else {}
+
+    def _wait_for_queue_image(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        deadline = time.monotonic() + self.timeout_seconds
+        current = response
+        while True:
+            status = str(current.get("status") or "").strip().lower()
+            if status == "success" or _first_image_item(current):
+                return current
+            if status in {"failed", "cancelled"}:
+                detail = current.get("error") or current.get("message") or current.get("outcome") or status
+                raise RuntimeError(f"GMI image queue request {status}: {_truncate(detail, 500)}")
+            request_id = str(current.get("request_id") or "").strip()
+            if not request_id:
+                raise RuntimeError("GMI image queue response did not include request_id or image output.")
+            if time.monotonic() >= deadline:
+                raise TimeoutError(f"GMI image queue request {request_id} timed out after {self.timeout_seconds:.1f}s.")
+            time.sleep(max(0.1, min(self.poll_interval_seconds, deadline - time.monotonic())))
+            current = self._request_queue_json(method="GET", request_id=request_id)
+
+    def _queue_payload(self, prompt: str) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {"prompt": prompt}
+        if self.model_name in GMI_GEMINI_IMAGE_MODELS:
+            payload["image_size"] = self.resolution
+            payload["aspect_ratio"] = self.aspect_ratio
+            payload["image_output_format"] = self.output_format
+        elif self.model_name == "gpt-image-2-generate":
+            payload["size"] = self.size
+            payload["quality"] = self.quality
+            payload["output_format"] = self.output_format
+            payload["n"] = 1
+        elif self.model_name == "gpt-image-1.5":
+            payload["size"] = self.size
+            payload["quality"] = self.quality
+            payload["output_format"] = self.output_format
+            payload["background"] = self.background
+            payload["n"] = 1
+            if self.output_format.lower() in {"jpeg", "jpg", "webp"} and self.output_compression is not None:
+                payload["output_compression"] = self.output_compression
+        elif self.model_name == "flux-kontext-pro":
+            payload["aspect_ratio"] = self.aspect_ratio
+            payload["prompt_upsampling"] = self.prompt_upsampling
+            payload["safety_tolerance"] = self.safety_tolerance
+            payload["output_format"] = self.output_format
+            if self.seed is not None:
+                payload["seed"] = self.seed
+        elif self.model_name in GMI_SEEDREAM_5_IMAGE_MODELS:
+            payload["size"] = self.size
+            payload["output_format"] = self.output_format
+            payload["max_images"] = 1
+            payload["sequential_image_generation"] = self.sequential_generation
+            payload["watermark"] = self.watermark
+        elif self.model_name in GMI_WAN_IMAGE_MODELS:
+            payload = {"text": prompt, "size": self.resolution, "n": 1}
+        return payload
+
+    def _generate_image_from_prompt(
+        self,
+        image_prompt: str,
+        *,
+        view_id: str,
+        label: str,
+        reference_view_id: Optional[str],
+    ) -> GeneratedImage:
+        prompt_result = self._compact_image_prompt(image_prompt, view_id=view_id)
+        if self.model_name == "gpt-image-2":
+            payload: Dict[str, Any] = {
+                "model": self.model_name,
+                "prompt": prompt_result.prompt,
+                "size": self.size,
+                "quality": self.quality,
+                "output_format": self.output_format,
+                "background": self.background,
+                "moderation": self.moderation,
+                "n": 1,
+            }
+            if self.output_format.lower() in {"jpeg", "jpg"} and self.output_compression is not None:
+                payload["output_compression"] = self.output_compression
+            response = self._request_json("images/generations", method="POST", payload=payload)
+            reported_size = self.size
+        else:
+            response = self._request_queue_json(
+                method="POST",
+                payload={"model": self.model_name, "payload": self._queue_payload(prompt_result.prompt)},
+            )
+            response = self._wait_for_queue_image(response)
+            if self.model_name in GMI_GEMINI_IMAGE_MODELS:
+                reported_size = f"{self.resolution} {self.aspect_ratio}"
+            elif self.model_name in GMI_WAN_IMAGE_MODELS:
+                reported_size = self.resolution
+            elif self.model_name == "flux-kontext-pro":
+                reported_size = self.aspect_ratio
+            else:
+                reported_size = self.size
+
+        item = _first_image_item(response)
+        if not item:
+            raise RuntimeError("GMI image response did not include image data.")
+        return GeneratedImage(
+            data_url=_image_data_url_from_item(item, self.output_format, self.provider_name),
+            provider=self.provider_name,
+            model=self.model_name,
+            size=reported_size,
+            prompt=prompt_result.prompt,
+            output_format=self.output_format,
+            view_id=view_id,
+            label=label,
+            reference_view_id=reference_view_id,
+            prompt_original_length=prompt_result.original_length,
+            prompt_final_length=prompt_result.final_length,
+            prompt_compacted=prompt_result.was_compacted,
+            prompt_compaction_strategy=prompt_result.strategy,
+        )
 
     def get_debug_config(self) -> Dict[str, Any]:
         reason = None
@@ -578,6 +795,17 @@ class GMIImageProvider(OpenAIImageProvider):
             "size": self.size,
             "quality": self.quality,
             "output_format": self.output_format,
+            "output_compression": self.output_compression,
+            "background": self.background,
+            "moderation": self.moderation,
+            "resolution": self.resolution,
+            "aspect_ratio": self.aspect_ratio,
+            "seed": self.seed,
+            "prompt_upsampling": self.prompt_upsampling,
+            "safety_tolerance": self.safety_tolerance,
+            "sequential_generation": self.sequential_generation,
+            "watermark": self.watermark,
+            "request_mode": "native-openai" if self.model_name == "gpt-image-2" else "gmi-request-queue",
             "prompt_max_chars": self.prompt_max_chars,
             "prompt_target_chars": self.prompt_target_chars,
             "reason": reason,
@@ -972,6 +1200,19 @@ def _first_image_item(response: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                             key in nested_item for key in {"b64_json", "base64", "image_base64", "url"}
                         ):
                             return nested_item
+
+    outcome = response.get("outcome")
+    if isinstance(outcome, dict):
+        media_urls = outcome.get("media_urls")
+        if isinstance(media_urls, list):
+            for media_item in media_urls:
+                if isinstance(media_item, dict) and isinstance(media_item.get("url"), str):
+                    return media_item
+                if isinstance(media_item, str) and media_item.strip():
+                    return {"url": media_item.strip()}
+        thumbnail_url = outcome.get("thumbnail_image_url")
+        if isinstance(thumbnail_url, str) and thumbnail_url.strip():
+            return {"url": thumbnail_url.strip()}
     return None
 
 

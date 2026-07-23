@@ -38,8 +38,19 @@ class AgentPipelineEvent:
 
 
 PipelineEventCallback = Callable[[AgentPipelineEvent], None]
+PipelineCancellationCheck = Callable[[], bool]
+
+
+class PipelineCancelledError(RuntimeError):
+    """Raised when a caller cancels an active agent pipeline."""
+
+
 _PIPELINE_EVENT_CALLBACK: contextvars.ContextVar[Optional[PipelineEventCallback]] = contextvars.ContextVar(
     "blueprint_pipeline_event_callback",
+    default=None,
+)
+_PIPELINE_CANCELLATION_CHECK: contextvars.ContextVar[Optional[PipelineCancellationCheck]] = contextvars.ContextVar(
+    "blueprint_pipeline_cancellation_check",
     default=None,
 )
 
@@ -275,12 +286,23 @@ def emit_agent_pipeline_event(
 
 
 @contextlib.contextmanager
-def observe_agent_pipeline(callback: PipelineEventCallback) -> Iterator[None]:
-    token = _PIPELINE_EVENT_CALLBACK.set(callback)
+def observe_agent_pipeline(
+    callback: PipelineEventCallback,
+    cancellation_check: Optional[PipelineCancellationCheck] = None,
+) -> Iterator[None]:
+    callback_token = _PIPELINE_EVENT_CALLBACK.set(callback)
+    cancellation_token = _PIPELINE_CANCELLATION_CHECK.set(cancellation_check)
     try:
         yield
     finally:
-        _PIPELINE_EVENT_CALLBACK.reset(token)
+        _PIPELINE_CANCELLATION_CHECK.reset(cancellation_token)
+        _PIPELINE_EVENT_CALLBACK.reset(callback_token)
+
+
+def ensure_agent_pipeline_active() -> None:
+    cancellation_check = _PIPELINE_CANCELLATION_CHECK.get()
+    if cancellation_check is not None and cancellation_check():
+        raise PipelineCancelledError("Agent pipeline was cancelled.")
 
 
 @contextlib.contextmanager

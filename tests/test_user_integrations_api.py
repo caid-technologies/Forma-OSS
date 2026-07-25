@@ -13,11 +13,13 @@ from backend.user_integrations_api import (
     ImageModelTestRequest,
     IntegrationUpdateRequest,
     get_user_integrations,
+    _store_for_auth,
     image_model_test_available,
     router,
     test_image_model,
     update_user_integration,
 )
+from blueprint_core.user_integrations import SupabaseUserIntegrationStore, SupabaseWorkspaceIntegrationStore
 
 
 class BrokenIntegrationStore:
@@ -37,6 +39,23 @@ class PersistThenBrokenReloadStore(BrokenIntegrationStore):
 
 
 class UserIntegrationsApiAuthTests(unittest.TestCase):
+    def test_local_mode_uses_encrypted_workspace_store_even_if_clerk_claims_are_present(self) -> None:
+        workspace_store = SupabaseWorkspaceIntegrationStore()
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=False), patch(
+            "backend.user_integrations_api.default_integration_store",
+            return_value=workspace_store,
+        ):
+            self.assertIs(workspace_store, _store_for_auth({"sub": "user_should_be_ignored"}))
+
+    def test_clerk_mode_uses_authenticated_user_store(self) -> None:
+        user_store = SupabaseUserIntegrationStore("user_test")
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=False), patch(
+            "backend.user_integrations_api.UserIntegrationStore.for_user",
+            return_value=user_store,
+        ) as for_user:
+            self.assertIs(user_store, _store_for_auth({"sub": "user_test"}))
+        for_user.assert_called_once_with("user_test")
+
     def test_user_integration_routes_require_deployed_auth(self) -> None:
         routes = [route for route in router.routes if isinstance(route, APIRoute)]
         self.assertGreaterEqual(len(routes), 4)

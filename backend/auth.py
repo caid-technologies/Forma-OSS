@@ -9,9 +9,7 @@ import jwt
 from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
 
-
-def _truthy(value: Optional[str]) -> bool:
-    return bool(value and value.strip().lower() in {"1", "true", "yes", "on"})
+from backend.auth_mode import clerk_auth_required
 
 
 def _csv_env(name: str) -> Set[str]:
@@ -23,10 +21,8 @@ def _csv_env(name: str) -> Set[str]:
 
 
 def deployed_auth_required() -> bool:
-    explicit = os.getenv("BLUEPRINT_AUTH_REQUIRED")
-    if explicit is not None:
-        return _truthy(explicit)
-    return os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
+    """Backward-compatible name for the explicit Clerk auth-mode check."""
+    return clerk_auth_required()
 
 
 def _issuer_from_publishable_key(value: Optional[str]) -> Optional[str]:
@@ -198,15 +194,17 @@ def _request_bearer_token(request: Request) -> Optional[str]:
 
 
 async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
+    if not deployed_auth_required():
+        return None
     token = _request_bearer_token(request)
     if token:
         return verify_clerk_bearer_token(token)
-    if not deployed_auth_required():
-        return None
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
 
 
 async def optional_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
+    if not deployed_auth_required():
+        return None
     token = _request_bearer_token(request)
     if token:
         return verify_clerk_bearer_token(token)

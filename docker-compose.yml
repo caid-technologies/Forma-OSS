@@ -8,6 +8,9 @@ services:
     image: blueprint-backend:local
     restart: unless-stopped
     environment:
+      BLUEPRINT_AUTH_MODE: ${BLUEPRINT_AUTH_MODE:-local}
+      BLUEPRINT_USER_SECRETS_KEY: ${BLUEPRINT_USER_SECRETS_KEY:-}
+      BLUEPRINT_WORKSPACE_SECRETS_KEY: ${BLUEPRINT_WORKSPACE_SECRETS_KEY:-}
       BLUEPRINT_DEV_MODE: ${BLUEPRINT_DEV_MODE:-}
       BLUEPRINT_DEBUG: ${BLUEPRINT_DEBUG:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
@@ -90,6 +93,7 @@ services:
     image: blueprint-frontend:local
     restart: unless-stopped
     environment:
+      BLUEPRINT_AUTH_MODE: ${BLUEPRINT_AUTH_MODE:-local}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       NEXT_PUBLIC_BLUEPRINT_DEBUG: ${NEXT_PUBLIC_BLUEPRINT_DEBUG:-${BLUEPRINT_DEBUG:-false}}
       NEXT_PUBLIC_BLUEPRINT_DEV_MODE: ${NEXT_PUBLIC_BLUEPRINT_DEV_MODE:-${BLUEPRINT_DEV_MODE:-false}}

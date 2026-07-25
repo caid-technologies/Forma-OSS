@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from blueprint_core import user_integrations
 from blueprint_core.user_integrations import (
+    EncryptedFileIntegrationStore,
     SupabaseUserIntegrationStore,
     SupabaseWorkspaceIntegrationStore,
     UserIntegrationStore,
@@ -857,10 +858,10 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertTrue(api_key_payload["configured"])
             self.assertTrue(confirmation_payload["configured"])
 
-    def test_default_store_uses_local_file_unless_workspace_backend_is_supabase(self) -> None:
+    def test_default_store_uses_encrypted_local_file_unless_workspace_backend_is_supabase(self) -> None:
         with isolated_integration_env():
             os.environ.pop("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", None)
-            self.assertIs(type(default_integration_store()), UserIntegrationStore)
+            self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
 
     def test_user_store_uses_supabase_when_supabase_is_configured(self) -> None:
         with isolated_integration_env():
@@ -872,7 +873,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertIsInstance(store, SupabaseUserIntegrationStore)
             self.assertEqual("supabase:user_integration_configs/user_123", store.storage_label)
 
-    def test_user_store_file_backend_override_uses_local_file(self) -> None:
+    def test_user_store_file_backend_override_uses_encrypted_local_file(self) -> None:
         with isolated_integration_env():
             os.environ["BLUEPRINT_USER_INTEGRATIONS_BACKEND"] = "file"
             os.environ["SUPABASE_URL"] = "https://example.supabase.co"
@@ -880,8 +881,27 @@ class UserIntegrationTests(unittest.TestCase):
 
             store = UserIntegrationStore.for_user("user_123")
 
-            self.assertIs(type(store), UserIntegrationStore)
+            self.assertIsInstance(store, EncryptedFileIntegrationStore)
             self.assertIn("user_123", str(store.path))
+
+    def test_encrypted_file_store_never_writes_secret_plaintext(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["BLUEPRINT_USER_SECRETS_KEY"] = "test-encryption-key"
+            store = EncryptedFileIntegrationStore(Path(tmpdir) / "workspace.enc.json")
+
+            store.update_integration(
+                "openai",
+                field_values={"api_key": "sk-must-not-appear", "model": "gpt-5.5"},
+            )
+
+            contents = store.path.read_text(encoding="utf-8")
+            self.assertNotIn("sk-must-not-appear", contents)
+            self.assertNotIn("gpt-5.5", contents)
+            self.assertIn("encrypted_config", contents)
+            loaded = store.load().integration_by_id("openai")
+            self.assertIsNotNone(loaded)
+            self.assertEqual("sk-must-not-appear", loaded.field_value("api_key"))
+            self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
     def test_default_store_uses_supabase_workspace_when_supabase_is_configured(self) -> None:
         with isolated_integration_env():

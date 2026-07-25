@@ -11,9 +11,10 @@ from pydantic import BaseModel, Field
 from blueprint_core.user_integrations import (
     UserIntegrationStore,
     apply_user_integrations_to_environment,
+    default_integration_store,
     integration_status_payload,
 )
-from backend.auth import clerk_user_id, require_deployed_clerk_auth
+from backend.auth import clerk_user_id, deployed_auth_required, require_deployed_clerk_auth
 from blueprint_core.debug import api_error_detail, redact_debug_text, redact_debug_value
 from blueprint_core.images import build_image_provider
 from blueprint_core.runtime import deployment_mode_enabled
@@ -51,7 +52,12 @@ def _status_payload(store: UserIntegrationStore) -> dict[str, object]:
 
 
 def _store_for_auth(auth_claims: Any) -> UserIntegrationStore:
-    return UserIntegrationStore.for_user(clerk_user_id(auth_claims))
+    if not deployed_auth_required():
+        return default_integration_store()
+    owner_user_id = clerk_user_id(auth_claims)
+    if not owner_user_id:
+        raise HTTPException(status_code=401, detail="Sign in to manage provider settings.")
+    return UserIntegrationStore.for_user(owner_user_id)
 
 
 def _storage_label(store: UserIntegrationStore) -> str:

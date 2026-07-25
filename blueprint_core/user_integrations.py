@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_DIR = ".blueprint"
 DEFAULT_CONFIG_FILENAME = "user-integrations.json"
+DEFAULT_ENCRYPTED_CONFIG_FILENAME = "workspace-integrations.enc.json"
 WORKSPACE_CONFIG_KEY = "default"
 WORKSPACE_CONFIG_CACHE_TTL_SECONDS = 30.0
 WORKSPACE_CONFIG_FAILURE_TTL_SECONDS = 60.0
@@ -665,6 +666,20 @@ def user_integrations_path_for_user(user_id: str) -> Path:
     return _repo_root() / DEFAULT_CONFIG_DIR / "users" / safe_user_id / DEFAULT_CONFIG_FILENAME
 
 
+def encrypted_workspace_integrations_path() -> Path:
+    configured = os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_PATH")
+    if configured and configured.strip():
+        return Path(configured.strip()).expanduser()
+    return _repo_root() / DEFAULT_CONFIG_DIR / DEFAULT_ENCRYPTED_CONFIG_FILENAME
+
+
+def encrypted_user_integrations_path(user_id: str) -> Path:
+    safe_user_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", user_id.strip())[:160]
+    if not safe_user_id:
+        raise ValueError("user_id is required")
+    return _repo_root() / DEFAULT_CONFIG_DIR / "users" / safe_user_id / "integrations.enc.json"
+
+
 def integration_definition_by_id(integration_id: str) -> IntegrationDefinition:
     definition = _DEFINITION_BY_ID.get(integration_id)
     if definition is None:
@@ -683,10 +698,13 @@ class UserIntegrationStore:
     @classmethod
     def for_user(cls, user_id: Optional[str]) -> "UserIntegrationStore":
         if not user_id:
-            return cls()
+            return default_integration_store()
         backend = _user_integration_backend()
         if backend in {"file", "local", "json"}:
-            return cls(user_integrations_path_for_user(user_id))
+            return EncryptedFileIntegrationStore(
+                encrypted_user_integrations_path(user_id),
+                secret_scope="user",
+            )
         if backend in {"supabase", "db", "database"} or _supabase_integrations_configured():
             return SupabaseUserIntegrationStore(user_id)
         try:
@@ -695,7 +713,10 @@ class UserIntegrationStore:
             DATABASE_BACKEND = "sqlite"
         if DATABASE_BACKEND == "supabase":
             return SupabaseUserIntegrationStore(user_id)
-        return cls(user_integrations_path_for_user(user_id))
+        return EncryptedFileIntegrationStore(
+            encrypted_user_integrations_path(user_id),
+            secret_scope="user",
+        )
 
     def load(self) -> UserIntegrationConfig:
         if not self.path.exists():
@@ -814,12 +835,12 @@ def _clone_config(config: UserIntegrationConfig) -> UserIntegrationConfig:
 def default_integration_store() -> UserIntegrationStore:
     backend = _workspace_integration_backend()
     if backend in {"file", "local", "json"}:
-        return UserIntegrationStore()
+        return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
     if backend in {"supabase", "db", "database"}:
         return SupabaseWorkspaceIntegrationStore()
     if _supabase_integrations_configured():
         return SupabaseWorkspaceIntegrationStore()
-    return UserIntegrationStore()
+    return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
 
 
 def _hosted_byok_policy(integration_id: str) -> Optional[HostedByokPolicy]:
@@ -894,18 +915,20 @@ def _requires_hosted_together_confirmation(integration_id: str, field_values: Op
     return value is not None and str(value).strip() != ""
 
 
-def _integration_encryption_secret() -> str:
-    value = (
-        os.getenv("BLUEPRINT_USER_SECRETS_KEY")
-        or os.getenv("BLUEPRINT_INTEGRATION_ENCRYPTION_KEY")
-        or os.getenv("USER_INTEGRATIONS_ENCRYPTION_KEY")
-    )
+def require_user_secrets_key() -> str:
+    value = os.getenv("BLUEPRINT_USER_SECRETS_KEY")
     if not value or not value.strip():
-        raise RuntimeError(
-            "Supabase user integrations require BLUEPRINT_USER_SECRETS_KEY. "
-            "Generate a high-entropy server-only secret and keep it out of NEXT_PUBLIC_* env vars."
+        message = (
+            "BLUEPRINT_USER_SECRETS_KEY is required at runtime for encrypted integration settings. "
+            "Generate a high-entropy server-only secret and keep it out of NEXT_PUBLIC_* variables."
         )
+        logger.critical(message)
+        raise RuntimeError(message)
     return value.strip()
+
+
+def _integration_encryption_secret() -> str:
+    return require_user_secrets_key()
 
 
 def _integration_encryption_key_id(secret: str) -> str:
@@ -950,6 +973,70 @@ def _encrypt_config(config: UserIntegrationConfig) -> tuple[str, str]:
 
 def _decrypt_config(token: str) -> UserIntegrationConfig:
     return _decrypt_config_with_secret(token, _integration_encryption_secret())
+
+
+class EncryptedFileIntegrationStore(UserIntegrationStore):
+    """Fernet-encrypted file storage for local workspace or user settings."""
+
+    def __init__(self, path: Path | str, *, secret_scope: str = "workspace") -> None:
+        self.path = Path(path).expanduser()
+        self.secret_scope = secret_scope
+        self.user_scoped = secret_scope == "user"
+        self.storage_label = f"encrypted-file:{self.path}"
+
+    def _secret(self) -> str:
+        if self.secret_scope == "user":
+            return _integration_encryption_secret()
+        return _workspace_encryption_secret()
+
+    def load(self) -> UserIntegrationConfig:
+        if not self.path.exists():
+            return UserIntegrationConfig()
+        try:
+            with self.path.open("r", encoding="utf-8") as file:
+                raw = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Encrypted integration config is invalid JSON: {self.path}") from exc
+        if not isinstance(raw, dict):
+            raise RuntimeError(f"Encrypted integration config has an invalid shape: {self.path}")
+        encrypted_config = raw.get("encrypted_config")
+        if not isinstance(encrypted_config, str) or not encrypted_config.strip():
+            raise RuntimeError(f"Encrypted integration config has no ciphertext: {self.path}")
+        secret = self._secret()
+        configured_key_id = _integration_encryption_key_id(secret)
+        stored_key_id = raw.get("encryption_key_id")
+        if stored_key_id and stored_key_id != configured_key_id:
+            logger.error(
+                "Encrypted file integration key mismatch: storage=%s stored_key_id=%s configured_key_id=%s",
+                self.storage_label,
+                stored_key_id,
+                configured_key_id,
+            )
+            raise RuntimeError(
+                "Stored provider settings were encrypted with a different integration secrets key."
+            )
+        return _decrypt_config_with_secret(encrypted_config, secret)
+
+    def save(self, config: UserIntegrationConfig) -> UserIntegrationConfig:
+        config.updated_at = _utc_now()
+        encrypted_config, key_id = _encrypt_config_with_secret(config, self._secret())
+        record = {
+            "encrypted_config": encrypted_config,
+            "encryption_key_id": key_id,
+            "version": config.version,
+            "updated_at": config.updated_at,
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        with temp_path.open("w", encoding="utf-8") as file:
+            json.dump(record, file, indent=2, sort_keys=True)
+            file.write("\n")
+        os.replace(temp_path, self.path)
+        try:
+            self.path.chmod(0o600)
+        except OSError:
+            pass
+        return config
 
 
 class SupabaseUserIntegrationStore(UserIntegrationStore):
@@ -1471,9 +1558,11 @@ def _field_status_payload(
 
 
 def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> dict[str, object]:
-    resolved_store = store or UserIntegrationStore()
+    resolved_store = store or default_integration_store()
     config = apply_user_integrations_to_environment(resolved_store, fail_open=False)
-    hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore)
+    hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore) or bool(
+        getattr(resolved_store, "user_scoped", False)
+    )
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:
         stored = config.integration_by_id(definition.id)
@@ -1511,6 +1600,7 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
 
 
 __all__ = [
+    "EncryptedFileIntegrationStore",
     "IntegrationDefinition",
     "IntegrationFieldDefinition",
     "StoredIntegration",
@@ -1522,9 +1612,12 @@ __all__ = [
     "apply_user_integrations_to_environment",
     "default_integration_store",
     "default_user_integrations_path",
+    "encrypted_user_integrations_path",
+    "encrypted_workspace_integrations_path",
     "integration_definition_by_id",
     "integration_status_payload",
     "list_integration_definitions",
     "mask_secret",
+    "require_user_secrets_key",
     "user_integrations_path_for_user",
 ]

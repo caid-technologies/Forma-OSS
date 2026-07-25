@@ -93,7 +93,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
                 },
             )
 
-            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none"}, clear=True), patch.object(
+            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none", "BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch.object(
                 UserIntegrationStore, "for_user", return_value=store
             ), patch.object(a2a, "get_workflow_debug_config", return_value={"runtime": {}}), patch.object(
                 a2a, "deployment_runtime_config", return_value={"alpha_generation_gate_active": False}
@@ -155,7 +155,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
             store.update_integration("image", enabled=True, field_values={"provider": "gmi"})
             store.update_integration("gmi", enabled=True, field_values={"api_key": "gmi-secret"})
 
-            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none"}, clear=True), patch.object(
+            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none", "BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch.object(
                 UserIntegrationStore, "for_user", return_value=store
             ), patch.object(a2a, "get_workflow_debug_config", return_value={"runtime": {}}), patch.object(
                 a2a, "deployment_runtime_config", return_value={"alpha_generation_gate_active": False}
@@ -219,6 +219,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
             with patch.dict(
                 os.environ,
                 {
+                    "BLUEPRINT_AUTH_MODE": "clerk",
                     "IMAGE_PROVIDER": "openai",
                     "OPENAI_API_KEY": "sk-invalid-openai",
                     "OPENAI_IMAGE_MODEL": "gpt-image-2",

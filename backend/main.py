@@ -46,7 +46,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
+from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
 
 apply_user_integrations_to_environment()
 
@@ -304,6 +304,8 @@ def _delete_cancelled_generation_projects(job_id: str, job: Optional[Dict[str, A
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting up Forma server...")
+    require_user_secrets_key()
+    logger.info("Authentication mode: %s", "clerk" if deployed_auth_required() else "local")
     try:
         init_db()
         count = count_component_templates()

@@ -20,6 +20,7 @@ from blueprint_core.agents.workflows import (
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.database import save_generated_project, update_generated_project_hardware_ir
 from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
+from backend.auth_mode import clerk_auth_required
 from backend.job_store import JOB_STORE
 from blueprint_core.llm import get_llm_runtime_debug_config
 from blueprint_core.models import ComponentInstance, ConnectionNet
@@ -36,7 +37,7 @@ from blueprint_core.runtime import (
     deployment_runtime_config,
     generation_unavailable_message,
 )
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
+from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
 from backend.storage import get_image_storage_config, upload_image_to_supabase_s3
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
 from blueprint_core.validation import validate_circuit
@@ -722,6 +723,9 @@ def _persist_updated_project_ir(
 
 
 def _apply_owner_user_integrations(owner_user_id: Optional[str]) -> None:
+    if not clerk_auth_required():
+        apply_user_integrations_to_environment(default_integration_store())
+        return
     if isinstance(owner_user_id, str) and owner_user_id.strip():
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner_user_id.strip()))
 
@@ -902,8 +906,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
     normalized = action.removeprefix("blueprint.")
     owner_user_id = payload.get("owner_user_id")
 
-    if isinstance(owner_user_id, str) and owner_user_id.strip():
-        apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner_user_id.strip()))
+    _apply_owner_user_integrations(owner_user_id if isinstance(owner_user_id, str) else None)
 
     if normalized == "generate_project":
         return await asyncio.to_thread(

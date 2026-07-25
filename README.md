@@ -174,7 +174,9 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `OPENAI_ALLOWED_MODELS` / `ANTHROPIC_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.
 - `/api/generate` also accepts optional `provider` and `model` fields for runtime switching. Each generated project records the requested provider/model and actual provider/model in `assembly_metadata`.
 - In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-sonnet-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
-- `BLUEPRINT_USER_SECRETS_KEY`: Required when signed-in BYOK settings are stored in Supabase. Use a high-entropy server-only value; it encrypts provider credentials before they are written to `user_integration_configs`.
+- `BLUEPRINT_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
+- `BLUEPRINT_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
+- `BLUEPRINT_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. Without Supabase, local settings use an encrypted file; with Supabase configured, they use encrypted `workspace_integration_configs` storage.
 - `OPENAI_API_KEY`: API key for first-party OpenAI when `LLM_PROVIDER=openai`.
 - `OPENAI_MODEL`: OpenAI model ID. The example default is `gpt-4o-mini`.
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format. Defaults to `json_schema`; `json_object` and `none` are also supported.

@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SignInButton, UserButton, useAuth, useClerk, useUser } from "@clerk/nextjs";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactFlow, {
@@ -24,6 +23,7 @@ import {
   type IntegrationsPayload,
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
+import { FormaUserButton, useFormaAuth } from "../lib/forma-auth";
 import {
   Sparkles,
   Wrench,
@@ -2077,7 +2077,6 @@ type HomeProps = {
   routeChatId?: string | null;
   showDeveloperTools?: boolean;
   homeView?: "chat" | "projects" | "my-projects" | "jobs" | "logs";
-  authRequired?: boolean;
 };
 
 export function FormaWorkspace({
@@ -2085,12 +2084,9 @@ export function FormaWorkspace({
   routeChatId = null,
   showDeveloperTools = DEFAULT_SHOW_DEVELOPER_TOOLS,
   homeView = "chat",
-  authRequired = false,
 }: HomeProps = {}) {
   const router = useRouter();
-  const { getToken, isLoaded: authLoaded, isSignedIn } = useAuth();
-  const { user } = useUser();
-  const { openSignIn } = useClerk();
+  const { authRequired, getToken, isLoaded: authLoaded, isSignedIn, openSignIn, userImageUrl } = useFormaAuth();
   const [prompt, setPrompt] = useState("");
   const [activeChatId, setActiveChatId] = useState(() => routeChatId ? safeDecodeChatId(routeChatId) : newBuildChatId());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -2531,8 +2527,8 @@ export function FormaWorkspace({
   }, [getToken, isSignedIn]);
 
   const fetchAdminSession = useCallback(async () => {
-    if (!authLoaded) return;
-    if (!isSignedIn) {
+    if (authRequired && !authLoaded) return;
+    if (authRequired && !isSignedIn) {
       setIsAdmin(false);
       setAdminSessionLoaded(true);
       return;
@@ -2550,7 +2546,7 @@ export function FormaWorkspace({
     } finally {
       setAdminSessionLoaded(true);
     }
-  }, [authLoaded, isSignedIn, optionalAuthHeaders]);
+  }, [authLoaded, authRequired, isSignedIn, optionalAuthHeaders]);
 
   useEffect(() => {
     setAdminSessionLoaded(false);
@@ -4191,7 +4187,7 @@ export function FormaWorkspace({
         created_at: data.created_at || chatTimestamp(),
         can_chat: true,
         creator_display: "you",
-        creator_image_url: user?.imageUrl || null,
+        creator_image_url: userImageUrl,
         parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
         star_count: 0,
       });
@@ -4255,7 +4251,7 @@ export function FormaWorkspace({
           created_at: chatTimestamp(),
           can_chat: true,
           creator_display: "you",
-          creator_image_url: user?.imageUrl || null,
+          creator_image_url: userImageUrl,
           parts_count: Array.isArray(mockRes.project_ir?.components) ? mockRes.project_ir.components.length : 0,
           star_count: 0,
         });
@@ -4413,7 +4409,7 @@ export function FormaWorkspace({
         created_at: data.created_at || chatTimestamp(),
         can_chat: true,
         creator_display: "you",
-        creator_image_url: user?.imageUrl || null,
+        creator_image_url: userImageUrl,
         parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
         star_count: 0,
       });
@@ -6043,10 +6039,9 @@ function AuthStatusControl({
   authRequired: boolean;
   compact?: boolean;
 }) {
-  const { isLoaded, isSignedIn } = useAuth();
-  const { openSignIn } = useClerk();
+  const { isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   if (!authRequired) return null;
-  if (isSignedIn) return <UserButton afterSignOutUrl="/" />;
+  if (isSignedIn) return <FormaUserButton afterSignOutUrl="/" />;
 
   return (
     <button
@@ -6841,6 +6836,7 @@ function AuthRequiredRouteScreen({
   message: string;
   onHome: () => void;
 }) {
+  const { openSignIn } = useFormaAuth();
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-[#141519] px-5 font-sans text-slate-100">
       <div className="w-full max-w-md border border-[#2c2f37] bg-[#17181d] p-6">
@@ -6861,15 +6857,14 @@ function AuthRequiredRouteScreen({
           >
             Home
           </button>
-          <SignInButton mode="modal">
-            <button
-              type="button"
-              disabled={loading}
-              className="inline-flex h-10 items-center justify-center border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent disabled:hover:text-slate-600"
-            >
-              Sign in
-            </button>
-          </SignInButton>
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" })}
+            className="inline-flex h-10 items-center justify-center border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+          >
+            Sign in
+          </button>
         </div>
       </div>
     </div>

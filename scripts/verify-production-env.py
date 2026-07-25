@@ -123,13 +123,18 @@ def validate(env: dict[str, str], *, require_live_clerk: bool) -> CheckReport:
     report.check("Frontend dev mode disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEV_MODE"))
     report.check("Backend debug disabled", not is_true(env, "BLUEPRINT_DEBUG"))
     report.check("Frontend debug disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEBUG"))
+    report.check(
+        "Auth mode is Clerk",
+        value("BLUEPRINT_AUTH_MODE").lower() == "clerk",
+        f"BLUEPRINT_AUTH_MODE={value('BLUEPRINT_AUTH_MODE') or '<unset>'}",
+    )
+    report.check("Integration encryption key present", bool(value("BLUEPRINT_USER_SECRETS_KEY")))
 
     publishable_key_name = first_present(env, ("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_PUBLISHABLE_KEY"))
     secret_key_name = first_present(env, ("CLERK_SECRET_KEY",))
     report.check("Clerk publishable key present", bool(publishable_key_name))
     report.check("Clerk secret key present", bool(secret_key_name))
     report.check("Admin allowlist present", bool(first_present(env, AUTH_ALLOWLIST_KEYS)), "or use Clerk JWT admin metadata")
-    report.check("Auth required not explicitly disabled", value("BLUEPRINT_AUTH_REQUIRED").lower() not in {"0", "false", "no", "off"})
 
     if publishable_key_name:
         mode = key_mode(value(publishable_key_name))

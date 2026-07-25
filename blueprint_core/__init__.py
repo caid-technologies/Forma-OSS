@@ -135,6 +135,7 @@ from blueprint_core.video_prompts import (
     generate_image_to_video_prompt_from_namespaces,
 )
 from blueprint_core.user_integrations import (
+    EncryptedFileIntegrationStore,
     IntegrationDefinition,
     IntegrationFieldDefinition,
     StoredIntegration,
@@ -142,9 +143,13 @@ from blueprint_core.user_integrations import (
     UserIntegrationConfig,
     UserIntegrationStore,
     apply_user_integrations_to_environment,
+    default_integration_store,
     default_user_integrations_path,
+    encrypted_user_integrations_path,
+    encrypted_workspace_integrations_path,
     integration_status_payload,
     list_integration_definitions,
+    require_user_secrets_key,
 )
 
 __all__ = [
@@ -163,6 +168,7 @@ __all__ = [
     "NamespaceAgentQuestion",
     "NamespaceAgentResult",
     "ExternalSourceLibrary",
+    "EncryptedFileIntegrationStore",
     "ExternalSourceProvider",
     "ExternalSourceProviderConfig",
     "ExternalSourceRecord",
@@ -241,8 +247,11 @@ __all__ = [
     "build_project_object",
     "candidate_image_strings",
     "default_prompt_seeds",
+    "default_integration_store",
     "default_namespace_agent_cards",
     "default_user_integrations_path",
+    "encrypted_user_integrations_path",
+    "encrypted_workspace_integrations_path",
     "extract_image_paths",
     "firecrawl_usage_from_result",
     "generate_image_to_video_prompt_from_namespaces",
@@ -261,6 +270,7 @@ __all__ = [
     "openai_chunk_from_sse",
     "parse_llm_selector",
     "prepare_video_for_fireworks_native_review",
+    "require_user_secrets_key",
     "render_images",
     "sample_video_frames",
     "schema_from_model",

@@ -65,6 +65,10 @@ Encrypted per-user BYOK/provider settings.
 
 The backend decrypts this table only server-side using `BLUEPRINT_USER_SECRETS_KEY`. The table has RLS enabled, anon/authenticated grants revoked, and service-role-only access. Do not add plaintext API key columns to this table.
 
+### workspace_integration_configs
+
+Encrypted workspace-scoped provider settings used when `BLUEPRINT_AUTH_MODE=local`. Supabase-backed workspaces store Fernet ciphertext in this table; non-Supabase local runtimes use an encrypted file. The backend refuses to start without `BLUEPRINT_USER_SECRETS_KEY`, and `BLUEPRINT_WORKSPACE_SECRETS_KEY` can optionally isolate workspace encryption from per-user encryption.
+
 ### a2a_jobs
 A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.
 - Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, `source_usage` metadata for Catalog/data warehouse vs Web Research/Firecrawl, compact result summaries, structured operation pass/fail metadata, image output status/error metadata, errors, and optional `error_debug` traces when `BLUEPRINT_DEBUG=true`

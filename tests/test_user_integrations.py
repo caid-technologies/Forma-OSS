@@ -37,6 +37,11 @@ TEST_ENV_KEYS = (
     "BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND",
     "BLUEPRINT_USER_INTEGRATIONS_BACKEND",
     "BLUEPRINT_INTEGRATIONS_BACKEND",
+    "BLUEPRINT_DEV_MODE",
+    "DATABASE_BACKEND",
+    "DATABASE_PROVIDER",
+    "DB_BACKEND",
+    "DB_PROVIDER",
     "SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
@@ -912,6 +917,41 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertIsInstance(store, SupabaseWorkspaceIntegrationStore)
             self.assertEqual("supabase:workspace_integration_configs/default", store.storage_label)
+
+    def test_sqlite_database_keeps_workspace_integrations_local_with_supabase_credentials(self) -> None:
+        with isolated_integration_env():
+            os.environ["DATABASE_BACKEND"] = "sqlite"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
+
+    def test_workspace_supabase_override_is_explicit_opt_in_from_sqlite(self) -> None:
+        with isolated_integration_env():
+            os.environ["DATABASE_BACKEND"] = "sqlite"
+            os.environ["BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), SupabaseWorkspaceIntegrationStore)
+
+    def test_supabase_database_keeps_workspace_integrations_in_supabase(self) -> None:
+        with isolated_integration_env():
+            os.environ["DATABASE_BACKEND"] = "supabase"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), SupabaseWorkspaceIntegrationStore)
+
+    def test_dev_mode_keeps_workspace_integrations_local_despite_override(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEV_MODE"] = "true"
+            os.environ["DATABASE_BACKEND"] = "supabase"
+            os.environ["BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
 
     def test_supabase_workspace_load_failure_does_not_crash_runtime_apply(self) -> None:
         class BrokenWorkspaceStore(SupabaseWorkspaceIntegrationStore):

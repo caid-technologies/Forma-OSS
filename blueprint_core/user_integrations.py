@@ -14,7 +14,11 @@ from typing import Any, Iterable, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from blueprint_core.runtime import deployment_mode_enabled
+from blueprint_core.runtime import (
+    blueprint_dev_mode_enabled,
+    deployment_mode_enabled,
+    primary_database_backend_from_environment,
+)
 from blueprint_core.selectors import parse_llm_selector
 
 
@@ -699,19 +703,20 @@ class UserIntegrationStore:
     def for_user(cls, user_id: Optional[str]) -> "UserIntegrationStore":
         if not user_id:
             return default_integration_store()
+        if blueprint_dev_mode_enabled():
+            return EncryptedFileIntegrationStore(
+                encrypted_user_integrations_path(user_id),
+                secret_scope="user",
+            )
         backend = _user_integration_backend()
         if backend in {"file", "local", "json"}:
             return EncryptedFileIntegrationStore(
                 encrypted_user_integrations_path(user_id),
                 secret_scope="user",
             )
-        if backend in {"supabase", "db", "database"} or _supabase_integrations_configured():
+        if backend in {"supabase", "db", "database"}:
             return SupabaseUserIntegrationStore(user_id)
-        try:
-            from blueprint_core.database import DATABASE_BACKEND
-        except Exception:
-            DATABASE_BACKEND = "sqlite"
-        if DATABASE_BACKEND == "supabase":
+        if primary_database_backend_from_environment() == "supabase":
             return SupabaseUserIntegrationStore(user_id)
         return EncryptedFileIntegrationStore(
             encrypted_user_integrations_path(user_id),
@@ -806,10 +811,6 @@ def _supabase_service_key() -> Optional[str]:
     return None
 
 
-def _supabase_integrations_configured() -> bool:
-    return bool(_supabase_url() and _supabase_service_key())
-
-
 def _env_float(name: str, default: float) -> float:
     value = os.getenv(name)
     if not value or not value.strip():
@@ -833,12 +834,14 @@ def _clone_config(config: UserIntegrationConfig) -> UserIntegrationConfig:
 
 
 def default_integration_store() -> UserIntegrationStore:
+    if blueprint_dev_mode_enabled():
+        return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
     backend = _workspace_integration_backend()
     if backend in {"file", "local", "json"}:
         return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
     if backend in {"supabase", "db", "database"}:
         return SupabaseWorkspaceIntegrationStore()
-    if _supabase_integrations_configured():
+    if primary_database_backend_from_environment() == "supabase":
         return SupabaseWorkspaceIntegrationStore()
     return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
 

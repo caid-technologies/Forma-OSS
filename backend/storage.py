@@ -10,7 +10,7 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 
-from blueprint_core.runtime import blueprint_dev_mode_enabled
+from blueprint_core.runtime import blueprint_dev_mode_enabled, primary_database_backend_from_environment
 
 load_dotenv()
 
@@ -21,6 +21,7 @@ SUPABASE_KEY_ENV_VARS = (
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_SECRET_KEY",
 )
+IMAGE_STORAGE_BACKEND_ENV = "BLUEPRINT_IMAGE_STORAGE_BACKEND"
 
 
 @dataclass(frozen=True)
@@ -102,38 +103,81 @@ def _public_base_url() -> Optional[str]:
     return None
 
 
-def get_image_storage_config() -> Dict[str, Any]:
+def _image_storage_selection() -> Tuple[str, str]:
     if blueprint_dev_mode_enabled():
-        return {
-            "enabled": False,
-            "provider": "sqlite-inline",
-            "write_method": None,
-            "endpoint": None,
-            "bucket": _env("SUPABASE_S3_BUCKET", DEFAULT_BUCKET),
-            "region": _first_env(
-                ("SUPABASE_S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"),
-                "us-east-1",
-            ),
-            "signed_url_seconds": _signed_url_seconds(),
-            "public_base_url": None,
-            "supabase_url_configured": bool(_supabase_url()),
-            "service_key_configured": bool(_supabase_service_key()),
-            "access_key_configured": bool(
-                _first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
-            ),
-            "secret_key_configured": bool(
-                _first_env(("SUPABASE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"))
-            ),
-            "dev_mode": True,
-            "disabled_reason": "BLUEPRINT_DEV_MODE stores image data inline with SQLite project records.",
-        }
+        return "local", "BLUEPRINT_DEV_MODE"
+
+    configured = (_env(IMAGE_STORAGE_BACKEND_ENV) or "").lower()
+    aliases = {
+        "local": "local",
+        "sqlite": "local",
+        "inline": "local",
+        "disabled": "local",
+        "none": "local",
+        "supabase": "supabase",
+        "supabase-client": "supabase",
+        "s3": "s3-compatible",
+        "s3-compatible": "s3-compatible",
+    }
+    if configured:
+        # An invalid explicit value fails closed instead of silently enabling a
+        # remote ancillary store from credentials alone.
+        return aliases.get(configured, "local"), IMAGE_STORAGE_BACKEND_ENV
+
+    primary_backend = primary_database_backend_from_environment()
+    if primary_backend == "supabase":
+        return "supabase", "primary-database"
+    return "local", "primary-database"
+
+
+def _local_image_storage_config(selection_source: str, reason: str) -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "provider": "sqlite-inline",
+        "write_method": None,
+        "endpoint": None,
+        "bucket": _env("SUPABASE_S3_BUCKET", DEFAULT_BUCKET),
+        "region": _first_env(
+            ("SUPABASE_S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"),
+            "us-east-1",
+        ),
+        "signed_url_seconds": _signed_url_seconds(),
+        "public_base_url": None,
+        "supabase_url_configured": bool(_supabase_url()),
+        "service_key_configured": bool(_supabase_service_key()),
+        "access_key_configured": bool(
+            _first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
+        ),
+        "secret_key_configured": bool(
+            _first_env(("SUPABASE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"))
+        ),
+        "dev_mode": blueprint_dev_mode_enabled(),
+        "selection_source": selection_source,
+        "disabled_reason": reason,
+    }
+
+
+def get_image_storage_config() -> Dict[str, Any]:
+    storage_backend, selection_source = _image_storage_selection()
+    if storage_backend == "local":
+        if blueprint_dev_mode_enabled():
+            reason = "BLUEPRINT_DEV_MODE stores image data inline with SQLite project records."
+        elif selection_source == IMAGE_STORAGE_BACKEND_ENV:
+            reason = "Image storage is disabled by BLUEPRINT_IMAGE_STORAGE_BACKEND."
+        else:
+            reason = "Image storage follows the SQLite database; set BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase to opt in."
+        return _local_image_storage_config(selection_source, reason)
 
     supabase_url = _supabase_url()
     service_key = _supabase_service_key()
     access_key_id = _first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
     secret_access_key = _first_env(("SUPABASE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"))
-    supabase_client_enabled = bool(supabase_url and service_key)
-    s3_enabled = bool(access_key_id and secret_access_key)
+    supabase_client_enabled = storage_backend == "supabase" and bool(supabase_url and service_key)
+    s3_enabled = storage_backend == "s3-compatible" and bool(access_key_id and secret_access_key)
+    if storage_backend == "supabase" and not supabase_client_enabled and selection_source == "primary-database":
+        # Preserve the existing S3-compatible fallback for Supabase-primary
+        # deployments that provide only storage access credentials.
+        s3_enabled = bool(access_key_id and secret_access_key)
     return {
         "enabled": supabase_client_enabled or s3_enabled,
         "provider": "supabase-storage",
@@ -148,6 +192,7 @@ def get_image_storage_config() -> Dict[str, Any]:
         "access_key_configured": bool(access_key_id),
         "secret_key_configured": bool(secret_access_key),
         "dev_mode": False,
+        "selection_source": selection_source,
     }
 
 
@@ -162,8 +207,10 @@ def _signed_url_seconds() -> int:
 
 
 def _supabase_storage_bucket(bucket: str):
-    if blueprint_dev_mode_enabled():
-        raise RuntimeError("Supabase Storage is disabled while BLUEPRINT_DEV_MODE=true.")
+    if get_image_storage_config().get("write_method") != "supabase-client":
+        raise RuntimeError(
+            "Supabase Storage is not selected. Set BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase to opt in."
+        )
 
     supabase_url = _supabase_url()
     service_key = _supabase_service_key()

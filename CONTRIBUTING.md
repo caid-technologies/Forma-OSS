@@ -465,15 +465,7 @@ Generated output is not a substitute for technical review.
 
 ## Security Vulnerabilities
 
-Do not open a public issue for a suspected security vulnerability.
-
-Send a private report to:
-
-```text
-team@caid-technologies.com
-```
-
-Include a description of the vulnerability, reproduction steps, affected components, and potential impact. Do not include active credentials or unnecessary personal data.
+Follow the reporting instructions in [`SECURITY.md`](SECURITY.md) for suspected security vulnerabilities. Do not disclose a vulnerability in a public issue, discussion, or pull request.
 
 ## Licensing
 

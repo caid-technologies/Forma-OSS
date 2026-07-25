@@ -148,11 +148,11 @@ Smoke-test configured LLM providers with a tiny structured prompt:
 ./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
 ./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
 ./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
-./sample.py "Describe a low-voltage plant watering monitor with OLED status"
-./sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
 ```
 
-Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
+Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `scripts/sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `scripts/sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
 
 Run against first-party OpenAI:
 

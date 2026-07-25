@@ -2128,7 +2128,6 @@ export function FormaWorkspace({
         : null
     );
     if (!item.projectId) setProjectIR(null);
-    rememberChatItem(item);
     router.push(chatRoute(item.chatId));
   };
 

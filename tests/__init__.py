@@ -11,7 +11,6 @@ import os
 os.environ.setdefault("BLUEPRINT_DEV_MODE", "true")
 os.environ.setdefault("DATABASE_BACKEND", "sqlite")
 os.environ.setdefault("SQLITE_DATABASE_URL", "sqlite:///:memory:")
-os.environ.setdefault("JOB_METADATA_BACKEND", "sqlite")
 os.environ.setdefault("LLM_PROVIDER", "simulation")
 os.environ.setdefault("IMAGE_PROVIDER", "none")
 os.environ.setdefault("IMAGE_OUTPUT_ENABLED", "false")

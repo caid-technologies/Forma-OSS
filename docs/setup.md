@@ -22,8 +22,6 @@ The Compose backend defaults to:
 ```env
 BLUEPRINT_DEV_MODE=false
 SQLITE_DATABASE_URL=sqlite:////data/blueprint.db
-JOB_METADATA_BACKEND=auto
-JOB_METADATA_DB_PATH=/data/blueprint_jobs.db
 LLM_PROVIDER=simulation
 ```
 
@@ -128,8 +126,6 @@ SUPABASE_S3_BUCKET=contents
 # LLM_TEMPERATURE=0.2
 
 # Optional TCP JSONL A2A socket
-JOB_METADATA_BACKEND=auto
-JOB_METADATA_DB_PATH=./blueprint_jobs.db
 A2A_SOCKET_ENABLED=false
 A2A_SOCKET_HOST=127.0.0.1
 A2A_SOCKET_PORT=8766
@@ -139,7 +135,7 @@ Notes:
 - Supabase mode uses `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`; it does not use a Postgres connection string.
 - Do not use anon, publishable, or `NEXT_PUBLIC_` Supabase keys for the backend. They obey RLS and cannot seed these tables by default.
 - When using Supabase for signed-in BYOK settings, set `BLUEPRINT_USER_SECRETS_KEY` to a high-entropy server-only secret. User provider settings are encrypted before they are stored in `user_integration_configs`; losing or rotating this key without a migration makes existing saved API keys undecryptable.
-- `BLUEPRINT_DEV_MODE=true` forces SQLite for app data and A2A job metadata when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
+- `BLUEPRINT_DEV_MODE=true` selects SQLite for the complete application database when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
@@ -186,8 +182,7 @@ Notes:
 - With `STRICT_LLM=false`, the backend may fall back to `LLM_FALLBACK_MODEL`.
 - OpenAI-compatible endpoints can use `LLM_BASE_URL`; local endpoints that do not require auth can set `LLM_ALLOW_NO_API_KEY=true`.
 - Runpod OpenAI-compatible/vLLM endpoints can use `RUNPOD_API_KEY` plus `RUNPOD_OPENAI_BASE_URL`. Runpod Serverless queue workers can use `RUNPOD_API_KEY` plus `RUNPOD_ENDPOINT_ID` or `RUNPOD_ENDPOINT_URL`. If each queue-style model has a different endpoint, set `RUNPOD_MODEL_ENDPOINTS` to a JSON mapping of model IDs to endpoint IDs or URLs.
-- `JOB_METADATA_BACKEND=auto` stores A2A job metadata in Supabase when the main app database is Supabase, otherwise in SQLite. `BLUEPRINT_DEV_MODE=true` always uses SQLite.
-- `JOB_METADATA_DB_PATH` controls the SQLite A2A job metadata file.
+- A2A job metadata uses the primary application database. Existing rows in the retired `blueprint_jobs.db` file are imported into the primary SQLite database on startup without deleting the legacy file.
 - A2A REST, WebSocket, and MCP routes are always mounted. The TCP JSONL socket starts only when `A2A_SOCKET_ENABLED=true`.
 
 ### Seed the component database

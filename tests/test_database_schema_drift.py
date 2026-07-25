@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 from blueprint_core import database
+from blueprint_core.persistence.repositories import SupabaseRepository
 
 
 PROJECT_ID = "611fd725-3dc2-4add-b830-02aa1c3fe775"
@@ -78,44 +79,48 @@ class FakeSupabaseClient:
 def supabase_backend(client: FakeSupabaseClient) -> Iterator[None]:
     original_backend = database.DATABASE_BACKEND
     original_client = database._SUPABASE_CLIENT
+    original_repository = database._DATABASE_REPOSITORY
     try:
         database.DATABASE_BACKEND = "supabase"
         database._SUPABASE_CLIENT = client
+        database._DATABASE_REPOSITORY = SupabaseRepository(client)
         yield
     finally:
         database.DATABASE_BACKEND = original_backend
         database._SUPABASE_CLIENT = original_client
+        database._DATABASE_REPOSITORY = original_repository
 
 
 class DatabaseSchemaDriftTests(unittest.TestCase):
-    def test_save_generated_project_retries_without_chat_id_for_postgrest_schema_cache(self) -> None:
+    def test_save_generated_project_fails_when_required_chat_id_column_is_missing(self) -> None:
         client = FakeSupabaseClient(missing_columns={"chat_id"})
 
         with supabase_backend(client):
-            database.save_generated_project(
-                project_id=PROJECT_ID,
-                title="LED Controller",
-                prompt="Blink an LED",
-                hardware_ir={"assembly_metadata": {"chat_id": "chat_123"}},
-                created_at="2026-07-08T15:07:57Z",
-                chat_id="chat_123",
-            )
+            with self.assertRaisesRegex(RuntimeError, "chat_id"):
+                database.save_generated_project(
+                    project_id=PROJECT_ID,
+                    title="LED Controller",
+                    prompt="Blink an LED",
+                    hardware_ir={"assembly_metadata": {"chat_id": "chat_123"}},
+                    created_at="2026-07-08T15:07:57Z",
+                    chat_id="chat_123",
+                )
 
         self.assertIn("chat_id", client.mutations[0]["payload"])
-        self.assertNotIn("chat_id", client.mutations[-1]["payload"])
+        self.assertEqual(1, len(client.mutations))
 
-    def test_update_generated_project_retries_without_chat_id_for_postgrest_schema_cache(self) -> None:
+    def test_update_generated_project_fails_when_required_chat_id_column_is_missing(self) -> None:
         client = FakeSupabaseClient(missing_columns={"chat_id"})
 
         with supabase_backend(client):
-            updated = database.update_generated_project_hardware_ir(
-                PROJECT_ID,
-                {"assembly_metadata": {"chat_id": "chat_123"}},
-            )
+            with self.assertRaisesRegex(RuntimeError, "chat_id"):
+                database.update_generated_project_hardware_ir(
+                    PROJECT_ID,
+                    {"assembly_metadata": {"chat_id": "chat_123"}},
+                )
 
-        self.assertTrue(updated)
         self.assertIn("chat_id", client.mutations[0]["payload"])
-        self.assertNotIn("chat_id", client.mutations[-1]["payload"])
+        self.assertEqual(1, len(client.mutations))
 
 
 if __name__ == "__main__":

@@ -44,13 +44,13 @@ The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `bluepri
 Generation behavior is packaged under `blueprint_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `blueprint_core.generation` for high-level generation, `blueprint_core.models` for Hardware IR schemas, `blueprint_core.validation` for electrical checks, `blueprint_core.llm` for provider resolution and structured generation, `blueprint_core.images` for image providers and visual prompt construction, `blueprint_core.runtime` for deployment gating, and `blueprint_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
 
 ## A2A layer
-The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses `JOB_METADATA_BACKEND=auto`, storing in Supabase when the main app database is Supabase and otherwise falling back to SQLite at `JOB_METADATA_DB_PATH` (default `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite for job metadata. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
+The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
 
 LLM configuration behavior:
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
 - `BACKEND_LOG_FILE`: optional rotating log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
-- `BLUEPRINT_DEV_MODE=true`: forces SQLite for app data and A2A job metadata even when Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
+- `BLUEPRINT_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `BLUEPRINT_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
 - `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID

@@ -178,7 +178,6 @@ def start_backend(backend_url: str, output_dir: Path, processes: ManagedProcessG
     env["PYTHONPATH"] = f"{ROOT_DIR}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
     env["BLUEPRINT_DEV_MODE"] = "true"
     env["DATABASE_BACKEND"] = "sqlite"
-    env["JOB_METADATA_BACKEND"] = "sqlite"
     print(f"[terminal-dashboard] starting backend: {' '.join(command)}", flush=True)
     process = subprocess.Popen(command, cwd=ROOT_DIR, env=env, stdout=log_handle, stderr=subprocess.STDOUT, text=True)
     processes.add(process)

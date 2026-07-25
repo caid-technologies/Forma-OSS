@@ -1,0 +1,114 @@
+name: Bug report
+description: Report a reproducible problem in Forma.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Forma. Search existing issues before filing a report, and remove credentials, personal data, and project secrets from everything you submit.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem summary
+      description: Clearly describe what went wrong and its impact.
+      placeholder: Forma fails to...
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Backend API
+        - Frontend UI
+        - Project generation or agents
+        - Hardware IR or validation
+        - Authentication or user integrations
+        - Database or persistence
+        - Image or video generation
+        - Provider integration
+        - Developer tooling or deployment
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reliable sequence that triggers the problem.
+      placeholder: |
+        1. Start Forma with...
+        2. Open...
+        3. Submit...
+        4. Observe...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      placeholder: I expected Forma to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      placeholder: Instead, Forma...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include every relevant value. Write "not applicable" where appropriate.
+      placeholder: |
+        Forma commit/version:
+        Deployment: local / Docker / Vercel / other
+        Operating system:
+        Python version:
+        Node.js version:
+        Browser:
+        Database backend:
+        Provider and model:
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, tracebacks, or screenshots
+      description: Paste only redacted diagnostic output or attach relevant screenshots.
+
+  - type: dropdown
+    id: safety
+    attributes:
+      label: Hardware safety impact
+      description: Does this bug affect generated electrical, mechanical, or safety guidance?
+      options:
+        - No known safety impact
+        - Safety impact is possible or unknown
+        - Yes, this affects safety-related behavior
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues for duplicates.
+          required: true
+        - label: I included the commit or version where this occurs.
+          required: true
+        - label: I removed API keys, tokens, project secrets, personal data, and other sensitive information.
+          required: true

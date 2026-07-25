@@ -32,8 +32,8 @@ Seed component library used by the Component Selection Agent.
 Archived outputs from the pipeline.
 - `project_id` (unique canonical UUID string; used directly in `/project/<uuid>` routes)
 - `chat_id` (optional private chat/thread id that created the project)
-- `owner_user_id` (optional Clerk user id that owns mutation rights)
-- `visibility` (`public` by default; public project reads are allowed through the API)
+- `owner_user_id` (provider-neutral internal user id that owns mutation rights)
+- `visibility` (`public` by default; `private` projects are readable only by their owner)
 - `title`
 - `prompt`
 - `hardware_ir` (JSON representation of the IR)
@@ -41,12 +41,12 @@ Archived outputs from the pipeline.
 
 `hardware_ir.assembly_metadata.project_id` must match `generated_projects.project_id`. Supabase Storage image keys are written under `images/<project_id>/...` so the DB row, route id, IR metadata, and object path share the same UUID.
 
-Projects are public artifacts: `GET /api/projects` and `GET /api/projects/{project_id}` do not require the project owner. Mutating a project, deleting it, or saving derived artifacts requires the signed-in Clerk user to match `owner_user_id` when deployed auth is enabled.
+`GET /api/projects` returns public artifacts only. `GET /api/projects/{project_id}` allows public projects or the owning identity; private non-owner reads return 404. Mutating, deleting, chatting with, or saving derived artifacts requires the request's provider-neutral user context to match `owner_user_id`.
 
 ### project_chats
-Private chat threads owned by a Clerk user.
+Private chat threads owned by an authenticated user.
 - `chat_id` (unique)
-- `owner_user_id` (Clerk user id; required)
+- `owner_user_id` (provider-neutral internal user id; required)
 - `title`
 - `messages` (JSON array)
 - `created_at`
@@ -56,7 +56,7 @@ Chats are not publicly readable. Sharing is intentionally deferred to a future s
 
 ### user_integration_configs
 Encrypted per-user BYOK/provider settings.
-- `owner_user_id` (Clerk user id; primary key)
+- `owner_user_id` (provider-neutral internal user id; primary key)
 - `encrypted_config` (Fernet-encrypted `UserIntegrationConfig` JSON)
 - `encryption_key_id` (non-secret fingerprint of the server key used for operations/debugging)
 - `version`

@@ -36,6 +36,20 @@ function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth();
   const { openSignIn } = useClerk();
   const { user } = useUser();
+  const lastResolvedIdentityRef = React.useRef<string | null>(null);
+  const identityBoundaryKeyRef = React.useRef("initial-session");
+  if (isLoaded) {
+    const resolvedIdentity = userId || "signed-out";
+    if (
+      lastResolvedIdentityRef.current !== null
+      && lastResolvedIdentityRef.current !== resolvedIdentity
+    ) {
+      // Remount on a real account transition, but not when Clerk merely
+      // resolves the initial session after hydration.
+      identityBoundaryKeyRef.current = `session:${resolvedIdentity}`;
+    }
+    lastResolvedIdentityRef.current = resolvedIdentity;
+  }
   const value = useMemo<FormaAuthValue>(
     () => ({
       mode: "clerk",
@@ -52,7 +66,11 @@ function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
     }),
     [getToken, isLoaded, isSignedIn, openSignIn, user?.imageUrl, userId]
   );
-  return <FormaAuthContext.Provider value={value}>{children}</FormaAuthContext.Provider>;
+  return (
+    <FormaAuthContext.Provider value={value}>
+      <React.Fragment key={identityBoundaryKeyRef.current}>{children}</React.Fragment>
+    </FormaAuthContext.Provider>
+  );
 }
 
 export function FormaAuthProvider({

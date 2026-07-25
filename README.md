@@ -160,7 +160,7 @@ LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `LOG_LEVEL`: Backend logging level, for example `INFO` or `DEBUG`.
-- `BACKEND_LOG_FILE`: Optional rotating log file for backend and uvicorn logs, for example `./blueprint-backend.log`.
+- `BACKEND_LOG_FILE`: Optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`.
 - `BLUEPRINT_DEBUG`: When `true`, API errors and failed job metadata include redacted traceback/context debug payloads. Intended for trusted local/dev environments.
 - `SUPABASE_URL`: Supabase project API URL, for example `https://your-project-ref.supabase.co`.
 - `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`: Backend-only Supabase key for writes. Do not use anon/publishable keys.

@@ -149,7 +149,7 @@ export HF_ARTIFACT_REPO_ID=username/blueprint-metrics
 
 The CLI uses `.venv/bin/python` when present and falls back to `python3`. `health`
 checks the root, component, and A2A jobs endpoints; `jobs --local` reads the
-SQLite job metadata store directly when the API server is not running. Job
+primary SQLite database directly when the API server is not running. Job
 tables include the generation source when known: `Catalog`, `Web Research`, or
 both.
 
@@ -164,7 +164,7 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `BLUEPRINT_DEBUG`: When `true`, API errors and failed job metadata include redacted traceback/context debug payloads. Intended for trusted local/dev environments.
 - `SUPABASE_URL`: Supabase project API URL, for example `https://your-project-ref.supabase.co`.
 - `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`: Backend-only Supabase key for writes. Do not use anon/publishable keys.
-- `BLUEPRINT_DEV_MODE`: When `true`, forces SQLite for app data and A2A job metadata, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
+- `BLUEPRINT_DEV_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
 - `NEXT_PUBLIC_BLUEPRINT_DEBUG` / `NEXT_PUBLIC_BLUEPRINT_DEV_MODE`: Frontend-visible local/dev flags. The `Keys` integrations UI, `Listening Jobs`, and `Backend Logs` are shown only in Next development mode or when a debug/dev-mode flag is truthy. Keep these unset or `false` in public production builds.
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
@@ -234,8 +234,7 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
 - `LLM_FALLBACK_MODEL`: Optional fallback model when `STRICT_LLM=false`.
 - `LLM_BASE_URL`: Optional base URL for OpenAI-compatible providers.
-- `JOB_METADATA_BACKEND`: Durable A2A job metadata backend. `auto` uses Supabase when the main app DB is Supabase, otherwise SQLite.
-- `JOB_METADATA_DB_PATH`: SQLite file used when A2A job metadata is on SQLite (default: `./blueprint_jobs.db`).
+- A2A jobs use the database selected by `DATABASE_BACKEND` and `SQLITE_DATABASE_URL`; there is no separate job database.
 - `A2A_SOCKET_ENABLED`: Set to `true` to start the optional TCP JSONL A2A socket.
 - `A2A_SOCKET_HOST` / `A2A_SOCKET_PORT`: Host and port for the optional TCP JSONL listener.
 

@@ -8,7 +8,7 @@ Forma exposes the same hardware generation capability through several agent-frie
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
 - **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
 
-Job metadata is persisted through `JOB_METADATA_BACKEND` (default: `auto`). In `auto`, Forma stores A2A jobs in Supabase when the main app database is Supabase, otherwise in SQLite at `JOB_METADATA_DB_PATH` (default: `./blueprint_jobs.db`). `BLUEPRINT_DEV_MODE=true` always uses SQLite, even if Supabase credentials are configured. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, or both.
+Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `blueprint_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, or both.
 
 ## Message Shape
 ```json

@@ -119,7 +119,6 @@ def validate(env: dict[str, str], *, require_live_clerk: bool) -> CheckReport:
     report.check("Supabase URL present", bool(value("SUPABASE_URL")))
     report.check("Supabase service/secret key present", bool(first_present(env, ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"))))
     report.check("Database backend is Supabase", value("DATABASE_BACKEND").lower() == "supabase", f"DATABASE_BACKEND={value('DATABASE_BACKEND') or '<unset>'}")
-    report.check("Job metadata not forced to SQLite", value("JOB_METADATA_BACKEND").lower() != "sqlite", f"JOB_METADATA_BACKEND={value('JOB_METADATA_BACKEND') or '<unset>'}")
     report.check("Forma dev mode disabled", not is_true(env, "BLUEPRINT_DEV_MODE"))
     report.check("Frontend dev mode disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEV_MODE"))
     report.check("Backend debug disabled", not is_true(env, "BLUEPRINT_DEBUG"))

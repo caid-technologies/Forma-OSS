@@ -275,8 +275,11 @@ def build_parser() -> argparse.ArgumentParser:
     jobs.add_argument("--sender", help="Filter by sender.")
     jobs.add_argument("--limit", default=50, type=int, help="Maximum jobs to show, from 1 to 200.")
     jobs.add_argument("--json", action="store_true", help="Print raw JSON.")
-    jobs.add_argument("--local", action="store_true", help="Read directly from the local SQLite job store.")
-    jobs.add_argument("--db-path", help="SQLite job database path for --local. Defaults to JOB_METADATA_DB_PATH.")
+    jobs.add_argument("--local", action="store_true", help="Read directly from the primary local SQLite database.")
+    jobs.add_argument(
+        "--db-path",
+        help="Explicit SQLite database path for --local. Defaults to the database selected by SQLITE_DATABASE_URL.",
+    )
     jobs.set_defaults(func=cmd_jobs)
 
     generate = subparsers.add_parser("generate", help="Generate a project through the backend API.")

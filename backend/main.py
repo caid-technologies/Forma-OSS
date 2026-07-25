@@ -315,7 +315,6 @@ async def startup_event():
     except Exception as e:
         logger.exception("Error during database startup: %s", e)
         raise
-    JOB_STORE.init_db()
     await start_a2a_tcp_server()
 
 

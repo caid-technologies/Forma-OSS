@@ -167,6 +167,8 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `BLUEPRINT_DEV_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
 - `NEXT_PUBLIC_BLUEPRINT_DEBUG` / `NEXT_PUBLIC_BLUEPRINT_DEV_MODE`: Frontend-visible local/dev flags. The `Keys` integrations UI, `Listening Jobs`, and `Backend Logs` are shown only in Next development mode or when a debug/dev-mode flag is truthy. Keep these unset or `false` in public production builds.
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
+- `BLUEPRINT_IMAGE_STORAGE_BACKEND`: Optional ancillary override (`supabase`, `s3-compatible`, or `local`). By default image storage follows `DATABASE_BACKEND`.
+- `BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND` / `BLUEPRINT_USER_INTEGRATIONS_BACKEND`: Optional encrypted-settings storage overrides. By default they follow `DATABASE_BACKEND`, so SQLite mode does not contact Supabase just because credentials are present.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
 - `BLUEPRINT_DEPLOYMENT`: When `true`, generation requires a deployment provider or the signed-in user's BYOK provider; users without an active provider are directed to Settings.
 - `LLM_PROVIDER`: Live generation provider: `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
@@ -176,7 +178,7 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-sonnet-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
 - `BLUEPRINT_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
 - `BLUEPRINT_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
-- `BLUEPRINT_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. Without Supabase, local settings use an encrypted file; with Supabase configured, they use encrypted `workspace_integration_configs` storage.
+- `BLUEPRINT_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. SQLite-primary runtimes use an encrypted file; Supabase-primary runtimes use encrypted `workspace_integration_configs` storage.
 - `OPENAI_API_KEY`: API key for first-party OpenAI when `LLM_PROVIDER=openai`.
 - `OPENAI_MODEL`: OpenAI model ID. The example default is `gpt-4o-mini`.
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format. Defaults to `json_schema`; `json_object` and `none` are also supported.

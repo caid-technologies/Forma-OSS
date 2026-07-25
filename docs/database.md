@@ -8,6 +8,7 @@ Database selection is composed in `blueprint_core/database.py`. Provider lifecyc
 - Raw Postgres connection strings are intentionally ignored by the app database layer.
 - With no Supabase client configuration, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - Set `DATABASE_BACKEND=sqlite` to force SQLite, or `DATABASE_BACKEND=supabase` to require Supabase client configuration.
+- Image storage and workspace/user integration stores follow the selected primary backend. In SQLite mode, merely having Supabase credentials in the environment does not enable remote ancillary stores. Use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase`, `BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND=supabase`, or `BLUEPRINT_USER_INTEGRATIONS_BACKEND=supabase` only as explicit overrides.
 - Set `BLUEPRINT_DEV_MODE=true` to force SQLite when Supabase credentials point at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode disables Supabase Storage writes; uploaded/generated image data remains inline in the stored Hardware IR.
 
 The provider is selected once during application composition. Domain-facing database functions delegate to that provider's repository adapter; they do not select a backend per operation. SQLite creates and upgrades the shared local schema, while Supabase expects deployment migrations to be applied before startup. Both providers validate the complete application schema contract and fail startup when a required table or column is missing.
@@ -67,7 +68,7 @@ The backend decrypts this table only server-side using `BLUEPRINT_USER_SECRETS_K
 
 ### workspace_integration_configs
 
-Encrypted workspace-scoped provider settings used when `BLUEPRINT_AUTH_MODE=local`. Supabase-backed workspaces store Fernet ciphertext in this table; non-Supabase local runtimes use an encrypted file. The backend refuses to start without `BLUEPRINT_USER_SECRETS_KEY`, and `BLUEPRINT_WORKSPACE_SECRETS_KEY` can optionally isolate workspace encryption from per-user encryption.
+Encrypted workspace-scoped provider settings used when `BLUEPRINT_AUTH_MODE=local`. Supabase-primary workspaces store Fernet ciphertext in this table; SQLite-primary runtimes use an encrypted file even if Supabase credentials are also present. The backend refuses to start without `BLUEPRINT_USER_SECRETS_KEY`, and `BLUEPRINT_WORKSPACE_SECRETS_KEY` can optionally isolate workspace encryption from per-user encryption.
 
 ### a2a_jobs
 A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.

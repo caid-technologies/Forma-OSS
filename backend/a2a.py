@@ -290,7 +290,7 @@ def _attach_stored_image_metadata(
     logger.info(
         "Image stored for %s: method=%s bucket=%s key=%s url_present=%s",
         metadata_prefix,
-        stored.method,
+        stored.storage_method,
         stored.bucket,
         stored.key,
         bool(stored.url),

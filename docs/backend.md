@@ -48,7 +48,7 @@ The A2A layer exposes Forma to external agents as a tool server and lightweight 
 
 LLM configuration behavior:
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
-- `BACKEND_LOG_FILE`: optional rotating log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
+- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `BLUEPRINT_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `BLUEPRINT_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
@@ -148,11 +148,11 @@ Smoke-test configured LLM providers with a tiny structured prompt:
 ./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
 ./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
 ./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
-./sample.py "Describe a low-voltage plant watering monitor with OLED status"
-./sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
 ```
 
-Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
+Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `scripts/sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `scripts/sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
 
 Run against first-party OpenAI:
 

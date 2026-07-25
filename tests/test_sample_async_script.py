@@ -9,13 +9,13 @@ import unittest
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-ASYNC_SAMPLE_SCRIPT = ROOT_DIR / "sample_async.py"
+ASYNC_SAMPLE_SCRIPT = ROOT_DIR / "scripts" / "sample_async.py"
 
 
 def load_async_sample_module():
     spec = importlib.util.spec_from_file_location("blueprint_sample_async", ASYNC_SAMPLE_SCRIPT)
     if spec is None or spec.loader is None:
-        raise RuntimeError("Could not load sample_async.py")
+        raise RuntimeError("Could not load scripts/sample_async.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

@@ -7,13 +7,13 @@ import unittest
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-SAMPLE_SCRIPT = ROOT_DIR / "sample.py"
+SAMPLE_SCRIPT = ROOT_DIR / "scripts" / "sample.py"
 
 
 def load_sample_module():
     spec = importlib.util.spec_from_file_location("blueprint_sample", SAMPLE_SCRIPT)
     if spec is None or spec.loader is None:
-        raise RuntimeError("Could not load sample.py")
+        raise RuntimeError("Could not load scripts/sample.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module

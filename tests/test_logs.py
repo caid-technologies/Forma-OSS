@@ -77,6 +77,29 @@ class BackendLogCoreTests(unittest.TestCase):
 
         self.assertEqual(Path(tmp_dir, "blueprint-backend.log").resolve(), fallback)
 
+    def test_file_loggers_share_one_non_rotating_handler(self) -> None:
+        loggers = [
+            logging.getLogger(),
+            logging.getLogger("uvicorn.error"),
+            logging.getLogger("uvicorn.access"),
+        ]
+        formatter = logging.Formatter(logging_config.DEFAULT_LOG_FORMAT)
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            log_path = Path(tmp_dir, "backend.log").resolve()
+            logging_config._attach_file_handlers(log_path, logging.INFO, formatter, ())
+            handlers = [logging_config._handler_for_path(logger, log_path) for logger in loggers]
+
+            try:
+                self.assertIsNotNone(handlers[0])
+                self.assertTrue(all(handler is handlers[0] for handler in handlers))
+                self.assertIs(type(handlers[0]), logging.FileHandler)
+            finally:
+                for logger in loggers:
+                    if handlers[0] in logger.handlers:
+                        logger.removeHandler(handlers[0])
+                handlers[0].close()
+
     def test_configure_backend_logging_does_not_crash_on_read_only_log_file(self) -> None:
         calls: list[Path] = []
 

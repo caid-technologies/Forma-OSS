@@ -22,8 +22,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-import sample
-import sample_async
+from scripts import sample, sample_async
 from blueprint_core.selectors import LLMSelector
 from blueprint_core.huggingface_artifacts import (
     HuggingFaceUploadConfig,

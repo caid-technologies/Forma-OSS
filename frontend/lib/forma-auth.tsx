@@ -12,6 +12,7 @@ type FormaAuthValue = {
   isLoaded: boolean;
   isSignedIn: boolean;
   hasIdentity: boolean;
+  identityKey: string;
   userImageUrl: string | null;
   getToken: () => Promise<string | null>;
   openSignIn: (options?: OpenSignInOptions) => void;
@@ -25,13 +26,14 @@ const localAuthValue: FormaAuthValue = {
   isLoaded: true,
   isSignedIn: false,
   hasIdentity: true,
+  identityKey: "local",
   userImageUrl: null,
   getToken: async () => null,
   openSignIn: () => undefined,
 };
 
 function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { getToken, isLoaded, isSignedIn, userId } = useAuth();
   const { openSignIn } = useClerk();
   const { user } = useUser();
   const value = useMemo<FormaAuthValue>(
@@ -41,13 +43,14 @@ function ClerkAuthBridge({ children }: { children: React.ReactNode }) {
       isLoaded,
       isSignedIn: Boolean(isSignedIn),
       hasIdentity: Boolean(isSignedIn),
+      identityKey: userId || (isSignedIn ? "clerk-signed-in" : "clerk-signed-out"),
       userImageUrl: user?.imageUrl || null,
       getToken: async () => (await getToken()) || null,
       openSignIn: (options) => {
         void openSignIn(options);
       },
     }),
-    [getToken, isLoaded, isSignedIn, openSignIn, user?.imageUrl]
+    [getToken, isLoaded, isSignedIn, openSignIn, user?.imageUrl, userId]
   );
   return <FormaAuthContext.Provider value={value}>{children}</FormaAuthContext.Provider>;
 }

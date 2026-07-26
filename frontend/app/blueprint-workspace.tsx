@@ -2123,6 +2123,8 @@ export function FormaWorkspace({
     if (storedMessages.length) {
       setChatThreads((current) => ({ ...current, [item.chatId]: storedMessages }));
       setChatMessages(storedMessages);
+    } else {
+      setChatMessages(initialChatMessages());
     }
     const projectAlreadyLoaded = Boolean(
       item.projectId && projectIdFromIR(projectIR) === item.projectId

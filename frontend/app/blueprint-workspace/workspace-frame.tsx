@@ -19,7 +19,7 @@ export default function WorkspaceFrame({
     <div
       className={
         homeMobileTopPadding
-          ? "h-[100dvh] w-full overflow-hidden bg-[#141519] font-sans text-slate-100"
+          ? "h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-100"
           : "h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-200"
       }
     >

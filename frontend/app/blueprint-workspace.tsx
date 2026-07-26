@@ -2,7 +2,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   activeLlmsFromIntegrations,
   generationLlmKey,
@@ -1542,6 +1542,11 @@ export function FormaWorkspace({
   homeView = "chat",
 }: HomeProps = {}) {
   const router = useRouter();
+  const pathname = usePathname();
+  const pathnameChatId = pathname.match(/^\/chat\/([^/]+)\/?$/)?.[1] || null;
+  const pathnameProjectId = pathname.match(/^\/project\/([^/]+)\/?$/)?.[1] || null;
+  const currentRouteChatId = pathnameChatId || (pathname === null ? routeChatId : null);
+  const currentRouteProjectId = pathnameProjectId || (pathname === null ? routeProjectId : null);
   const {
     authRequired,
     getToken,
@@ -1553,7 +1558,7 @@ export function FormaWorkspace({
   } = useFormaAuth();
   const chatStorageScope = authRequired ? `identity:${authIdentityKey}` : "local";
   const [prompt, setPrompt] = useState("");
-  const [activeChatId, setActiveChatId] = useState(() => routeChatId ? safeDecodeChatId(routeChatId) : newBuildChatId());
+  const [activeChatId, setActiveChatId] = useState(() => currentRouteChatId ? safeDecodeChatId(currentRouteChatId) : newBuildChatId());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => initialChatMessages());
@@ -1578,9 +1583,9 @@ export function FormaWorkspace({
   const [visibleProjectGalleryIds, setVisibleProjectGalleryIds] = useState<string[]>([]);
   const [routeProjectError, setRouteProjectError] = useState<string | null>(null);
   const [chatRouteTransition, setChatRouteTransition] = useState<ChatRouteTransition | null>(() => (
-    routeChatId && !routeProjectId
+    currentRouteChatId && !currentRouteProjectId
       ? {
-          chatId: safeDecodeChatId(routeChatId),
+          chatId: safeDecodeChatId(currentRouteChatId),
           title: "Opening chat",
           projectId: "",
           error: null,
@@ -2128,7 +2133,7 @@ export function FormaWorkspace({
         : null
     );
     if (!item.projectId) setProjectIR(null);
-    router.push(chatRoute(item.chatId));
+    syncChatRoute(item.chatId);
   };
 
   const openChatById = (chatId: string) => {
@@ -2662,7 +2667,7 @@ export function FormaWorkspace({
 
 
   useEffect(() => {
-    if (routeProjectId || projectIR) return;
+    if (currentRouteProjectId || projectIR) return;
     const visibleProjectIds = new Set(visibleProjectGalleryIds);
     if (!visibleProjectIds.size) return;
 
@@ -2725,7 +2730,7 @@ export function FormaWorkspace({
       cancelled = true;
       controller.abort();
     };
-  }, [chatListItems, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, routeProjectId, visibleProjectGalleryIds]);
+  }, [chatListItems, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -3428,7 +3433,7 @@ export function FormaWorkspace({
     }
   };
 
-  const routedProjectId = routeProjectId ? safeDecodeProjectId(routeProjectId) : "";
+  const routedProjectId = currentRouteProjectId ? safeDecodeProjectId(currentRouteProjectId) : "";
 
   useEffect(() => {
     if (!routedProjectId) {
@@ -3463,7 +3468,7 @@ export function FormaWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routedProjectId]);
 
-  const routedChatId = routeChatId && !routeProjectId ? safeDecodeChatId(routeChatId) : "";
+  const routedChatId = currentRouteChatId && !currentRouteProjectId ? safeDecodeChatId(currentRouteChatId) : "";
   const routedChatItem = routedChatId
     ? chatListItems.find((item) => item.chatId === routedChatId) || null
     : null;
@@ -3472,7 +3477,7 @@ export function FormaWorkspace({
   const routedChatTitle = routedChatItem?.title || "Opening chat";
 
   useEffect(() => {
-    if (!routedChatId || routeProjectId) return;
+    if (!routedChatId || currentRouteProjectId) return;
     if (authRequired && !isSignedIn) return;
 
     const controller = new AbortController();
@@ -3569,7 +3574,7 @@ export function FormaWorkspace({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routedChatId, routeProjectId, routedChatFound, routedChatProjectId, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn, chatStorageScope]);
+  }, [routedChatId, currentRouteProjectId, routedChatFound, routedChatProjectId, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn, chatStorageScope]);
 
   const findProjectForJob = (job: A2AJob) => {
     const projectId = job.result_summary?.project_id;
@@ -3918,7 +3923,7 @@ export function FormaWorkspace({
       visibleChatRouteTransition &&
       (visibleChatRouteTransition.error || !chatTransitionProjectId || loadedProjectId !== chatTransitionProjectId)
   );
-  const privateChatRouteRequested = Boolean(authRequired && routeChatId && !routeProjectId);
+  const privateChatRouteRequested = Boolean(authRequired && currentRouteChatId && !currentRouteProjectId);
   const privateChatRouteDenied = privateChatRouteRequested && authLoaded && !isSignedIn;
 
   if (privateChatRouteDenied) {
@@ -4041,7 +4046,7 @@ export function FormaWorkspace({
     );
   }
 
-  if ((!routeProjectId && !routeChatId) || !projectIR) {
+  if ((!currentRouteProjectId && !currentRouteChatId) || !projectIR) {
     return (
       <WorkspaceFrame
         collapsed={sidebarCollapsed}
@@ -4192,8 +4197,7 @@ export function FormaWorkspace({
                 />
               )}
               onOpenProject={(projectId) => {
-                void loadOldProject(projectId, { syncRoute: false, tab: "chat" });
-                syncChatRoute(activeChatId);
+                void loadOldProject(projectId, { tab: "chat" });
               }}
               examples={samplePrompts}
               onSelectExample={(example) => {

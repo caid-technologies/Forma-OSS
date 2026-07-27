@@ -39,10 +39,12 @@ DEFAULT_RUNPOD_POLL_TIMEOUT_SECONDS = 1200.0
 DEFAULT_BASETEN_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 DEFAULT_GMI_MODEL = "anthropic/claude-fable-5"
 DEFAULT_HUGGINGFACE_MODEL = "Qwen/Qwen2.5-Coder-3B-Instruct:nscale"
+DEFAULT_NEBIUS_MODEL = "Qwen/Qwen3.5-397B-A17B"
 DEFAULT_NVIDIA_MODEL = "nvidia/z-ai/glm-5.2"
 DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
+DEFAULT_NEBIUS_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
@@ -75,6 +77,7 @@ SUPPORTED_LLM_PROVIDERS = {
     "gemini",
     "gmi",
     "huggingface",
+    "nebius",
     "nvidia",
     "openai",
     "openai-compatible",
@@ -103,6 +106,10 @@ PROVIDER_ALIASES = {
     "hugging-face": "huggingface",
     "huggingface-inference": "huggingface",
     "huggingface-router": "huggingface",
+    "nebius-ai": "nebius",
+    "nebius-token-factory": "nebius",
+    "token-factory": "nebius",
+    "tokenfactory": "nebius",
     "compatible": "openai-compatible",
     "openai_compatible": "openai-compatible",
     "runpod-openai": "runpod",
@@ -371,6 +378,8 @@ def _default_provider_name() -> str:
         DEFAULT_HUGGINGFACE_BASE_URL,
     ):
         return "huggingface"
+    if _first_env(["NEBIUS_API_KEY"]) and _first_env(["NEBIUS_BASE_URL"], DEFAULT_NEBIUS_BASE_URL):
+        return "nebius"
     if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
@@ -395,6 +404,11 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         DEFAULT_HUGGINGFACE_BASE_URL,
     ):
         providers.add("huggingface")
+    if _first_env(["NEBIUS_API_KEY"]) and _first_env(
+        ["NEBIUS_BASE_URL"],
+        DEFAULT_NEBIUS_BASE_URL,
+    ):
+        providers.add("nebius")
     if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL", "LLM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
@@ -439,6 +453,8 @@ def _default_model_for_provider(provider_name: str) -> str:
         )
     if provider_name == "huggingface":
         return _first_env(["HUGGINGFACE_MODEL", "HF_MODEL"], DEFAULT_HUGGINGFACE_MODEL) or DEFAULT_HUGGINGFACE_MODEL
+    if provider_name == "nebius":
+        return _first_env(["NEBIUS_MODEL", "LLM_MODEL"], DEFAULT_NEBIUS_MODEL) or DEFAULT_NEBIUS_MODEL
     if provider_name == "nvidia":
         return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", "LLM_MODEL"], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
     if provider_name == "openai":
@@ -467,6 +483,8 @@ def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
         return _normalize_model_for_provider(provider_name, fallback) if fallback else None
     if provider_name == "huggingface":
         return _first_env(["HUGGINGFACE_FALLBACK_MODEL", "HF_FALLBACK_MODEL"])
+    if provider_name == "nebius":
+        return _first_env(["NEBIUS_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "nvidia":
         return _first_env(["NVIDIA_FALLBACK_MODEL", "NVIDIA_NIM_FALLBACK_MODEL", "NIM_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "openai":
@@ -514,6 +532,8 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
         env_names = ["GMI_ALLOWED_MODELS", "GMI_CLOUD_ALLOWED_MODELS", "GMICLOUD_ALLOWED_MODELS", "ALLOWED_GMI_MODELS", *env_names]
     elif provider_name == "huggingface":
         env_names = ["HUGGINGFACE_ALLOWED_MODELS", "HF_ALLOWED_MODELS", "ALLOWED_HUGGINGFACE_MODELS", *env_names]
+    elif provider_name == "nebius":
+        env_names = ["NEBIUS_ALLOWED_MODELS", "ALLOWED_NEBIUS_MODELS", *env_names]
     elif provider_name == "openai":
         env_names = ["OPENAI_ALLOWED_MODELS", "ALLOWED_OPENAI_MODELS", *env_names]
     elif provider_name == "openai-compatible":
@@ -1337,7 +1357,7 @@ class AnthropicProvider(StructuredLLMProvider):
 class OpenAICompatibleProvider(StructuredLLMProvider):
     def __init__(self, provider_name: str = "openai", model_name: Optional[str] = None):
         normalized_provider = normalize_llm_provider_name(provider_name) or "openai"
-        if normalized_provider in {"baseten", "gmi", "huggingface", "nvidia", "openai", "runpod"}:
+        if normalized_provider in {"baseten", "gmi", "huggingface", "nebius", "nvidia", "openai", "runpod"}:
             self.provider_name = normalized_provider
         else:
             self.provider_name = "openai-compatible"
@@ -1389,6 +1409,22 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             allow_no_api_key_names = ["HUGGINGFACE_ALLOW_NO_API_KEY", "HF_ALLOW_NO_API_KEY"]
             default_model_name = DEFAULT_HUGGINGFACE_MODEL
             default_base_url = DEFAULT_HUGGINGFACE_BASE_URL
+            default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
+        elif self.provider_name == "nebius":
+            api_key_names = ["NEBIUS_API_KEY", "LLM_API_KEY"]
+            base_url_names = ["NEBIUS_BASE_URL"]
+            model_names = ["NEBIUS_MODEL", "LLM_MODEL"]
+            fallback_model_names = ["NEBIUS_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
+            strict_names = ["STRICT_NEBIUS", "STRICT_LLM"]
+            validate_model_names = ["NEBIUS_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
+            response_format_names = ["NEBIUS_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
+            timeout_names = ["NEBIUS_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
+            max_tokens_names = ["NEBIUS_MAX_TOKENS", "LLM_MAX_TOKENS"]
+            temperature_names = ["NEBIUS_TEMPERATURE", "LLM_TEMPERATURE"]
+            reasoning_effort_names = ["NEBIUS_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
+            allow_no_api_key_names = ["NEBIUS_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
+            default_model_name = DEFAULT_NEBIUS_MODEL
+            default_base_url = DEFAULT_NEBIUS_BASE_URL
             default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
         elif self.provider_name == "nvidia":
             api_key_names = ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY", "LLM_API_KEY"]
@@ -1473,7 +1509,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.fallback_model = _normalize_model_for_provider(self.provider_name, raw_fallback_model) if raw_fallback_model else None
         self.strict_mode = _first_env_bool(strict_names, default=True)
         self.validate_models = _first_env_bool(validate_model_names, default=False)
-        default_response_format = "json_schema" if self.provider_name == "openai" else "json_object"
+        default_response_format = "json_schema" if self.provider_name in {"nebius", "openai"} else "json_object"
         self.response_format = (
             _first_env(response_format_names, default_response_format)
             or default_response_format
@@ -1565,6 +1601,8 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Increase HUGGINGFACE_TIMEOUT_SECONDS/HF_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "gmi":
             return "Increase GMI_TIMEOUT_SECONDS/GMI_CLOUD_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
+        if self.provider_name == "nebius":
+            return "Increase NEBIUS_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "nvidia":
             return "Increase NVIDIA_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "runpod":
@@ -1578,6 +1616,8 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Set HF_TOKEN, HUGGINGFACE_API_KEY, or HUGGINGFACE_HUB_TOKEN. HUGGINGFACE_BASE_URL defaults to https://router.huggingface.co/v1."
         if self.provider_name == "gmi":
             return "Set GMI_API_KEY or GMI_CLOUD_API_KEY. GMI_BASE_URL defaults to https://api.gmi-serving.com/v1."
+        if self.provider_name == "nebius":
+            return "Set NEBIUS_API_KEY. NEBIUS_BASE_URL defaults to https://api.tokenfactory.nebius.com/v1."
         if self.provider_name == "nvidia":
             return "Set NVIDIA_API_KEY. NVIDIA_BASE_URL defaults to https://integrate.api.nvidia.com/v1."
         if self.provider_name == "runpod":
@@ -2150,7 +2190,7 @@ def build_llm_provider(
         return AnthropicProvider(model_name=runtime.model)
     if runtime.provider == "gemini":
         return GeminiProvider(model_name=runtime.model)
-    if runtime.provider in {"baseten", "gmi", "huggingface", "nvidia", "openai", "openai-compatible"}:
+    if runtime.provider in {"baseten", "gmi", "huggingface", "nebius", "nvidia", "openai", "openai-compatible"}:
         return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model)
     if runtime.provider == "runpod":
         return OpenAICompatibleProvider(provider_name="runpod", model_name=runtime.model)
@@ -2161,7 +2201,7 @@ def build_llm_provider(
 
     message = (
         f"Unsupported LLM_PROVIDER '{runtime.provider}'. Supported providers are "
-        "anthropic, baseten, gemini, gmi, huggingface, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
+        "anthropic, baseten, gemini, gmi, huggingface, nebius, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
     )
     logger.warning(message)
     return SimulationProvider(validation_error=message)

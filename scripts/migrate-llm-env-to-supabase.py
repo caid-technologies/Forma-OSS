@@ -32,6 +32,7 @@ MIGRATED_INTEGRATION_IDS = {
     "runpod",
     "gmi",
     "huggingface",
+    "nebius",
     "nvidia",
     "gemini",
     "ollama",

@@ -283,6 +283,19 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         ),
     ),
     IntegrationDefinition(
+        id="nebius",
+        label="Nebius Token Factory",
+        description="OpenAI-compatible text generation through Nebius Token Factory.",
+        fields=(
+            IntegrationFieldDefinition("api_key", "API key", ("NEBIUS_API_KEY",), secret=True, placeholder="Nebius API key"),
+            IntegrationFieldDefinition("base_url", "Base URL", ("NEBIUS_BASE_URL",), placeholder="https://api.tokenfactory.nebius.com/v1"),
+            IntegrationFieldDefinition("model", "Default model", ("NEBIUS_MODEL", "NEBIUS_STREAM_MODEL"), placeholder="Qwen/Qwen3.5-397B-A17B"),
+            IntegrationFieldDefinition("fallback_model", "Fallback model", ("NEBIUS_FALLBACK_MODEL",), placeholder="openai/gpt-oss-120b"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NEBIUS_TIMEOUT_SECONDS", "NEBIUS_STREAM_TIMEOUT_SECONDS"), placeholder="300"),
+            IntegrationFieldDefinition("max_tokens", "Max tokens", ("NEBIUS_MAX_TOKENS", "NEBIUS_STREAM_MAX_OUTPUT_TOKENS"), placeholder="8192"),
+        ),
+    ),
+    IntegrationDefinition(
         id="runpod",
         label="Runpod",
         description="Runpod OpenAI-compatible endpoints and serverless endpoints.",
@@ -513,6 +526,7 @@ EXTRA_MANAGED_ENV_NAMES = {
     "BASETEN_ALLOWED_MODELS",
     "GMI_ALLOWED_MODELS",
     "HUGGINGFACE_ALLOWED_MODELS",
+    "NEBIUS_ALLOWED_MODELS",
     "NVIDIA_ALLOWED_MODELS",
     "OPENAI_ALLOWED_MODELS",
     "RUNPOD_ALLOWED_MODELS",
@@ -523,6 +537,7 @@ LLM_PROVIDER_INTEGRATION_IDS = {
     "gemini",
     "gmi",
     "huggingface",
+    "nebius",
     "nvidia",
     "openai",
     "runpod",
@@ -532,6 +547,10 @@ PROVIDER_ALIASES = {
     "anthropic-claude": "anthropic",
     "hf": "huggingface",
     "hugging-face": "huggingface",
+    "nebius-ai": "nebius",
+    "nebius-token-factory": "nebius",
+    "token-factory": "nebius",
+    "tokenfactory": "nebius",
     "nvidia-build": "nvidia",
     "nvidia-nim": "nvidia",
     "nim": "nvidia",
@@ -553,6 +572,7 @@ PROVIDER_ALLOWED_MODEL_ENV = {
     "gemini": "GEMINI_ALLOWED_MODELS",
     "gmi": "GMI_ALLOWED_MODELS",
     "huggingface": "HUGGINGFACE_ALLOWED_MODELS",
+    "nebius": "NEBIUS_ALLOWED_MODELS",
     "nvidia": "NVIDIA_ALLOWED_MODELS",
     "openai": "OPENAI_ALLOWED_MODELS",
     "runpod": "RUNPOD_ALLOWED_MODELS",
@@ -612,6 +632,16 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
             "Hosted Hugging Face BYOK requires a fine-grained token with only Make calls to Inference Providers, "
             "or an enterprise service-account token with equivalent scope. Broad repository, organization, billing, "
             "deployment, or unrestricted account tokens are not accepted."
+        ),
+    ),
+    "nebius": HostedByokPolicy(
+        hosted_byok="disabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        blocked_secret_fields=("api_key",),
+        note=(
+            "Forma Cloud does not accept user-supplied Nebius Token Factory API keys until provider terms and "
+            "credential scopes have been reviewed. Use local or self-hosted Forma for Nebius BYOK."
         ),
     ),
     "together": HostedByokPolicy(

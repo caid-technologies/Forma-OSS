@@ -8,6 +8,7 @@ const defaults: GenerationLlmOption[] = [
   { provider: "anthropic", model: "claude-sonnet-5", label: "Claude Sonnet 5" },
   { provider: "huggingface", model: "Qwen/Qwen2.5-Coder-3B-Instruct:nscale", label: "Hugging Face Qwen2.5 Coder" },
   { provider: "baseten", model: "zai-org/GLM-5.2", label: "GLM 5.2" },
+  { provider: "nebius", model: "Qwen/Qwen3.5-397B-A17B", label: "Nebius Qwen 3.5 397B A17B" },
   { provider: "nvidia", model: "nvidia/z-ai/glm-5.2", label: "NVIDIA GLM 5.2" },
 ];
 
@@ -86,4 +87,28 @@ test("no static fallback models appear when every provider is off", () => {
   };
 
   assert.deepEqual(activeLlmsFromIntegrations(payload, defaults, label), []);
+});
+
+test("configured Nebius falls back to its catalog default when no model is saved", () => {
+  const payload: IntegrationsPayload = {
+    integrations: [
+      {
+        id: "nebius",
+        enabled: true,
+        configured: true,
+        fields: [
+          { id: "api_key", value: null, configured: true },
+          { id: "model", value: null, configured: false },
+        ],
+      },
+    ],
+  };
+
+  assert.deepEqual(activeLlmsFromIntegrations(payload, defaults, label), [
+    {
+      provider: "nebius",
+      model: "Qwen/Qwen3.5-397B-A17B",
+      label: "Nebius Qwen 3.5 397B A17B",
+    },
+  ]);
 });

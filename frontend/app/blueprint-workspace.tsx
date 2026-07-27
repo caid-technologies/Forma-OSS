@@ -5494,7 +5494,7 @@ function ChatWorkspace({
         {canChat && (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
             <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6">
-              <div className="mx-auto flex min-w-0 max-w-[1400px] flex-col gap-3">
+              <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
                 {messages.length ? (
                   messages.map((message) => {
                     const isUser = message.role === "user";
@@ -5614,7 +5614,7 @@ function ChatProjectArtifact({
   projectContent: React.ReactNode;
 }) {
   return (
-    <section className="mt-3 min-w-0 overflow-hidden border border-cyan-300/20 bg-[#141519]" aria-labelledby="chat-project-title">
+    <section className="mx-auto mt-3 w-full min-w-0 max-w-6xl overflow-hidden border border-cyan-300/20 bg-[#141519]" aria-labelledby="chat-project-title">
       <header className="flex min-h-[64px] min-w-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">

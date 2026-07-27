@@ -112,6 +112,51 @@ test("an environment provider remains active when its saved BYOK entry is off", 
   ]);
 });
 
+test("the runtime provider allowlist hides unrelated configured environment providers", () => {
+  const payload: IntegrationsPayload = {
+    integrations: [
+      {
+        id: "runtime",
+        enabled: true,
+        configured: true,
+        fields: [{ id: "allowed_providers", value: "nebius", configured: true }],
+      },
+      {
+        id: "baseten",
+        enabled: true,
+        configured: true,
+        environment_configured: true,
+        available: true,
+        fields: [{ id: "model", value: "zai-org/GLM-5.2", configured: true }],
+      },
+      {
+        id: "nvidia",
+        enabled: true,
+        configured: true,
+        environment_configured: true,
+        available: true,
+        fields: [{ id: "model", value: "qwen/qwen2.5-coder-32b-instruct", configured: true }],
+      },
+      {
+        id: "nebius",
+        enabled: true,
+        configured: true,
+        environment_configured: true,
+        available: true,
+        fields: [{ id: "model", value: "nvidia/nemotron-3-super-120b-a12b", configured: true }],
+      },
+    ],
+  };
+
+  assert.deepEqual(activeLlmsFromIntegrations(payload, defaults, label), [
+    {
+      provider: "nebius",
+      model: "nvidia/nemotron-3-super-120b-a12b",
+      label: "nebius nvidia/nemotron-3-super-120b-a12b",
+    },
+  ]);
+});
+
 test("configured Nebius falls back to its catalog default when no model is saved", () => {
   const payload: IntegrationsPayload = {
     integrations: [

@@ -1409,7 +1409,7 @@ function withProjectResponseMetadata(ir: any, response: any) {
       ...(ir.assembly_metadata || {}),
       project_id: ir.assembly_metadata?.project_id || response?.project_id,
       chat_id: ir.assembly_metadata?.chat_id || response?.chat_id,
-      can_chat: Boolean(ir.assembly_metadata?.can_chat ?? ir.assembly_metadata?.canChat ?? response?.can_chat ?? response?.canChat),
+      can_chat: Boolean(response?.can_chat ?? response?.canChat ?? ir.assembly_metadata?.can_chat ?? ir.assembly_metadata?.canChat),
       frontend_job_id: ir.assembly_metadata?.frontend_job_id || response?.job_id,
       source_prompt: ir.assembly_metadata?.source_prompt || response?.prompt,
       ...timingMetadata,
@@ -3107,6 +3107,7 @@ export function FormaWorkspace({
         mockRes.project_ir.assembly_metadata = {
           ...(mockRes.project_ir.assembly_metadata || {}),
           chat_id: requestChatId,
+          can_chat: true,
         };
         setProjectIR(mockRes.project_ir);
         const fallbackProjectId = projectIdFromIR(mockRes.project_ir);

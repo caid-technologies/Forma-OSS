@@ -9,6 +9,7 @@ from blueprint_core.persistence.models import (
     DBComponentTemplate,
     DBGeneratedProject,
     DBProjectChat,
+    DBUserSettings,
 )
 
 
@@ -173,3 +174,32 @@ class SqlAlchemyRepository:
             session.refresh(signup)
             session.expunge(signup)
             return signup
+
+    def get_user_settings(self, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBUserSettings).filter(
+                DBUserSettings.owner_user_id == owner_user_id
+            ).first()
+
+    def upsert_user_settings(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            settings = session.query(DBUserSettings).filter(
+                DBUserSettings.owner_user_id == record["owner_user_id"]
+            ).first()
+            if settings:
+                settings.model_training_opt_out = record["model_training_opt_out"]
+                settings.updated_at = record["updated_at"]
+            else:
+                settings = DBUserSettings(**record)
+                session.add(settings)
+            session.flush()
+            session.refresh(settings)
+            session.expunge(settings)
+            return settings
+
+    def list_model_training_opt_out_user_ids(self) -> List[str]:
+        with self._session() as session:
+            rows = session.query(DBUserSettings.owner_user_id).filter(
+                DBUserSettings.model_training_opt_out.is_(True)
+            ).all()
+            return [str(row[0]) for row in rows]

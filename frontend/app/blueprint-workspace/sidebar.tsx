@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import {
-  Cpu,
   Database,
   Handshake,
   History,
@@ -256,7 +256,14 @@ export function ChatSidebar({
             aria-label="Home"
             title="Home"
           >
-            <Cpu className="h-4 w-4" />
+            <Image
+              src="/brand/caid-dark-logo.png"
+              alt=""
+              width={28}
+              height={28}
+              className="h-7 w-7 object-contain"
+              aria-hidden="true"
+            />
           </button>
           {!compact && (
             <div className="min-w-0 flex items-center gap-2">
@@ -457,4 +464,3 @@ export function ChatSidebar({
     </aside>
   );
 }
-

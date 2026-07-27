@@ -70,6 +70,16 @@ The backend decrypts this table only server-side using `BLUEPRINT_USER_SECRETS_K
 
 Encrypted workspace-scoped provider settings used when `BLUEPRINT_AUTH_MODE=local`. Supabase-primary workspaces store Fernet ciphertext in this table; SQLite-primary runtimes use an encrypted file even if Supabase credentials are also present. The backend refuses to start without `BLUEPRINT_USER_SECRETS_KEY`, and `BLUEPRINT_WORKSPACE_SECRETS_KEY` can optionally isolate workspace encryption from per-user encryption.
 
+### user_settings
+
+Queryable per-user product and privacy preferences.
+- `owner_user_id` (provider-neutral account owner id; unique)
+- `model_training_opt_out` (`false` by default; `true` excludes the owner's outputs from future model-training dataset exports)
+- `created_at`
+- `updated_at`
+
+No row means the product default applies. A row is created when the user saves the preference, so explicit opt-outs can be listed with `model_training_opt_out = true`. Dataset exporters must consult this table before selecting user-owned outputs.
+
 ### a2a_jobs
 A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.
 - Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, `source_usage` metadata for Catalog/data warehouse vs Web Research/Firecrawl, compact result summaries, structured operation pass/fail metadata, image output status/error metadata, errors, and optional `error_debug` traces when `BLUEPRINT_DEBUG=true`

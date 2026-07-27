@@ -17,6 +17,7 @@ from blueprint_core.persistence.models import (
     DBGeneratedProject,
     DBProjectChat,
     DBUserIntegrationConfig,
+    DBUserSettings,
     DBWorkspaceIntegrationConfig,
 )
 from blueprint_core.persistence.providers import SQLiteProvider, SupabaseProvider, create_sqlite_provider
@@ -493,6 +494,38 @@ def save_alpha_signup(
         "created_at": created_at,
     }
     return _DATABASE_REPOSITORY.save_alpha_signup(record)
+
+
+def get_user_settings(owner_user_id: str) -> Optional[Any]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        return None
+    return _DATABASE_REPOSITORY.get_user_settings(normalized_owner_user_id)
+
+
+def set_user_model_training_preference(
+    owner_user_id: str,
+    *,
+    allow_model_training: bool,
+    updated_at: str,
+) -> Any:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    existing = _DATABASE_REPOSITORY.get_user_settings(normalized_owner_user_id)
+    record = {
+        "owner_user_id": normalized_owner_user_id,
+        "model_training_opt_out": not allow_model_training,
+        "created_at": getattr(existing, "created_at", None) or updated_at,
+        "updated_at": updated_at,
+    }
+    return _DATABASE_REPOSITORY.upsert_user_settings(record)
+
+
+def list_model_training_opt_out_user_ids() -> List[str]:
+    """Return owner ids that dataset exports must exclude from model training."""
+
+    return _DATABASE_REPOSITORY.list_model_training_opt_out_user_ids()
 
 
 def get_database_config() -> Dict[str, Any]:

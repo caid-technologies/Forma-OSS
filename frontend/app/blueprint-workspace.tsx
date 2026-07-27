@@ -5598,6 +5598,16 @@ function ChatWorkspace({
   );
 }
 
+function scrollableVerticalParent(node: HTMLElement | null) {
+  let current = node?.parentElement || null;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if (/(auto|scroll)/.test(overflowY) && current.scrollHeight > current.clientHeight) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
 function ChatProjectArtifact({
   projectId,
   projectTitle,
@@ -5616,12 +5626,60 @@ function ChatProjectArtifact({
   projectContent: React.ReactNode;
 }) {
   const [fullScreen, setFullScreen] = useState(false);
+  const artifactRef = useRef<HTMLElement>(null);
+  const chatScrollSnapshotRef = useRef<{
+    element: HTMLElement | null;
+    top: number;
+    left: number;
+    windowX: number;
+    windowY: number;
+  } | null>(null);
+  const restoreChatScrollRef = useRef(false);
+
+  const enterFullScreen = () => {
+    const element = scrollableVerticalParent(artifactRef.current);
+    chatScrollSnapshotRef.current = {
+      element,
+      top: element?.scrollTop || 0,
+      left: element?.scrollLeft || 0,
+      windowX: window.scrollX,
+      windowY: window.scrollY,
+    };
+    setFullScreen(true);
+  };
+
+  const exitFullScreen = () => {
+    restoreChatScrollRef.current = true;
+    setFullScreen(false);
+  };
+
+  useLayoutEffect(() => {
+    if (fullScreen || !restoreChatScrollRef.current) return;
+    restoreChatScrollRef.current = false;
+    const snapshot = chatScrollSnapshotRef.current;
+    if (!snapshot) return;
+
+    const restoreScroll = () => {
+      if (snapshot.element?.isConnected) {
+        snapshot.element.scrollTo({ top: snapshot.top, left: snapshot.left, behavior: "auto" });
+      } else {
+        window.scrollTo({ top: snapshot.windowY, left: snapshot.windowX, behavior: "auto" });
+      }
+    };
+
+    restoreScroll();
+    const frameId = window.requestAnimationFrame(restoreScroll);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [fullScreen]);
 
   useEffect(() => {
     if (!fullScreen) return;
     const previousOverflow = document.body.style.overflow;
     const exitOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFullScreen(false);
+      if (event.key === "Escape") {
+        restoreChatScrollRef.current = true;
+        setFullScreen(false);
+      }
     };
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", exitOnEscape);
@@ -5633,6 +5691,7 @@ function ChatProjectArtifact({
 
   return (
     <section
+      ref={artifactRef}
       className={`min-w-0 overflow-hidden bg-[#141519] ${
         fullScreen
           ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
@@ -5664,7 +5723,7 @@ function ChatProjectArtifact({
           </div>
           <button
             type="button"
-            onClick={() => setFullScreen((current) => !current)}
+            onClick={fullScreen ? exitFullScreen : enterFullScreen}
             className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-2.5 text-[10px] font-black uppercase text-slate-300 transition hover:border-white hover:bg-white hover:text-black sm:px-3"
             aria-pressed={fullScreen}
             aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}

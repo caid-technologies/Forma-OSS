@@ -66,4 +66,8 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         "workspace_integration_configs",
         ("config_key", "encrypted_config", "encryption_key_id", "version", "created_at", "updated_at"),
     ),
+    TableContract(
+        "user_settings",
+        ("id", "owner_user_id", "model_training_opt_out", "created_at", "updated_at"),
+    ),
 )

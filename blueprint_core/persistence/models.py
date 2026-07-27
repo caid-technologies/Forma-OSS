@@ -103,3 +103,13 @@ class DBWorkspaceIntegrationConfig(Base):
     version = Column(Integer, nullable=False, default=1)
     created_at = Column(String, nullable=True)
     updated_at = Column(String, nullable=False)
+
+
+class DBUserSettings(Base):
+    __tablename__ = "user_settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    owner_user_id = Column(String, unique=True, index=True, nullable=False)
+    model_training_opt_out = Column(Boolean, nullable=False, default=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)

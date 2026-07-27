@@ -1,6 +1,6 @@
 export const legalContactEmail = "team@caid-technologies.com";
 export const legalEntityName = "CAID TECHNOLOGIES, INC.";
-export const legalLastUpdated = "July 8, 2026";
+export const legalLastUpdated = "July 27, 2026";
 export const legalEffectiveDate = "July 8, 2026";
 
 export type LegalSection = {
@@ -91,6 +91,7 @@ export const legalDocuments: LegalDocument[] = [
         heading: "How We Use Information",
         paragraphs: [
           "We use information to provide, operate, maintain, secure, debug, improve, and support the Service; create and store generated projects; route requests to configured providers; communicate with users; enforce policies; comply with law; and develop aggregated or de-identified analytics.",
+          "Subject to your Data & Privacy preference, generated outputs may be included in datasets used to evaluate, improve, or fine-tune Forma models.",
         ],
       },
       {
@@ -120,6 +121,7 @@ export const legalDocuments: LegalDocument[] = [
           "You may request access, correction, deletion, export, restriction, portability, or objection where available under applicable law.",
           "You may control cookies and local storage through your browser.",
           "You may disconnect third-party integrations and opt out of non-essential emails.",
+          "You may opt out of future model-improvement dataset exports in Settings under Data & Privacy. This does not remove data already incorporated into a completed training run.",
         ],
       },
       {

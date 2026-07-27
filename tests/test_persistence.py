@@ -24,6 +24,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertEqual([table.name for table in APPLICATION_SCHEMA], list(client.projections))
         self.assertIn("error_debug_json", client.projections["a2a_jobs"])
         self.assertIn("visibility", client.projections["generated_projects"])
+        self.assertIn("model_training_opt_out", client.projections["user_settings"])
 
     def test_supabase_provider_propagates_original_readiness_error(self) -> None:
         failure = ConnectionError("[Errno 111] Connection refused")
@@ -142,6 +143,38 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertEqual(0, imported_second)
         self.assertEqual("succeeded", row[0])
         self.assertIn("legacy", row[1])
+
+    def test_user_training_preference_is_queryable_by_owner_and_opt_out_state(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            repository = SqlAlchemyRepository(provider.session_factory)
+            provider.initialize()
+            original_repository = database._DATABASE_REPOSITORY
+            try:
+                database._DATABASE_REPOSITORY = repository
+                default_settings = database.get_user_settings("user_default")
+                opted_out = database.set_user_model_training_preference(
+                    "user_opted_out",
+                    allow_model_training=False,
+                    updated_at="2026-07-27T20:00:00Z",
+                )
+                database.set_user_model_training_preference(
+                    "user_allowed",
+                    allow_model_training=True,
+                    updated_at="2026-07-27T20:01:00Z",
+                )
+                opted_out_ids = database.list_model_training_opt_out_user_ids()
+            finally:
+                database._DATABASE_REPOSITORY = original_repository
+
+        self.assertIsNone(default_settings)
+        self.assertTrue(opted_out.model_training_opt_out)
+        self.assertEqual(["user_opted_out"], opted_out_ids)
 
     @staticmethod
     def _create_legacy_job_database(path: Path) -> None:

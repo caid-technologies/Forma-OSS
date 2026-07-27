@@ -833,10 +833,18 @@ function completedPipelineStepCount(progress: AgentPipelineProgress) {
   return progress.estimated ? Math.max(0, progress.currentStepIndex) : 0;
 }
 
-function pipelineStepStatus(progress: AgentPipelineProgress, step: AgentPipelineStep, activeStepId: string | null) {
+function pipelineStepStatus(
+  progress: AgentPipelineProgress,
+  step: AgentPipelineStep,
+  activeStepId: string | null,
+  isRunning: boolean = false
+) {
   const events = normalizeAgentPipelineEvents(progress.events);
   const stepEvents = events.filter((event) => event.step_id === step.id);
   const lastStepEvent = stepEvents[stepEvents.length - 1];
+  // A failed attempt may be followed by a retry while the job remains active.
+  // Keep the current step neutral until the job itself reaches a failed state.
+  if (isRunning && activeStepId === step.id) return "active";
   if (isFailedPipelineStatus(lastStepEvent?.status)) return "failed";
   if (lastStepEvent?.status === "skipped") return "skipped";
   if (isCompletedPipelineStatus(lastStepEvent?.status)) return "completed";
@@ -5906,30 +5914,32 @@ function AgentPipelineProgressView({
   const quietMs = lastEventMs === null ? null : nowMs - lastEventMs;
   const isLoading = status === "loading";
   const isCancelled = status === "cancelled";
-  const hasFailedEvent = events.some((event) => isFailedPipelineStatus(event.status));
-  const isError = status === "error" || hasFailedEvent;
+  // Progress events are an audit trail and may include a failed attempt that
+  // the backend subsequently retries. Only the terminal message state means
+  // the whole pipeline failed.
+  const isError = status === "error";
   const waitingForFirstEvent = isLoading && !events.length && startedMs !== null && nowMs - startedMs >= PIPELINE_STALE_AFTER_MS;
   const backendQuiet = isLoading && quietMs !== null && quietMs >= PIPELINE_STALE_AFTER_MS;
   const completedCount = completedPipelineStepCount({ ...progress, steps });
   const progressPercent = Math.min(100, Math.max(6, Math.round((completedCount / Math.max(steps.length, 1)) * 100)));
   const visibleEvents = events.slice(compact ? -4 : -6);
   const signalLabel = isError
-    ? "error"
+    ? "failed"
     : isCancelled
     ? "stopped"
     : progress.synced
     ? backendQuiet
-      ? "backend quiet"
+      ? "waiting on provider"
       : "backend synced"
     : waitingForFirstEvent
-      ? "waiting for job event"
+      ? "starting"
       : "estimated";
   const signalTone = isError
     ? "border-rose-400/35 bg-rose-950/25 text-rose-200"
     : isCancelled
     ? "border-amber-300/35 bg-amber-950/20 text-amber-100"
     : backendQuiet || waitingForFirstEvent
-    ? "border-amber-400/35 bg-amber-950/25 text-amber-200"
+    ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
     : progress.synced
       ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
       : "border-slate-500/25 bg-black/25 text-slate-400";
@@ -5956,7 +5966,10 @@ function AgentPipelineProgressView({
       </div>
 
       <div className="mt-3 h-1.5 bg-[#111216]">
-        <div className={`h-full ${isError ? "bg-rose-300" : isCancelled ? "bg-amber-300" : backendQuiet || waitingForFirstEvent ? "bg-amber-300" : "bg-cyan-300"}`} style={{ width: `${progressPercent}%` }} />
+        <div
+          className={`h-full ${isError ? "bg-rose-300" : isCancelled ? "bg-amber-300" : "bg-cyan-300"} ${isLoading ? "animate-pulse" : ""}`}
+          style={{ width: `${progressPercent}%` }}
+        />
       </div>
 
       <div className="mt-3 flex min-w-0 items-start gap-2 border border-[#25272e] bg-[#111216] p-3">
@@ -5978,12 +5991,12 @@ function AgentPipelineProgressView({
       </div>
 
       {(backendQuiet || waitingForFirstEvent) && (
-        <div className="mt-2 flex gap-2 border border-amber-400/30 bg-amber-950/20 p-2 text-[11px] leading-4 text-amber-100">
-          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+        <div className="mt-2 flex gap-2 border border-cyan-300/25 bg-cyan-950/20 p-2 text-[11px] leading-4 text-cyan-100">
+          <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
           <span>
             {events.length
-              ? `No new backend event for ${formatDurationSeconds(Math.round((quietMs || 0) / 1000))}. Waiting on the active provider or backend call.`
-              : "No backend event has been persisted yet. The job poller is still active."}
+              ? `Still working. The active provider or backend call has been running for ${formatDurationSeconds(Math.round((quietMs || 0) / 1000))} since the last progress update.`
+              : "Still starting. The job poller is active and waiting for the first backend progress update."}
           </span>
         </div>
       )}
@@ -5995,7 +6008,7 @@ function AgentPipelineProgressView({
             className="inline-flex items-center gap-1.5 border border-[#25272e] bg-[#111216] px-2 py-1 text-[10px] text-slate-500"
             title={`${step.agent}: ${step.label}`}
           >
-            <PipelineStepDot status={pipelineStepStatus({ ...progress, steps }, step, activeStepId)} />
+            <PipelineStepDot status={pipelineStepStatus({ ...progress, steps }, step, activeStepId, isLoading)} />
             <span className="max-w-[120px] truncate">{step.label}</span>
           </span>
         ))}

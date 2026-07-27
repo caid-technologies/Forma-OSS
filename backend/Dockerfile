@@ -6,8 +6,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     SQLITE_DATABASE_URL=sqlite:////data/blueprint.db \
-    JOB_METADATA_BACKEND=auto \
-    JOB_METADATA_DB_PATH=/data/blueprint_jobs.db \
     A2A_SOCKET_HOST=0.0.0.0
 
 WORKDIR /app

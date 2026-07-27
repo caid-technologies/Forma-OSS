@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { deployedAuthRequired } from "../lib/deployed-auth";
+import { blueprintAuthMode } from "../lib/auth-mode";
+import { FormaAuthProvider } from "../lib/forma-auth";
 import "./globals.css";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Forma | Build Hardware from Ideas",
@@ -13,14 +16,13 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const authRequired = deployedAuthRequired();
-  return (
-    <ClerkProvider>
-      <html lang="en">
-        <body data-auth-required={authRequired ? "true" : "false"}>
-          {children}
-        </body>
-      </html>
-    </ClerkProvider>
+  const authMode = blueprintAuthMode();
+  const document = (
+    <html lang="en">
+      <body data-auth-mode={authMode} data-auth-required={authMode === "clerk" ? "true" : "false"}>
+        <FormaAuthProvider mode={authMode}>{children}</FormaAuthProvider>
+      </body>
+    </html>
   );
+  return authMode === "clerk" ? <ClerkProvider>{document}</ClerkProvider> : document;
 }

@@ -22,8 +22,6 @@ The Compose backend defaults to:
 ```env
 BLUEPRINT_DEV_MODE=false
 SQLITE_DATABASE_URL=sqlite:////data/blueprint.db
-JOB_METADATA_BACKEND=auto
-JOB_METADATA_DB_PATH=/data/blueprint_jobs.db
 LLM_PROVIDER=simulation
 ```
 
@@ -128,8 +126,6 @@ SUPABASE_S3_BUCKET=contents
 # LLM_TEMPERATURE=0.2
 
 # Optional TCP JSONL A2A socket
-JOB_METADATA_BACKEND=auto
-JOB_METADATA_DB_PATH=./blueprint_jobs.db
 A2A_SOCKET_ENABLED=false
 A2A_SOCKET_HOST=127.0.0.1
 A2A_SOCKET_PORT=8766
@@ -138,14 +134,18 @@ A2A_SOCKET_PORT=8766
 Notes:
 - Supabase mode uses `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`; it does not use a Postgres connection string.
 - Do not use anon, publishable, or `NEXT_PUBLIC_` Supabase keys for the backend. They obey RLS and cannot seed these tables by default.
-- When using Supabase for signed-in BYOK settings, set `BLUEPRINT_USER_SECRETS_KEY` to a high-entropy server-only secret. User provider settings are encrypted before they are stored in `user_integration_configs`; losing or rotating this key without a migration makes existing saved API keys undecryptable.
-- `BLUEPRINT_DEV_MODE=true` forces SQLite for app data and A2A job metadata when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
+- Set `BLUEPRINT_AUTH_MODE=local` for a Clerk-free local workspace or `BLUEPRINT_AUTH_MODE=clerk` for required Clerk sign-in and per-user settings.
+- `BLUEPRINT_USER_SECRETS_KEY` is mandatory in every backend runtime; startup logs a critical error and fails when it is absent. It must be a high-entropy server-only secret. Losing or rotating it without a migration makes existing saved API keys undecryptable.
+- Local workspace settings are always encrypted: Supabase-primary environments use `workspace_integration_configs`, while SQLite-primary environments use an encrypted local file even when unrelated Supabase credentials are present. `BLUEPRINT_WORKSPACE_SECRETS_KEY` may provide a separate workspace key; otherwise `BLUEPRINT_USER_SECRETS_KEY` is used.
+- `BLUEPRINT_DEV_MODE=true` selects SQLite for the complete application database when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
+- Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
+- Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
-- `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
-- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
+- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `NEBIUS_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
 - `OPENAI_RESPONSE_FORMAT` defaults to `json_schema` for OpenAI. You can set it to `json_object` for older JSON mode or `none` to omit `response_format`.
 - `OPENAI_TIMEOUT_SECONDS` controls the per-request OpenAI read timeout and defaults to `300`.
@@ -157,6 +157,8 @@ Notes:
 - `HF_TOKEN`, `HUGGINGFACE_API_KEY`, or `HUGGINGFACE_HUB_TOKEN` enables Hugging Face Inference Providers when `LLM_PROVIDER=huggingface`; `HUGGINGFACE_BASE_URL` defaults to `https://router.huggingface.co/v1`.
 - `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY` enables Claude when `LLM_PROVIDER=anthropic`; `ANTHROPIC_BASE_URL` defaults to `https://api.anthropic.com/v1`.
 - `HUGGINGFACE_MODEL` selects the Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
+- `NEBIUS_API_KEY` enables Nebius Token Factory when `LLM_PROVIDER=nebius`; `NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`.
+- `NEBIUS_MODEL` selects the Nebius model ID, for example `Qwen/Qwen3.5-397B-A17B`; structured generation defaults to `NEBIUS_RESPONSE_FORMAT=json_schema`.
 - `NVIDIA_API_KEY` enables NVIDIA Build/NIM APIs when `LLM_PROVIDER=nvidia`; `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL` selects the NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`.
 - `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
@@ -186,8 +188,7 @@ Notes:
 - With `STRICT_LLM=false`, the backend may fall back to `LLM_FALLBACK_MODEL`.
 - OpenAI-compatible endpoints can use `LLM_BASE_URL`; local endpoints that do not require auth can set `LLM_ALLOW_NO_API_KEY=true`.
 - Runpod OpenAI-compatible/vLLM endpoints can use `RUNPOD_API_KEY` plus `RUNPOD_OPENAI_BASE_URL`. Runpod Serverless queue workers can use `RUNPOD_API_KEY` plus `RUNPOD_ENDPOINT_ID` or `RUNPOD_ENDPOINT_URL`. If each queue-style model has a different endpoint, set `RUNPOD_MODEL_ENDPOINTS` to a JSON mapping of model IDs to endpoint IDs or URLs.
-- `JOB_METADATA_BACKEND=auto` stores A2A job metadata in Supabase when the main app database is Supabase, otherwise in SQLite. `BLUEPRINT_DEV_MODE=true` always uses SQLite.
-- `JOB_METADATA_DB_PATH` controls the SQLite A2A job metadata file.
+- A2A job metadata uses the primary application database. Existing rows in the retired `blueprint_jobs.db` file are imported into the primary SQLite database on startup without deleting the legacy file.
 - A2A REST, WebSocket, and MCP routes are always mounted. The TCP JSONL socket starts only when `A2A_SOCKET_ENABLED=true`.
 
 ### Seed the component database

@@ -5,10 +5,36 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend import a2a
+from backend.storage import StoredImage
 from blueprint_core.image_providers import GeneratedImage
 
 
 class A2AImageLoggingTests(unittest.TestCase):
+    def test_stored_image_logging_uses_storage_method(self) -> None:
+        ir = SimpleNamespace(assembly_metadata={"project_id": "project_123"})
+        stored = StoredImage(
+            bucket="contents",
+            key="project_123/product.png",
+            url="https://example.test/product.png",
+            s3_endpoint="https://example.test/storage/v1/s3",
+            storage_method="supabase-client",
+            content_type="image/png",
+            size_bytes=4,
+        )
+
+        with patch.object(a2a, "upload_image_to_supabase_s3", return_value=stored), self.assertLogs(
+            "backend.a2a", level="INFO"
+        ) as logs:
+            metadata = a2a._attach_stored_image_metadata(
+                ir,
+                image_data="data:image/png;base64,ZmFrZQ==",
+                metadata_prefix="product_case_image",
+                object_prefix="product-case",
+            )
+
+        self.assertEqual("supabase-client", metadata["product_case_image_storage_method"])
+        self.assertIn("method=supabase-client", "\n".join(logs.output))
+
     def test_image_generation_logs_view_and_storage_outcome(self) -> None:
         ir = SimpleNamespace(assembly_metadata={"project_id": "project_123"})
         image = GeneratedImage(

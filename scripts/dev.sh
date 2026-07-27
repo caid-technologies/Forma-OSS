@@ -27,11 +27,17 @@ wait_for_url() {
   local url="$1"
   local label="$2"
   local attempts="${3:-60}"
+  local process_pid="${4:-}"
 
   for _ in $(seq 1 "$attempts"); do
     if curl -fsS "$url" >/dev/null 2>&1; then
       log "$label is ready at $url"
       return 0
+    fi
+    if [ -n "$process_pid" ] && ! kill -0 "$process_pid" >/dev/null 2>&1; then
+      log "$label process exited before becoming ready."
+      wait "$process_pid" || true
+      return 1
     fi
     sleep 1
   done
@@ -107,7 +113,7 @@ else
   log "Backend log file: $BACKEND_LOG_FILE"
   "$VENV_DIR/bin/python" -m uvicorn backend.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
   backend_pid="$!"
-  wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend"
+  wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend" 60 "$backend_pid"
 fi
 
 FRONTEND_PORT="$(first_free_port "$FRONTEND_PORT")"

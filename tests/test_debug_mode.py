@@ -168,27 +168,26 @@ class DebugModeTests(unittest.TestCase):
         self.assertEqual("<redacted>", job["error_debug"]["context"]["api_key"])
         self.assertEqual("<redacted>", job["payload"]["image_data"])
 
-    def test_supabase_create_job_retries_without_missing_optional_debug_column(self) -> None:
+    def test_supabase_create_job_fails_when_required_schema_column_is_missing(self) -> None:
         client = FakeSupabaseClient(missing_columns={"error_debug_json"})
         store = JobMetadataStore(backend="supabase")
         store.backend = "supabase"
         store._client = client
 
-        job = store.create_job(
-            job_id="job_supabase_schema_drift",
-            message_id="msg_supabase_schema_drift",
-            correlation_id=None,
-            action="blueprint.generate_project",
-            sender="test",
-            recipient="blueprint",
-            payload={"prompt": "blink an LED"},
-            server_owned=True,
-        )
+        with self.assertRaisesRegex(RuntimeError, "error_debug_json"):
+            store.create_job(
+                job_id="job_supabase_schema_drift",
+                message_id="msg_supabase_schema_drift",
+                correlation_id=None,
+                action="blueprint.generate_project",
+                sender="test",
+                recipient="blueprint",
+                payload={"prompt": "blink an LED"},
+                server_owned=True,
+            )
 
-        self.assertEqual("queued", job["status"])
+        self.assertEqual(1, len(client.mutations))
         self.assertIn("error_debug_json", client.mutations[0])
-        self.assertNotIn("error_debug_json", client.mutations[-1])
-        self.assertIn("error_debug_json", store._supabase_unavailable_columns)
 
 
 if __name__ == "__main__":

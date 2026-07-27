@@ -41,12 +41,12 @@ from blueprint_core.debug import (
 )
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
+from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
 
 apply_user_integrations_to_environment()
 
@@ -102,7 +102,14 @@ from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVid
 from backend.logs_api import router as logs_router
 from backend.streams_api import router as streams_router
 from backend.user_integrations_api import router as user_integrations_router
-from backend.auth import clerk_user_display_name, clerk_user_id, clerk_user_image_url, clerk_user_is_admin, deployed_auth_required, optional_deployed_clerk_auth, require_deployed_admin_auth, require_deployed_clerk_auth
+from backend.user_settings_api import router as user_settings_router
+from backend.auth import (
+    UserContext,
+    deployed_auth_required,
+    optional_user_context,
+    require_admin_user_context,
+    require_user_context,
+)
 from backend.job_store import JOB_STORE, JobCancelledError
 from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
 from blueprint_core.runtime import (
@@ -224,25 +231,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(logs_router, dependencies=[Depends(require_deployed_admin_auth)])
-app.include_router(streams_router, dependencies=[Depends(require_deployed_admin_auth)])
+app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
+app.include_router(streams_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(user_integrations_router)
-
-
-@app.middleware("http")
-async def apply_user_integrations_middleware(request: Any, call_next: Any) -> Any:
-    apply_user_integrations_to_environment()
-    return await call_next(request)
+app.include_router(user_settings_router)
 
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
     return deployment_runtime_config(llm_config, signup_storage=get_database_config()["client"])
 
 
-def _apply_auth_user_integrations(auth_claims: Any) -> None:
-    user_id = clerk_user_id(auth_claims)
-    if user_id:
-        apply_user_integrations_to_environment(UserIntegrationStore.for_user(user_id))
+def _apply_user_integrations(user: UserContext) -> None:
+    """Load provider settings only for operations that consume them."""
+    if user.provider == "local":
+        apply_user_integrations_to_environment()
+    elif user.owner_user_id:
+        apply_user_integrations_to_environment(UserIntegrationStore.for_user(user.owner_user_id))
 
 
 def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -253,11 +257,11 @@ def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
-def _require_job_reader(job: Dict[str, Any], auth_claims: Any) -> None:
-    if clerk_user_is_admin(auth_claims):
+def _require_job_reader(job: Dict[str, Any], user: UserContext) -> None:
+    if user.is_admin:
         return
     owner_user_id = _job_owner_user_id(job)
-    if owner_user_id and owner_user_id == clerk_user_id(auth_claims):
+    if owner_user_id and owner_user_id == user.owner_user_id:
         return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only view your own jobs.")
 
@@ -304,6 +308,8 @@ def _delete_cancelled_generation_projects(job_id: str, job: Optional[Dict[str, A
 @app.on_event("startup")
 async def startup_event():
     logger.info("Starting up Forma server...")
+    require_user_secrets_key()
+    logger.info("Authentication mode: %s", "clerk" if deployed_auth_required() else "local")
     try:
         init_db()
         count = count_component_templates()
@@ -315,7 +321,6 @@ async def startup_event():
     except Exception as e:
         logger.exception("Error during database startup: %s", e)
         raise
-    JOB_STORE.init_db()
     await start_a2a_tcp_server()
 
 
@@ -335,11 +340,12 @@ def read_root():
 
 
 @app.get("/admin/session")
-def admin_session_endpoint(_auth_claims: Any = Depends(optional_deployed_clerk_auth)):
+def admin_session_endpoint(user: UserContext = Depends(optional_user_context)):
     """Reports whether the current signed-in user has Forma admin access."""
     return {
-        "is_admin": clerk_user_is_admin(_auth_claims),
-        "user_id": clerk_user_id(_auth_claims),
+        "is_admin": user.is_admin,
+        "user_id": user.owner_user_id,
+        "provider": user.provider,
     }
 
 
@@ -347,12 +353,12 @@ def admin_session_endpoint(_auth_claims: Any = Depends(optional_deployed_clerk_a
 def debug_config_endpoint(
     provider: Optional[str] = Query(None, description="Optional runtime LLM provider override to validate."),
     model: Optional[str] = Query(None, description="Optional runtime LLM model override to validate."),
-    _auth_claims: Any = Depends(optional_deployed_clerk_auth),
+    user: UserContext = Depends(optional_user_context),
 ):
     """
     Reports LLM provider and model resolution state without exposing credentials.
     """
-    _apply_auth_user_integrations(_auth_claims)
+    _apply_user_integrations(user)
     try:
         orchestrator = HardwarePipelineOrchestrator(provider_name=provider, model_name=model)
         llm_config = orchestrator.get_debug_config()
@@ -384,12 +390,12 @@ def debug_config_endpoint(
         ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])
-def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext = Depends(require_user_context)):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
     """
-    _apply_auth_user_integrations(_auth_claims)
+    _apply_user_integrations(user)
     try:
         llm_config = get_workflow_debug_config(
             request.workflow,
@@ -448,12 +454,12 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
 
     job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
-    owner_user_id = _require_authenticated_user(_auth_claims)
+    owner_user_id = _require_authenticated_user(user)
     if request.source_project_id:
         source_project = get_generated_project(request.source_project_id)
         if not source_project:
             raise HTTPException(status_code=404, detail="Source project not found.")
-        _require_project_chat_owner(source_project, _auth_claims)
+        _require_project_chat_owner(source_project, user)
     payload = {
         "prompt": request.prompt,
         "workflow": request.workflow,
@@ -516,6 +522,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, _auth_claims: Any
             **response,
             "project_id": project_id,
             "chat_id": metadata.get("chat_id"),
+            "can_chat": True,
             "job_id": job_id,
             "job": job,
         }
@@ -710,12 +717,9 @@ def _require_non_empty(value: str | None, message: str) -> str:
     return normalized
 
 
-def _require_authenticated_user(auth_claims: Any) -> str:
-    user_id = clerk_user_id(auth_claims)
-    if user_id:
-        return user_id
-    if not deployed_auth_required():
-        return "local-dev-user"
+def _require_authenticated_user(user: UserContext) -> str:
+    if user.is_authenticated and user.owner_user_id:
+        return user.owner_user_id
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to manage projects and chats.")
 
 
@@ -726,32 +730,44 @@ def _project_owner_user_id(project: Any) -> Optional[str]:
     return None
 
 
+def _project_visibility(project: Any) -> str:
+    value = getattr(project, "visibility", "public")
+    normalized = str(value or "public").strip().lower()
+    return normalized if normalized in {"public", "private"} else "public"
+
+
+def _user_owns_project(project: Any, user: UserContext) -> bool:
+    return bool(user.owner_user_id and _project_owner_user_id(project) == user.owner_user_id)
+
+
+def _require_project_reader(project: Any, user: UserContext) -> None:
+    if _project_visibility(project) == "public" or _user_owns_project(project, user):
+        return
+    # Do not reveal that another user's private project exists.
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+
+
 def creator_display_name(owner_user_id: Optional[str]) -> str:
     if not owner_user_id:
         return "unknown"
     normalized = owner_user_id.strip()
     if normalized == "local-dev-user":
         return "local_dev"
-    clerk_display = clerk_user_display_name(normalized)
-    if clerk_display:
-        return clerk_display
     if len(normalized) <= 12:
         return normalized
     return f"{normalized[:6]}_{normalized[-4:]}"
 
 
-def _require_project_owner(project: Any, auth_claims: Any) -> str:
-    user_id = _require_authenticated_user(auth_claims)
-    if not deployed_auth_required():
-        return user_id
+def _require_project_owner(project: Any, user: UserContext) -> str:
+    user_id = _require_authenticated_user(user)
     owner_user_id = _project_owner_user_id(project)
     if owner_user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only modify your own projects.")
     return user_id
 
 
-def _require_project_chat_owner(project: Any, auth_claims: Any) -> str:
-    user_id = _require_authenticated_user(auth_claims)
+def _require_project_chat_owner(project: Any, user: UserContext) -> str:
+    user_id = _require_authenticated_user(user)
     owner_user_id = _project_owner_user_id(project)
     if owner_user_id != user_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only chat with your own projects.")
@@ -851,13 +867,13 @@ def list_video_models_endpoint():
 
 
 @app.get("/video/projects/{project_id}")
-def list_project_videos_endpoint(project_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def list_project_videos_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Lists videos saved for one project from configured backend storage."""
     project_id = _require_non_empty(project_id, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, _auth_claims)
+    _require_project_owner(project, user)
     try:
         videos = list_project_videos(project_id)
         return {
@@ -870,13 +886,13 @@ def list_project_videos_endpoint(project_id: str, _auth_claims: Any = Depends(re
 
 
 @app.post("/video/image-to-video")
-def create_image_to_video_endpoint(request: VideoImageToVideoRequest, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def create_image_to_video_endpoint(request: VideoImageToVideoRequest, user: UserContext = Depends(require_user_context)):
     """Queues a backend-only GMI Cloud image-to-video generation request."""
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, _auth_claims)
+    _require_project_owner(project, user)
     image = _require_non_empty(request.image, "image is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_IMAGE_TO_VIDEO)
@@ -929,13 +945,13 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest, _auth_clai
 
 
 @app.post("/video/video-to-video")
-def create_video_to_video_endpoint(request: VideoToVideoRequest, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def create_video_to_video_endpoint(request: VideoToVideoRequest, user: UserContext = Depends(require_user_context)):
     """Queues a backend-only GMI Cloud video-to-video generation request."""
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, _auth_claims)
+    _require_project_owner(project, user)
     video = _require_non_empty(request.video, "video is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_VIDEO_TO_VIDEO)
@@ -996,7 +1012,7 @@ def get_image_to_video_status_endpoint(
     prompt: str | None = Query(None, description="Prompt used for the original video request."),
     aspectRatio: str | None = Query(None, description="Aspect ratio used for the original video request."),
     sourceUrl: str | None = Query(None, description="Source image or video URL used for the original video request."),
-    _auth_claims: Any = Depends(require_deployed_clerk_auth),
+    user: UserContext = Depends(require_user_context),
 ):
     """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
     request_id = _require_non_empty(request_id, "requestId is required.")
@@ -1004,7 +1020,7 @@ def get_image_to_video_status_endpoint(
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, _auth_claims)
+    _require_project_owner(project, user)
     normalized_mode = normalize_video_mode(mode)
     model = _normalize_video_model(model, normalized_mode)
     aspect_ratio = _normalize_video_request_aspect_ratio(aspectRatio) if aspectRatio else None
@@ -1089,9 +1105,9 @@ async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
 
 
 @app.post("/a2a/messages")
-async def send_a2a_message(message: A2AMessage, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_user_context)):
     """Submits an A2A message and queues an async result for the sender."""
-    owner_user_id = clerk_user_id(_auth_claims)
+    owner_user_id = user.owner_user_id
     if owner_user_id and message.action.startswith("blueprint."):
         message.payload = {**message.payload, "owner_user_id": owner_user_id}
     ack = await submit_a2a_message(message)
@@ -1114,29 +1130,29 @@ def list_a2a_jobs(
     sender: str | None = None,
     job_status: str | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
-    _auth_claims: Any = Depends(require_deployed_admin_auth),
+    _user: UserContext = Depends(require_admin_user_context),
 ):
     """Lists persisted A2A job metadata."""
     return JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
 
 
 @app.get("/a2a/jobs/{job_id}")
-def get_a2a_job(job_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def get_a2a_job(job_id: str, user: UserContext = Depends(require_user_context)):
     """Fetches persisted metadata for one A2A job."""
     job = JOB_STORE.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="A2A job not found.")
-    _require_job_reader(job, _auth_claims)
+    _require_job_reader(job, user)
     return job
 
 
 @app.post("/a2a/jobs/{job_id}/cancel")
-def cancel_a2a_job(job_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def cancel_a2a_job(job_id: str, user: UserContext = Depends(require_user_context)):
     """Stops a queued or running job owned by the current user."""
     job = JOB_STORE.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="A2A job not found.")
-    _require_job_reader(job, _auth_claims)
+    _require_job_reader(job, user)
     cancelled_job = JOB_STORE.mark_cancelled(job_id) or job
     if str(cancelled_job.get("status") or "").lower() in {"cancelled", "canceled"}:
         _delete_cancelled_generation_projects(job_id, cancelled_job)
@@ -1328,7 +1344,7 @@ def _example_project_object_jobs(limit: int, status: Optional[str]) -> List[Dict
 def list_example_project_object_jobs(
     job_status: str | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
-    _auth_claims: Any = Depends(require_deployed_admin_auth),
+    _user: UserContext = Depends(require_admin_user_context),
 ):
     """Lists project-object jobs created by scripts under examples/results."""
     try:
@@ -1345,19 +1361,20 @@ async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
 
 
 @app.post("/mcp")
-async def mcp_endpoint(payload: Any = Body(...), _auth_claims: Any = Depends(require_deployed_admin_auth)):
+async def mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_admin_user_context)):
     """MCP-style JSON-RPC endpoint exposing Forma tools."""
     return await handle_mcp_json_rpc(payload)
 
 
 @app.post("/a2a/mcp")
-async def a2a_mcp_endpoint(payload: Any = Body(...), _auth_claims: Any = Depends(require_deployed_admin_auth)):
+async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_admin_user_context)):
     """Alias for agents that discover MCP under the A2A route prefix."""
     return await handle_mcp_json_rpc(payload)
 
 
 def _project_summary_response(project: Any, current_user_id: Optional[str] = None) -> Dict[str, Any]:
     owner_user_id = _project_owner_user_id(project)
+    can_chat = bool(current_user_id and owner_user_id == current_user_id)
     hardware_ir = getattr(project, "hardware_ir", None) if isinstance(getattr(project, "hardware_ir", None), dict) else {}
     components = hardware_ir.get("components") if isinstance(hardware_ir, dict) else []
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir, dict) and isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
@@ -1377,15 +1394,27 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         or hydrated_metadata.get("product_image_content_type")
     )
     star_count = metadata.get("star_count", metadata.get("stars", 0))
-    creator_display = creator_display_name(owner_user_id)
-    creator_image_url = clerk_user_image_url(owner_user_id) if owner_user_id else None
+    stored_creator_display = metadata.get("creator_display") or metadata.get("creator_username")
+    creator_display = (
+        stored_creator_display.strip()
+        if isinstance(stored_creator_display, str) and stored_creator_display.strip()
+        else creator_display_name(owner_user_id)
+    )
+    stored_creator_image_url = metadata.get("creator_image_url")
+    creator_image_url = (
+        stored_creator_image_url.strip()
+        if isinstance(stored_creator_image_url, str)
+        and stored_creator_image_url.strip().startswith(("http://", "https://"))
+        else None
+    )
     return {
         "project_id": project.project_id,
-        "chat_id": getattr(project, "chat_id", None),
+        "chat_id": getattr(project, "chat_id", None) if can_chat else None,
         "title": project.title,
         "prompt": project.prompt,
         "created_at": project.created_at,
-        "can_chat": bool(current_user_id and owner_user_id == current_user_id),
+        "visibility": _project_visibility(project),
+        "can_chat": can_chat,
         "creator_display": creator_display,
         "creator_username": creator_display,
         "creator_image_url": creator_image_url,
@@ -1411,7 +1440,10 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
                 sanitized_sources.append(source)
                 continue
             sanitized_source = dict(source)
-            for key in ("url", "href", "download_url", "downloadUrl", "file_url", "fileUrl", "source_url", "sourceUrl"):
+            # MechanicalSource.url is required by HardwareIR. Keep the public
+            # shape valid while removing the downloadable target itself.
+            sanitized_source["url"] = ""
+            for key in ("href", "download_url", "downloadUrl", "file_url", "fileUrl", "source_url", "sourceUrl"):
                 sanitized_source.pop(key, None)
             sanitized_sources.append(sanitized_source)
         mechanical["cad_sources"] = sanitized_sources
@@ -1429,25 +1461,26 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 
     metadata = sanitized.get("assembly_metadata")
     if isinstance(metadata, dict):
+        metadata.pop("chat_id", None)
+        metadata["can_chat"] = False
         metadata["downloadable_assets_owner_only"] = True
     return sanitized
 
 
 @app.get("/projects")
-def list_projects_endpoint(_auth_claims: Any = Depends(optional_deployed_clerk_auth)):
-    """Lists all previously compiled hardware projects."""
-    current_user_id = clerk_user_id(_auth_claims)
+def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
+    """Lists public compiled hardware projects."""
     try:
-        projects = list_generated_projects()
-        return [_project_summary_response(p, current_user_id=current_user_id) for p in projects]
+        projects = [project for project in list_generated_projects() if _project_visibility(project) == "public"]
+        return [_project_summary_response(p, current_user_id=user.owner_user_id) for p in projects]
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/my/projects")
-def list_my_projects_endpoint(_auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def list_my_projects_endpoint(user: UserContext = Depends(require_user_context)):
     """Lists projects owned by the signed-in user."""
-    owner_user_id = _require_authenticated_user(_auth_claims)
+    owner_user_id = _require_authenticated_user(user)
     try:
         projects = list_generated_projects(owner_user_id=owner_user_id)
         return [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
@@ -1456,37 +1489,87 @@ def list_my_projects_endpoint(_auth_claims: Any = Depends(require_deployed_clerk
 
 
 @app.get("/projects/{project_id}/image-summary")
-def get_project_image_summary_endpoint(project_id: str, _auth_claims: Any = Depends(optional_deployed_clerk_auth)):
+def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Returns gallery-safe project metadata without validating or expanding the full hardware IR."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
 
     try:
-        return _project_summary_response(project, current_user_id=clerk_user_id(_auth_claims))
+        return _project_summary_response(project, current_user_id=user.owner_user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project image summary: {str(e)}")
 
 
 @app.get("/projects/{project_id}")
-def get_project_endpoint(project_id: str, _auth_claims: Any = Depends(optional_deployed_clerk_auth)):
+def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Retrieves a specific hardware design and its corresponding schematics."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    
+    _require_project_reader(project, user)
+
+    can_chat = _user_owns_project(project, user)
+    stored_hardware_ir = json.loads(json.dumps(project.hardware_ir or {}))
     try:
-        current_user_id = clerk_user_id(_auth_claims)
-        can_chat = bool(current_user_id and _project_owner_user_id(project) == current_user_id)
-        ir = HardwareIR(**project.hardware_ir)
+        ir = HardwareIR(**stored_hardware_ir)
+    except ValidationError as exc:
+        # Saved projects can outlive the current HardwareIR schema. They should
+        # remain inspectable, but public readers still receive a redacted copy.
+        logger.warning(
+            "Returning legacy project IR without derived artifacts: project_id=%s validation_errors=%s",
+            project.project_id,
+            len(exc.errors()),
+        )
+        metadata = stored_hardware_ir.get("assembly_metadata")
+        if isinstance(metadata, dict):
+            stored_hardware_ir["assembly_metadata"] = hydrate_image_storage_metadata(metadata, project.project_id)
+        response_payload = stored_hardware_ir if can_chat else _without_downloadable_project_assets(stored_hardware_ir)
+        response_metadata = response_payload.get("assembly_metadata")
+        return {
+            "project_id": project.project_id,
+            "chat_id": (
+                getattr(project, "chat_id", None)
+                or (response_metadata.get("chat_id") if isinstance(response_metadata, dict) else None)
+            ) if can_chat else None,
+            "prompt": project.prompt,
+            "created_at": project.created_at,
+            "can_chat": can_chat,
+            "project_ir": response_payload,
+            "project_object": None,
+            "mermaid_code": None,
+            "svg_schematic": None,
+        }
+
+    try:
         ir.assembly_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
-        response_ir = ir if can_chat else HardwareIR(**_without_downloadable_project_assets(ir.model_dump()))
+        if can_chat:
+            response_ir = ir
+        else:
+            sanitized_payload = _without_downloadable_project_assets(ir.model_dump())
+            try:
+                response_ir = HardwareIR(**sanitized_payload)
+            except ValidationError:
+                return {
+                    "project_id": project.project_id,
+                    "chat_id": None,
+                    "prompt": project.prompt,
+                    "created_at": project.created_at,
+                    "can_chat": False,
+                    "project_ir": sanitized_payload,
+                    "project_object": None,
+                    "mermaid_code": None,
+                    "svg_schematic": None,
+                }
         mermaid_code = generate_mermaid_chart(ir)
         svg_schematic = generate_svg_schematic(ir)
         
         return {
             "project_id": project.project_id,
-            "chat_id": getattr(project, "chat_id", None) or (ir.assembly_metadata or {}).get("chat_id"),
+            "chat_id": (
+                getattr(project, "chat_id", None) or (ir.assembly_metadata or {}).get("chat_id")
+            ) if can_chat else None,
             "prompt": project.prompt,
             "created_at": project.created_at,
             "can_chat": can_chat,
@@ -1495,6 +1578,8 @@ def get_project_endpoint(project_id: str, _auth_claims: Any = Depends(optional_d
             "mermaid_code": mermaid_code,
             "svg_schematic": svg_schematic
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project IR: {str(e)}")
 
@@ -1503,13 +1588,13 @@ def get_project_endpoint(project_id: str, _auth_claims: Any = Depends(optional_d
 def update_project_endpoint(
     project_id: str,
     request: ProjectUpdateRequest,
-    _auth_claims: Any = Depends(require_deployed_clerk_auth),
+    user: UserContext = Depends(require_user_context),
 ):
-    """Updates owner-managed project metadata. Project records remain publicly readable."""
+    """Updates owner-managed project metadata, including public/private visibility."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    owner_user_id = _require_project_owner(project, _auth_claims)
+    owner_user_id = _require_project_owner(project, user)
     saved = update_generated_project_metadata(
         project.project_id,
         owner_user_id=owner_user_id,
@@ -1523,12 +1608,12 @@ def update_project_endpoint(
 
 
 @app.delete("/projects/{project_id}")
-def delete_project_endpoint(project_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def delete_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Deletes a project owned by the signed-in user."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    owner_user_id = _require_project_owner(project, _auth_claims)
+    owner_user_id = _require_project_owner(project, user)
     deleted = delete_generated_project(project.project_id, owner_user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Project not found.")
@@ -1546,16 +1631,16 @@ def _chat_response(chat: Any) -> Dict[str, Any]:
 
 
 @app.get("/chats")
-def list_chats_endpoint(_auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def list_chats_endpoint(user: UserContext = Depends(require_user_context)):
     """Lists private chats for the signed-in user."""
-    owner_user_id = _require_authenticated_user(_auth_claims)
+    owner_user_id = _require_authenticated_user(user)
     return [_chat_response(chat) for chat in list_project_chats(owner_user_id)]
 
 
 @app.get("/chats/{chat_id}")
-def get_chat_endpoint(chat_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def get_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_context)):
     """Retrieves one private chat owned by the signed-in user."""
-    owner_user_id = _require_authenticated_user(_auth_claims)
+    owner_user_id = _require_authenticated_user(user)
     chat = get_project_chat(chat_id, owner_user_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Chat not found.")
@@ -1566,10 +1651,10 @@ def get_chat_endpoint(chat_id: str, _auth_claims: Any = Depends(require_deployed
 def upsert_chat_endpoint(
     chat_id: str,
     request: ProjectChatUpsertRequest,
-    _auth_claims: Any = Depends(require_deployed_clerk_auth),
+    user: UserContext = Depends(require_user_context),
 ):
     """Creates or updates a private chat owned by the signed-in user."""
-    owner_user_id = _require_authenticated_user(_auth_claims)
+    owner_user_id = _require_authenticated_user(user)
     now = datetime.utcnow().isoformat() + "Z"
     chat = upsert_project_chat(
         chat_id=chat_id,
@@ -1583,9 +1668,9 @@ def upsert_chat_endpoint(
 
 
 @app.delete("/chats/{chat_id}")
-def delete_chat_endpoint(chat_id: str, _auth_claims: Any = Depends(require_deployed_clerk_auth)):
+def delete_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_context)):
     """Deletes a private chat owned by the signed-in user."""
-    owner_user_id = _require_authenticated_user(_auth_claims)
+    owner_user_id = _require_authenticated_user(user)
     deleted = delete_project_chat(chat_id, owner_user_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Chat not found.")
@@ -1593,11 +1678,12 @@ def delete_chat_endpoint(chat_id: str, _auth_claims: Any = Depends(require_deplo
 
 
 @app.get("/projects/{project_id}/video-prompt")
-def generate_project_video_prompt_endpoint(project_id: str):
+def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Builds an image-to-video prompt from Forma project namespaces."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
 
     try:
         ir = HardwareIR(**project.hardware_ir)
@@ -1616,13 +1702,15 @@ def generate_project_video_prompt_endpoint(project_id: str):
 def iterate_project_endpoint(
     project_id: str,
     request: IterateProjectRequest,
-    _auth_claims: Any = Depends(require_deployed_clerk_auth),
+    user: UserContext = Depends(require_user_context),
 ):
     """Applies an iteration instruction to an existing project through blueprint_core."""
-    _apply_auth_user_integrations(_auth_claims)
+    _apply_user_integrations(user)
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    save_owner_user_id = _require_project_owner(project, user) if request.save else None
 
     try:
         current_ir = HardwareIR(**project.hardware_ir)
@@ -1636,15 +1724,23 @@ def iterate_project_endpoint(
         )
         revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
         if request.save:
-            owner_user_id = _require_project_owner(project, _auth_claims)
-            saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"), owner_user_id=owner_user_id)
+            saved = update_generated_project_hardware_ir(
+                project.project_id,
+                revised_ir.model_dump(mode="json"),
+                owner_user_id=save_owner_user_id,
+            )
             if not saved:
                 raise HTTPException(status_code=404, detail="Project not found.")
 
         return {
             "project_id": project.project_id,
+            "chat_id": (
+                getattr(project, "chat_id", None)
+                or (revised_ir.assembly_metadata or {}).get("chat_id")
+            ),
             "prompt": project.prompt,
             "created_at": project.created_at,
+            "can_chat": _user_owns_project(project, user),
             "saved": request.save,
             "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
             "project_ir": revised_ir.model_dump(mode="json"),
@@ -1767,13 +1863,14 @@ def _resolve_stored_video_review_target(project_id: str, request: VideoSelfCorre
 def video_self_correct_project_endpoint(
     project_id: str,
     request: VideoSelfCorrectRequest,
-    _auth_claims: Any = Depends(require_deployed_clerk_auth),
+    user: UserContext = Depends(require_user_context),
 ):
     """Reviews a generated project video with a Fireworks native video model and applies a corrective iteration."""
-    _apply_auth_user_integrations(_auth_claims)
+    _apply_user_integrations(user)
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    owner_user_id = _require_project_owner(project, user)
 
     try:
         current_ir = HardwareIR(**project.hardware_ir)
@@ -1791,7 +1888,6 @@ def video_self_correct_project_endpoint(
         )
         revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
         if request.save:
-            owner_user_id = _require_project_owner(project, _auth_claims)
             saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"), owner_user_id=owner_user_id)
             if not saved:
                 raise HTTPException(status_code=404, detail="Project not found.")

@@ -8,15 +8,33 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
-from backend.auth import require_deployed_clerk_auth
+from backend.auth import UserContext, require_user_context
 from backend.user_integrations_api import (
     ImageModelTestRequest,
     IntegrationUpdateRequest,
     get_user_integrations,
+    _store_for_context,
     image_model_test_available,
     router,
     test_image_model,
     update_user_integration,
+)
+from blueprint_core.user_integrations import SupabaseUserIntegrationStore, SupabaseWorkspaceIntegrationStore
+
+
+LOCAL_CONTEXT = UserContext(
+    provider="local",
+    subject="local-dev-user",
+    owner_user_id="local-dev-user",
+    is_authenticated=True,
+    is_admin=True,
+)
+HOSTED_CONTEXT = UserContext(
+    provider="hosted-test",
+    subject="user_test",
+    owner_user_id="user_test",
+    is_authenticated=True,
+    is_admin=False,
 )
 
 
@@ -37,19 +55,50 @@ class PersistThenBrokenReloadStore(BrokenIntegrationStore):
 
 
 class UserIntegrationsApiAuthTests(unittest.TestCase):
-    def test_user_integration_routes_require_deployed_auth(self) -> None:
+    def test_local_context_uses_encrypted_workspace_store(self) -> None:
+        workspace_store = SupabaseWorkspaceIntegrationStore()
+        with patch(
+            "backend.user_integrations_api.default_integration_store",
+            return_value=workspace_store,
+        ):
+            self.assertIs(workspace_store, _store_for_context(LOCAL_CONTEXT))
+
+    def test_hosted_context_uses_authenticated_user_store(self) -> None:
+        user_store = SupabaseUserIntegrationStore("user_test")
+        with patch(
+            "backend.user_integrations_api.UserIntegrationStore.for_user",
+            return_value=user_store,
+        ) as for_user:
+            self.assertIs(user_store, _store_for_context(HOSTED_CONTEXT))
+        for_user.assert_called_once_with("user_test")
+
+    def test_hosted_context_without_owner_is_rejected(self) -> None:
+        anonymous_context = UserContext(
+            provider="hosted-test",
+            subject=None,
+            owner_user_id=None,
+            is_authenticated=False,
+            is_admin=False,
+        )
+
+        with self.assertRaises(HTTPException) as raised:
+            _store_for_context(anonymous_context)
+
+        self.assertEqual(401, raised.exception.status_code)
+
+    def test_user_integration_routes_require_user_context(self) -> None:
         routes = [route for route in router.routes if isinstance(route, APIRoute)]
         self.assertGreaterEqual(len(routes), 4)
 
         for route in routes:
             dependency_calls = {dependency.call for dependency in route.dependant.dependencies}
-            self.assertIn(require_deployed_clerk_auth, dependency_calls, route.path)
+            self.assertIn(require_user_context, dependency_calls, route.path)
 
     def test_load_failure_is_logged_and_returned_as_structured_error(self) -> None:
-        with patch("backend.user_integrations_api._store_for_auth", return_value=BrokenIntegrationStore()):
+        with patch("backend.user_integrations_api._store_for_context", return_value=BrokenIntegrationStore()):
             with self.assertLogs("backend.user_integrations_api", level="ERROR") as logs:
                 with self.assertRaises(HTTPException) as raised:
-                    get_user_integrations({"sub": "user_test"})
+                    get_user_integrations(HOSTED_CONTEXT)
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertEqual("user_integrations_load_failed", raised.exception.detail["code"])
@@ -59,10 +108,10 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
 
     def test_save_failure_is_logged_and_returned_as_structured_error(self) -> None:
         request = IntegrationUpdateRequest(enabled=True, fields={"api_key": "test-secret"})
-        with patch("backend.user_integrations_api._store_for_auth", return_value=BrokenIntegrationStore()):
+        with patch("backend.user_integrations_api._store_for_context", return_value=BrokenIntegrationStore()):
             with self.assertLogs("backend.user_integrations_api", level="ERROR") as logs:
                 with self.assertRaises(HTTPException) as raised:
-                    update_user_integration("anthropic", request, {"sub": "user_test"})
+                    update_user_integration("anthropic", request, HOSTED_CONTEXT)
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertEqual("user_integrations_save_failed", raised.exception.detail["code"])
@@ -72,10 +121,10 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
 
     def test_post_save_reload_failure_is_distinguished_from_write_failure(self) -> None:
         request = IntegrationUpdateRequest(enabled=True, fields={"api_key": "test-secret"})
-        with patch("backend.user_integrations_api._store_for_auth", return_value=PersistThenBrokenReloadStore()):
+        with patch("backend.user_integrations_api._store_for_context", return_value=PersistThenBrokenReloadStore()):
             with self.assertLogs("backend.user_integrations_api", level="INFO") as logs:
                 with self.assertRaises(HTTPException) as raised:
-                    update_user_integration("anthropic", request, {"sub": "user_test"})
+                    update_user_integration("anthropic", request, HOSTED_CONTEXT)
 
         output = "\n".join(logs.output)
         self.assertEqual(500, raised.exception.status_code)
@@ -119,11 +168,11 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
         provider = FakeProvider()
         request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="  test render  ")
         with patch.dict(os.environ, {}, clear=True), patch(
-            "backend.user_integrations_api._store_for_auth", return_value=object()
+            "backend.user_integrations_api._store_for_context", return_value=object()
         ), patch("backend.user_integrations_api.apply_user_integrations_to_environment"), patch(
             "backend.user_integrations_api.build_image_provider", return_value=provider
         ):
-            response = test_image_model(request, {"sub": "user_test"})
+            response = test_image_model(request, HOSTED_CONTEXT)
 
         self.assertTrue(response["ok"])
         self.assertEqual("test render", provider.prompt)
@@ -134,7 +183,7 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
         request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="test render")
         with patch.dict(os.environ, {"VERCEL": "1", "VERCEL_ENV": "production"}, clear=True):
             with self.assertRaises(HTTPException) as raised:
-                test_image_model(request, {"sub": "user_test"})
+                test_image_model(request, HOSTED_CONTEXT)
 
         self.assertEqual(404, raised.exception.status_code)
 

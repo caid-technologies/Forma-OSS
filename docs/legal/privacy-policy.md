@@ -2,7 +2,8 @@
 
 Publication note: This is a draft template. Replace bracketed placeholders and have counsel review before publishing.
 
-Last updated: July 8, 2026  
+Last updated: July 27, 2026
+
 Effective date: [EFFECTIVE DATE]
 
 This Privacy Policy explains how CAID TECHNOLOGIES, INC. ("Forma," "we," "us," or "our") collects, uses, discloses, and protects information when you use Forma's website, hosted application, APIs, and related services (the "Service").
@@ -38,6 +39,7 @@ We use information to:
 - process saved integrations and user-selected provider settings;
 - provide support, debugging, reliability, abuse prevention, and security monitoring;
 - evaluate model quality, safety, and product performance;
+- subject to your Data & Privacy preference, include generated outputs in datasets used to evaluate, improve, or fine-tune Forma models;
 - communicate about the Service, updates, security issues, and support requests;
 - enforce terms, policies, and legal rights;
 - comply with law, legal process, and regulatory obligations;
@@ -84,11 +86,14 @@ Depending on your location and the Service features available to you, you may be
 - access, update, export, or delete certain account information;
 - delete projects or generated content;
 - opt out of non-essential emails;
+- opt out of future model-improvement dataset exports in Settings under Data & Privacy;
 - control cookies or local storage through your browser;
 - disconnect third-party integrations;
 - request access, correction, deletion, restriction, portability, or objection.
 
 To make a privacy request, contact team@caid-technologies.com. We may need to verify your identity before fulfilling requests.
+
+Changing the model-improvement preference applies to future dataset exports. It does not remove data already incorporated into a completed model-training run; contact us to discuss available access, deletion, restriction, or objection rights.
 
 ## 9. California Privacy Notice
 

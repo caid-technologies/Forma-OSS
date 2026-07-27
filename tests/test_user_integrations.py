@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from blueprint_core import user_integrations
 from blueprint_core.user_integrations import (
+    EncryptedFileIntegrationStore,
     SupabaseUserIntegrationStore,
     SupabaseWorkspaceIntegrationStore,
     UserIntegrationStore,
@@ -29,13 +30,31 @@ TEST_ENV_KEYS = (
     "OPENAI_STREAM_MODEL",
     "OPENAI_ALLOWED_MODELS",
     "BASETEN_API_KEY",
+    "BASETEN_BASE_URL",
+    "BASETEN_MODEL",
+    "BASETEN_STREAM_MODEL",
+    "BASETEN_TIMEOUT_SECONDS",
+    "BASETEN_STREAM_TIMEOUT_SECONDS",
+    "BASETEN_MAX_TOKENS",
+    "BASETEN_STREAM_MAX_OUTPUT_TOKENS",
+    "BASETEN_ALLOWED_MODELS",
     "NVIDIA_API_KEY",
     "NVIDIA_MODEL",
+    "NEBIUS_ALLOWED_MODELS",
+    "NEBIUS_API_KEY",
+    "NEBIUS_BASE_URL",
+    "NEBIUS_MODEL",
     "LLM_PROVIDER",
     "LLM_MODEL",
+    "LLM_ALLOWED_PROVIDERS",
     "BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND",
     "BLUEPRINT_USER_INTEGRATIONS_BACKEND",
     "BLUEPRINT_INTEGRATIONS_BACKEND",
+    "BLUEPRINT_DEV_MODE",
+    "DATABASE_BACKEND",
+    "DATABASE_PROVIDER",
+    "DB_BACKEND",
+    "DB_PROVIDER",
     "SUPABASE_URL",
     "NEXT_PUBLIC_SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
@@ -187,7 +206,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertNotIn("sk-testsecret123456", str(payload))
             self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
-    def test_apply_sets_runtime_environment_and_clears_previous_env_values(self) -> None:
+    def test_apply_overlays_saved_values_and_restores_environment_fallback(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-env-original"
             os.environ["IMAGE_PROVIDER"] = "openai"
@@ -209,14 +228,14 @@ class UserIntegrationTests(unittest.TestCase):
 
             store.clear_integration("openai")
             apply_user_integrations_to_environment(store)
-            self.assertNotIn("OPENAI_API_KEY", os.environ)
-            self.assertNotIn("IMAGE_PROVIDER", os.environ)
-            self.assertNotIn("OPENAI_IMAGE_MODEL", os.environ)
+            self.assertEqual("sk-env-original", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("openai", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("gpt-image-2", os.environ["OPENAI_IMAGE_MODEL"])
             self.assertNotIn("OPENAI_IMAGE_API_KEY", os.environ)
             self.assertNotIn("OPENAI_MODEL", os.environ)
             self.assertNotIn("OPENAI_STREAM_MODEL", os.environ)
 
-    def test_status_payload_does_not_treat_environment_as_configured(self) -> None:
+    def test_status_payload_reports_environment_as_configured_fallback(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-env-original"
             os.environ["IMAGE_PROVIDER"] = "openai"
@@ -227,11 +246,46 @@ class UserIntegrationTests(unittest.TestCase):
             openai = integration_by_id(payload, "openai")
             runtime = integration_by_id(payload, "runtime")
 
-            self.assertFalse(openai["configured"])
-            self.assertEqual("unset", field_by_id(openai, "api_key")["source"])
-            self.assertFalse(field_by_id(openai, "api_key")["configured"])
-            self.assertEqual("unset", field_by_id(runtime, "image_provider")["source"])
-            self.assertFalse(field_by_id(runtime, "image_provider")["configured"])
+            self.assertTrue(openai["configured"])
+            self.assertEqual("environment", field_by_id(openai, "api_key")["source"])
+            self.assertTrue(field_by_id(openai, "api_key")["configured"])
+            self.assertEqual("environment", field_by_id(runtime, "image_provider")["source"])
+            self.assertTrue(field_by_id(runtime, "image_provider")["configured"])
+
+    def test_saved_byok_overrides_environment_without_hiding_other_env_providers(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["OPENAI_API_KEY"] = "sk-platform"
+            os.environ["OPENAI_MODEL"] = "gpt-platform"
+            os.environ["LLM_ALLOWED_PROVIDERS"] = "openai"
+            os.environ["OPENAI_ALLOWED_MODELS"] = "gpt-platform"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "openai",
+                field_values={"api_key": "sk-user", "model": "gpt-user"},
+            )
+            store.update_integration(
+                "baseten",
+                field_values={"api_key": "baseten-user", "model": "byok/model"},
+            )
+
+            payload = integration_status_payload(store)
+
+            self.assertEqual("sk-user", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("gpt-user", os.environ["OPENAI_MODEL"])
+            self.assertEqual("openai,baseten", os.environ["LLM_ALLOWED_PROVIDERS"])
+            self.assertEqual("gpt-platform,gpt-user", os.environ["OPENAI_ALLOWED_MODELS"])
+            openai = integration_by_id(payload, "openai")
+            self.assertEqual("saved", field_by_id(openai, "api_key")["source"])
+            self.assertEqual("saved", field_by_id(openai, "model")["source"])
+
+            store.clear_integration("openai")
+            payload = integration_status_payload(store)
+            openai = integration_by_id(payload, "openai")
+
+            self.assertEqual("sk-platform", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("gpt-platform", os.environ["OPENAI_MODEL"])
+            self.assertEqual("environment", field_by_id(openai, "api_key")["source"])
+            self.assertEqual("environment", field_by_id(openai, "model")["source"])
 
     def test_disabled_integration_is_saved_but_not_applied(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -247,7 +301,30 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertFalse(baseten["enabled"])
             self.assertTrue(baseten["configured"])
+            self.assertFalse(baseten["available"])
             self.assertNotIn("BASETEN_API_KEY", os.environ)
+
+    def test_environment_provider_remains_available_when_saved_byok_is_disabled(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["BASETEN_API_KEY"] = "baseten-platform"
+            os.environ["BASETEN_MODEL"] = "platform/model"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "baseten",
+                enabled=False,
+                field_values={"api_key": "baseten-user", "model": "user/model"},
+            )
+
+            payload = integration_status_payload(store)
+            baseten = integration_by_id(payload, "baseten")
+
+            self.assertFalse(baseten["enabled"])
+            self.assertTrue(baseten["environment_configured"])
+            self.assertTrue(baseten["available"])
+            self.assertEqual("environment", field_by_id(baseten, "api_key")["source"])
+            self.assertEqual("environment", field_by_id(baseten, "model")["source"])
+            self.assertEqual("baseten-platform", os.environ["BASETEN_API_KEY"])
+            self.assertEqual("platform/model", os.environ["BASETEN_MODEL"])
 
     def test_runtime_defaults_apply_to_llm_selector(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -281,7 +358,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("gpt-5.5", os.environ["OPENAI_MODEL"])
             self.assertEqual("gpt-5.5", os.environ["OPENAI_ALLOWED_MODELS"])
 
-    def test_saved_provider_config_overrides_stale_llm_allowed_providers(self) -> None:
+    def test_saved_provider_config_extends_environment_llm_allowed_providers(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["LLM_ALLOWED_PROVIDERS"] = "openai,simulation"
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
@@ -298,7 +375,7 @@ class UserIntegrationTests(unittest.TestCase):
             apply_user_integrations_to_environment(store)
             runtime = resolve_llm_runtime_config("baseten", "deepseek-ai/DeepSeek-V4-Pro")
 
-            self.assertEqual(["baseten"], runtime.allowed_providers)
+            self.assertEqual(["baseten", "openai", "simulation"], runtime.allowed_providers)
             self.assertEqual("baseten", runtime.provider)
             self.assertEqual("deepseek-ai/DeepSeek-V4-Pro", runtime.model)
 
@@ -317,6 +394,14 @@ class UserIntegrationTests(unittest.TestCase):
             os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "does not accept user-supplied NVIDIA Build/API Catalog keys"):
                 store.update_integration("nvidia", field_values={"api_key": "nvapi-user-owned"})
+
+    def test_deployed_user_store_rejects_nebius_api_key(self) -> None:
+        store = SupabaseUserIntegrationStore("user_nebius_policy_test")
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "does not accept user-supplied Nebius Token Factory API keys"):
+                store.update_integration("nebius", field_values={"api_key": "nebius-user-owned"})
 
     def test_deployed_user_store_requires_gmi_key_delegation_confirmation(self) -> None:
         class FakeHostedGmiStore(SupabaseUserIntegrationStore):
@@ -467,6 +552,28 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertEqual("nvapi-local-dev", os.environ["NVIDIA_API_KEY"])
             self.assertEqual("nvidia/z-ai/glm-5.2", os.environ["NVIDIA_MODEL"])
+
+    def test_local_file_store_applies_nebius_provider_settings(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "nebius",
+                field_values={
+                    "api_key": "nebius-local-key",
+                    "base_url": "https://api.tokenfactory.nebius.com/v1",
+                    "model": "Qwen/Qwen3.5-397B-A17B",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+            runtime = resolve_llm_runtime_config("nebius", "Qwen/Qwen3.5-397B-A17B")
+
+            self.assertEqual("nebius-local-key", os.environ["NEBIUS_API_KEY"])
+            self.assertEqual("https://api.tokenfactory.nebius.com/v1", os.environ["NEBIUS_BASE_URL"])
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", os.environ["NEBIUS_MODEL"])
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", os.environ["NEBIUS_ALLOWED_MODELS"])
+            self.assertEqual("nebius", runtime.provider)
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", runtime.model)
 
     def test_local_image_integration_can_apply_openai_compatible_settings(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -760,6 +867,21 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertIsNone(sanitized_nvidia.field_value("api_key"))
             self.assertEqual("nvidia/z-ai/glm-5.2", sanitized_nvidia.field_value("model"))
 
+    def test_hosted_user_policy_sanitizes_saved_nebius_api_key(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = user_integrations.UserIntegrationConfig()
+            integration = config.ensure_integration("nebius")
+            integration.set_field("api_key", "nebius-legacy-user-owned")
+            integration.set_field("model", "Qwen/Qwen3.5-397B-A17B")
+
+            sanitized = user_integrations._sanitize_hosted_user_config(config)
+            sanitized_nebius = sanitized.integration_by_id("nebius")
+
+            self.assertIsNotNone(sanitized_nebius)
+            self.assertIsNone(sanitized_nebius.field_value("api_key"))
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", sanitized_nebius.field_value("model"))
+
     def test_hosted_nvidia_status_marks_api_key_blocked(self) -> None:
         class FakeHostedNvidiaStore(SupabaseUserIntegrationStore):
             def __init__(self) -> None:
@@ -787,6 +909,37 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertEqual("disabled", nvidia_payload["policy_status"])
             self.assertIn("does not accept user-supplied NVIDIA Build/API Catalog keys", nvidia_payload["policy_notice"])
+            self.assertFalse(api_key_payload["editable"])
+            self.assertTrue(api_key_payload["policy_blocked"])
+            self.assertFalse(api_key_payload["configured"])
+
+    def test_hosted_nebius_status_marks_api_key_blocked(self) -> None:
+        class FakeHostedNebiusStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_nebius_status_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            store = FakeHostedNebiusStore()
+            nebius = store.config.ensure_integration("nebius")
+            nebius.set_field("api_key", "nebius-legacy-user-owned")
+            nebius.set_field("model", "Qwen/Qwen3.5-397B-A17B")
+
+            payload = integration_status_payload(store)
+            nebius_payload = integration_by_id(payload, "nebius")
+            api_key_payload = field_by_id(nebius_payload, "api_key")
+
+            self.assertEqual("disabled", nebius_payload["policy_status"])
+            self.assertIn("does not accept user-supplied Nebius Token Factory API keys", nebius_payload["policy_notice"])
             self.assertFalse(api_key_payload["editable"])
             self.assertTrue(api_key_payload["policy_blocked"])
             self.assertFalse(api_key_payload["configured"])
@@ -857,10 +1010,10 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertTrue(api_key_payload["configured"])
             self.assertTrue(confirmation_payload["configured"])
 
-    def test_default_store_uses_local_file_unless_workspace_backend_is_supabase(self) -> None:
+    def test_default_store_uses_encrypted_local_file_unless_workspace_backend_is_supabase(self) -> None:
         with isolated_integration_env():
             os.environ.pop("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", None)
-            self.assertIs(type(default_integration_store()), UserIntegrationStore)
+            self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
 
     def test_user_store_uses_supabase_when_supabase_is_configured(self) -> None:
         with isolated_integration_env():
@@ -872,7 +1025,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertIsInstance(store, SupabaseUserIntegrationStore)
             self.assertEqual("supabase:user_integration_configs/user_123", store.storage_label)
 
-    def test_user_store_file_backend_override_uses_local_file(self) -> None:
+    def test_user_store_file_backend_override_uses_encrypted_local_file(self) -> None:
         with isolated_integration_env():
             os.environ["BLUEPRINT_USER_INTEGRATIONS_BACKEND"] = "file"
             os.environ["SUPABASE_URL"] = "https://example.supabase.co"
@@ -880,8 +1033,27 @@ class UserIntegrationTests(unittest.TestCase):
 
             store = UserIntegrationStore.for_user("user_123")
 
-            self.assertIs(type(store), UserIntegrationStore)
+            self.assertIsInstance(store, EncryptedFileIntegrationStore)
             self.assertIn("user_123", str(store.path))
+
+    def test_encrypted_file_store_never_writes_secret_plaintext(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["BLUEPRINT_USER_SECRETS_KEY"] = "test-encryption-key"
+            store = EncryptedFileIntegrationStore(Path(tmpdir) / "workspace.enc.json")
+
+            store.update_integration(
+                "openai",
+                field_values={"api_key": "sk-must-not-appear", "model": "gpt-5.5"},
+            )
+
+            contents = store.path.read_text(encoding="utf-8")
+            self.assertNotIn("sk-must-not-appear", contents)
+            self.assertNotIn("gpt-5.5", contents)
+            self.assertIn("encrypted_config", contents)
+            loaded = store.load().integration_by_id("openai")
+            self.assertIsNotNone(loaded)
+            self.assertEqual("sk-must-not-appear", loaded.field_value("api_key"))
+            self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
     def test_default_store_uses_supabase_workspace_when_supabase_is_configured(self) -> None:
         with isolated_integration_env():
@@ -892,6 +1064,41 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertIsInstance(store, SupabaseWorkspaceIntegrationStore)
             self.assertEqual("supabase:workspace_integration_configs/default", store.storage_label)
+
+    def test_sqlite_database_keeps_workspace_integrations_local_with_supabase_credentials(self) -> None:
+        with isolated_integration_env():
+            os.environ["DATABASE_BACKEND"] = "sqlite"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
+
+    def test_workspace_supabase_override_is_explicit_opt_in_from_sqlite(self) -> None:
+        with isolated_integration_env():
+            os.environ["DATABASE_BACKEND"] = "sqlite"
+            os.environ["BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), SupabaseWorkspaceIntegrationStore)
+
+    def test_supabase_database_keeps_workspace_integrations_in_supabase(self) -> None:
+        with isolated_integration_env():
+            os.environ["DATABASE_BACKEND"] = "supabase"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), SupabaseWorkspaceIntegrationStore)
+
+    def test_dev_mode_keeps_workspace_integrations_local_despite_override(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEV_MODE"] = "true"
+            os.environ["DATABASE_BACKEND"] = "supabase"
+            os.environ["BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
+            os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+            os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
+
+            self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
 
     def test_supabase_workspace_load_failure_does_not_crash_runtime_apply(self) -> None:
         class BrokenWorkspaceStore(SupabaseWorkspaceIntegrationStore):

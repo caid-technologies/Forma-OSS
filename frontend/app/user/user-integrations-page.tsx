@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { SignInButton, useAuth } from "@clerk/nextjs";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -13,6 +12,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  ShieldCheck,
   SlidersHorizontal,
   Trash2,
 } from "lucide-react";
@@ -23,6 +23,7 @@ import {
   settingOptionsForField,
   type ProviderModelOption,
 } from "../../lib/provider-model-catalog";
+import { useFormaAuth } from "../../lib/forma-auth";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
 const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
@@ -64,6 +65,14 @@ type IntegrationsPayload = {
   updated_at: string;
   integrations: IntegrationStatus[];
   image_model_test_available?: boolean;
+};
+
+type DataUsagePreference = {
+  allow_model_training: boolean;
+  model_training_opt_out: boolean;
+  source: "default" | "user";
+  created_at: string | null;
+  updated_at: string | null;
 };
 
 type ImageModelTestResult = {
@@ -198,7 +207,7 @@ type IntegrationNavigationDefinition = {
 };
 
 const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: IntegrationNavigationDefinition[] }> = [
-  { id: "workspace", label: "Workspace", items: [{ integrationId: "runtime", view: "all" }] },
+  { id: "workspace", label: "Workspace Defaults", items: [{ integrationId: "runtime", view: "all" }] },
   {
     id: "llm",
     label: "Language Model Providers",
@@ -209,6 +218,7 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
       { integrationId: "baseten", view: "llm" },
       { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
       { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },
+      { integrationId: "nebius", view: "llm", label: "Nebius Token Factory" },
       { integrationId: "nvidia", view: "llm" },
       { integrationId: "runpod", view: "llm" },
       { integrationId: "ollama", view: "llm" },
@@ -1166,7 +1176,7 @@ function ImageModelTestPanel({
 }
 
 export default function UserIntegrationsPage() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { authRequired, getToken, hasIdentity, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
   const [forms, setForms] = useState<Record<string, IntegrationFormState>>({});
   const [selectedNavigationKey, setSelectedNavigationKey] = useState("runtime:all");
@@ -1182,6 +1192,10 @@ export default function UserIntegrationsPage() {
   const [imageTestResult, setImageTestResult] = useState<ImageModelTestResult | null>(null);
   const [imageTestError, setImageTestError] = useState<string | null>(null);
   const [imageTestErrorDetails, setImageTestErrorDetails] = useState<unknown>(null);
+  const [dataUsagePreference, setDataUsagePreference] = useState<DataUsagePreference | null>(null);
+  const [allowModelTraining, setAllowModelTraining] = useState(true);
+  const [dataUsageLoading, setDataUsageLoading] = useState(true);
+  const [dataUsageSaving, setDataUsageSaving] = useState(false);
 
   const navigationGroups = useMemo(
     () => integrationNavigationGroups(payload?.integrations || []),
@@ -1193,7 +1207,10 @@ export default function UserIntegrationsPage() {
     [navigationGroups, selectedNavigationKey]
   );
 
-  const selectedIntegration = selectedNavigationItem?.integration || payload?.integrations[0] || null;
+  const isDataPrivacyView = selectedNavigationKey === "privacy:data-usage";
+  const selectedIntegration = isDataPrivacyView
+    ? null
+    : selectedNavigationItem?.integration || payload?.integrations[0] || null;
   const selectedView = selectedNavigationItem?.view || "all";
 
   const integrationById = useCallback(
@@ -1248,18 +1265,18 @@ export default function UserIntegrationsPage() {
   }, [imageDefaults.provider, imageDefaults.model]);
 
   const optionalAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
-    if (!isSignedIn) return {};
+    if (!authRequired || !isSignedIn) return {};
     try {
       const token = await getToken();
       return token ? { Authorization: `Bearer ${token}` } : {};
     } catch {
       return {};
     }
-  }, [getToken, isSignedIn]);
+  }, [authRequired, getToken, isSignedIn]);
 
   const loadIntegrations = useCallback(async () => {
-    if (!isLoaded) return;
-    if (!isSignedIn) {
+    if (authRequired && !isLoaded) return;
+    if (!hasIdentity) {
       setPayload(null);
       setForms({});
       setLoading(false);
@@ -1278,18 +1295,49 @@ export default function UserIntegrationsPage() {
       setForms(Object.fromEntries(data.integrations.map((integration) => [integration.id, formFromIntegration(integration)])));
       const availableNavigationItems = integrationNavigationGroups(data.integrations).flatMap((group) => group.items);
       setSelectedNavigationKey((current) =>
-        availableNavigationItems.some((item) => item.key === current) ? current : availableNavigationItems[0]?.key || "runtime:all"
+        current === "privacy:data-usage" || availableNavigationItems.some((item) => item.key === current)
+          ? current
+          : availableNavigationItems[0]?.key || "runtime:all"
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load integrations.");
     } finally {
       setLoading(false);
     }
-  }, [isLoaded, isSignedIn, optionalAuthHeaders]);
+  }, [authRequired, hasIdentity, isLoaded, optionalAuthHeaders]);
 
   useEffect(() => {
     loadIntegrations();
   }, [loadIntegrations]);
+
+  const loadDataUsagePreference = useCallback(async () => {
+    if (authRequired && !isLoaded) return;
+    if (!hasIdentity) {
+      setDataUsagePreference(null);
+      setAllowModelTraining(true);
+      setDataUsageLoading(false);
+      return;
+    }
+    setDataUsageLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/user/settings/data-usage`, {
+        cache: "no-store",
+        headers: await optionalAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, "Failed to load data usage preference."));
+      const data = (await response.json()) as DataUsagePreference;
+      setDataUsagePreference(data);
+      setAllowModelTraining(data.allow_model_training);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load data usage preference.");
+    } finally {
+      setDataUsageLoading(false);
+    }
+  }, [authRequired, hasIdentity, isLoaded, optionalAuthHeaders]);
+
+  useEffect(() => {
+    loadDataUsagePreference();
+  }, [loadDataUsagePreference]);
 
   function updateField(integrationId: string, fieldId: string, value: string) {
     setForms((current) => ({
@@ -1344,7 +1392,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function saveImageDefaults() {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     const providerOption = IMAGE_PROVIDER_OPTIONS.find((option) => option.id === imageDefaults.provider);
     setSavingId("image-defaults");
     setError(null);
@@ -1363,7 +1411,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function saveIntegration(integration: IntegrationStatus, clearFields: string[] = []) {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     const form = forms[integration.id] || formFromIntegration(integration);
     const fields: Record<string, string> = {};
     const clearFieldSet = new Set(clearFields);
@@ -1372,6 +1420,10 @@ export default function UserIntegrationsPage() {
       if (clearFieldSet.has(field.id)) return;
       const value = form.fields[field.id] || "";
       if (field.secret && !value.trim()) return;
+      // Environment-backed values are visible defaults, not implicit BYOK
+      // values. Persist them only when the user actually changes the field.
+      if (field.source === "environment" && value === (field.value || "")) return;
+      if (field.source === "unset" && !value.trim()) return;
       fields[field.id] = value;
     });
 
@@ -1401,7 +1453,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function clearIntegration(integration: IntegrationStatus) {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     setSavingId(integration.id);
     setError(null);
     setNotice(null);
@@ -1423,7 +1475,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function reloadRuntime() {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     setLoading(true);
     setError(null);
     setNotice(null);
@@ -1444,8 +1496,33 @@ export default function UserIntegrationsPage() {
     }
   }
 
+  async function saveDataUsagePreference() {
+    if (!hasIdentity) return;
+    setDataUsageSaving(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const response = await fetch(`${API_URL}/user/settings/data-usage`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(await optionalAuthHeaders()) },
+        body: JSON.stringify({ allow_model_training: allowModelTraining }),
+      });
+      if (!response.ok) throw new Error(await responseErrorMessage(response, "Failed to save data usage preference."));
+      const data = (await response.json()) as DataUsagePreference;
+      setDataUsagePreference(data);
+      setAllowModelTraining(data.allow_model_training);
+      setNotice(data.allow_model_training
+        ? "Data usage preference saved. Eligible outputs may be included in future model-improvement datasets."
+        : "Opt-out saved. Your outputs will be excluded from future model-improvement dataset exports.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save data usage preference.");
+    } finally {
+      setDataUsageSaving(false);
+    }
+  }
+
   async function runImageModelTest() {
-    if (!isSignedIn || !imageTestPrompt.trim()) return;
+    if (!hasIdentity || !imageTestPrompt.trim()) return;
     setImageTestRunning(true);
     setImageTestResult(null);
     setImageTestError(null);
@@ -1512,27 +1589,29 @@ export default function UserIntegrationsPage() {
                 <h1 className="truncate text-lg font-black uppercase tracking-wide text-white">Settings</h1>
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                API keys, preferred models, and provider defaults for your Forma workspace.
+                Provider credentials, model defaults, and account data preferences for your Forma workspace.
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={reloadRuntime}
-            disabled={loading || !isLoaded || !isSignedIn}
-            className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-            Reload
-          </button>
+          {!isDataPrivacyView && (
+            <button
+              type="button"
+              onClick={reloadRuntime}
+              disabled={loading || !hasIdentity}
+              className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
+              Reload integrations
+            </button>
+          )}
         </div>
       </header>
 
-      {!isLoaded ? (
+      {authRequired && !isLoaded ? (
         <section className="mx-auto w-full max-w-7xl px-4 py-5">
           <div className="border border-[#2c2f37] bg-[#17181d] p-6 text-sm text-slate-500">Checking session...</div>
         </section>
-      ) : !isSignedIn ? (
+      ) : !hasIdentity ? (
         <section className="mx-auto w-full max-w-7xl px-4 py-5">
           <div className="max-w-xl border border-[#2c2f37] bg-[#17181d] p-6">
             <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
@@ -1543,15 +1622,14 @@ export default function UserIntegrationsPage() {
               Settings store API keys and provider defaults for your account. Sign in to manage your models.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
-              <SignInButton mode="modal">
-                <button
-                  type="button"
-                  className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200"
-                >
-                  <KeyRound className="h-4 w-4" />
-                  Sign in
-                </button>
-              </SignInButton>
+              <button
+                type="button"
+                onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/settings" })}
+                className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200"
+              >
+                <KeyRound className="h-4 w-4" />
+                Sign in
+              </button>
               <Link
                 href="/"
                 className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
@@ -1567,62 +1645,106 @@ export default function UserIntegrationsPage() {
         <aside className="min-h-0 border border-[#2c2f37] bg-[#17181d]">
           <div className="border-b border-[#2c2f37] p-4">
             <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
-              <KeyRound className="h-4 w-4 text-cyan-300" />
-              Provider & Model Settings
+              <SlidersHorizontal className="h-4 w-4 text-cyan-300" />
+              Settings Navigation
             </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">Language models, image generation, and tools are separated by purpose.</p>
+            <p className="mt-3 text-xs leading-5 text-slate-500">Choose a settings area, then a category and its specific page.</p>
           </div>
 
-          <div className="max-h-[calc(100vh-220px)] overflow-y-auto p-3">
-            {loading && !payload ? (
-              <div className="border border-[#2c2f37] p-4 text-sm text-slate-500">Loading integrations...</div>
-            ) : (
-              navigationGroups.map((group) => (
-                <section key={group.id} className="mb-5 last:mb-0">
-                  <div className="mb-2 flex items-center gap-2 px-1">
-                    <span className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{group.label}</span>
-                    <span className="h-px flex-1 bg-[#2c2f37]" />
+          <nav aria-label="Settings" className="max-h-[calc(100vh-220px)] overflow-y-auto p-3">
+            <section className="border border-[#2c2f37] bg-[#101115]">
+              <div className="border-b border-[#2c2f37] bg-black/30 p-3">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-cyan-300" />
+                  <h2 className="text-xs font-black uppercase tracking-[0.16em] text-white">Account</h2>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-slate-500">Privacy and personal account preferences.</p>
+              </div>
+              <div className="p-3">
+                <div className="mb-2 border-l border-[#3a3d46] pl-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  Data controls
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedNavigationKey("privacy:data-usage")}
+                  className={`block w-full border p-3 text-left transition ${
+                    isDataPrivacyView
+                      ? "border-cyan-300 bg-cyan-300/10"
+                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate text-sm font-black uppercase tracking-wide text-white">Data & Privacy</span>
+                    <span className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
+                      allowModelTraining
+                        ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                        : "border-amber-400/40 bg-amber-500/10 text-amber-300"
+                    }`}>
+                      {dataUsageLoading ? "Loading" : allowModelTraining ? "Allowed" : "Opted out"}
+                    </span>
                   </div>
-                  {group.items.map((item) => (
-                    <button
-                      key={item.key}
-                      type="button"
-                      onClick={() => {
-                        if (item.imageProviderId) updateImageProvider(item.imageProviderId);
-                        else setSelectedNavigationKey(item.key);
-                      }}
-                      className={`mb-2 block w-full border p-3 text-left transition ${
-                        selectedNavigationKey === item.key
-                          ? "border-cyan-300 bg-cyan-300/10"
-                          : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <span className="truncate text-sm font-black uppercase tracking-wide text-white">{item.label}</span>
-                        <span
-                          className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
-                            item.integration.configured
-                              ? item.integration.enabled
-                                ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                                : "border-amber-400/40 bg-amber-500/10 text-amber-300"
-                              : "border-[#2c2f37] text-slate-500"
+                  <p className="mt-2 line-clamp-1 text-xs text-slate-500">Control use of your outputs for model improvement.</p>
+                </button>
+              </div>
+            </section>
+
+            <section className="mt-4 border border-[#2c2f37] bg-[#101115]">
+              <div className="border-b border-[#2c2f37] bg-black/30 p-3">
+                <div className="flex items-center gap-2">
+                  <KeyRound className="h-4 w-4 text-cyan-300" />
+                  <h2 className="text-xs font-black uppercase tracking-[0.16em] text-white">Integrations & Models</h2>
+                </div>
+                <p className="mt-2 text-[11px] leading-5 text-slate-500">Workspace defaults, provider credentials, models, and tools.</p>
+              </div>
+              <div className="p-3">
+                {loading && !payload ? (
+                  <div className="border border-[#2c2f37] p-4 text-sm text-slate-500">Loading integrations...</div>
+                ) : (
+                  navigationGroups.map((group) => (
+                    <section key={group.id} className="mb-5 border-l border-[#3a3d46] pl-3 last:mb-0">
+                      <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{group.label}</h3>
+                      {group.items.map((item) => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => {
+                            if (item.imageProviderId) updateImageProvider(item.imageProviderId);
+                            else setSelectedNavigationKey(item.key);
+                          }}
+                          className={`mb-2 block w-full border p-3 text-left transition last:mb-0 ${
+                            selectedNavigationKey === item.key
+                              ? "border-cyan-300 bg-cyan-300/10"
+                              : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
                           }`}
                         >
-                          {item.integration.configured ? (item.integration.enabled ? "Ready" : "Off") : "Unset"}
-                        </span>
-                      </div>
-                      <div className="mt-2 flex items-center justify-between gap-3">
-                        <p className="line-clamp-1 min-w-0 text-xs text-slate-500">{navigationDescription(item)}</p>
-                        <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-cyan-300/70">
-                          {item.view === "llm" ? "LLM" : item.view === "image" ? "Image" : item.integration.id === "firecrawl" ? "Search" : "Defaults"}
-                        </span>
-                      </div>
-                    </button>
-                  ))}
-                </section>
-              ))
-            )}
-          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="truncate text-sm font-black uppercase tracking-wide text-white">{item.label}</span>
+                            <span
+                              className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
+                                item.integration.configured
+                                  ? item.integration.enabled
+                                    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                                    : "border-amber-400/40 bg-amber-500/10 text-amber-300"
+                                  : "border-[#2c2f37] text-slate-500"
+                              }`}
+                            >
+                              {item.integration.configured ? (item.integration.enabled ? "Ready" : "Off") : "Unset"}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex items-center justify-between gap-3">
+                            <p className="line-clamp-1 min-w-0 text-xs text-slate-500">{navigationDescription(item)}</p>
+                            <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-cyan-300/70">
+                              {item.view === "llm" ? "LLM" : item.view === "image" ? "Image" : item.integration.id === "firecrawl" ? "Search" : "Defaults"}
+                            </span>
+                          </div>
+                        </button>
+                      ))}
+                    </section>
+                  ))
+                )}
+              </div>
+            </section>
+          </nav>
         </aside>
 
         <section className="min-w-0">
@@ -1646,7 +1768,7 @@ export default function UserIntegrationsPage() {
             </div>
           )}
 
-          {payload && selectedView === "image" && (
+          {!isDataPrivacyView && payload && selectedView === "image" && (
             <section className="mb-4 border border-cyan-300/40 bg-[#17181d] p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div className="min-w-0">
@@ -1679,7 +1801,88 @@ export default function UserIntegrationsPage() {
             </section>
           )}
 
-          {payload && selectedIntegration && selectedView === "image" ? (
+          {isDataPrivacyView ? (
+            <article className="border border-[#2c2f37] bg-[#17181d]">
+              <div className="border-b border-[#2c2f37] p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <ShieldCheck className="h-5 w-5 text-cyan-300" />
+                  <h2 className="text-xl font-black uppercase tracking-wide text-white">Data & Privacy</h2>
+                  <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
+                    Account preference
+                  </span>
+                </div>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+                  Choose whether outputs generated under your account may be included in datasets used to evaluate, improve, or fine-tune Forma models.
+                </p>
+              </div>
+
+              <div className="grid gap-5 p-5">
+                <section className="border border-[#2c2f37] bg-[#101115] p-4 sm:p-5">
+                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="max-w-3xl">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm font-black uppercase tracking-wide text-white">Help improve Forma</h3>
+                        <span className="border border-emerald-400/35 bg-emerald-400/10 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">
+                          On by default
+                        </span>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-slate-400">
+                        Allow Forma to use your generated outputs for model evaluation and fine-tuning. Turn this off to exclude outputs tied to your account from future training-dataset exports.
+                      </p>
+                      <p className="mt-3 text-xs leading-5 text-slate-500">
+                        Opting out applies to future dataset exports and does not remove data already incorporated into a completed training run. For access or deletion requests, use the contact in the Privacy Policy.
+                      </p>
+                    </div>
+
+                    <label className={`inline-flex h-11 shrink-0 items-center gap-3 border px-3 text-xs font-black uppercase tracking-widest ${
+                      dataUsageLoading
+                        ? "cursor-wait border-[#2c2f37] text-slate-600"
+                        : "cursor-pointer border-[#2c2f37] text-slate-300 hover:border-cyan-300"
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={allowModelTraining}
+                        onChange={(event) => setAllowModelTraining(event.target.checked)}
+                        disabled={dataUsageLoading || dataUsageSaving}
+                        className="h-4 w-4 accent-cyan-300"
+                      />
+                      {allowModelTraining ? "Allowed" : "Opted out"}
+                    </label>
+                  </div>
+
+                  <div className="mt-5 flex flex-col gap-3 border-t border-[#2c2f37] pt-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="text-xs leading-5 text-slate-500">
+                      {dataUsagePreference?.source === "user"
+                        ? `Saved ${formatTimestamp(dataUsagePreference.updated_at)}`
+                        : "Using the default setting; no account preference has been saved yet."}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Link
+                        href="/legal/privacy-policy"
+                        className="inline-flex h-10 items-center border border-[#2c2f37] px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
+                      >
+                        Privacy Policy
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={saveDataUsagePreference}
+                        disabled={dataUsageLoading || dataUsageSaving}
+                        className="inline-flex h-10 items-center gap-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
+                      >
+                        <Save className="h-4 w-4" />
+                        {dataUsageSaving ? "Saving" : "Save preference"}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                <section className="border border-[#2c2f37] bg-black/30 p-4 text-xs leading-5 text-slate-500">
+                  <span className="font-black uppercase tracking-widest text-slate-300">How opt-outs are tracked:</span>{" "}
+                  Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set.
+                </section>
+              </div>
+            </article>
+          ) : payload && selectedIntegration && selectedView === "image" ? (
             <>
               <ImageProviderSetup
                 forms={forms}

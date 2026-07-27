@@ -183,3 +183,35 @@ class SupabaseRepository:
         response = self._client.table("alpha_signups").insert(record).execute()
         rows = response.data or []
         return _record(rows[0]) if rows else _record(record)
+
+    def get_user_settings(self, owner_user_id: str) -> Optional[Any]:
+        rows = (
+            self._client.table("user_settings")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def upsert_user_settings(self, record: Dict[str, Any]) -> Any:
+        response = (
+            self._client.table("user_settings")
+            .upsert(record, on_conflict="owner_user_id")
+            .execute()
+        )
+        rows = response.data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def list_model_training_opt_out_user_ids(self) -> List[str]:
+        rows = (
+            self._client.table("user_settings")
+            .select("owner_user_id")
+            .eq("model_training_opt_out", True)
+            .execute()
+            .data
+            or []
+        )
+        return [str(row["owner_user_id"]) for row in rows]

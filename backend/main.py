@@ -102,6 +102,7 @@ from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVid
 from backend.logs_api import router as logs_router
 from backend.streams_api import router as streams_router
 from backend.user_integrations_api import router as user_integrations_router
+from backend.user_settings_api import router as user_settings_router
 from backend.auth import (
     UserContext,
     deployed_auth_required,
@@ -233,6 +234,7 @@ app.add_middleware(
 app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(streams_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(user_integrations_router)
+app.include_router(user_settings_router)
 
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:

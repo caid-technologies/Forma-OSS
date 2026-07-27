@@ -1667,10 +1667,11 @@ export function FormaWorkspace({
     [activeChatId, chatMessages]
   );
   const projectChatMessageScrollKey = useMemo(() => {
+    if (currentRouteProjectId) return "project-detail";
     const chatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
     const messages = chatId ? chatThreads[chatId] || [] : [];
     return `${chatId || ""}:${chatMessageIdentityKey(messages)}`;
-  }, [activeChatId, chatThreads, projectIR]);
+  }, [activeChatId, chatThreads, currentRouteProjectId, projectIR]);
   const inlineChatProjectId = useMemo(() => {
     const activeThread = activeChatId ? chatThreads[activeChatId] || [] : [];
     const messages = activeThread.length ? activeThread : chatMessages;
@@ -2061,6 +2062,7 @@ export function FormaWorkspace({
   };
 
   const currentProjectChatHasStarted = () => {
+    if (currentRouteProjectId) return true;
     const guardChatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
     const guardMessages = projectIR && guardChatId ? chatThreads[guardChatId] || [] : chatMessages;
     const guardItem = chatListItems.find((item) => item.chatId === guardChatId);
@@ -2164,13 +2166,13 @@ export function FormaWorkspace({
   };
 
   const syncChatRoute = (chatId: string, mode: "push" | "replace" = "push") => {
-    if (typeof window === "undefined" || !chatId) return;
+    if (!chatId) return;
     const nextPath = chatRoute(chatId);
-    if (window.location.pathname === nextPath) return;
+    if (typeof window !== "undefined" && window.location.pathname === nextPath) return;
     if (mode === "replace") {
-      window.history.replaceState(window.history.state, "", nextPath);
+      router.replace(nextPath);
     } else {
-      window.history.pushState(window.history.state, "", nextPath);
+      router.push(nextPath);
     }
   };
 
@@ -3188,7 +3190,7 @@ export function FormaWorkspace({
     event.preventDefault();
     if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
-    if (!currentProjectCanChat) {
+    if (!currentUserOwnsProject) {
       setGenerationInputNotice("You can only chat with projects you own.");
       return;
     }
@@ -3382,7 +3384,7 @@ export function FormaWorkspace({
 
   const loadOldProject = async (
     projectId: string,
-    options: { syncRoute?: boolean; signal?: AbortSignal; tab?: string | null } = {}
+    options: { syncRoute?: boolean; signal?: AbortSignal; tab?: string | null; hydrateChat?: boolean } = {}
   ): Promise<boolean> => {
     if (options.signal?.aborted) return false;
 
@@ -3401,7 +3403,7 @@ export function FormaWorkspace({
 
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
-      if (canChatWithProjectIR(ir)) {
+      if (options.hydrateChat && canChatWithProjectIR(ir)) {
         ensureChatThread(projectId, ir, data.prompt);
       }
       setActiveTab(normalizeTab(options.tab || "") || "chat");
@@ -3423,7 +3425,7 @@ export function FormaWorkspace({
   const loadedProjectId = projectIdFromIR(projectIR);
 
   useEffect(() => {
-    if (homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
+    if (currentRouteProjectId || currentRouteChatId || homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
 
     const controller = new AbortController();
     let retryTimer: number | null = null;
@@ -3463,7 +3465,7 @@ export function FormaWorkspace({
     };
     // The project id and loaded project identity fully define this hydration request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeView, inlineChatProjectId, loadedProjectId]);
+  }, [currentRouteChatId, currentRouteProjectId, homeView, inlineChatProjectId, loadedProjectId]);
 
   const routedProjectId = currentRouteProjectId ? safeDecodeProjectId(currentRouteProjectId) : "";
 
@@ -3472,17 +3474,13 @@ export function FormaWorkspace({
       setRouteProjectError(null);
       return;
     }
+    if (authRequired && !authLoaded) return;
 
     const controller = new AbortController();
     const projectId = routedProjectId;
     const tab = normalizeTab(new URLSearchParams(window.location.search).get("tab"));
     setChatRouteTransition(null);
     setRouteProjectError(null);
-
-    if (projectIdFromIR(projectIR) === projectId) {
-      setActiveTab(tab || "chat");
-      return;
-    }
 
     setProjectIR(null);
 
@@ -3498,7 +3496,7 @@ export function FormaWorkspace({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routedProjectId]);
+  }, [routedProjectId, authIdentityKey, authLoaded, authRequired, isSignedIn]);
 
   const routedChatId = currentRouteChatId && !currentRouteProjectId ? safeDecodeChatId(currentRouteChatId) : "";
   const routedChatItem = routedChatId
@@ -3579,7 +3577,12 @@ export function FormaWorkspace({
       projectId: routedChatProjectId,
       error: null,
     });
-    loadOldProject(routedChatProjectId, { syncRoute: false, signal: controller.signal, tab: "chat" }).then((loaded) => {
+    loadOldProject(routedChatProjectId, {
+      syncRoute: false,
+      signal: controller.signal,
+      tab: "chat",
+      hydrateChat: true,
+    }).then((loaded) => {
       if (controller.signal.aborted) return;
       if (loaded) {
         setChatRouteTransition(null);
@@ -3654,7 +3657,7 @@ export function FormaWorkspace({
 
   const downloadJSONIR = () => {
     if (!projectIR) return;
-    if (!currentProjectCanChat) {
+    if (!currentUserOwnsProject) {
       if (authRequired && !isSignedIn) {
         openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
       }
@@ -3670,7 +3673,7 @@ export function FormaWorkspace({
 
   const downloadMarkdownDocs = () => {
     if (!projectIR) return;
-    if (!currentProjectCanChat) {
+    if (!currentUserOwnsProject) {
       if (authRequired && !isSignedIn) {
         openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
       }
@@ -3752,14 +3755,14 @@ export function FormaWorkspace({
   );
   const defaultVideoImage = projectImageCandidates[0]?.src || "";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
-  const currentProjectCanChat = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
-  const currentProjectCanDownloadAssets = currentProjectCanChat;
+  const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
+  const currentProjectCanDownloadAssets = currentUserOwnsProject;
   const projectVideo = useProjectVideo({
     apiUrl: API_URL,
     enabled: Boolean(projectIR && activeTab === "video"),
     projectId: currentProjectId,
     authIdentityKey,
-    canManageProject: currentProjectCanChat,
+    canManageProject: currentUserOwnsProject,
     canLoadProjectVideos: currentProjectCanDownloadAssets,
     imageOptions: videoImageOptions,
     defaultImage: defaultVideoImage,
@@ -3788,17 +3791,18 @@ export function FormaWorkspace({
       void fetchA2aJobs(jobStatusFilter, { silent: true });
     },
   });
+  const ownerProjectChatId = projectIR && currentUserOwnsProject
+    ? (chatIdFromIR(projectIR) || currentProjectId)
+    : null;
   const currentProjectChatId = projectIR
-    ? currentProjectCanChat
-      ? (chatIdFromIR(projectIR) || currentProjectId || activeChatId)
-      : null
+    ? routedProjectId ? null : (ownerProjectChatId || activeChatId)
     : activeChatId;
   const currentProjectJobId = projectIR?.assembly_metadata?.frontend_job_id || null;
   const currentProjectChatMessages = useMemo(
     () => currentProjectChatId ? chatThreads[currentProjectChatId] || [] : [],
     [chatThreads, currentProjectChatId]
   );
-  const activeSidebarChatId = currentProjectChatId || activeChatId;
+  const activeSidebarChatId = routedProjectId ? null : (currentProjectChatId || activeChatId);
   const activeSidebarChatItem = chatListItems.find((item) => item.chatId === activeSidebarChatId);
   const activeSidebarChatStarted = Boolean(
     projectIR ||
@@ -3826,6 +3830,9 @@ export function FormaWorkspace({
   );
   const activeWorkspaceTab = workspaceTabMeta(activeTab);
   const activeWorkspaceNamespace = workspaceNamespaceForTab(activeTab);
+  const displayedWorkspaceNamespace = routedProjectId && activeWorkspaceTab.id === "chat"
+    ? "project.overview"
+    : activeWorkspaceNamespace;
   const projectNamespaceContent = (() => {
     switch (activeWorkspaceTab.id) {
       case "overview":
@@ -3915,7 +3922,7 @@ export function FormaWorkspace({
             projectId={currentProjectId}
             title={projectTitle}
             description={projectDescription}
-            namespace={activeWorkspaceNamespace}
+            namespace={displayedWorkspaceNamespace}
             totalGenerationTime={formatTotalGenerationTime(projectIR?.assembly_metadata || {})}
             components={components}
             metrics={metrics}
@@ -3926,19 +3933,12 @@ export function FormaWorkspace({
   })();
 
   useEffect(() => {
-    if (!currentProjectCanChat) return;
+    if (routedProjectId) return;
+    if (!currentUserOwnsProject) return;
     if (!currentProjectId || currentProjectChatMessages.length) return;
     ensureChatThread(currentProjectId, projectIR, projectIR?.assembly_metadata?.source_prompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentProjectCanChat, currentProjectId, currentProjectChatMessages.length, projectIR]);
-
-  useEffect(() => {
-    if (!routedProjectId || loadedProjectId !== routedProjectId) return;
-    if (!currentProjectCanChat || !currentProjectChatId) return;
-    const previewRequested = new URLSearchParams(window.location.search).get("preview") === "1";
-    if (previewRequested) return;
-    router.replace(chatRoute(currentProjectChatId));
-  }, [currentProjectCanChat, currentProjectChatId, loadedProjectId, routedProjectId, router]);
+  }, [routedProjectId, currentUserOwnsProject, currentProjectId, currentProjectChatMessages.length, projectIR]);
 
   const implicitChatRouteTransition: ChatRouteTransition | null = routedChatId && (
     activeChatId !== routedChatId ||
@@ -4042,7 +4042,7 @@ export function FormaWorkspace({
             onToggle={() => setSidebarCollapsed((value) => !value)}
             onHome={goHome}
             chats={chatListItems}
-            activeChatId={activeChatId}
+            activeChatId={null}
             onNewChat={startNewProjectChat}
             newChatDisabled={!activeSidebarChatStarted}
             onOpenChat={openChatItem}
@@ -4061,7 +4061,7 @@ export function FormaWorkspace({
             onToggle={() => setSidebarCollapsed((value) => !value)}
             onHome={goHome}
             chats={chatListItems}
-            activeChatId={activeChatId}
+            activeChatId={null}
             onNewChat={startNewProjectChat}
             newChatDisabled={!activeSidebarChatStarted}
             onOpenChat={openChatItem}
@@ -4148,7 +4148,6 @@ export function FormaWorkspace({
                 sectionRef={projectsSectionRef}
                 items={projectGalleryItems}
                 loading={projectsPageLoading}
-                onOpenChat={openChatById}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
@@ -4165,7 +4164,6 @@ export function FormaWorkspace({
                 sectionRef={projectsSectionRef}
                 items={myProjectGalleryItems}
                 loading={myProjectsPageLoading}
-                onOpenChat={openChatById}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
@@ -4292,7 +4290,7 @@ export function FormaWorkspace({
           onToggle={() => setSidebarCollapsed((value) => !value)}
           onHome={goHome}
           chats={chatListItems}
-          activeChatId={currentProjectChatId || activeChatId}
+          activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={!activeSidebarChatStarted}
           onOpenChat={openChatItem}
@@ -4311,7 +4309,7 @@ export function FormaWorkspace({
           onToggle={() => setSidebarCollapsed((value) => !value)}
           onHome={goHome}
           chats={chatListItems}
-          activeChatId={currentProjectChatId || activeChatId}
+          activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={!activeSidebarChatStarted}
           onOpenChat={openChatItem}
@@ -4335,27 +4333,44 @@ export function FormaWorkspace({
         />
 
           <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <ChatWorkspace
-              onOpenSidebar={() => setMobileSidebarOpen(true)}
-              projectId={currentProjectId}
-              chatId={currentProjectChatId}
-              projectTitle={projectTitle}
-              messages={currentProjectChatMessages}
-              input={projectChatInput}
-              setInput={setProjectChatInput}
-              onSubmit={handleProjectChatGenerate}
-              isLoading={isLoading}
-              canStop={activeGeneration?.kind === "project-chat"}
-              onStop={stopActiveGeneration}
-              canChat={currentProjectCanChat}
-              endRef={projectChatEndRef}
-              namespaceTabs={visibleWorkspaceTabs}
-              activeNamespace={activeWorkspaceTab.id}
-              activeNamespaceLabel={activeWorkspaceTab.label}
-              activeNamespaceName={activeWorkspaceNamespace}
-              onNamespaceChange={setActiveTab}
-              projectContent={projectNamespaceContent}
-            />
+            {routedProjectId ? (
+              <ProjectDetailWorkspace
+                onOpenSidebar={() => setMobileSidebarOpen(true)}
+                projectId={currentProjectId}
+                projectTitle={projectTitle}
+                owned={currentUserOwnsProject}
+                onOpenChat={ownerProjectChatId
+                  ? () => router.push(chatRoute(ownerProjectChatId))
+                  : undefined}
+                namespaceTabs={visibleWorkspaceTabs}
+                activeNamespace={activeWorkspaceTab.id}
+                activeNamespaceName={displayedWorkspaceNamespace}
+                onNamespaceChange={setActiveTab}
+                projectContent={projectNamespaceContent}
+              />
+            ) : (
+              <ChatWorkspace
+                onOpenSidebar={() => setMobileSidebarOpen(true)}
+                projectId={currentProjectId}
+                chatId={currentProjectChatId}
+                projectTitle={projectTitle}
+                messages={currentProjectChatMessages}
+                input={projectChatInput}
+                setInput={setProjectChatInput}
+                onSubmit={handleProjectChatGenerate}
+                isLoading={isLoading}
+                canStop={activeGeneration?.kind === "project-chat"}
+                onStop={stopActiveGeneration}
+                canChat={currentUserOwnsProject}
+                endRef={projectChatEndRef}
+                namespaceTabs={visibleWorkspaceTabs}
+                activeNamespace={activeWorkspaceTab.id}
+                activeNamespaceLabel={activeWorkspaceTab.label}
+                activeNamespaceName={activeWorkspaceNamespace}
+                onNamespaceChange={setActiveTab}
+                projectContent={projectNamespaceContent}
+              />
+            )}
           </section>
       </main>
     </WorkspaceFrame>
@@ -5444,6 +5459,70 @@ function VideoGalleryItem({
         </div>
       </div>
     </article>
+  );
+}
+
+function ProjectDetailWorkspace({
+  onOpenSidebar,
+  projectId,
+  projectTitle,
+  owned,
+  onOpenChat,
+  namespaceTabs,
+  activeNamespace,
+  activeNamespaceName,
+  onNamespaceChange,
+  projectContent,
+}: {
+  onOpenSidebar: () => void;
+  projectId: string | null;
+  projectTitle: string;
+  owned: boolean;
+  onOpenChat?: () => void;
+  namespaceTabs: typeof workspaceTabs;
+  activeNamespace: string;
+  activeNamespaceName: string;
+  onNamespaceChange: (value: string) => void;
+  projectContent: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
+      <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
+        <MobileSidebarButton onClick={onOpenSidebar} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">
+            <Eye className="h-3.5 w-3.5" />
+            <span>{owned ? "Your project" : "Public project"}</span>
+          </div>
+          <h2 className="mt-1 truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</h2>
+          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-slate-600">
+            <span className="truncate">{projectId || "No project id"}</span>
+            <span className="text-slate-800">/</span>
+            <span className="truncate text-cyan-300/70">{activeNamespaceName}</span>
+          </div>
+        </div>
+        {owned && onOpenChat && (
+          <button
+            type="button"
+            onClick={onOpenChat}
+            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
+          >
+            <MessageSquare className="h-4 w-4" />
+            <span className="hidden sm:inline">Open chat</span>
+          </button>
+        )}
+      </header>
+
+      <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#141519]" aria-label="Project workspace">
+        <ProjectWorkspacePanel
+          namespaceTabs={namespaceTabs}
+          activeNamespace={activeNamespace}
+          onNamespaceChange={onNamespaceChange}
+        >
+          {projectContent}
+        </ProjectWorkspacePanel>
+      </section>
+    </div>
   );
 }
 

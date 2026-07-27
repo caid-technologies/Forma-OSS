@@ -5,7 +5,7 @@ import os
 import unittest
 from contextlib import ExitStack, nullcontext
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -123,6 +123,8 @@ class ProjectReadAccessTests(unittest.TestCase):
             response = main.list_projects_endpoint(_user_context("user-a"))
 
         self.assertEqual(["public-project"], [item["project_id"] for item in response])
+        self.assertIsNone(response[0]["chat_id"])
+        self.assertFalse(response[0]["can_chat"])
 
     def test_owner_can_read_own_private_project(self) -> None:
         private_project = _project(
@@ -143,6 +145,7 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         self.assertEqual(private_project.project_id, response["project_id"])
         self.assertTrue(response["can_chat"])
+        self.assertEqual("chat-private-project", response["chat_id"])
 
     def test_nonowner_private_project_read_returns_not_found(self) -> None:
         private_project = _project(
@@ -186,7 +189,10 @@ class ProjectReadAccessTests(unittest.TestCase):
                     }
                 ]
             },
-            "assembly_metadata": {"project_id": "legacy-public-project"},
+            "assembly_metadata": {
+                "project_id": "legacy-public-project",
+                "chat_id": "private-legacy-chat",
+            },
         }
         public_project = _project(
             "legacy-public-project",
@@ -207,7 +213,9 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         self.assertEqual(public_project.project_id, response["project_id"])
         self.assertFalse(response["can_chat"])
+        self.assertIsNone(response["chat_id"])
         self.assertIsInstance(response["project_ir"], dict)
+        self.assertNotIn("chat_id", response["project_ir"]["assembly_metadata"])
         self.assertNotIn(downloadable_url, json.dumps(response, default=str))
 
     def test_public_current_ir_keeps_required_cad_url_field_valid_while_redacting_value(self) -> None:
@@ -238,7 +246,10 @@ class ProjectReadAccessTests(unittest.TestCase):
                     )
                 ],
             ),
-            assembly_metadata={"project_id": "current-public-project"},
+            assembly_metadata={
+                "project_id": "current-public-project",
+                "chat_id": "private-current-chat",
+            },
         )
         public_project = _project(
             "current-public-project",
@@ -255,8 +266,47 @@ class ProjectReadAccessTests(unittest.TestCase):
             response = main.get_project_endpoint(public_project.project_id, _anonymous_context())
 
         self.assertFalse(response["can_chat"])
+        self.assertIsNone(response["chat_id"])
+        self.assertNotIn("chat_id", response["project_ir"]["assembly_metadata"])
         self.assertEqual("", response["project_ir"]["mechanical"]["cad_sources"][0]["url"])
         self.assertNotIn(downloadable_url, json.dumps(response, default=str))
+
+
+class ProjectChatAccessTests(unittest.TestCase):
+    def test_chat_lookup_is_scoped_to_the_signed_in_owner(self) -> None:
+        owned_chat = SimpleNamespace(
+            chat_id="private-chat",
+            title="Private chat",
+            messages=[],
+            created_at="2026-07-25T12:00:00Z",
+            updated_at="2026-07-25T12:00:00Z",
+        )
+
+        def get_owned_chat(chat_id: str, owner_user_id: str):
+            if chat_id == "private-chat" and owner_user_id == "user-a":
+                return owned_chat
+            return None
+
+        with patch.object(main, "get_project_chat", side_effect=get_owned_chat) as get_chat:
+            response = main.get_chat_endpoint("private-chat", _user_context("user-a"))
+            with self.assertRaises(HTTPException) as raised:
+                main.get_chat_endpoint("private-chat", _user_context("user-b"))
+
+        self.assertEqual("private-chat", response["chat_id"])
+        self.assertEqual(404, raised.exception.status_code)
+        self.assertEqual(
+            [
+                call("private-chat", "user-a"),
+                call("private-chat", "user-b"),
+            ],
+            get_chat.call_args_list,
+        )
+
+    def test_chat_list_is_scoped_to_the_signed_in_owner(self) -> None:
+        with patch.object(main, "list_project_chats", return_value=[]) as list_chats:
+            self.assertEqual([], main.list_chats_endpoint(_user_context("user-a")))
+
+        list_chats.assert_called_once_with("user-a")
 
 
 class ProjectGenerationAccessTests(unittest.TestCase):

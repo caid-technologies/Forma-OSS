@@ -1372,6 +1372,7 @@ async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depend
 
 def _project_summary_response(project: Any, current_user_id: Optional[str] = None) -> Dict[str, Any]:
     owner_user_id = _project_owner_user_id(project)
+    can_chat = bool(current_user_id and owner_user_id == current_user_id)
     hardware_ir = getattr(project, "hardware_ir", None) if isinstance(getattr(project, "hardware_ir", None), dict) else {}
     components = hardware_ir.get("components") if isinstance(hardware_ir, dict) else []
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir, dict) and isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
@@ -1406,12 +1407,12 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
     )
     return {
         "project_id": project.project_id,
-        "chat_id": getattr(project, "chat_id", None),
+        "chat_id": getattr(project, "chat_id", None) if can_chat else None,
         "title": project.title,
         "prompt": project.prompt,
         "created_at": project.created_at,
         "visibility": _project_visibility(project),
-        "can_chat": bool(current_user_id and owner_user_id == current_user_id),
+        "can_chat": can_chat,
         "creator_display": creator_display,
         "creator_username": creator_display,
         "creator_image_url": creator_image_url,
@@ -1458,6 +1459,8 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 
     metadata = sanitized.get("assembly_metadata")
     if isinstance(metadata, dict):
+        metadata.pop("chat_id", None)
+        metadata["can_chat"] = False
         metadata["downloadable_assets_owner_only"] = True
     return sanitized
 
@@ -1524,8 +1527,10 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
         response_metadata = response_payload.get("assembly_metadata")
         return {
             "project_id": project.project_id,
-            "chat_id": getattr(project, "chat_id", None)
-            or (response_metadata.get("chat_id") if isinstance(response_metadata, dict) else None),
+            "chat_id": (
+                getattr(project, "chat_id", None)
+                or (response_metadata.get("chat_id") if isinstance(response_metadata, dict) else None)
+            ) if can_chat else None,
             "prompt": project.prompt,
             "created_at": project.created_at,
             "can_chat": can_chat,
@@ -1546,8 +1551,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             except ValidationError:
                 return {
                     "project_id": project.project_id,
-                    "chat_id": getattr(project, "chat_id", None)
-                    or (sanitized_payload.get("assembly_metadata") or {}).get("chat_id"),
+                    "chat_id": None,
                     "prompt": project.prompt,
                     "created_at": project.created_at,
                     "can_chat": False,
@@ -1561,7 +1565,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
         
         return {
             "project_id": project.project_id,
-            "chat_id": getattr(project, "chat_id", None) or (ir.assembly_metadata or {}).get("chat_id"),
+            "chat_id": (
+                getattr(project, "chat_id", None) or (ir.assembly_metadata or {}).get("chat_id")
+            ) if can_chat else None,
             "prompt": project.prompt,
             "created_at": project.created_at,
             "can_chat": can_chat,

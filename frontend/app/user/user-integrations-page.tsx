@@ -1373,6 +1373,10 @@ export default function UserIntegrationsPage() {
       if (clearFieldSet.has(field.id)) return;
       const value = form.fields[field.id] || "";
       if (field.secret && !value.trim()) return;
+      // Environment-backed values are visible defaults, not implicit BYOK
+      // values. Persist them only when the user actually changes the field.
+      if (field.source === "environment" && value === (field.value || "")) return;
+      if (field.source === "unset" && !value.trim()) return;
       fields[field.id] = value;
     });
 

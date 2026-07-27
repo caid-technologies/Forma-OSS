@@ -2060,25 +2060,19 @@ export function FormaWorkspace({
     }, 300);
   };
 
-  const goHome = () => {
-    setChatRouteTransition(null);
-    setProjectIR(null);
-    setActiveTab("chat");
-    router.push("/");
-  };
-
-  const startNewProjectChat = () => {
+  const currentProjectChatHasStarted = () => {
     const guardChatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
     const guardMessages = projectIR && guardChatId ? chatThreads[guardChatId] || [] : chatMessages;
     const guardItem = chatListItems.find((item) => item.chatId === guardChatId);
-    const currentChatStarted = Boolean(
+    return Boolean(
       projectIR ||
       chatHasStarted(guardMessages) ||
       guardItem?.projectId ||
       guardItem?.projectCount
     );
-    if (!currentChatStarted) return;
+  };
 
+  const resetToNewProjectChat = () => {
     const nextChatId = newBuildChatId();
     setActiveChatId(nextChatId);
     rememberChatItem({
@@ -2097,6 +2091,22 @@ export function FormaWorkspace({
     setChatRouteTransition(null);
     setProjectIR(null);
     setActiveTab("chat");
+  };
+
+  const goHome = () => {
+    if (currentProjectChatHasStarted()) {
+      resetToNewProjectChat();
+    } else {
+      setChatRouteTransition(null);
+      setProjectIR(null);
+      setActiveTab("chat");
+    }
+    router.push("/");
+  };
+
+  const startNewProjectChat = () => {
+    if (!currentProjectChatHasStarted()) return;
+    resetToNewProjectChat();
     router.push("/");
   };
 

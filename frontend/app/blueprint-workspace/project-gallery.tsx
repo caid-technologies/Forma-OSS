@@ -214,7 +214,6 @@ export function ProjectGallery({
   sectionRef,
   items,
   loading = false,
-  onOpenChat,
   onOpenProjectPage,
   onVisibleProjectIdsChange,
   standalone = false,
@@ -222,7 +221,6 @@ export function ProjectGallery({
   sectionRef: React.RefObject<HTMLElement>;
   items: ProjectGalleryItem[];
   loading?: boolean;
-  onOpenChat: (chatId: string) => void;
   onOpenProjectPage: (projectId: string) => void;
   onVisibleProjectIdsChange?: (projectIds: string[]) => void;
   standalone?: boolean;
@@ -287,11 +285,7 @@ export function ProjectGallery({
               <ProjectGalleryCard
                 key={item.key}
                 item={item}
-                onOpen={() => (
-                  item.canChat
-                    ? onOpenChat(item.chatId)
-                    : onOpenProjectPage(item.projectId)
-                )}
+                onOpen={() => onOpenProjectPage(item.projectId)}
               />
             ))}
           </div>
@@ -454,7 +448,7 @@ function ProjectGalleryCard({
         }
       }}
       className="group cursor-pointer overflow-hidden border border-[#2c2f37] bg-[#17181d] outline-none transition hover:border-cyan-300/35 focus-visible:border-cyan-300"
-      aria-label={`${item.canChat ? "Open workspace" : "View project"} ${item.title}`}
+      aria-label={`View project ${item.title}`}
     >
       <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
         {item.image ? (
@@ -505,7 +499,7 @@ function ProjectGalleryCard({
           {item.canChat && (
             <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
               <MessageSquare className="h-4 w-4 shrink-0" />
-              <span className="truncate">Workspace</span>
+              <span className="truncate">Your project</span>
             </span>
           )}
         </div>

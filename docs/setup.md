@@ -141,6 +141,7 @@ Notes:
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
 - Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
+- Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
 - `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.

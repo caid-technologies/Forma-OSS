@@ -520,6 +520,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
             **response,
             "project_id": project_id,
             "chat_id": metadata.get("chat_id"),
+            "can_chat": True,
             "job_id": job_id,
             "job": job,
         }

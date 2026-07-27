@@ -14,6 +14,8 @@ export type IntegrationStatus = {
   id: string;
   enabled: boolean;
   configured: boolean;
+  environment_configured?: boolean;
+  available?: boolean;
   fields: IntegrationFieldStatus[];
 };
 
@@ -68,6 +70,12 @@ function uniqueGenerationLlms(options: GenerationLlmOption[]) {
   });
 }
 
+function integrationIsAvailable(integration: IntegrationStatus | undefined) {
+  if (!integration) return false;
+  if (typeof integration.available === "boolean") return integration.available;
+  return Boolean(integration.environment_configured || (integration.enabled && integration.configured));
+}
+
 export function activeLlmsFromIntegrations(
   payload: IntegrationsPayload | null | undefined,
   defaultLlms: GenerationLlmOption[],
@@ -80,7 +88,7 @@ export function activeLlmsFromIntegrations(
   const preferred = parseLlmSelector(integrationFieldValue(runtime, "llm_selector"));
   if (preferred) {
     const providerIntegration = byId.get(preferred.provider);
-    if (providerIntegration?.enabled && providerIntegration.configured) {
+    if (integrationIsAvailable(providerIntegration)) {
       options.push({
         provider: preferred.provider,
         model: preferred.model,
@@ -90,7 +98,7 @@ export function activeLlmsFromIntegrations(
   }
 
   integrations.forEach((integration) => {
-    if (!LLM_PROVIDER_IDS.has(integration.id) || !integration.enabled || !integration.configured) return;
+    if (!LLM_PROVIDER_IDS.has(integration.id) || !integrationIsAvailable(integration)) return;
     const model = integrationFieldValue(integration, "model") || firstDefaultModelForProvider(defaultLlms, integration.id);
     if (!model) return;
     options.push({

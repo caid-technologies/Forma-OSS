@@ -89,6 +89,29 @@ test("no static fallback models appear when every provider is off", () => {
   assert.deepEqual(activeLlmsFromIntegrations(payload, defaults, label), []);
 });
 
+test("an environment provider remains active when its saved BYOK entry is off", () => {
+  const payload: IntegrationsPayload = {
+    integrations: [
+      {
+        id: "baseten",
+        enabled: false,
+        configured: true,
+        environment_configured: true,
+        available: true,
+        fields: [{ id: "model", value: "platform/model", configured: true }],
+      },
+    ],
+  };
+
+  assert.deepEqual(activeLlmsFromIntegrations(payload, defaults, label), [
+    {
+      provider: "baseten",
+      model: "platform/model",
+      label: "baseten platform/model",
+    },
+  ]);
+});
+
 test("configured Nebius falls back to its catalog default when no model is saved", () => {
   const payload: IntegrationsPayload = {
     integrations: [

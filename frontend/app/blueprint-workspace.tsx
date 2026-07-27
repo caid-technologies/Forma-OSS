@@ -1409,7 +1409,7 @@ function withProjectResponseMetadata(ir: any, response: any) {
       ...(ir.assembly_metadata || {}),
       project_id: ir.assembly_metadata?.project_id || response?.project_id,
       chat_id: ir.assembly_metadata?.chat_id || response?.chat_id,
-      can_chat: Boolean(ir.assembly_metadata?.can_chat ?? ir.assembly_metadata?.canChat ?? response?.can_chat ?? response?.canChat),
+      can_chat: Boolean(response?.can_chat ?? response?.canChat ?? ir.assembly_metadata?.can_chat ?? ir.assembly_metadata?.canChat),
       frontend_job_id: ir.assembly_metadata?.frontend_job_id || response?.job_id,
       source_prompt: ir.assembly_metadata?.source_prompt || response?.prompt,
       ...timingMetadata,
@@ -2060,25 +2060,19 @@ export function FormaWorkspace({
     }, 300);
   };
 
-  const goHome = () => {
-    setChatRouteTransition(null);
-    setProjectIR(null);
-    setActiveTab("chat");
-    router.push("/");
-  };
-
-  const startNewProjectChat = () => {
+  const currentProjectChatHasStarted = () => {
     const guardChatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
     const guardMessages = projectIR && guardChatId ? chatThreads[guardChatId] || [] : chatMessages;
     const guardItem = chatListItems.find((item) => item.chatId === guardChatId);
-    const currentChatStarted = Boolean(
+    return Boolean(
       projectIR ||
       chatHasStarted(guardMessages) ||
       guardItem?.projectId ||
       guardItem?.projectCount
     );
-    if (!currentChatStarted) return;
+  };
 
+  const resetToNewProjectChat = () => {
     const nextChatId = newBuildChatId();
     setActiveChatId(nextChatId);
     rememberChatItem({
@@ -2097,6 +2091,22 @@ export function FormaWorkspace({
     setChatRouteTransition(null);
     setProjectIR(null);
     setActiveTab("chat");
+  };
+
+  const goHome = () => {
+    if (currentProjectChatHasStarted()) {
+      resetToNewProjectChat();
+    } else {
+      setChatRouteTransition(null);
+      setProjectIR(null);
+      setActiveTab("chat");
+    }
+    router.push("/");
+  };
+
+  const startNewProjectChat = () => {
+    if (!currentProjectChatHasStarted()) return;
+    resetToNewProjectChat();
     router.push("/");
   };
 
@@ -3107,6 +3117,7 @@ export function FormaWorkspace({
         mockRes.project_ir.assembly_metadata = {
           ...(mockRes.project_ir.assembly_metadata || {}),
           chat_id: requestChatId,
+          can_chat: true,
         };
         setProjectIR(mockRes.project_ir);
         const fallbackProjectId = projectIdFromIR(mockRes.project_ir);

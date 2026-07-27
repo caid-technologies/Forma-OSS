@@ -30,6 +30,14 @@ TEST_ENV_KEYS = (
     "OPENAI_STREAM_MODEL",
     "OPENAI_ALLOWED_MODELS",
     "BASETEN_API_KEY",
+    "BASETEN_BASE_URL",
+    "BASETEN_MODEL",
+    "BASETEN_STREAM_MODEL",
+    "BASETEN_TIMEOUT_SECONDS",
+    "BASETEN_STREAM_TIMEOUT_SECONDS",
+    "BASETEN_MAX_TOKENS",
+    "BASETEN_STREAM_MAX_OUTPUT_TOKENS",
+    "BASETEN_ALLOWED_MODELS",
     "NVIDIA_API_KEY",
     "NVIDIA_MODEL",
     "NEBIUS_ALLOWED_MODELS",
@@ -38,6 +46,7 @@ TEST_ENV_KEYS = (
     "NEBIUS_MODEL",
     "LLM_PROVIDER",
     "LLM_MODEL",
+    "LLM_ALLOWED_PROVIDERS",
     "BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND",
     "BLUEPRINT_USER_INTEGRATIONS_BACKEND",
     "BLUEPRINT_INTEGRATIONS_BACKEND",
@@ -197,7 +206,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertNotIn("sk-testsecret123456", str(payload))
             self.assertEqual(stat.S_IMODE(store.path.stat().st_mode), 0o600)
 
-    def test_apply_sets_runtime_environment_and_clears_previous_env_values(self) -> None:
+    def test_apply_overlays_saved_values_and_restores_environment_fallback(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-env-original"
             os.environ["IMAGE_PROVIDER"] = "openai"
@@ -219,14 +228,14 @@ class UserIntegrationTests(unittest.TestCase):
 
             store.clear_integration("openai")
             apply_user_integrations_to_environment(store)
-            self.assertNotIn("OPENAI_API_KEY", os.environ)
-            self.assertNotIn("IMAGE_PROVIDER", os.environ)
-            self.assertNotIn("OPENAI_IMAGE_MODEL", os.environ)
+            self.assertEqual("sk-env-original", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("openai", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("gpt-image-2", os.environ["OPENAI_IMAGE_MODEL"])
             self.assertNotIn("OPENAI_IMAGE_API_KEY", os.environ)
             self.assertNotIn("OPENAI_MODEL", os.environ)
             self.assertNotIn("OPENAI_STREAM_MODEL", os.environ)
 
-    def test_status_payload_does_not_treat_environment_as_configured(self) -> None:
+    def test_status_payload_reports_environment_as_configured_fallback(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["OPENAI_API_KEY"] = "sk-env-original"
             os.environ["IMAGE_PROVIDER"] = "openai"
@@ -237,11 +246,46 @@ class UserIntegrationTests(unittest.TestCase):
             openai = integration_by_id(payload, "openai")
             runtime = integration_by_id(payload, "runtime")
 
-            self.assertFalse(openai["configured"])
-            self.assertEqual("unset", field_by_id(openai, "api_key")["source"])
-            self.assertFalse(field_by_id(openai, "api_key")["configured"])
-            self.assertEqual("unset", field_by_id(runtime, "image_provider")["source"])
-            self.assertFalse(field_by_id(runtime, "image_provider")["configured"])
+            self.assertTrue(openai["configured"])
+            self.assertEqual("environment", field_by_id(openai, "api_key")["source"])
+            self.assertTrue(field_by_id(openai, "api_key")["configured"])
+            self.assertEqual("environment", field_by_id(runtime, "image_provider")["source"])
+            self.assertTrue(field_by_id(runtime, "image_provider")["configured"])
+
+    def test_saved_byok_overrides_environment_without_hiding_other_env_providers(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["OPENAI_API_KEY"] = "sk-platform"
+            os.environ["OPENAI_MODEL"] = "gpt-platform"
+            os.environ["LLM_ALLOWED_PROVIDERS"] = "openai"
+            os.environ["OPENAI_ALLOWED_MODELS"] = "gpt-platform"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "openai",
+                field_values={"api_key": "sk-user", "model": "gpt-user"},
+            )
+            store.update_integration(
+                "baseten",
+                field_values={"api_key": "baseten-user", "model": "byok/model"},
+            )
+
+            payload = integration_status_payload(store)
+
+            self.assertEqual("sk-user", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("gpt-user", os.environ["OPENAI_MODEL"])
+            self.assertEqual("openai,baseten", os.environ["LLM_ALLOWED_PROVIDERS"])
+            self.assertEqual("gpt-platform,gpt-user", os.environ["OPENAI_ALLOWED_MODELS"])
+            openai = integration_by_id(payload, "openai")
+            self.assertEqual("saved", field_by_id(openai, "api_key")["source"])
+            self.assertEqual("saved", field_by_id(openai, "model")["source"])
+
+            store.clear_integration("openai")
+            payload = integration_status_payload(store)
+            openai = integration_by_id(payload, "openai")
+
+            self.assertEqual("sk-platform", os.environ["OPENAI_API_KEY"])
+            self.assertEqual("gpt-platform", os.environ["OPENAI_MODEL"])
+            self.assertEqual("environment", field_by_id(openai, "api_key")["source"])
+            self.assertEqual("environment", field_by_id(openai, "model")["source"])
 
     def test_disabled_integration_is_saved_but_not_applied(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -257,7 +301,30 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertFalse(baseten["enabled"])
             self.assertTrue(baseten["configured"])
+            self.assertFalse(baseten["available"])
             self.assertNotIn("BASETEN_API_KEY", os.environ)
+
+    def test_environment_provider_remains_available_when_saved_byok_is_disabled(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["BASETEN_API_KEY"] = "baseten-platform"
+            os.environ["BASETEN_MODEL"] = "platform/model"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "baseten",
+                enabled=False,
+                field_values={"api_key": "baseten-user", "model": "user/model"},
+            )
+
+            payload = integration_status_payload(store)
+            baseten = integration_by_id(payload, "baseten")
+
+            self.assertFalse(baseten["enabled"])
+            self.assertTrue(baseten["environment_configured"])
+            self.assertTrue(baseten["available"])
+            self.assertEqual("environment", field_by_id(baseten, "api_key")["source"])
+            self.assertEqual("environment", field_by_id(baseten, "model")["source"])
+            self.assertEqual("baseten-platform", os.environ["BASETEN_API_KEY"])
+            self.assertEqual("platform/model", os.environ["BASETEN_MODEL"])
 
     def test_runtime_defaults_apply_to_llm_selector(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -291,7 +358,7 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("gpt-5.5", os.environ["OPENAI_MODEL"])
             self.assertEqual("gpt-5.5", os.environ["OPENAI_ALLOWED_MODELS"])
 
-    def test_saved_provider_config_overrides_stale_llm_allowed_providers(self) -> None:
+    def test_saved_provider_config_extends_environment_llm_allowed_providers(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             os.environ["LLM_ALLOWED_PROVIDERS"] = "openai,simulation"
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
@@ -308,7 +375,7 @@ class UserIntegrationTests(unittest.TestCase):
             apply_user_integrations_to_environment(store)
             runtime = resolve_llm_runtime_config("baseten", "deepseek-ai/DeepSeek-V4-Pro")
 
-            self.assertEqual(["baseten"], runtime.allowed_providers)
+            self.assertEqual(["baseten", "openai", "simulation"], runtime.allowed_providers)
             self.assertEqual("baseten", runtime.provider)
             self.assertEqual("deepseek-ai/DeepSeek-V4-Pro", runtime.model)
 

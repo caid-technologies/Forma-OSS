@@ -1368,6 +1368,36 @@ def _managed_environment_names() -> set[str]:
     return names
 
 
+def _capture_original_environment(env_names: Iterable[str]) -> None:
+    """Remember deployment/local env values before applying a saved BYOK overlay."""
+    for env_name in env_names:
+        if env_name not in _ORIGINAL_ENV_VALUES:
+            _ORIGINAL_ENV_VALUES[env_name] = os.environ.get(env_name)
+
+
+def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
+    for env_name in env_names:
+        value = _ORIGINAL_ENV_VALUES.get(env_name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _environment_configures_integration(definition: IntegrationDefinition) -> bool:
+    configured_fields = [
+        field_definition
+        for field_definition in definition.fields
+        if _original_environment_value(field_definition.env_names)
+    ]
+    if definition.id not in LLM_PROVIDER_INTEGRATION_IDS:
+        return bool(configured_fields)
+    if any(field_definition.secret for field_definition in configured_fields):
+        return True
+    runtime_provider = _normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or "")
+    generic_key = _ORIGINAL_ENV_VALUES.get("LLM_API_KEY")
+    return runtime_provider == definition.id and bool(generic_key and generic_key.strip())
+
+
 def _normalize_provider_id(value: str) -> Optional[str]:
     normalized = value.strip().lower().replace("_", "-")
     if not normalized:
@@ -1533,15 +1563,32 @@ def apply_user_integrations_to_environment(
             exc,
         )
         config = UserIntegrationConfig()
-    desired = _desired_environment(config)
     managed_env_names = _managed_environment_names()
+    _capture_original_environment(managed_env_names)
+    desired = _desired_environment(config)
+
+    # Allowlists describe availability, so BYOK entries extend platform/env
+    # entries instead of replacing them. Direct settings (keys, endpoints,
+    # selected provider/model) retain normal saved-over-environment precedence.
+    additive_env_names = {"LLM_ALLOWED_PROVIDERS", *PROVIDER_ALLOWED_MODEL_ENV.values()}
+    for env_name in additive_env_names:
+        desired_value = desired.get(env_name)
+        if not desired_value:
+            continue
+        desired[env_name] = _merge_csv_value(
+            _ORIGINAL_ENV_VALUES.get(env_name),
+            desired_value.split(","),
+        )
 
     for env_name in managed_env_names:
         if env_name in desired:
             continue
-        os.environ.pop(env_name, None)
+        original_value = _ORIGINAL_ENV_VALUES.get(env_name)
+        if original_value is None:
+            os.environ.pop(env_name, None)
+        else:
+            os.environ[env_name] = original_value
         _APPLIED_ENV_VALUES.pop(env_name, None)
-        _ORIGINAL_ENV_VALUES.pop(env_name, None)
 
     for env_name, desired_value in desired.items():
         os.environ[env_name] = desired_value
@@ -1557,14 +1604,16 @@ def _field_status_payload(
     integration_id: str,
     hosted_user_store: bool = False,
 ) -> dict[str, object]:
-    saved_value = integration.field_value(field_definition.id) if integration else None
+    stored_value = integration.field_value(field_definition.id) if integration else None
+    saved_value = stored_value if integration and integration.enabled else None
+    environment_value = _original_environment_value(field_definition.env_names)
     policy = _active_hosted_byok_policy(integration_id) if hosted_user_store else None
     blocked_by_policy = bool(policy and field_definition.id in policy.blocked_secret_fields)
     conditional_by_policy = bool(policy and field_definition.id in policy.conditional_secret_fields)
     if blocked_by_policy:
         saved_value = None
-    active_value = saved_value
-    source = "saved" if saved_value else "unset"
+    active_value = saved_value or environment_value
+    source = "saved" if saved_value else "environment" if environment_value else "unset"
     payload: dict[str, object] = {
         "id": field_definition.id,
         "label": field_definition.label,
@@ -1573,7 +1622,7 @@ def _field_status_payload(
         "placeholder": field_definition.placeholder,
         "help": field_definition.help,
         "configured": bool(active_value),
-        "saved": bool(saved_value),
+        "saved": bool(stored_value),
         "source": source,
         "editable": not blocked_by_policy,
         "policy_status": policy.hosted_byok if policy else "enabled",
@@ -1599,6 +1648,7 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:
         stored = config.integration_by_id(definition.id)
+        environment_configured = _environment_configures_integration(definition)
         configured_fields = [
             _field_status_payload(
                 stored,
@@ -1608,6 +1658,12 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
             )
             for field_definition in definition.fields
         ]
+        enabled = stored.enabled if stored else True
+        saved_configured = bool(
+            stored
+            and any(stored.field_value(field_definition.id) for field_definition in definition.fields)
+        )
+        configured = environment_configured or saved_configured
         policy = _active_hosted_byok_policy(definition.id) if hosted_user_store else None
         integrations.append(
             {
@@ -1616,10 +1672,12 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
                 "description": definition.description,
                 "policy_status": policy.hosted_byok if policy else "enabled",
                 "policy_notice": policy.note if policy else "",
-                "enabled": stored.enabled if stored else True,
+                "enabled": enabled,
+                "environment_configured": environment_configured,
+                "available": environment_configured or (enabled and saved_configured),
                 "saved": stored is not None,
                 "updated_at": stored.updated_at if stored else None,
-                "configured": any(bool(field_payload["configured"]) for field_payload in configured_fields),
+                "configured": configured,
                 "fields": configured_fields,
             }
         )

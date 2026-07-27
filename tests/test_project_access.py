@@ -3,9 +3,9 @@ from __future__ import annotations
 import json
 import os
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
 from starlette.requests import Request
@@ -14,6 +14,7 @@ from backend import main
 from backend.auth import UserContext, optional_user_context
 from blueprint_core.models import (
     FunctionalRequirements,
+    GenerateProjectRequest,
     HardwareIR,
     MechanicalNotes,
     MechanicalSource,
@@ -256,6 +257,40 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertFalse(response["can_chat"])
         self.assertEqual("", response["project_ir"]["mechanical"]["cad_sources"][0]["url"])
         self.assertNotIn(downloadable_url, json.dumps(response, default=str))
+
+
+class ProjectGenerationAccessTests(unittest.TestCase):
+    def test_generation_response_marks_new_project_as_owner_chat_capable(self) -> None:
+        job_store = MagicMock()
+        job_store.is_cancelled.return_value = False
+        job_store.get_job.return_value = {"status": "succeeded"}
+        generated_response = {
+            "project_ir": {
+                "assembly_metadata": {
+                    "project_id": "generated-project",
+                    "chat_id": "generated-chat",
+                }
+            }
+        }
+
+        with (
+            patch.object(main, "_apply_user_integrations"),
+            patch.object(main, "get_workflow_debug_config", return_value={}),
+            patch.object(main, "_deployment_runtime_config", return_value={"alpha_generation_gate_active": False}),
+            patch.object(main, "JOB_STORE", job_store),
+            patch.object(main, "observe_agent_pipeline", return_value=nullcontext()),
+            patch.object(main, "build_generation_response", return_value=generated_response),
+            patch.object(main, "_attach_generation_timing_metadata", side_effect=lambda response, _job: response),
+            patch.object(main, "update_generated_project_hardware_ir"),
+        ):
+            response = main.generate_project_endpoint(
+                GenerateProjectRequest(prompt="Build a sensor", chat_id="generated-chat"),
+                _user_context("user-a"),
+            )
+
+        self.assertTrue(response["can_chat"])
+        self.assertEqual("generated-project", response["project_id"])
+        self.assertEqual("generated-chat", response["chat_id"])
 
 
 if __name__ == "__main__":

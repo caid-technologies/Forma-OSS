@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, Cpu, Handshake, ShieldCheck } from "lucide-react";
 import LegalFooter from "../../components/legal-footer";
@@ -24,7 +25,14 @@ export default function AboutPage() {
             Forma
           </Link>
           <div className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400">
-            <Cpu className="h-4 w-4 text-cyan-300" />
+            <Image
+              src="/brand/caid-dark-logo.png"
+              alt=""
+              width={28}
+              height={28}
+              className="h-7 w-7 object-contain"
+              aria-hidden="true"
+            />
             About us
           </div>
         </div>

@@ -52,11 +52,11 @@ LLM configuration behavior:
 - `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `BLUEPRINT_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `BLUEPRINT_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
-- `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching. The backend validates them before generation and records requested/actual provider/model metadata on the project.
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
-- `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
+- `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NEBIUS_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`
 - `OPENAI_MODEL`: first-party OpenAI model alias for `LLM_MODEL`
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format, defaulting to `json_schema`; `json_object` and `none` are also supported
@@ -94,6 +94,8 @@ LLM configuration behavior:
 - `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`: Anthropic Claude key when `LLM_PROVIDER=anthropic` or a request uses `provider=anthropic`
 - `ANTHROPIC_BASE_URL`: Claude API base URL. Defaults to `https://api.anthropic.com/v1`
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`
+- `NEBIUS_API_KEY` / `NEBIUS_BASE_URL`: Nebius Token Factory configuration when `LLM_PROVIDER=nebius` or a request uses `provider=nebius`. `NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`.
+- `NEBIUS_MODEL`: Nebius model ID, for example `Qwen/Qwen3.5-397B-A17B`. `NEBIUS_RESPONSE_FORMAT` defaults to `json_schema`.
 - `NVIDIA_API_KEY` / `NVIDIA_BASE_URL`: NVIDIA Build/NIM configuration when `LLM_PROVIDER=nvidia` or a request uses `provider=nvidia`. `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL`: NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`
 - `RUNPOD_API_KEY` / `RUNPOD_OPENAI_BASE_URL`: Runpod OpenAI-compatible/vLLM configuration when `LLM_PROVIDER=runpod` or a request uses `provider=runpod`
@@ -147,6 +149,7 @@ Smoke-test configured LLM providers with a tiny structured prompt:
 ./scripts/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
 ./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
 ./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
+./scripts/verify-llm-providers.py --llm nebius/Qwen/Qwen3.5-397B-A17B
 ./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
 ./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
 ./scripts/sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"

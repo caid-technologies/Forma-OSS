@@ -209,6 +209,7 @@ const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
 const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
 const ANTHROPIC_SONNET_MODEL = "claude-sonnet-5";
+const NEBIUS_QWEN_MODEL = "Qwen/Qwen3.5-397B-A17B";
 const NVIDIA_GLM_MODEL = "nvidia/z-ai/glm-5.2";
 const NVIDIA_QWEN_CODER_32B_MODEL = "qwen/qwen2.5-coder-32b-instruct";
 const NVIDIA_LLAMA_8B_MODEL = "meta/llama-3.1-8b-instruct";
@@ -227,6 +228,7 @@ const defaultGenerationLlms: GenerationLlmOption[] = [
   { provider: "baseten", model: BASETEN_GLM_MODEL, label: "GLM 5.2" },
   ...localOnlyGenerationLlms,
   { provider: "gmi", model: "anthropic/claude-fable-5", label: "GMI Claude Fable 5" },
+  { provider: "nebius", model: NEBIUS_QWEN_MODEL, label: "Nebius Qwen 3.5 397B A17B" },
   { provider: "nvidia", model: NVIDIA_GLM_MODEL, label: "NVIDIA GLM 5.2" },
   { provider: "nvidia", model: NVIDIA_QWEN_CODER_32B_MODEL, label: "NVIDIA Qwen2.5 Coder 32B" },
   { provider: "nvidia", model: NVIDIA_LLAMA_8B_MODEL, label: "NVIDIA Llama 3.1 8B" },
@@ -324,6 +326,7 @@ function generationLlmLabel(provider: string, model: string) {
   if (provider === "anthropic" && model === ANTHROPIC_SONNET_MODEL) return "Claude Sonnet 5";
   if (provider === "huggingface") return `Hugging Face ${model}`;
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
+  if (provider === "nebius") return `Nebius ${model}`;
   if (provider === "nvidia" && model === NVIDIA_GLM_MODEL) return "NVIDIA GLM 5.2";
   if (provider === "nvidia" && model === NVIDIA_QWEN_CODER_32B_MODEL) return "NVIDIA Qwen2.5 Coder 32B";
   if (provider === "nvidia" && model === NVIDIA_LLAMA_8B_MODEL) return "NVIDIA Llama 3.1 8B";

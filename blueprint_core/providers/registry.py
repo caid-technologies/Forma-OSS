@@ -38,6 +38,10 @@ class ProviderRegistry:
                     env_file=env_file,
                     streamer_factory=openai_compatible_streamer_factory,
                 ),
+                OpenAICompatibleChatProviderClient.nebius(
+                    env_file=env_file,
+                    streamer_factory=openai_compatible_streamer_factory,
+                ),
             )
         )
 

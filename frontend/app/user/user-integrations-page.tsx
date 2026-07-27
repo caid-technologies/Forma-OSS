@@ -209,6 +209,7 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
       { integrationId: "baseten", view: "llm" },
       { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
       { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },
+      { integrationId: "nebius", view: "llm", label: "Nebius Token Factory" },
       { integrationId: "nvidia", view: "llm" },
       { integrationId: "runpod", view: "llm" },
       { integrationId: "ollama", view: "llm" },

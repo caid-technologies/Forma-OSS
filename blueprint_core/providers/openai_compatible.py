@@ -9,6 +9,8 @@ from blueprint_core.openai_streams import (
     DEFAULT_BASETEN_STREAM_MODEL,
     DEFAULT_GMI_BASE_URL,
     DEFAULT_GMI_STREAM_MODEL,
+    DEFAULT_NEBIUS_BASE_URL,
+    DEFAULT_NEBIUS_STREAM_MODEL,
     OpenAICompatibleChatCompletionsStreamer,
     OpenAICompatibleChatConfig,
     OpenAITextStreamChunk,
@@ -94,6 +96,25 @@ class OpenAICompatibleChatProviderClient:
             api_key_env_names=("GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY", "LLM_API_KEY"),
             base_url_env_names=("GMI_BASE_URL", "GMI_CLOUD_BASE_URL", "GMICLOUD_BASE_URL"),
             model_env_names=("GMI_STREAM_MODEL", "GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", "LLM_MODEL"),
+            streamer_factory=streamer_factory,
+        )
+
+    @classmethod
+    def nebius(
+        cls,
+        *,
+        env_file: Path,
+        streamer_factory: OpenAICompatibleStreamerFactory | None = None,
+    ) -> "OpenAICompatibleChatProviderClient":
+        return cls(
+            provider_name="nebius",
+            display_name="Nebius Token Factory",
+            env_file=env_file,
+            default_model=DEFAULT_NEBIUS_STREAM_MODEL,
+            default_base_url=DEFAULT_NEBIUS_BASE_URL,
+            api_key_env_names=("NEBIUS_API_KEY", "LLM_API_KEY"),
+            base_url_env_names=("NEBIUS_BASE_URL",),
+            model_env_names=("NEBIUS_STREAM_MODEL", "NEBIUS_MODEL", "LLM_MODEL"),
             streamer_factory=streamer_factory,
         )
 

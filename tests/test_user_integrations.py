@@ -32,6 +32,10 @@ TEST_ENV_KEYS = (
     "BASETEN_API_KEY",
     "NVIDIA_API_KEY",
     "NVIDIA_MODEL",
+    "NEBIUS_ALLOWED_MODELS",
+    "NEBIUS_API_KEY",
+    "NEBIUS_BASE_URL",
+    "NEBIUS_MODEL",
     "LLM_PROVIDER",
     "LLM_MODEL",
     "BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND",
@@ -324,6 +328,14 @@ class UserIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not accept user-supplied NVIDIA Build/API Catalog keys"):
                 store.update_integration("nvidia", field_values={"api_key": "nvapi-user-owned"})
 
+    def test_deployed_user_store_rejects_nebius_api_key(self) -> None:
+        store = SupabaseUserIntegrationStore("user_nebius_policy_test")
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            with self.assertRaisesRegex(ValueError, "does not accept user-supplied Nebius Token Factory API keys"):
+                store.update_integration("nebius", field_values={"api_key": "nebius-user-owned"})
+
     def test_deployed_user_store_requires_gmi_key_delegation_confirmation(self) -> None:
         class FakeHostedGmiStore(SupabaseUserIntegrationStore):
             def __init__(self) -> None:
@@ -473,6 +485,28 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertEqual("nvapi-local-dev", os.environ["NVIDIA_API_KEY"])
             self.assertEqual("nvidia/z-ai/glm-5.2", os.environ["NVIDIA_MODEL"])
+
+    def test_local_file_store_applies_nebius_provider_settings(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "nebius",
+                field_values={
+                    "api_key": "nebius-local-key",
+                    "base_url": "https://api.tokenfactory.nebius.com/v1",
+                    "model": "Qwen/Qwen3.5-397B-A17B",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+            runtime = resolve_llm_runtime_config("nebius", "Qwen/Qwen3.5-397B-A17B")
+
+            self.assertEqual("nebius-local-key", os.environ["NEBIUS_API_KEY"])
+            self.assertEqual("https://api.tokenfactory.nebius.com/v1", os.environ["NEBIUS_BASE_URL"])
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", os.environ["NEBIUS_MODEL"])
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", os.environ["NEBIUS_ALLOWED_MODELS"])
+            self.assertEqual("nebius", runtime.provider)
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", runtime.model)
 
     def test_local_image_integration_can_apply_openai_compatible_settings(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -766,6 +800,21 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertIsNone(sanitized_nvidia.field_value("api_key"))
             self.assertEqual("nvidia/z-ai/glm-5.2", sanitized_nvidia.field_value("model"))
 
+    def test_hosted_user_policy_sanitizes_saved_nebius_api_key(self) -> None:
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            config = user_integrations.UserIntegrationConfig()
+            integration = config.ensure_integration("nebius")
+            integration.set_field("api_key", "nebius-legacy-user-owned")
+            integration.set_field("model", "Qwen/Qwen3.5-397B-A17B")
+
+            sanitized = user_integrations._sanitize_hosted_user_config(config)
+            sanitized_nebius = sanitized.integration_by_id("nebius")
+
+            self.assertIsNotNone(sanitized_nebius)
+            self.assertIsNone(sanitized_nebius.field_value("api_key"))
+            self.assertEqual("Qwen/Qwen3.5-397B-A17B", sanitized_nebius.field_value("model"))
+
     def test_hosted_nvidia_status_marks_api_key_blocked(self) -> None:
         class FakeHostedNvidiaStore(SupabaseUserIntegrationStore):
             def __init__(self) -> None:
@@ -793,6 +842,37 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertEqual("disabled", nvidia_payload["policy_status"])
             self.assertIn("does not accept user-supplied NVIDIA Build/API Catalog keys", nvidia_payload["policy_notice"])
+            self.assertFalse(api_key_payload["editable"])
+            self.assertTrue(api_key_payload["policy_blocked"])
+            self.assertFalse(api_key_payload["configured"])
+
+    def test_hosted_nebius_status_marks_api_key_blocked(self) -> None:
+        class FakeHostedNebiusStore(SupabaseUserIntegrationStore):
+            def __init__(self) -> None:
+                self.config = user_integrations.UserIntegrationConfig()
+                self.user_id = "user_nebius_status_policy_test"
+                self.path = Path(".blueprint/test")
+
+            def load(self) -> user_integrations.UserIntegrationConfig:
+                return self.config
+
+            def save(self, config: user_integrations.UserIntegrationConfig) -> user_integrations.UserIntegrationConfig:
+                self.config = config
+                return config
+
+        with isolated_integration_env():
+            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            store = FakeHostedNebiusStore()
+            nebius = store.config.ensure_integration("nebius")
+            nebius.set_field("api_key", "nebius-legacy-user-owned")
+            nebius.set_field("model", "Qwen/Qwen3.5-397B-A17B")
+
+            payload = integration_status_payload(store)
+            nebius_payload = integration_by_id(payload, "nebius")
+            api_key_payload = field_by_id(nebius_payload, "api_key")
+
+            self.assertEqual("disabled", nebius_payload["policy_status"])
+            self.assertIn("does not accept user-supplied Nebius Token Factory API keys", nebius_payload["policy_notice"])
             self.assertFalse(api_key_payload["editable"])
             self.assertTrue(api_key_payload["policy_blocked"])
             self.assertFalse(api_key_payload["configured"])

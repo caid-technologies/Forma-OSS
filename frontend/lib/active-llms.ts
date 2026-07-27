@@ -27,6 +27,7 @@ const LLM_PROVIDER_IDS = new Set([
   "gemini",
   "gmi",
   "huggingface",
+  "nebius",
   "nvidia",
   "openai",
   "openai-compatible",

@@ -85,6 +85,8 @@ import {
   Terminal,
   MessageSquare,
   Square,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 
 const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), {
@@ -5613,9 +5615,32 @@ function ChatProjectArtifact({
   onNamespaceChange: (namespaceId: string) => void;
   projectContent: React.ReactNode;
 }) {
+  const [fullScreen, setFullScreen] = useState(false);
+
+  useEffect(() => {
+    if (!fullScreen) return;
+    const previousOverflow = document.body.style.overflow;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFullScreen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", exitOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", exitOnEscape);
+    };
+  }, [fullScreen]);
+
   return (
-    <section className="mx-auto mt-3 w-full min-w-0 max-w-6xl overflow-hidden border border-cyan-300/20 bg-[#141519]" aria-labelledby="chat-project-title">
-      <header className="flex min-h-[64px] min-w-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
+    <section
+      className={`min-w-0 overflow-hidden bg-[#141519] ${
+        fullScreen
+          ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
+          : "mx-auto mt-3 w-full max-w-6xl border border-cyan-300/20"
+      }`}
+      aria-labelledby="chat-project-title"
+    >
+      <header className="flex min-h-[64px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
@@ -5625,20 +5650,33 @@ function ChatProjectArtifact({
           </div>
           <div className="mt-1 truncate text-xs font-bold text-white">{projectTitle}</div>
         </div>
-        <div className="flex min-w-0 max-w-[48%] items-center gap-2 font-mono text-[9px] text-slate-600">
-          {projectId && (
-            <span className="truncate" title={projectId}>
-              {projectId}
+        <div className="flex min-w-0 items-center justify-end gap-3">
+          <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-slate-600 sm:flex">
+            {projectId && (
+              <span className="max-w-56 truncate" title={projectId}>
+                {projectId}
+              </span>
+            )}
+            {projectId && <span className="text-slate-800">/</span>}
+            <span className="max-w-48 truncate text-cyan-300/70">
+              {activeNamespaceName}
             </span>
-          )}
-          {projectId && <span className="text-slate-800">/</span>}
-          <span className="truncate text-cyan-300/70">
-            {activeNamespaceName}
-          </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setFullScreen((current) => !current)}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-2.5 text-[10px] font-black uppercase text-slate-300 transition hover:border-white hover:bg-white hover:text-black sm:px-3"
+            aria-pressed={fullScreen}
+            aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}
+            title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
+          >
+            {fullScreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            <span className="hidden md:inline">{fullScreen ? "Exit full screen" : "Full screen"}</span>
+          </button>
         </div>
       </header>
 
-      <div className="h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden">
+      <div className={fullScreen ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden"}>
         <ProjectWorkspacePanel
           namespaceTabs={namespaceTabs}
           activeNamespace={activeNamespace}

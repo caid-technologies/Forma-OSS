@@ -87,6 +87,40 @@ class PipelineMetadataTests(unittest.TestCase):
 
         orchestrator._generate_simulated_project.assert_not_called()
 
+    def test_failed_live_pipeline_returns_empty_project_with_error(self) -> None:
+        orchestrator = HardwarePipelineOrchestrator.__new__(HardwarePipelineOrchestrator)
+        orchestrator._active_generation_metadata = {}
+        orchestrator.use_simulation = False
+        orchestrator.llm_provider = SimpleNamespace(provider_name="anthropic", model_name="claude-sonnet-5")
+        orchestrator.runtime_config = SimpleNamespace(
+            provider="anthropic",
+            model="claude-sonnet-5",
+            requested_provider="anthropic",
+            requested_model="claude-sonnet-5",
+            provider_overridden=False,
+            model_overridden=False,
+        )
+        orchestrator.validate_configured_model = Mock(
+            return_value=SimpleNamespace(provider="anthropic", actual_model="claude-sonnet-5")
+        )
+        orchestrator._call_llm_structured = Mock(side_effect=RuntimeError("provider timed out"))
+        orchestrator._generate_simulated_project = Mock()
+
+        project = orchestrator.generate_project("environment monitor")
+
+        self.assertIsNone(project.overview)
+        self.assertIsNone(project.requirements)
+        self.assertEqual([], project.components)
+        self.assertEqual([], project.nets)
+        self.assertFalse(project.is_valid)
+        self.assertEqual("failed", project.assembly_metadata["status"])
+        self.assertEqual(
+            {"type": "RuntimeError", "message": "provider timed out"},
+            project.assembly_metadata["generation_error"],
+        )
+        self.assertEqual("provider timed out", project.validation.critical[0].description)
+        orchestrator._generate_simulated_project.assert_not_called()
+
     def test_unknown_workflow_falls_back_to_default(self) -> None:
         self.assertEqual("default", pipeline_workflow_id("does-not-exist"))
 

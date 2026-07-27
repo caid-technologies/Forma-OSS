@@ -678,7 +678,7 @@ function terminalJobMessagePatch(job: A2AJob, message: ChatMessage): Partial<Omi
     const title = job.result_summary?.title || "Project";
     const projectId = typeof job.result_summary?.project_id === "string" ? job.result_summary.project_id : null;
     return {
-      content: `${title} is ready. Loading project output...`,
+      content: `${title} is ready.`,
       status: "success",
       projectId,
     };
@@ -1044,31 +1044,6 @@ function automaticHumanContextPromptSection(basePrompt: string) {
     "- Missing human context should be recorded as unspecified in project docs, not invented.",
     ...inferredQuestions.map((question) => `- ${question.label}: not specified at creation time; preserve as an explicit open question if it affects safety, wiring, materials, or validation.`),
   ].join("\n");
-}
-
-function projectChatGenerationPrompt(projectIR: any, userMessage: string, activeNamespaceTab = "chat") {
-  const title = projectIR?.overview?.title || "current project";
-  const description = projectIR?.overview?.description || "";
-  const projectId = projectIR?.assembly_metadata?.project_id || "unknown";
-  const namespaceTab = workspaceTabMeta(activeNamespaceTab);
-  const namespace = workspaceNamespaceForTab(activeNamespaceTab);
-  const components = Array.isArray(projectIR?.components)
-    ? projectIR.components.slice(0, 10).map((component: any) => `${component.ref_des || ""} ${component.name || component.part_number || ""}`.trim()).filter(Boolean)
-    : [];
-  return [
-    "Create a new Forma hardware project from this project chat message.",
-    `Source project id: ${projectId}`,
-    `Source project title: ${title}`,
-    description ? `Source project description: ${description}` : "",
-    components.length ? `Source components: ${components.join("; ")}` : "",
-    `Active chat namespace: ${namespace} (${namespaceTab.label})`,
-    "Interpret the user message relative to that namespace unless the message clearly asks for another part of the project.",
-    "",
-    "User chat message:",
-    userMessage,
-    "",
-    "Return a complete new project. If the user asks for a revision, preserve relevant source-project continuity while creating a new project object.",
-  ].filter(Boolean).join("\n");
 }
 
 function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestion[] {
@@ -1565,7 +1540,6 @@ export function FormaWorkspace({
   const [pendingHumanContext, setPendingHumanContext] = useState<PendingHumanContext | null>(null);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
-  const [projectChatVisible, setProjectChatVisible] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
   const [activeTab, setActiveTab] = useState("chat");
@@ -1692,6 +1666,15 @@ export function FormaWorkspace({
     const messages = chatId ? chatThreads[chatId] || [] : [];
     return `${chatId || ""}:${chatMessageIdentityKey(messages)}`;
   }, [activeChatId, chatThreads, projectIR]);
+  const inlineChatProjectId = useMemo(() => {
+    const activeThread = activeChatId ? chatThreads[activeChatId] || [] : [];
+    const messages = activeThread.length ? activeThread : chatMessages;
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      const projectId = messages[index]?.projectId;
+      if (projectId) return projectId;
+    }
+    return null;
+  }, [activeChatId, chatMessages, chatThreads]);
   const generationInputValidation = useMemo(
     () => validateGenerationInput(pendingHumanContext?.basePrompt || prompt, Boolean(selectedImage)),
     [pendingHumanContext, prompt, selectedImage]
@@ -3193,15 +3176,18 @@ export function FormaWorkspace({
       setGenerationInputNotice("You can only chat with projects you own.");
       return;
     }
+    if (!selectedGenerationLlm) {
+      setGenerationInputNotice("Turn on at least one model provider in Settings before changing this project.");
+      return;
+    }
     if (!currentProjectId || !projectIR) return;
 
     const userMessage = projectChatInput.trim();
     if (!userMessage) return;
 
     const sourceProjectId = currentProjectId;
-    const sourceProjectTitle = projectTitle;
     const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
-    const promptText = projectChatGenerationPrompt(projectIR, userMessage, activeTab);
+    const targetNamespace = activeTab === "chat" ? null : workspaceNamespaceForTab(activeTab);
     const generationRun = beginGenerationRun("project-chat", sourceChatId);
     setActiveChatId(sourceChatId);
     rememberChatItem({
@@ -3211,54 +3197,35 @@ export function FormaWorkspace({
       createdAt: chatTimestamp(),
       projectCount: 1,
     });
-    syncChatRoute(sourceChatId);
     appendThreadMessage(sourceChatId, {
       role: "user",
       content: userMessage,
       status: "idle",
+      projectId: sourceProjectId,
     });
-    const frontendJobId = newFrontendJobId();
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
-    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
-    const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
     const assistantMessageId = appendThreadMessage(sourceChatId, {
       role: "assistant",
-      content: `Building a new project from ${sourceProjectTitle}${providerSuffix}.`,
+      content: `Applying your change to ${projectTitle}.`,
       status: "loading",
-      pipelineProgress,
+      projectId: sourceProjectId,
     });
-    setGenerationRunJob(generationRun, frontendJobId, assistantMessageId);
-    let progressPollId: number | null = null;
-    const syncProgressFromJob = async () => {
-      const job = await fetchA2aJob(frontendJobId);
-      if (!job) return;
-      applyThreadPipelineProgressFromJob(sourceChatId, assistantMessageId, job, pipelineProgress, generateProductImage);
-    };
+    generationRun.assistantMessageId = assistantMessageId;
 
     setProjectChatInput("");
     setGenerationInputNotice(null);
     checkServerStatus();
-    progressPollId = window.setInterval(() => {
-      void syncProgressFromJob();
-    }, ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS);
-    void syncProgressFromJob();
 
     try {
-      const res = await fetch(`${API_URL}/generate`, {
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(sourceProjectId)}/iterate`, {
         method: "POST",
         headers: await generationRequestHeaders(),
         signal: generationRun.controller.signal,
         body: JSON.stringify({
-          prompt: promptText,
-          workflow: generationWorkflow,
-          external_source_provider: externalSourceProviderForRequest,
+          instruction: userMessage,
+          namespace: targetNamespace,
           provider: selectedGenerationLlm.provider,
           model: selectedGenerationLlm.model,
-          chat_id: sourceChatId,
-          source_project_id: sourceProjectId,
-          client_job_id: frontendJobId,
-          image_data: null,
-          generate_image: generateProductImage,
+          save: true,
         }),
       });
 
@@ -3271,19 +3238,23 @@ export function FormaWorkspace({
       }
 
       const data = await res.json();
-      if (data.job) {
-        applyThreadPipelineProgressFromJob(sourceChatId, assistantMessageId, data.job, pipelineProgress, generateProductImage);
+      const ir = withProjectResponseMetadata(data.project_ir, {
+        ...data,
+        project_id: sourceProjectId,
+        chat_id: sourceChatId,
+        can_chat: true,
+      });
+      const responseProjectId = projectIdFromIR(ir);
+      if (responseProjectId !== sourceProjectId) {
+        throw new Error("Project iteration returned a different project ID.");
       }
-      const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
-      const newProjectId = projectIdFromIR(ir);
-      const responseChatId = chatIdFromIR(ir) || data.chat_id || sourceChatId;
-      setActiveChatId(responseChatId);
+      setActiveChatId(sourceChatId);
       rememberProjectRecord({
-        project_id: newProjectId,
-        chat_id: responseChatId,
+        project_id: sourceProjectId,
+        chat_id: sourceChatId,
         title: ir?.overview?.title || projectTitle || userMessage,
-        prompt: promptText,
+        prompt: data.prompt || ir?.assembly_metadata?.source_prompt || projectTitle,
         created_at: data.created_at || chatTimestamp(),
         can_chat: true,
         creator_display: "you",
@@ -3291,39 +3262,37 @@ export function FormaWorkspace({
         parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
         star_count: 0,
       });
-      const successMessage = `${ir?.overview?.title || "Project"} is ready as a new project from this chat.`;
+      const revision = data?.iteration?.revision || ir?.assembly_metadata?.revision;
+      const successMessage = `${ir?.overview?.title || "Project"} was updated${revision ? ` to revision ${revision}` : ""}.`;
       rememberChatItem({
-        chatId: responseChatId,
+        chatId: sourceChatId,
         title: ir?.overview?.title || projectTitle || userMessage,
-        projectId: newProjectId || sourceProjectId,
+        projectId: sourceProjectId,
         createdAt: chatTimestamp(),
-        projectCount: newProjectId ? 2 : 1,
+        projectCount: 1,
       });
 
       updateThreadMessage(sourceChatId, assistantMessageId, {
         content: successMessage,
         status: "success",
-        projectId: newProjectId || sourceProjectId,
+        projectId: sourceProjectId,
       });
 
-      setActiveTab("chat");
       refreshProjectAndChatLists();
-      fetchA2aJobs(jobStatusFilter, { silent: true });
     } catch (error) {
       if (generationRun.cancelled || (error instanceof Error && error.name === "AbortError")) {
         updateThreadMessage(sourceChatId, assistantMessageId, {
-          content: "Generation stopped by you.",
+          content: "Project update stopped by you.",
           status: "cancelled",
         });
         return;
       }
-      const message = error instanceof Error ? error.message : "Project chat generation failed.";
+      const message = error instanceof Error ? error.message : "Project update failed.";
       updateThreadMessage(sourceChatId, assistantMessageId, {
         content: message,
         status: "error",
       });
     } finally {
-      if (progressPollId !== null) window.clearInterval(progressPollId);
       finishGenerationRun(generationRun);
     }
   };
@@ -3434,6 +3403,51 @@ export function FormaWorkspace({
       }
     }
   };
+
+  const loadedProjectId = projectIdFromIR(projectIR);
+
+  useEffect(() => {
+    if (homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
+
+    const controller = new AbortController();
+    let retryTimer: number | null = null;
+    let attempt = 0;
+
+    const hydrateInlineProject = async () => {
+      attempt += 1;
+      try {
+        const res = await fetch(`${API_URL}/projects/${encodeURIComponent(inlineChatProjectId)}`, {
+          signal: controller.signal,
+          headers: await optionalAuthHeaders(),
+        });
+        if (!res.ok) throw new Error(`Project output is not available yet (${res.status}).`);
+
+        const data = await res.json();
+        if (controller.signal.aborted) return;
+        const ir = withProjectResponseMetadata(data.project_ir, data);
+        setProjectIR(ir);
+        if (canChatWithProjectIR(ir)) {
+          ensureChatThread(inlineChatProjectId, ir, data.prompt);
+        }
+        setActiveTab("chat");
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        if (attempt < 4) {
+          retryTimer = window.setTimeout(hydrateInlineProject, 500 * (2 ** (attempt - 1)));
+          return;
+        }
+        console.error("Could not hydrate inline project output", error);
+      }
+    };
+
+    void hydrateInlineProject();
+    return () => {
+      controller.abort();
+      if (retryTimer !== null) window.clearTimeout(retryTimer);
+    };
+    // The project id and loaded project identity fully define this hydration request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [homeView, inlineChatProjectId, loadedProjectId]);
 
   const routedProjectId = currentRouteProjectId ? safeDecodeProjectId(currentRouteProjectId) : "";
 
@@ -3902,7 +3916,14 @@ export function FormaWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProjectCanChat, currentProjectId, currentProjectChatMessages.length, projectIR]);
 
-  const loadedProjectId = projectIdFromIR(projectIR);
+  useEffect(() => {
+    if (!routedProjectId || loadedProjectId !== routedProjectId) return;
+    if (!currentProjectCanChat || !currentProjectChatId) return;
+    const previewRequested = new URLSearchParams(window.location.search).get("preview") === "1";
+    if (previewRequested) return;
+    router.replace(chatRoute(currentProjectChatId));
+  }, [currentProjectCanChat, currentProjectChatId, loadedProjectId, routedProjectId, router]);
+
   const implicitChatRouteTransition: ChatRouteTransition | null = routedChatId && (
     activeChatId !== routedChatId ||
     !chatIndexLoaded ||
@@ -4048,7 +4069,7 @@ export function FormaWorkspace({
     );
   }
 
-  if ((!currentRouteProjectId && !currentRouteChatId) || !projectIR) {
+  if (homeView !== "chat" || !projectIR) {
     return (
       <WorkspaceFrame
         collapsed={sidebarCollapsed}
@@ -4198,9 +4219,6 @@ export function FormaWorkspace({
                   compact
                 />
               )}
-              onOpenProject={(projectId) => {
-                void loadOldProject(projectId, { tab: "chat" });
-              }}
               examples={samplePrompts}
               onSelectExample={(example) => {
                 setGenerationInputNotice(null);
@@ -4292,28 +4310,17 @@ export function FormaWorkspace({
       )}
     >
       <main className="flex min-h-0 min-w-0 flex-col">
-        <header className="flex min-h-[78px] min-w-0 items-center gap-2 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 sm:gap-3 sm:px-4">
-          <MobileSidebarButton onClick={() => setMobileSidebarOpen(true)} />
-          <input
-            ref={projectVideo.fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={projectVideo.onImageFileChange}
-            className="hidden"
-          />
-
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</div>
-              <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-mono text-slate-600">
-                <span className="truncate">{currentProjectId || "No project id"}</span>
-                <span className="text-slate-800">/</span>
-                <span className="truncate text-cyan-300/70">{activeWorkspaceNamespace}</span>
-              </div>
-            </div>
-          </header>
+        <input
+          ref={projectVideo.fileInputRef}
+          type="file"
+          accept="image/*"
+          onChange={projectVideo.onImageFileChange}
+          className="hidden"
+        />
 
           <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            <ProjectChatPanel
+            <ChatWorkspace
+              onOpenSidebar={() => setMobileSidebarOpen(true)}
               projectId={currentProjectId}
               chatId={currentProjectChatId}
               projectTitle={projectTitle}
@@ -4331,13 +4338,7 @@ export function FormaWorkspace({
               activeNamespaceLabel={activeWorkspaceTab.label}
               activeNamespaceName={activeWorkspaceNamespace}
               onNamespaceChange={setActiveTab}
-              namespaceContent={projectNamespaceContent}
-              chatVisible={projectChatVisible}
-              onToggleChat={() => setProjectChatVisible((value) => !value)}
-              onOpenProject={(projectId) => {
-                if (currentProjectChatId) syncChatRoute(currentProjectChatId);
-                loadOldProject(projectId, { syncRoute: false, tab: "chat" });
-              }}
+              projectContent={projectNamespaceContent}
             />
           </section>
       </main>
@@ -5430,7 +5431,8 @@ function VideoGalleryItem({
   );
 }
 
-function ProjectChatPanel({
+function ChatWorkspace({
+  onOpenSidebar,
   projectId,
   chatId,
   projectTitle,
@@ -5448,11 +5450,9 @@ function ProjectChatPanel({
   activeNamespaceLabel,
   activeNamespaceName,
   onNamespaceChange,
-  namespaceContent,
-  chatVisible,
-  onToggleChat,
-  onOpenProject,
+  projectContent,
 }: {
+  onOpenSidebar: () => void;
   projectId: string | null;
   chatId: string | null;
   projectTitle: string;
@@ -5470,56 +5470,204 @@ function ProjectChatPanel({
   activeNamespaceLabel: string;
   activeNamespaceName: string;
   onNamespaceChange: (value: string) => void;
-  namespaceContent: React.ReactNode;
-  chatVisible: boolean;
-  onToggleChat: () => void;
-  onOpenProject: (projectId: string) => void;
+  projectContent: React.ReactNode;
 }) {
-  const effectiveChatVisible = canChat && chatVisible;
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
-      <div className="flex min-h-[62px] flex-wrap items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
+      <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
+        <MobileSidebarButton onClick={onOpenSidebar} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">
+            {canChat ? <MessageSquare className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            <span>{canChat ? "Project chat" : "Read-only project"}</span>
+          </div>
+          <h2 className="mt-1 truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</h2>
+          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-slate-600">
+            <span className="truncate">{chatId || projectId || "No project id"}</span>
+            <span className="text-slate-800">/</span>
+            <span className="truncate text-cyan-300/70">{activeNamespaceName}</span>
+          </div>
+        </div>
+      </header>
+
+      <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
+        {canChat && (
+          <div className="flex h-full min-h-0 min-w-0 flex-col">
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6">
+              <div className="mx-auto flex min-w-0 max-w-[1400px] flex-col gap-3">
+                {messages.length ? (
+                  messages.map((message) => {
+                    const isUser = message.role === "user";
+                    const isSystem = message.role === "system";
+                    return (
+                      <div key={message.id} className={`mx-auto flex w-full min-w-0 max-w-3xl ${isUser ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className={`min-w-0 max-w-[92%] overflow-hidden border px-4 py-3 ${
+                            isUser
+                              ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-50"
+                              : message.status === "error"
+                                ? "border-rose-400/30 bg-rose-950/25 text-rose-100"
+                                : message.status === "cancelled"
+                                  ? "border-amber-300/30 bg-amber-950/20 text-amber-50"
+                                : isSystem
+                                  ? "border-[#2a2c33] bg-black/25 text-slate-400"
+                                  : "border-[#2a2c33] bg-[#17181d] text-slate-200"
+                          }`}
+                        >
+                          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                            <span>{isUser ? "You" : isSystem ? "Context" : "Forma"}</span>
+                            <span className="text-slate-700">/</span>
+                            <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
+                            {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
+                            {message.status === "cancelled" && <Square className="h-3 w-3 fill-current text-amber-300" />}
+                          </div>
+                          <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                          {!message.projectId && (
+                            <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="mx-auto w-full max-w-3xl border border-[#2a2c33] bg-[#17181d] p-5 text-sm leading-6 text-slate-500">
+                    This chat has no project messages yet.
+                  </div>
+                )}
+
+                <div ref={endRef} />
+                <ChatProjectArtifact
+                  projectId={projectId}
+                  projectTitle={projectTitle}
+                  namespaceTabs={namespaceTabs}
+                  activeNamespace={activeNamespace}
+                  activeNamespaceName={activeNamespaceName}
+                  onNamespaceChange={onNamespaceChange}
+                  projectContent={projectContent}
+                />
+              </div>
+            </div>
+
+            <form onSubmit={onSubmit} className="shrink-0 border-t border-[#2a2c33] bg-[#111216]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
+              <div className="mx-auto max-w-3xl">
+                <div className="relative">
+                  <textarea
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" && !event.shiftKey) {
+                        event.preventDefault();
+                        if (isLoading) return;
+                        event.currentTarget.form?.requestSubmit();
+                      }
+                    }}
+                    placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
+                    className="min-h-[92px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-4 pr-16 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300"
+                  />
+                  <button
+                    type={canStop ? "button" : "submit"}
+                    onClick={canStop ? onStop : undefined}
+                    disabled={!canStop && (isLoading || !projectId || !input.trim())}
+                    className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                    aria-label={canStop ? "Stop project update" : "Apply change to project"}
+                    title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName}`}
+                  >
+                    {canStop ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {!canChat && (
+          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#141519]" aria-label="Project workspace">
+            <ProjectWorkspacePanel
+              namespaceTabs={namespaceTabs}
+              activeNamespace={activeNamespace}
+              onNamespaceChange={onNamespaceChange}
+            >
+              {projectContent}
+            </ProjectWorkspacePanel>
+          </section>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ChatProjectArtifact({
+  projectId,
+  projectTitle,
+  namespaceTabs,
+  activeNamespace,
+  activeNamespaceName,
+  onNamespaceChange,
+  projectContent,
+}: {
+  projectId: string | null;
+  projectTitle: string;
+  namespaceTabs: typeof workspaceTabs;
+  activeNamespace: string;
+  activeNamespaceName: string;
+  onNamespaceChange: (namespaceId: string) => void;
+  projectContent: React.ReactNode;
+}) {
+  return (
+    <section className="mt-3 min-w-0 overflow-hidden border border-cyan-300/20 bg-[#141519]" aria-labelledby="chat-project-title">
+      <header className="flex min-h-[64px] min-w-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            {canChat ? <MessageSquare className="h-4 w-4 text-cyan-300" /> : <Eye className="h-4 w-4 text-cyan-300" />}
-            <h2 className="truncate text-sm font-black uppercase tracking-[0.18em] text-white">
-              {canChat ? "Build Chat" : "Read-only project"}
-            </h2>
+            <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+            <h3 id="chat-project-title" className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+              Project
+            </h3>
           </div>
-          <div className="mt-1 truncate text-[11px] text-slate-500">
-            {canChat ? `Active project item: ${projectTitle}` : "Public project preview"}
-          </div>
+          <div className="mt-1 truncate text-xs font-bold text-white">{projectTitle}</div>
         </div>
-        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
-          {canChat && (
-            <button
-              type="button"
-              onClick={onToggleChat}
-              className={`inline-flex h-10 items-center gap-2 border px-3 text-xs font-black uppercase ${
-                chatVisible
-                  ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100 hover:bg-white hover:text-black"
-                  : "border-[#2a2c33] bg-[#111216] text-slate-400 hover:bg-white hover:text-black"
-              }`}
-              aria-pressed={chatVisible}
-              aria-label={chatVisible ? "Hide chat panel" : "Show chat panel"}
-              title={chatVisible ? "Hide chat panel" : "Show chat panel"}
-            >
-              <MessageSquare className="h-4 w-4" />
-              <span className="hidden sm:inline">{chatVisible ? "Hide chat" : "Show chat"}</span>
-            </button>
+        <div className="flex min-w-0 max-w-[48%] items-center gap-2 font-mono text-[9px] text-slate-600">
+          {projectId && (
+            <span className="truncate" title={projectId}>
+              {projectId}
+            </span>
           )}
-          <div className="truncate border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 font-mono text-[11px] text-cyan-100">
+          {projectId && <span className="text-slate-800">/</span>}
+          <span className="truncate text-cyan-300/70">
             {activeNamespaceName}
-          </div>
-          {canChat && (
-            <div className="truncate border border-[#2a2c33] px-3 py-2 font-mono text-[11px] text-slate-500">
-              {chatId || projectId || "No chat"}
-            </div>
-          )}
+          </span>
         </div>
-      </div>
+      </header>
 
-      <nav className="flex min-h-[48px] min-w-0 overflow-x-auto border-b border-[#2a2c33] bg-[#111216]">
+      <div className="h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden">
+        <ProjectWorkspacePanel
+          namespaceTabs={namespaceTabs}
+          activeNamespace={activeNamespace}
+          onNamespaceChange={onNamespaceChange}
+        >
+          {projectContent}
+        </ProjectWorkspacePanel>
+      </div>
+    </section>
+  );
+}
+
+function ProjectWorkspacePanel({
+  namespaceTabs,
+  activeNamespace,
+  onNamespaceChange,
+  children,
+}: {
+  namespaceTabs: typeof workspaceTabs;
+  activeNamespace: string;
+  onNamespaceChange: (value: string) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 min-w-0 flex-col">
+      <nav
+        className="flex min-h-[48px] min-w-0 shrink-0 overflow-x-auto border-b border-[#2a2c33] bg-[#111216]"
+        aria-label="Project workspace"
+      >
         {namespaceTabs.map((tab) => {
           const Icon = tab.icon;
           const active = activeNamespace === tab.id;
@@ -5540,104 +5688,7 @@ function ProjectChatPanel({
           );
         })}
       </nav>
-
-      <div className={`grid min-h-0 flex-1 grid-cols-1 overflow-y-auto xl:overflow-hidden ${
-        effectiveChatVisible ? "xl:grid-cols-[minmax(360px,0.78fr)_minmax(0,1.22fr)]" : "xl:grid-cols-1"
-      }`}>
-        {effectiveChatVisible && (
-        <div className="flex min-h-[520px] min-w-0 flex-col overflow-hidden xl:min-h-0">
-          <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 pb-6">
-            <div className="mx-auto flex min-w-0 max-w-3xl flex-col gap-3">
-              {messages.length ? (
-                messages.map((message) => {
-                  const isUser = message.role === "user";
-                  const isSystem = message.role === "system";
-                  return (
-                    <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
-                      <div
-                        className={`min-w-0 max-w-[92%] overflow-hidden border px-4 py-3 ${
-                          isUser
-                            ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-50"
-                            : message.status === "error"
-                              ? "border-rose-400/30 bg-rose-950/25 text-rose-100"
-                              : message.status === "cancelled"
-                                ? "border-amber-300/30 bg-amber-950/20 text-amber-50"
-                              : isSystem
-                                ? "border-[#2a2c33] bg-black/25 text-slate-400"
-                                : "border-[#2a2c33] bg-[#17181d] text-slate-200"
-                        }`}
-                      >
-                        <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
-                          <span>{isUser ? "You" : isSystem ? "Context" : "Forma"}</span>
-                          <span className="text-slate-700">/</span>
-                          <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
-                          {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
-                          {message.status === "cancelled" && <Square className="h-3 w-3 fill-current text-amber-300" />}
-                        </div>
-                        <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                        <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
-                        {message.projectId && message.projectId !== projectId && (
-                          <button
-                            type="button"
-                            onClick={() => onOpenProject(message.projectId || "")}
-                            className="mt-3 inline-flex h-9 items-center gap-2 border border-emerald-300/40 px-3 text-xs font-black uppercase text-emerald-100 hover:bg-emerald-300 hover:text-black"
-                          >
-                            <Eye className="h-4 w-4" />
-                            Open project
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              ) : (
-                <div className="border border-[#2a2c33] bg-[#17181d] p-5 text-sm leading-6 text-slate-500">
-                  This chat has no project messages yet.
-                </div>
-              )}
-              <div ref={endRef} />
-            </div>
-          </div>
-
-          <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 z-30 shrink-0 border-y border-[#2a2c33] bg-[#111216]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:border-b-0 md:pb-4">
-            <div className="mx-auto max-w-3xl">
-              <div className="relative">
-                <textarea
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      if (isLoading) return;
-                      event.currentTarget.form?.requestSubmit();
-                    }
-                  }}
-                  placeholder={`Ask about ${activeNamespaceLabel.toLowerCase()}...`}
-                  className="min-h-[92px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-4 pr-16 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300"
-                />
-                <button
-                  type={canStop ? "button" : "submit"}
-                  onClick={canStop ? onStop : undefined}
-                  disabled={!canStop && (isLoading || !projectId || !input.trim())}
-                  className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
-                  aria-label={canStop ? "Stop generation" : "Generate project from chat"}
-                  title={canStop ? "Stop generation" : `Generate project from ${activeNamespaceName}`}
-                >
-                  {canStop ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                </button>
-              </div>
-            </div>
-          </form>
-          <div className="h-[172px] shrink-0 md:hidden" aria-hidden="true" />
-        </div>
-        )}
-
-        <div className={`min-h-[520px] min-w-0 overflow-hidden border-t border-[#2a2c33] xl:min-h-0 xl:border-t-0 ${
-          effectiveChatVisible ? "xl:border-l" : ""
-        }`}>
-          {namespaceContent}
-        </div>
-      </div>
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
     </div>
   );
 }

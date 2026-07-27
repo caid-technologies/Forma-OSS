@@ -5,6 +5,17 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from backend import main
+from backend.auth import UserContext
+
+
+ANONYMOUS_USER = UserContext(
+    provider="clerk",
+    subject=None,
+    owner_user_id=None,
+    is_authenticated=False,
+    is_admin=False,
+    claims={},
+)
 
 
 class ProjectSummaryTests(unittest.TestCase):
@@ -47,8 +58,8 @@ class ProjectSummaryTests(unittest.TestCase):
         }
 
         with patch.object(main, "creator_display_name", return_value="isayahc"), patch.object(
-            main, "clerk_user_image_url", return_value=None
-        ), patch.object(main, "hydrate_image_storage_metadata", return_value=hydrated):
+            main, "hydrate_image_storage_metadata", return_value=hydrated
+        ):
             summary = main._project_summary_response(project, current_user_id="user_123")
 
         self.assertTrue(summary["has_product_image"])
@@ -78,10 +89,10 @@ class ProjectSummaryTests(unittest.TestCase):
 
         with patch.object(main, "get_generated_project", return_value=project), patch.object(
             main, "creator_display_name", return_value="isayahc"
-        ), patch.object(main, "clerk_user_image_url", return_value=None), patch.object(
+        ), patch.object(
             main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata
         ), patch.object(main, "HardwareIR", side_effect=AssertionError("HardwareIR should not be constructed")):
-            summary = main.get_project_image_summary_endpoint(project.project_id, _auth_claims=None)
+            summary = main.get_project_image_summary_endpoint(project.project_id, ANONYMOUS_USER)
 
         self.assertEqual(project.project_id, summary["project_id"])
         self.assertEqual("https://storage.example.test/product.png", summary["product_image_url"])

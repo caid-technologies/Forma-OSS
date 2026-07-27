@@ -14,7 +14,11 @@ from typing import Any, Iterable, Optional
 
 from cryptography.fernet import Fernet, InvalidToken
 
-from blueprint_core.runtime import deployment_mode_enabled
+from blueprint_core.runtime import (
+    blueprint_dev_mode_enabled,
+    deployment_mode_enabled,
+    primary_database_backend_from_environment,
+)
 from blueprint_core.selectors import parse_llm_selector
 
 
@@ -22,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_CONFIG_DIR = ".blueprint"
 DEFAULT_CONFIG_FILENAME = "user-integrations.json"
+DEFAULT_ENCRYPTED_CONFIG_FILENAME = "workspace-integrations.enc.json"
 WORKSPACE_CONFIG_KEY = "default"
 WORKSPACE_CONFIG_CACHE_TTL_SECONDS = 30.0
 WORKSPACE_CONFIG_FAILURE_TTL_SECONDS = 60.0
@@ -278,6 +283,19 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         ),
     ),
     IntegrationDefinition(
+        id="nebius",
+        label="Nebius Token Factory",
+        description="OpenAI-compatible text generation through Nebius Token Factory.",
+        fields=(
+            IntegrationFieldDefinition("api_key", "API key", ("NEBIUS_API_KEY",), secret=True, placeholder="Nebius API key"),
+            IntegrationFieldDefinition("base_url", "Base URL", ("NEBIUS_BASE_URL",), placeholder="https://api.tokenfactory.nebius.com/v1"),
+            IntegrationFieldDefinition("model", "Default model", ("NEBIUS_MODEL", "NEBIUS_STREAM_MODEL"), placeholder="Qwen/Qwen3.5-397B-A17B"),
+            IntegrationFieldDefinition("fallback_model", "Fallback model", ("NEBIUS_FALLBACK_MODEL",), placeholder="openai/gpt-oss-120b"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NEBIUS_TIMEOUT_SECONDS", "NEBIUS_STREAM_TIMEOUT_SECONDS"), placeholder="300"),
+            IntegrationFieldDefinition("max_tokens", "Max tokens", ("NEBIUS_MAX_TOKENS", "NEBIUS_STREAM_MAX_OUTPUT_TOKENS"), placeholder="8192"),
+        ),
+    ),
+    IntegrationDefinition(
         id="runpod",
         label="Runpod",
         description="Runpod OpenAI-compatible endpoints and serverless endpoints.",
@@ -508,6 +526,7 @@ EXTRA_MANAGED_ENV_NAMES = {
     "BASETEN_ALLOWED_MODELS",
     "GMI_ALLOWED_MODELS",
     "HUGGINGFACE_ALLOWED_MODELS",
+    "NEBIUS_ALLOWED_MODELS",
     "NVIDIA_ALLOWED_MODELS",
     "OPENAI_ALLOWED_MODELS",
     "RUNPOD_ALLOWED_MODELS",
@@ -518,6 +537,7 @@ LLM_PROVIDER_INTEGRATION_IDS = {
     "gemini",
     "gmi",
     "huggingface",
+    "nebius",
     "nvidia",
     "openai",
     "runpod",
@@ -527,6 +547,10 @@ PROVIDER_ALIASES = {
     "anthropic-claude": "anthropic",
     "hf": "huggingface",
     "hugging-face": "huggingface",
+    "nebius-ai": "nebius",
+    "nebius-token-factory": "nebius",
+    "token-factory": "nebius",
+    "tokenfactory": "nebius",
     "nvidia-build": "nvidia",
     "nvidia-nim": "nvidia",
     "nim": "nvidia",
@@ -548,6 +572,7 @@ PROVIDER_ALLOWED_MODEL_ENV = {
     "gemini": "GEMINI_ALLOWED_MODELS",
     "gmi": "GMI_ALLOWED_MODELS",
     "huggingface": "HUGGINGFACE_ALLOWED_MODELS",
+    "nebius": "NEBIUS_ALLOWED_MODELS",
     "nvidia": "NVIDIA_ALLOWED_MODELS",
     "openai": "OPENAI_ALLOWED_MODELS",
     "runpod": "RUNPOD_ALLOWED_MODELS",
@@ -609,6 +634,16 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
             "deployment, or unrestricted account tokens are not accepted."
         ),
     ),
+    "nebius": HostedByokPolicy(
+        hosted_byok="disabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        blocked_secret_fields=("api_key",),
+        note=(
+            "Forma Cloud does not accept user-supplied Nebius Token Factory API keys until provider terms and "
+            "credential scopes have been reviewed. Use local or self-hosted Forma for Nebius BYOK."
+        ),
+    ),
     "together": HostedByokPolicy(
         hosted_byok="enabled",
         local_byok="enabled",
@@ -665,6 +700,20 @@ def user_integrations_path_for_user(user_id: str) -> Path:
     return _repo_root() / DEFAULT_CONFIG_DIR / "users" / safe_user_id / DEFAULT_CONFIG_FILENAME
 
 
+def encrypted_workspace_integrations_path() -> Path:
+    configured = os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_PATH")
+    if configured and configured.strip():
+        return Path(configured.strip()).expanduser()
+    return _repo_root() / DEFAULT_CONFIG_DIR / DEFAULT_ENCRYPTED_CONFIG_FILENAME
+
+
+def encrypted_user_integrations_path(user_id: str) -> Path:
+    safe_user_id = re.sub(r"[^A-Za-z0-9_.-]+", "_", user_id.strip())[:160]
+    if not safe_user_id:
+        raise ValueError("user_id is required")
+    return _repo_root() / DEFAULT_CONFIG_DIR / "users" / safe_user_id / "integrations.enc.json"
+
+
 def integration_definition_by_id(integration_id: str) -> IntegrationDefinition:
     definition = _DEFINITION_BY_ID.get(integration_id)
     if definition is None:
@@ -683,19 +732,26 @@ class UserIntegrationStore:
     @classmethod
     def for_user(cls, user_id: Optional[str]) -> "UserIntegrationStore":
         if not user_id:
-            return cls()
+            return default_integration_store()
+        if blueprint_dev_mode_enabled():
+            return EncryptedFileIntegrationStore(
+                encrypted_user_integrations_path(user_id),
+                secret_scope="user",
+            )
         backend = _user_integration_backend()
         if backend in {"file", "local", "json"}:
-            return cls(user_integrations_path_for_user(user_id))
-        if backend in {"supabase", "db", "database"} or _supabase_integrations_configured():
+            return EncryptedFileIntegrationStore(
+                encrypted_user_integrations_path(user_id),
+                secret_scope="user",
+            )
+        if backend in {"supabase", "db", "database"}:
             return SupabaseUserIntegrationStore(user_id)
-        try:
-            from blueprint_core.database import DATABASE_BACKEND
-        except Exception:
-            DATABASE_BACKEND = "sqlite"
-        if DATABASE_BACKEND == "supabase":
+        if primary_database_backend_from_environment() == "supabase":
             return SupabaseUserIntegrationStore(user_id)
-        return cls(user_integrations_path_for_user(user_id))
+        return EncryptedFileIntegrationStore(
+            encrypted_user_integrations_path(user_id),
+            secret_scope="user",
+        )
 
     def load(self) -> UserIntegrationConfig:
         if not self.path.exists():
@@ -785,10 +841,6 @@ def _supabase_service_key() -> Optional[str]:
     return None
 
 
-def _supabase_integrations_configured() -> bool:
-    return bool(_supabase_url() and _supabase_service_key())
-
-
 def _env_float(name: str, default: float) -> float:
     value = os.getenv(name)
     if not value or not value.strip():
@@ -812,14 +864,16 @@ def _clone_config(config: UserIntegrationConfig) -> UserIntegrationConfig:
 
 
 def default_integration_store() -> UserIntegrationStore:
+    if blueprint_dev_mode_enabled():
+        return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
     backend = _workspace_integration_backend()
     if backend in {"file", "local", "json"}:
-        return UserIntegrationStore()
+        return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
     if backend in {"supabase", "db", "database"}:
         return SupabaseWorkspaceIntegrationStore()
-    if _supabase_integrations_configured():
+    if primary_database_backend_from_environment() == "supabase":
         return SupabaseWorkspaceIntegrationStore()
-    return UserIntegrationStore()
+    return EncryptedFileIntegrationStore(encrypted_workspace_integrations_path())
 
 
 def _hosted_byok_policy(integration_id: str) -> Optional[HostedByokPolicy]:
@@ -894,18 +948,20 @@ def _requires_hosted_together_confirmation(integration_id: str, field_values: Op
     return value is not None and str(value).strip() != ""
 
 
-def _integration_encryption_secret() -> str:
-    value = (
-        os.getenv("BLUEPRINT_USER_SECRETS_KEY")
-        or os.getenv("BLUEPRINT_INTEGRATION_ENCRYPTION_KEY")
-        or os.getenv("USER_INTEGRATIONS_ENCRYPTION_KEY")
-    )
+def require_user_secrets_key() -> str:
+    value = os.getenv("BLUEPRINT_USER_SECRETS_KEY")
     if not value or not value.strip():
-        raise RuntimeError(
-            "Supabase user integrations require BLUEPRINT_USER_SECRETS_KEY. "
-            "Generate a high-entropy server-only secret and keep it out of NEXT_PUBLIC_* env vars."
+        message = (
+            "BLUEPRINT_USER_SECRETS_KEY is required at runtime for encrypted integration settings. "
+            "Generate a high-entropy server-only secret and keep it out of NEXT_PUBLIC_* variables."
         )
+        logger.critical(message)
+        raise RuntimeError(message)
     return value.strip()
+
+
+def _integration_encryption_secret() -> str:
+    return require_user_secrets_key()
 
 
 def _integration_encryption_key_id(secret: str) -> str:
@@ -950,6 +1006,70 @@ def _encrypt_config(config: UserIntegrationConfig) -> tuple[str, str]:
 
 def _decrypt_config(token: str) -> UserIntegrationConfig:
     return _decrypt_config_with_secret(token, _integration_encryption_secret())
+
+
+class EncryptedFileIntegrationStore(UserIntegrationStore):
+    """Fernet-encrypted file storage for local workspace or user settings."""
+
+    def __init__(self, path: Path | str, *, secret_scope: str = "workspace") -> None:
+        self.path = Path(path).expanduser()
+        self.secret_scope = secret_scope
+        self.user_scoped = secret_scope == "user"
+        self.storage_label = f"encrypted-file:{self.path}"
+
+    def _secret(self) -> str:
+        if self.secret_scope == "user":
+            return _integration_encryption_secret()
+        return _workspace_encryption_secret()
+
+    def load(self) -> UserIntegrationConfig:
+        if not self.path.exists():
+            return UserIntegrationConfig()
+        try:
+            with self.path.open("r", encoding="utf-8") as file:
+                raw = json.load(file)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Encrypted integration config is invalid JSON: {self.path}") from exc
+        if not isinstance(raw, dict):
+            raise RuntimeError(f"Encrypted integration config has an invalid shape: {self.path}")
+        encrypted_config = raw.get("encrypted_config")
+        if not isinstance(encrypted_config, str) or not encrypted_config.strip():
+            raise RuntimeError(f"Encrypted integration config has no ciphertext: {self.path}")
+        secret = self._secret()
+        configured_key_id = _integration_encryption_key_id(secret)
+        stored_key_id = raw.get("encryption_key_id")
+        if stored_key_id and stored_key_id != configured_key_id:
+            logger.error(
+                "Encrypted file integration key mismatch: storage=%s stored_key_id=%s configured_key_id=%s",
+                self.storage_label,
+                stored_key_id,
+                configured_key_id,
+            )
+            raise RuntimeError(
+                "Stored provider settings were encrypted with a different integration secrets key."
+            )
+        return _decrypt_config_with_secret(encrypted_config, secret)
+
+    def save(self, config: UserIntegrationConfig) -> UserIntegrationConfig:
+        config.updated_at = _utc_now()
+        encrypted_config, key_id = _encrypt_config_with_secret(config, self._secret())
+        record = {
+            "encrypted_config": encrypted_config,
+            "encryption_key_id": key_id,
+            "version": config.version,
+            "updated_at": config.updated_at,
+        }
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
+        with temp_path.open("w", encoding="utf-8") as file:
+            json.dump(record, file, indent=2, sort_keys=True)
+            file.write("\n")
+        os.replace(temp_path, self.path)
+        try:
+            self.path.chmod(0o600)
+        except OSError:
+            pass
+        return config
 
 
 class SupabaseUserIntegrationStore(UserIntegrationStore):
@@ -1248,6 +1368,36 @@ def _managed_environment_names() -> set[str]:
     return names
 
 
+def _capture_original_environment(env_names: Iterable[str]) -> None:
+    """Remember deployment/local env values before applying a saved BYOK overlay."""
+    for env_name in env_names:
+        if env_name not in _ORIGINAL_ENV_VALUES:
+            _ORIGINAL_ENV_VALUES[env_name] = os.environ.get(env_name)
+
+
+def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
+    for env_name in env_names:
+        value = _ORIGINAL_ENV_VALUES.get(env_name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _environment_configures_integration(definition: IntegrationDefinition) -> bool:
+    configured_fields = [
+        field_definition
+        for field_definition in definition.fields
+        if _original_environment_value(field_definition.env_names)
+    ]
+    if definition.id not in LLM_PROVIDER_INTEGRATION_IDS:
+        return bool(configured_fields)
+    if any(field_definition.secret for field_definition in configured_fields):
+        return True
+    runtime_provider = _normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or "")
+    generic_key = _ORIGINAL_ENV_VALUES.get("LLM_API_KEY")
+    return runtime_provider == definition.id and bool(generic_key and generic_key.strip())
+
+
 def _normalize_provider_id(value: str) -> Optional[str]:
     normalized = value.strip().lower().replace("_", "-")
     if not normalized:
@@ -1413,15 +1563,32 @@ def apply_user_integrations_to_environment(
             exc,
         )
         config = UserIntegrationConfig()
-    desired = _desired_environment(config)
     managed_env_names = _managed_environment_names()
+    _capture_original_environment(managed_env_names)
+    desired = _desired_environment(config)
+
+    # Allowlists describe availability, so BYOK entries extend platform/env
+    # entries instead of replacing them. Direct settings (keys, endpoints,
+    # selected provider/model) retain normal saved-over-environment precedence.
+    additive_env_names = {"LLM_ALLOWED_PROVIDERS", *PROVIDER_ALLOWED_MODEL_ENV.values()}
+    for env_name in additive_env_names:
+        desired_value = desired.get(env_name)
+        if not desired_value:
+            continue
+        desired[env_name] = _merge_csv_value(
+            _ORIGINAL_ENV_VALUES.get(env_name),
+            desired_value.split(","),
+        )
 
     for env_name in managed_env_names:
         if env_name in desired:
             continue
-        os.environ.pop(env_name, None)
+        original_value = _ORIGINAL_ENV_VALUES.get(env_name)
+        if original_value is None:
+            os.environ.pop(env_name, None)
+        else:
+            os.environ[env_name] = original_value
         _APPLIED_ENV_VALUES.pop(env_name, None)
-        _ORIGINAL_ENV_VALUES.pop(env_name, None)
 
     for env_name, desired_value in desired.items():
         os.environ[env_name] = desired_value
@@ -1437,14 +1604,16 @@ def _field_status_payload(
     integration_id: str,
     hosted_user_store: bool = False,
 ) -> dict[str, object]:
-    saved_value = integration.field_value(field_definition.id) if integration else None
+    stored_value = integration.field_value(field_definition.id) if integration else None
+    saved_value = stored_value if integration and integration.enabled else None
+    environment_value = _original_environment_value(field_definition.env_names)
     policy = _active_hosted_byok_policy(integration_id) if hosted_user_store else None
     blocked_by_policy = bool(policy and field_definition.id in policy.blocked_secret_fields)
     conditional_by_policy = bool(policy and field_definition.id in policy.conditional_secret_fields)
     if blocked_by_policy:
         saved_value = None
-    active_value = saved_value
-    source = "saved" if saved_value else "unset"
+    active_value = saved_value or environment_value
+    source = "saved" if saved_value else "environment" if environment_value else "unset"
     payload: dict[str, object] = {
         "id": field_definition.id,
         "label": field_definition.label,
@@ -1453,7 +1622,7 @@ def _field_status_payload(
         "placeholder": field_definition.placeholder,
         "help": field_definition.help,
         "configured": bool(active_value),
-        "saved": bool(saved_value),
+        "saved": bool(stored_value),
         "source": source,
         "editable": not blocked_by_policy,
         "policy_status": policy.hosted_byok if policy else "enabled",
@@ -1471,12 +1640,15 @@ def _field_status_payload(
 
 
 def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> dict[str, object]:
-    resolved_store = store or UserIntegrationStore()
+    resolved_store = store or default_integration_store()
     config = apply_user_integrations_to_environment(resolved_store, fail_open=False)
-    hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore)
+    hosted_user_store = isinstance(resolved_store, SupabaseUserIntegrationStore) or bool(
+        getattr(resolved_store, "user_scoped", False)
+    )
     integrations: list[dict[str, object]] = []
     for definition in INTEGRATION_DEFINITIONS:
         stored = config.integration_by_id(definition.id)
+        environment_configured = _environment_configures_integration(definition)
         configured_fields = [
             _field_status_payload(
                 stored,
@@ -1486,6 +1658,12 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
             )
             for field_definition in definition.fields
         ]
+        enabled = stored.enabled if stored else True
+        saved_configured = bool(
+            stored
+            and any(stored.field_value(field_definition.id) for field_definition in definition.fields)
+        )
+        configured = environment_configured or saved_configured
         policy = _active_hosted_byok_policy(definition.id) if hosted_user_store else None
         integrations.append(
             {
@@ -1494,10 +1672,12 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
                 "description": definition.description,
                 "policy_status": policy.hosted_byok if policy else "enabled",
                 "policy_notice": policy.note if policy else "",
-                "enabled": stored.enabled if stored else True,
+                "enabled": enabled,
+                "environment_configured": environment_configured,
+                "available": environment_configured or (enabled and saved_configured),
                 "saved": stored is not None,
                 "updated_at": stored.updated_at if stored else None,
-                "configured": any(bool(field_payload["configured"]) for field_payload in configured_fields),
+                "configured": configured,
                 "fields": configured_fields,
             }
         )
@@ -1511,6 +1691,7 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
 
 
 __all__ = [
+    "EncryptedFileIntegrationStore",
     "IntegrationDefinition",
     "IntegrationFieldDefinition",
     "StoredIntegration",
@@ -1522,9 +1703,12 @@ __all__ = [
     "apply_user_integrations_to_environment",
     "default_integration_store",
     "default_user_integrations_path",
+    "encrypted_user_integrations_path",
+    "encrypted_workspace_integrations_path",
     "integration_definition_by_id",
     "integration_status_payload",
     "list_integration_definitions",
     "mask_secret",
+    "require_user_secrets_key",
     "user_integrations_path_for_user",
 ]

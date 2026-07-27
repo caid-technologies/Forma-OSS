@@ -105,8 +105,8 @@ uvicorn backend.main:app --reload --port 8000
 ./scripts/blueprint-backend jobs --status running
 ./scripts/blueprint-backend jobs --local --limit 10
 ./scripts/test.sh
-./sample.py "Describe a low-voltage plant watering monitor with OLED status"
-./sample_async.py --llm openai/gpt-5.5 --llm runpod/caid-technologies/parti-base "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/sample_async.py --llm openai/gpt-5.5 --llm runpod/caid-technologies/parti-base "Describe a low-voltage plant watering monitor with OLED status"
 ./scripts/blueprint-backend generate "plant watering monitor" --llm openai/gpt-5.5
 ./scripts/blueprint-backend generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
 curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Type: application/json' -d '{"instruction":"Add battery charging and make the enclosure splash resistant","namespace":"product.mech","provider":"openai","model":"gpt-5.5"}'
@@ -118,11 +118,12 @@ curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Typ
 ./scripts/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
 ./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
 ./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
+./scripts/verify-llm-providers.py --llm nebius/Qwen/Qwen3.5-397B-A17B
 ./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
 ./scripts/blueprint-backend seed
 ```
 
-`scripts/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
+`scripts/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
 
 Generation and project iteration logic lives in the reusable `blueprint_core` package, published as the `caid-blueprint-core` PyPI distribution. New code should import from `blueprint_core.generation`, `blueprint_core.iteration`, `blueprint_core.project_objects`, `blueprint_core.models`, `blueprint_core.validation`, `blueprint_core.llm`, `blueprint_core.images`, `blueprint_core.runtime`, and `blueprint_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
 
@@ -149,7 +150,7 @@ export HF_ARTIFACT_REPO_ID=username/blueprint-metrics
 
 The CLI uses `.venv/bin/python` when present and falls back to `python3`. `health`
 checks the root, component, and A2A jobs endpoints; `jobs --local` reads the
-SQLite job metadata store directly when the API server is not running. Job
+primary SQLite database directly when the API server is not running. Job
 tables include the generation source when known: `Catalog`, `Web Research`, or
 both.
 
@@ -160,21 +161,25 @@ LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `LOG_LEVEL`: Backend logging level, for example `INFO` or `DEBUG`.
-- `BACKEND_LOG_FILE`: Optional rotating log file for backend and uvicorn logs, for example `./blueprint-backend.log`.
+- `BACKEND_LOG_FILE`: Optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`.
 - `BLUEPRINT_DEBUG`: When `true`, API errors and failed job metadata include redacted traceback/context debug payloads. Intended for trusted local/dev environments.
 - `SUPABASE_URL`: Supabase project API URL, for example `https://your-project-ref.supabase.co`.
 - `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`: Backend-only Supabase key for writes. Do not use anon/publishable keys.
-- `BLUEPRINT_DEV_MODE`: When `true`, forces SQLite for app data and A2A job metadata, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
+- `BLUEPRINT_DEV_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
 - `NEXT_PUBLIC_BLUEPRINT_DEBUG` / `NEXT_PUBLIC_BLUEPRINT_DEV_MODE`: Frontend-visible local/dev flags. The `Keys` integrations UI, `Listening Jobs`, and `Backend Logs` are shown only in Next development mode or when a debug/dev-mode flag is truthy. Keep these unset or `false` in public production builds.
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
+- `BLUEPRINT_IMAGE_STORAGE_BACKEND`: Optional ancillary override (`supabase`, `s3-compatible`, or `local`). By default image storage follows `DATABASE_BACKEND`.
+- `BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND` / `BLUEPRINT_USER_INTEGRATIONS_BACKEND`: Optional encrypted-settings storage overrides. By default they follow `DATABASE_BACKEND`, so SQLite mode does not contact Supabase just because credentials are present.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
 - `BLUEPRINT_DEPLOYMENT`: When `true`, generation requires a deployment provider or the signed-in user's BYOK provider; users without an active provider are directed to Settings.
-- `LLM_PROVIDER`: Live generation provider: `anthropic`, `baseten`, `gemini`, `huggingface`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER`: Live generation provider: `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_ALLOWED_PROVIDERS`: Optional comma-separated allowlist for per-request provider overrides.
-- `OPENAI_ALLOWED_MODELS` / `ANTHROPIC_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.
+- `OPENAI_ALLOWED_MODELS` / `ANTHROPIC_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NEBIUS_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.
 - `/api/generate` also accepts optional `provider` and `model` fields for runtime switching. Each generated project records the requested provider/model and actual provider/model in `assembly_metadata`.
 - In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-sonnet-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
-- `BLUEPRINT_USER_SECRETS_KEY`: Required when signed-in BYOK settings are stored in Supabase. Use a high-entropy server-only value; it encrypts provider credentials before they are written to `user_integration_configs`.
+- `BLUEPRINT_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
+- `BLUEPRINT_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
+- `BLUEPRINT_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. SQLite-primary runtimes use an encrypted file; Supabase-primary runtimes use encrypted `workspace_integration_configs` storage.
 - `OPENAI_API_KEY`: API key for first-party OpenAI when `LLM_PROVIDER=openai`.
 - `OPENAI_MODEL`: OpenAI model ID. The example default is `gpt-4o-mini`.
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format. Defaults to `json_schema`; `json_object` and `none` are also supported.
@@ -215,6 +220,9 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `HF_TOKEN` / `HUGGINGFACE_API_KEY` / `HUGGINGFACE_HUB_TOKEN`: Hugging Face Inference Providers token when `LLM_PROVIDER=huggingface` or a request uses `provider=huggingface`.
 - `HUGGINGFACE_BASE_URL`: Hugging Face OpenAI-compatible router URL. Defaults to `https://router.huggingface.co/v1`.
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
+- `NEBIUS_API_KEY` / `NEBIUS_BASE_URL`: Nebius Token Factory configuration when `LLM_PROVIDER=nebius` or a request uses `provider=nebius`. `NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`.
+- `NEBIUS_MODEL`: Nebius model ID, for example `Qwen/Qwen3.5-397B-A17B`.
+- `NEBIUS_RESPONSE_FORMAT`: Nebius response format. Defaults to `json_schema`; `json_object` and `none` are also supported.
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `blueprint`.
 - `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
@@ -234,8 +242,7 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
 - `LLM_FALLBACK_MODEL`: Optional fallback model when `STRICT_LLM=false`.
 - `LLM_BASE_URL`: Optional base URL for OpenAI-compatible providers.
-- `JOB_METADATA_BACKEND`: Durable A2A job metadata backend. `auto` uses Supabase when the main app DB is Supabase, otherwise SQLite.
-- `JOB_METADATA_DB_PATH`: SQLite file used when A2A job metadata is on SQLite (default: `./blueprint_jobs.db`).
+- A2A jobs use the database selected by `DATABASE_BACKEND` and `SQLITE_DATABASE_URL`; there is no separate job database.
 - `A2A_SOCKET_ENABLED`: Set to `true` to start the optional TCP JSONL A2A socket.
 - `A2A_SOCKET_HOST` / `A2A_SOCKET_PORT`: Host and port for the optional TCP JSONL listener.
 

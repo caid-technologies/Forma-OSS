@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { SignInButton, useAuth } from "@clerk/nextjs";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -23,6 +22,7 @@ import {
   settingOptionsForField,
   type ProviderModelOption,
 } from "../../lib/provider-model-catalog";
+import { useFormaAuth } from "../../lib/forma-auth";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
 const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
@@ -209,6 +209,7 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
       { integrationId: "baseten", view: "llm" },
       { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
       { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },
+      { integrationId: "nebius", view: "llm", label: "Nebius Token Factory" },
       { integrationId: "nvidia", view: "llm" },
       { integrationId: "runpod", view: "llm" },
       { integrationId: "ollama", view: "llm" },
@@ -1166,7 +1167,7 @@ function ImageModelTestPanel({
 }
 
 export default function UserIntegrationsPage() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { authRequired, getToken, hasIdentity, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
   const [forms, setForms] = useState<Record<string, IntegrationFormState>>({});
   const [selectedNavigationKey, setSelectedNavigationKey] = useState("runtime:all");
@@ -1248,18 +1249,18 @@ export default function UserIntegrationsPage() {
   }, [imageDefaults.provider, imageDefaults.model]);
 
   const optionalAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
-    if (!isSignedIn) return {};
+    if (!authRequired || !isSignedIn) return {};
     try {
       const token = await getToken();
       return token ? { Authorization: `Bearer ${token}` } : {};
     } catch {
       return {};
     }
-  }, [getToken, isSignedIn]);
+  }, [authRequired, getToken, isSignedIn]);
 
   const loadIntegrations = useCallback(async () => {
-    if (!isLoaded) return;
-    if (!isSignedIn) {
+    if (authRequired && !isLoaded) return;
+    if (!hasIdentity) {
       setPayload(null);
       setForms({});
       setLoading(false);
@@ -1285,7 +1286,7 @@ export default function UserIntegrationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isLoaded, isSignedIn, optionalAuthHeaders]);
+  }, [authRequired, hasIdentity, isLoaded, optionalAuthHeaders]);
 
   useEffect(() => {
     loadIntegrations();
@@ -1344,7 +1345,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function saveImageDefaults() {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     const providerOption = IMAGE_PROVIDER_OPTIONS.find((option) => option.id === imageDefaults.provider);
     setSavingId("image-defaults");
     setError(null);
@@ -1363,7 +1364,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function saveIntegration(integration: IntegrationStatus, clearFields: string[] = []) {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     const form = forms[integration.id] || formFromIntegration(integration);
     const fields: Record<string, string> = {};
     const clearFieldSet = new Set(clearFields);
@@ -1372,6 +1373,10 @@ export default function UserIntegrationsPage() {
       if (clearFieldSet.has(field.id)) return;
       const value = form.fields[field.id] || "";
       if (field.secret && !value.trim()) return;
+      // Environment-backed values are visible defaults, not implicit BYOK
+      // values. Persist them only when the user actually changes the field.
+      if (field.source === "environment" && value === (field.value || "")) return;
+      if (field.source === "unset" && !value.trim()) return;
       fields[field.id] = value;
     });
 
@@ -1401,7 +1406,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function clearIntegration(integration: IntegrationStatus) {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     setSavingId(integration.id);
     setError(null);
     setNotice(null);
@@ -1423,7 +1428,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function reloadRuntime() {
-    if (!isSignedIn) return;
+    if (!hasIdentity) return;
     setLoading(true);
     setError(null);
     setNotice(null);
@@ -1445,7 +1450,7 @@ export default function UserIntegrationsPage() {
   }
 
   async function runImageModelTest() {
-    if (!isSignedIn || !imageTestPrompt.trim()) return;
+    if (!hasIdentity || !imageTestPrompt.trim()) return;
     setImageTestRunning(true);
     setImageTestResult(null);
     setImageTestError(null);
@@ -1519,7 +1524,7 @@ export default function UserIntegrationsPage() {
           <button
             type="button"
             onClick={reloadRuntime}
-            disabled={loading || !isLoaded || !isSignedIn}
+            disabled={loading || !hasIdentity}
             className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
@@ -1528,11 +1533,11 @@ export default function UserIntegrationsPage() {
         </div>
       </header>
 
-      {!isLoaded ? (
+      {authRequired && !isLoaded ? (
         <section className="mx-auto w-full max-w-7xl px-4 py-5">
           <div className="border border-[#2c2f37] bg-[#17181d] p-6 text-sm text-slate-500">Checking session...</div>
         </section>
-      ) : !isSignedIn ? (
+      ) : !hasIdentity ? (
         <section className="mx-auto w-full max-w-7xl px-4 py-5">
           <div className="max-w-xl border border-[#2c2f37] bg-[#17181d] p-6">
             <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
@@ -1543,15 +1548,14 @@ export default function UserIntegrationsPage() {
               Settings store API keys and provider defaults for your account. Sign in to manage your models.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
-              <SignInButton mode="modal">
-                <button
-                  type="button"
-                  className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200"
-                >
-                  <KeyRound className="h-4 w-4" />
-                  Sign in
-                </button>
-              </SignInButton>
+              <button
+                type="button"
+                onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/settings" })}
+                className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200"
+              >
+                <KeyRound className="h-4 w-4" />
+                Sign in
+              </button>
               <Link
                 href="/"
                 className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"

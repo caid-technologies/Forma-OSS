@@ -90,6 +90,16 @@ LLM_ENV_KEYS = {
     "LLM_MODEL",
     "LLM_PROVIDER",
     "LLM_RESPONSE_FORMAT",
+    "NEBIUS_ALLOWED_MODELS",
+    "NEBIUS_API_KEY",
+    "NEBIUS_BASE_URL",
+    "NEBIUS_FALLBACK_MODEL",
+    "NEBIUS_MAX_TOKENS",
+    "NEBIUS_MODEL",
+    "NEBIUS_RESPONSE_FORMAT",
+    "NEBIUS_TEMPERATURE",
+    "NEBIUS_TIMEOUT_SECONDS",
+    "NEBIUS_VALIDATE_MODELS",
     "NIM_API_KEY",
     "NVIDIA_ALLOWED_MODELS",
     "NVIDIA_API_KEY",
@@ -126,6 +136,7 @@ LLM_ENV_KEYS = {
     "STRICT_GMI_CLOUD",
     "STRICT_GMICLOUD",
     "STRICT_LLM",
+    "STRICT_NEBIUS",
 }
 
 
@@ -320,6 +331,73 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("nvidia/z-ai/glm-5.2", provider.requested_model)
         self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
         self.assertTrue(provider.is_configured)
+
+    def test_nebius_runtime_uses_token_factory_defaults(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="token-factory",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("nebius", runtime.provider)
+        self.assertEqual("Qwen/Qwen3.5-397B-A17B", runtime.model)
+        self.assertIn("Qwen/Qwen3.5-397B-A17B", runtime.allowed_models or [])
+        self.assertEqual("nebius", provider.provider_name)
+        self.assertEqual("Qwen/Qwen3.5-397B-A17B", provider.requested_model)
+        self.assertEqual("https://api.tokenfactory.nebius.com/v1", provider.base_url)
+        self.assertEqual("json_schema", provider.response_format)
+        self.assertTrue(provider.is_configured)
+
+    def test_nebius_api_key_autodetects_provider(self) -> None:
+        with isolated_llm_env(NEBIUS_API_KEY="nebius_test"):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("nebius", runtime.provider)
+        self.assertIn("nebius", runtime.configured_providers or [])
+
+    def test_nebius_structured_request_uses_json_schema_and_max_tokens(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="openai/gpt-oss-120b",
+            NEBIUS_MAX_TOKENS="321",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "openai/gpt-oss-120b")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "title": "Test Project",
+                                    "description": "A test project.",
+                                    "difficulty": "Beginner",
+                                    "estimated_cost": 1.0,
+                                    "category": "IoT",
+                                }
+                            )
+                        },
+                        "finish_reason": "stop",
+                    }
+                ]
+            }
+
+        provider._request_json = fake_request
+        provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("json_schema", payloads[0]["response_format"]["type"])
+        self.assertEqual(321, payloads[0]["max_tokens"])
+        self.assertNotIn("max_completion_tokens", payloads[0])
 
     def test_nvidia_runtime_allows_qwen_coder_32b_instruct_override(self) -> None:
         with isolated_llm_env(

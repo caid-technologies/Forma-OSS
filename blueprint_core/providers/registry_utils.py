@@ -13,6 +13,10 @@ def normalize_provider_name(value: str | None) -> str:
         "gmicloud": "gmi",
         "gemicloud": "gmi",
         "gmi-serving": "gmi",
+        "nebius-ai": "nebius",
+        "nebius-token-factory": "nebius",
+        "token-factory": "nebius",
+        "tokenfactory": "nebius",
     }
     return aliases.get(provider, provider or "openai")
 

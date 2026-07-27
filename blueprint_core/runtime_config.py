@@ -3,6 +3,12 @@ from typing import Any, Dict, Optional
 
 
 ALPHA_GENERATION_UNAVAILABLE_MESSAGE = "Generation is not available in this alpha deployment yet."
+DATABASE_BACKEND_ENV_NAMES = (
+    "DATABASE_BACKEND",
+    "DATABASE_PROVIDER",
+    "DB_BACKEND",
+    "DB_PROVIDER",
+)
 
 
 class AlphaGenerationUnavailableError(RuntimeError):
@@ -18,6 +24,29 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 def blueprint_dev_mode_enabled() -> bool:
     return env_bool("BLUEPRINT_DEV_MODE")
+
+
+def primary_database_backend_from_environment() -> str:
+    """Resolve the primary persistence backend without initializing a client."""
+    if blueprint_dev_mode_enabled():
+        return "sqlite"
+
+    aliases = {
+        "sqlite": "sqlite",
+        "sqlite3": "sqlite",
+        "supabase": "supabase",
+    }
+    for name in DATABASE_BACKEND_ENV_NAMES:
+        value = os.getenv(name)
+        if not value or not value.strip():
+            continue
+        normalized = aliases.get(value.strip().lower())
+        if normalized:
+            return normalized
+
+    supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY")
+    return "supabase" if supabase_url and supabase_url.strip() and supabase_key and supabase_key.strip() else "sqlite"
 
 
 def deployment_mode_enabled() -> bool:

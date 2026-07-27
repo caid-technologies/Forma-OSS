@@ -1,17 +1,41 @@
 import base64
 import json
 import os
+from dataclasses import dataclass, field
 from functools import lru_cache
-from typing import Any, Dict, Optional, Set
+from types import MappingProxyType
+from typing import Any, Dict, Mapping, Optional, Set
 from urllib import request as urllib_request
 
 import jwt
 from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
 
+from backend.auth_mode import clerk_auth_required
 
-def _truthy(value: Optional[str]) -> bool:
-    return bool(value and value.strip().lower() in {"1", "true", "yes", "on"})
+
+LOCAL_USER_ID = "local-dev-user"
+
+
+def _empty_claims() -> Mapping[str, Any]:
+    return MappingProxyType({})
+
+
+@dataclass(frozen=True, slots=True)
+class UserContext:
+    """Provider-neutral identity resolved for one backend request."""
+
+    provider: str
+    subject: Optional[str]
+    owner_user_id: Optional[str]
+    is_authenticated: bool
+    is_admin: bool
+    claims: Mapping[str, Any] = field(default_factory=_empty_claims)
+
+    def __post_init__(self) -> None:
+        # Do not retain a caller-owned mutable claims mapping inside an otherwise
+        # immutable request context.
+        object.__setattr__(self, "claims", MappingProxyType(dict(self.claims)))
 
 
 def _csv_env(name: str) -> Set[str]:
@@ -23,10 +47,8 @@ def _csv_env(name: str) -> Set[str]:
 
 
 def deployed_auth_required() -> bool:
-    explicit = os.getenv("BLUEPRINT_AUTH_REQUIRED")
-    if explicit is not None:
-        return _truthy(explicit)
-    return os.getenv("VERCEL") == "1" or bool(os.getenv("VERCEL_ENV"))
+    """Backward-compatible name for the explicit Clerk auth-mode check."""
+    return clerk_auth_required()
 
 
 def _issuer_from_publishable_key(value: Optional[str]) -> Optional[str]:
@@ -197,22 +219,6 @@ def _request_bearer_token(request: Request) -> Optional[str]:
     return normalized or None
 
 
-async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
-    token = _request_bearer_token(request)
-    if token:
-        return verify_clerk_bearer_token(token)
-    if not deployed_auth_required():
-        return None
-    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
-
-
-async def optional_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
-    token = _request_bearer_token(request)
-    if token:
-        return verify_clerk_bearer_token(token)
-    return None
-
-
 def clerk_user_id(auth_claims: Optional[Dict[str, Any]]) -> Optional[str]:
     if not auth_claims:
         return None
@@ -244,8 +250,89 @@ def clerk_user_is_admin(auth_claims: Optional[Dict[str, Any]]) -> bool:
             return True
 
     admin_emails = {email.lower() for email in (_csv_env("BLUEPRINT_ADMIN_EMAILS") | _csv_env("CLERK_ADMIN_EMAILS"))}
+    if not admin_emails:
+        return False
     email = clerk_user_email(user_id)
     return bool(email and email.lower() in admin_emails)
+
+
+def _local_user_context() -> UserContext:
+    return UserContext(
+        provider="local",
+        subject=LOCAL_USER_ID,
+        owner_user_id=LOCAL_USER_ID,
+        is_authenticated=True,
+        is_admin=True,
+    )
+
+
+def _anonymous_clerk_context() -> UserContext:
+    return UserContext(
+        provider="clerk",
+        subject=None,
+        owner_user_id=None,
+        is_authenticated=False,
+        is_admin=False,
+    )
+
+
+def _authenticated_clerk_context(auth_claims: Dict[str, Any]) -> UserContext:
+    subject = clerk_user_id(auth_claims)
+    return UserContext(
+        provider="clerk",
+        subject=subject,
+        owner_user_id=subject,
+        is_authenticated=subject is not None,
+        is_admin=bool(subject and clerk_user_is_admin(auth_claims)),
+        claims=auth_claims,
+    )
+
+
+async def optional_user_context(request: Request) -> UserContext:
+    """Resolve a request identity without requiring the caller to be signed in."""
+    if not deployed_auth_required():
+        return _local_user_context()
+
+    token = _request_bearer_token(request)
+    if not token:
+        return _anonymous_clerk_context()
+    return _authenticated_clerk_context(verify_clerk_bearer_token(token))
+
+
+async def require_user_context(request: Request) -> UserContext:
+    """Resolve a request identity and reject anonymous Clerk requests."""
+    context = await optional_user_context(request)
+    if context.is_authenticated:
+        return context
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
+
+
+async def require_admin_user_context(request: Request) -> UserContext:
+    """Resolve a request identity and require administrative access."""
+    context = await require_user_context(request)
+    if context.is_admin:
+        return context
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required.")
+
+
+async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
+    """Compatibility wrapper for routes that still consume raw Clerk claims."""
+    if not deployed_auth_required():
+        await require_user_context(request)
+        return None
+
+    context = await optional_user_context(request)
+    if _request_bearer_token(request):
+        return dict(context.claims)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
+
+
+async def optional_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
+    """Compatibility wrapper for routes that still consume raw Clerk claims."""
+    context = await optional_user_context(request)
+    if context.provider == "local" or not _request_bearer_token(request):
+        return None
+    return dict(context.claims)
 
 
 async def require_deployed_admin_auth(request: Request) -> Optional[Dict[str, Any]]:

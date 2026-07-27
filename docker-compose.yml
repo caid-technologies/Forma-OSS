@@ -8,6 +8,9 @@ services:
     image: blueprint-backend:local
     restart: unless-stopped
     environment:
+      BLUEPRINT_AUTH_MODE: ${BLUEPRINT_AUTH_MODE:-local}
+      BLUEPRINT_USER_SECRETS_KEY: ${BLUEPRINT_USER_SECRETS_KEY:-}
+      BLUEPRINT_WORKSPACE_SECRETS_KEY: ${BLUEPRINT_WORKSPACE_SECRETS_KEY:-}
       BLUEPRINT_DEV_MODE: ${BLUEPRINT_DEV_MODE:-}
       BLUEPRINT_DEBUG: ${BLUEPRINT_DEBUG:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
@@ -18,8 +21,6 @@ services:
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
       SUPABASE_SECRET_KEY: ${SUPABASE_SECRET_KEY:-}
-      JOB_METADATA_BACKEND: ${JOB_METADATA_BACKEND:-auto}
-      JOB_METADATA_DB_PATH: /data/blueprint_jobs.db
       LLM_PROVIDER: ${LLM_PROVIDER:-simulation}
       LLM_MODEL: ${LLM_MODEL:-}
       LLM_API_KEY: ${LLM_API_KEY:-}
@@ -92,6 +93,7 @@ services:
     image: blueprint-frontend:local
     restart: unless-stopped
     environment:
+      BLUEPRINT_AUTH_MODE: ${BLUEPRINT_AUTH_MODE:-local}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
       NEXT_PUBLIC_BLUEPRINT_DEBUG: ${NEXT_PUBLIC_BLUEPRINT_DEBUG:-${BLUEPRINT_DEBUG:-false}}
       NEXT_PUBLIC_BLUEPRINT_DEV_MODE: ${NEXT_PUBLIC_BLUEPRINT_DEV_MODE:-${BLUEPRINT_DEV_MODE:-false}}

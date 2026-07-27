@@ -2,16 +2,29 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
-from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from sqlalchemy import Column, Float, Integer, JSON, String, Text, create_engine, text
-from sqlalchemy.orm import declarative_base, sessionmaker
-
 from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_objects import attach_project_object_metadata_to_dict
+from blueprint_core.persistence.base import DatabaseProvider
+from blueprint_core.persistence.models import (
+    Base,
+    DBA2AJob,
+    DBAlphaSignup,
+    DBComponentTemplate,
+    DBGeneratedProject,
+    DBProjectChat,
+    DBUserIntegrationConfig,
+    DBWorkspaceIntegrationConfig,
+)
+from blueprint_core.persistence.providers import SQLiteProvider, SupabaseProvider, create_sqlite_provider
+from blueprint_core.persistence.repositories import (
+    ApplicationRepository,
+    SqlAlchemyRepository,
+    SupabaseRepository,
+)
 
 load_dotenv()
 
@@ -30,62 +43,6 @@ class DatabaseConfig:
     backend: str
     source: str
     url: str
-
-
-Base = declarative_base()
-
-
-class DBComponentTemplate(Base):
-    __tablename__ = "component_templates"
-
-    id = Column(Integer, primary_key=True, index=True)
-    part_number = Column(String, unique=True, index=True, nullable=False)
-    name = Column(String, nullable=False)
-    category = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    price = Column(Float, default=0.0)
-    sourcing_url = Column(String, nullable=True)
-    pins = Column(JSON, nullable=False)
-    use_cases = Column(JSON, nullable=False)
-
-
-class DBGeneratedProject(Base):
-    __tablename__ = "generated_projects"
-
-    id = Column(Integer, primary_key=True, index=True)
-    project_id = Column(String, unique=True, index=True, nullable=False)
-    chat_id = Column(String, index=True, nullable=True)
-    owner_user_id = Column(String, index=True, nullable=True)
-    visibility = Column(String, index=True, nullable=False, default="public")
-    title = Column(String, nullable=False)
-    prompt = Column(Text, nullable=False)
-    hardware_ir = Column(JSON, nullable=False)
-    created_at = Column(String, nullable=False)
-
-
-class DBProjectChat(Base):
-    __tablename__ = "project_chats"
-
-    id = Column(Integer, primary_key=True, index=True)
-    chat_id = Column(String, unique=True, index=True, nullable=False)
-    owner_user_id = Column(String, index=True, nullable=False)
-    title = Column(String, nullable=False)
-    messages = Column(JSON, nullable=False, default=list)
-    created_at = Column(String, nullable=False)
-    updated_at = Column(String, nullable=False)
-
-
-class DBAlphaSignup(Base):
-    __tablename__ = "alpha_signups"
-
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-    email = Column(String, index=True, nullable=False)
-    organization = Column(String, nullable=True)
-    additional_info = Column(Text, nullable=True)
-    source = Column(String, nullable=False, default="web")
-    metadata_json = Column(JSON, nullable=False, default=dict)
-    created_at = Column(String, nullable=False)
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -192,12 +149,12 @@ def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
         else:
             if override == "supabase":
                 logger.warning("BLUEPRINT_DEV_MODE=true overrides remote DATABASE_BACKEND=supabase; using SQLite.")
-            engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
-            return DatabaseConfig(backend="sqlite", source="BLUEPRINT_DEV_MODE", url=sqlite_url), engine, None
+            provider = create_sqlite_provider(source="BLUEPRINT_DEV_MODE", url=sqlite_url)
+            return DatabaseConfig(backend="sqlite", source="BLUEPRINT_DEV_MODE", url=sqlite_url), provider.engine, None
 
     if override == "sqlite":
-        engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
-        return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), engine, None
+        provider = create_sqlite_provider(source="SQLITE_DATABASE_URL", url=sqlite_url)
+        return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), provider.engine, None
 
     key, key_source = _supabase_key()
     public_key_sources = _public_supabase_key_sources()
@@ -226,19 +183,37 @@ def _select_database_config() -> tuple[DatabaseConfig, Any, Any]:
     else:
         _warn_ignored_database_urls()
 
-    engine = create_engine(sqlite_url, connect_args={"check_same_thread": False})
-    return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), engine, None
+    provider = create_sqlite_provider(source="SQLITE_DATABASE_URL", url=sqlite_url)
+    return DatabaseConfig(backend="sqlite", source="SQLITE_DATABASE_URL", url=sqlite_url), provider.engine, None
 
 
 _ACTIVE_DATABASE_CONFIG, engine, _SUPABASE_CLIENT = _select_database_config()
 DATABASE_BACKEND = _ACTIVE_DATABASE_CONFIG.backend
 DATABASE_SOURCE = _ACTIVE_DATABASE_CONFIG.source
 DATABASE_URL = _ACTIVE_DATABASE_CONFIG.url
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine) if engine is not None else None
-
-
-def _as_record(row: Dict[str, Any]) -> SimpleNamespace:
-    return SimpleNamespace(**row)
+_DATABASE_PROVIDER: DatabaseProvider
+if DATABASE_BACKEND == "supabase":
+    _DATABASE_PROVIDER = SupabaseProvider(
+        source=DATABASE_SOURCE,
+        url=DATABASE_URL,
+        client=_SUPABASE_CLIENT,
+    )
+else:
+    assert engine is not None
+    _DATABASE_PROVIDER = SQLiteProvider(
+        source=DATABASE_SOURCE,
+        url=DATABASE_URL,
+        engine=engine,
+    )
+_DATABASE_REPOSITORY: ApplicationRepository
+if DATABASE_BACKEND == "supabase":
+    SessionLocal = None
+    _DATABASE_REPOSITORY = SupabaseRepository(_SUPABASE_CLIENT)
+else:
+    assert isinstance(_DATABASE_PROVIDER, SQLiteProvider)
+    SessionLocal = _DATABASE_PROVIDER.session_factory
+    assert SessionLocal is not None
+    _DATABASE_REPOSITORY = SqlAlchemyRepository(SessionLocal)
 
 
 def _canonical_project_id(value: str) -> str:
@@ -265,31 +240,6 @@ def _normalize_user_id(value: Optional[str]) -> Optional[str]:
 def _normalize_visibility(value: Optional[str]) -> str:
     normalized = (value or "public").strip().lower()
     return normalized if normalized in {"public", "private"} else "public"
-
-
-def _error_mentions_missing_chat_id_column(exc: Exception) -> bool:
-    return _error_mentions_missing_column(exc, "chat_id")
-
-
-def _error_mentions_missing_column(exc: Exception, column: str) -> bool:
-    text = str(exc).lower()
-    return column.lower() in text and (
-        "does not exist" in text
-        or "42703" in text
-        or "missing" in text
-        or "could not find" in text
-        or "pgrst204" in text
-        or "schema cache" in text
-    )
-
-
-def _chat_id_from_hardware_ir(hardware_ir: Any) -> Optional[str]:
-    if not isinstance(hardware_ir, dict):
-        return None
-    metadata = hardware_ir.get("assembly_metadata")
-    if not isinstance(metadata, dict):
-        return None
-    return _normalize_chat_id(metadata.get("chat_id"))
 
 
 def _hardware_ir_with_project_id(
@@ -326,39 +276,14 @@ def get_supabase_client():
     return _SUPABASE_CLIENT
 
 
-def _verify_supabase_tables() -> None:
-    client = get_supabase_client()
-    client.table("component_templates").select("id").limit(1).execute()
-    client.table("generated_projects").select("id").limit(1).execute()
-    client.table("project_chats").select("id").limit(1).execute()
-    client.table("a2a_jobs").select("job_id").limit(1).execute()
-    client.table("alpha_signups").select("id").limit(1).execute()
-    client.table("user_integration_configs").select("owner_user_id").limit(1).execute()
-    client.table("workspace_integration_configs").select("config_key").limit(1).execute()
+def get_database_provider() -> DatabaseProvider:
+    """Return the provider selected once at application composition time."""
+
+    return _DATABASE_PROVIDER
 
 
 def init_db() -> None:
-    if DATABASE_BACKEND == "supabase":
-        _verify_supabase_tables()
-        return
-    Base.metadata.create_all(bind=engine)
-    _migrate_sqlite_schema()
-
-
-def _migrate_sqlite_schema() -> None:
-    if engine is None:
-        return
-    with engine.begin() as connection:
-        columns = {row[1] for row in connection.exec_driver_sql("PRAGMA table_info(generated_projects)").fetchall()}
-        if "chat_id" not in columns:
-            connection.execute(text("ALTER TABLE generated_projects ADD COLUMN chat_id VARCHAR"))
-        if "owner_user_id" not in columns:
-            connection.execute(text("ALTER TABLE generated_projects ADD COLUMN owner_user_id VARCHAR"))
-        if "visibility" not in columns:
-            connection.execute(text("ALTER TABLE generated_projects ADD COLUMN visibility VARCHAR NOT NULL DEFAULT 'public'"))
-        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_chat_id ON generated_projects (chat_id)"))
-        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_owner_user_id ON generated_projects (owner_user_id)"))
-        connection.execute(text("CREATE INDEX IF NOT EXISTS ix_generated_projects_visibility ON generated_projects (visibility)"))
+    _DATABASE_PROVIDER.initialize()
 
 
 def get_db():
@@ -370,45 +295,15 @@ def get_db():
 
 
 def count_component_templates() -> int:
-    if DATABASE_BACKEND == "supabase":
-        rows = get_supabase_client().table("component_templates").select("id").execute().data or []
-        return len(rows)
-    db = _sqlite_session()
-    try:
-        return db.query(DBComponentTemplate).count()
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.count_component_templates()
 
 
 def list_component_templates() -> List[Any]:
-    if DATABASE_BACKEND == "supabase":
-        rows = get_supabase_client().table("component_templates").select("*").order("id").execute().data or []
-        return [_as_record(row) for row in rows]
-    db = _sqlite_session()
-    try:
-        return db.query(DBComponentTemplate).all()
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.list_component_templates()
 
 
 def get_component_template_by_part_number(part_number: str) -> Optional[Any]:
-    if DATABASE_BACKEND == "supabase":
-        rows = (
-            get_supabase_client()
-            .table("component_templates")
-            .select("*")
-            .eq("part_number", part_number)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        return _as_record(rows[0]) if rows else None
-    db = _sqlite_session()
-    try:
-        return db.query(DBComponentTemplate).filter(DBComponentTemplate.part_number == part_number).first()
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.get_component_template_by_part_number(part_number)
 
 
 def insert_component_template_if_missing(component: Dict[str, Any]) -> bool:
@@ -425,20 +320,8 @@ def insert_component_template_if_missing(component: Dict[str, Any]) -> bool:
         "pins": component["pins"],
         "use_cases": component["use_cases"],
     }
-    if DATABASE_BACKEND == "supabase":
-        get_supabase_client().table("component_templates").insert(record).execute()
-        return True
-
-    db = _sqlite_session()
-    try:
-        db.add(DBComponentTemplate(**record))
-        db.commit()
-        return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    _DATABASE_REPOSITORY.insert_component_template(record)
+    return True
 
 
 def save_generated_project(
@@ -467,111 +350,26 @@ def save_generated_project(
         "hardware_ir": hardware_ir,
         "created_at": created_at,
     }
-    if DATABASE_BACKEND == "supabase":
-        try:
-            get_supabase_client().table("generated_projects").insert(record).execute()
-        except Exception as exc:
-            if not _error_mentions_missing_chat_id_column(exc) or normalized_owner_user_id:
-                raise
-            fallback_record = dict(record)
-            fallback_record.pop("chat_id", None)
-            fallback_record.pop("owner_user_id", None)
-            fallback_record.pop("visibility", None)
-            get_supabase_client().table("generated_projects").insert(fallback_record).execute()
-        if normalized_chat_id and normalized_owner_user_id:
-            upsert_project_chat(
-                chat_id=normalized_chat_id,
-                owner_user_id=normalized_owner_user_id,
-                title=title or prompt[:80] or "Untitled chat",
-                messages=[],
-                created_at=created_at,
-                updated_at=created_at,
-            )
-        return
-
-    db = _sqlite_session()
-    try:
-        db.add(DBGeneratedProject(**record))
-        if normalized_chat_id and normalized_owner_user_id:
-            chat = db.query(DBProjectChat).filter(DBProjectChat.chat_id == normalized_chat_id).first()
-            if chat:
-                if chat.owner_user_id == normalized_owner_user_id:
-                    chat.title = chat.title or title or "Untitled chat"
-                    chat.updated_at = created_at
-            else:
-                db.add(
-                    DBProjectChat(
-                        chat_id=normalized_chat_id,
-                        owner_user_id=normalized_owner_user_id,
-                        title=title or prompt[:80] or "Untitled chat",
-                        messages=[],
-                        created_at=created_at,
-                        updated_at=created_at,
-                    )
-                )
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    chat_record = None
+    if normalized_chat_id and normalized_owner_user_id:
+        chat_record = {
+            "chat_id": normalized_chat_id,
+            "owner_user_id": normalized_owner_user_id,
+            "title": title or prompt[:80] or "Untitled chat",
+            "messages": [],
+            "created_at": created_at,
+            "updated_at": created_at,
+        }
+    _DATABASE_REPOSITORY.save_generated_project(record, chat_record)
 
 
 def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
-    if DATABASE_BACKEND == "supabase":
-        client = get_supabase_client()
-        try:
-            query = (
-                client
-                .table("generated_projects")
-                .select("id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir")
-            )
-            if normalized_owner_user_id:
-                query = query.eq("owner_user_id", normalized_owner_user_id)
-            rows = query.order("id", desc=True).execute().data or []
-        except Exception as exc:
-            if not _error_mentions_missing_chat_id_column(exc):
-                raise
-            query = (
-                client
-                .table("generated_projects")
-                .select("id,project_id,title,prompt,created_at,hardware_ir")
-            )
-            if normalized_owner_user_id:
-                query = query.eq("owner_user_id", normalized_owner_user_id)
-            rows = query.order("id", desc=True).execute().data or []
-            for row in rows:
-                row["chat_id"] = _chat_id_from_hardware_ir(row.get("hardware_ir"))
-        return [_as_record(row) for row in rows]
-    db = _sqlite_session()
-    try:
-        query = db.query(DBGeneratedProject)
-        if normalized_owner_user_id:
-            query = query.filter(DBGeneratedProject.owner_user_id == normalized_owner_user_id)
-        return query.order_by(DBGeneratedProject.id.desc()).all()
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.list_generated_projects(normalized_owner_user_id)
 
 
 def get_generated_project(project_id: str) -> Optional[Any]:
-    if DATABASE_BACKEND == "supabase":
-        rows = (
-            get_supabase_client()
-            .table("generated_projects")
-            .select("*")
-            .eq("project_id", project_id)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        return _as_record(rows[0]) if rows else None
-    db = _sqlite_session()
-    try:
-        return db.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id).first()
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.get_generated_project(project_id)
 
 
 def update_generated_project_hardware_ir(
@@ -584,39 +382,12 @@ def update_generated_project_hardware_ir(
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
     chat_id = _normalize_chat_id(metadata.get("chat_id"))
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
-    if DATABASE_BACKEND == "supabase":
-        client = get_supabase_client()
-        try:
-            query = client.table("generated_projects").update({"hardware_ir": hardware_ir, "chat_id": chat_id}).eq("project_id", project_id)
-            if normalized_owner_user_id:
-                query = query.eq("owner_user_id", normalized_owner_user_id)
-            response = query.execute()
-        except Exception as exc:
-            if not _error_mentions_missing_chat_id_column(exc):
-                raise
-            query = client.table("generated_projects").update({"hardware_ir": hardware_ir}).eq("project_id", project_id)
-            if normalized_owner_user_id:
-                query = query.eq("owner_user_id", normalized_owner_user_id)
-            response = query.execute()
-        return bool(response.data)
-
-    db = _sqlite_session()
-    try:
-        query = db.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id)
-        if normalized_owner_user_id:
-            query = query.filter(DBGeneratedProject.owner_user_id == normalized_owner_user_id)
-        project = query.first()
-        if not project:
-            return False
-        project.hardware_ir = hardware_ir
-        project.chat_id = chat_id
-        db.commit()
-        return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.update_generated_project_hardware_ir(
+        project_id,
+        hardware_ir,
+        chat_id,
+        normalized_owner_user_id,
+    )
 
 
 def update_generated_project_metadata(
@@ -640,37 +411,11 @@ def update_generated_project_metadata(
         updates["visibility"] = _normalize_visibility(visibility)
     if not updates:
         return True
-
-    if DATABASE_BACKEND == "supabase":
-        response = (
-            get_supabase_client()
-            .table("generated_projects")
-            .update(updates)
-            .eq("project_id", project_id)
-            .eq("owner_user_id", normalized_owner_user_id)
-            .execute()
-        )
-        return bool(response.data)
-
-    db = _sqlite_session()
-    try:
-        project = (
-            db.query(DBGeneratedProject)
-            .filter(DBGeneratedProject.project_id == project_id)
-            .filter(DBGeneratedProject.owner_user_id == normalized_owner_user_id)
-            .first()
-        )
-        if not project:
-            return False
-        for key, value in updates.items():
-            setattr(project, key, value)
-        db.commit()
-        return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.update_generated_project_metadata(
+        project_id,
+        normalized_owner_user_id,
+        updates,
+    )
 
 
 def delete_generated_project(project_id: str, owner_user_id: str) -> bool:
@@ -678,35 +423,7 @@ def delete_generated_project(project_id: str, owner_user_id: str) -> bool:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_owner_user_id:
         return False
-    if DATABASE_BACKEND == "supabase":
-        response = (
-            get_supabase_client()
-            .table("generated_projects")
-            .delete()
-            .eq("project_id", project_id)
-            .eq("owner_user_id", normalized_owner_user_id)
-            .execute()
-        )
-        return bool(response.data)
-
-    db = _sqlite_session()
-    try:
-        project = (
-            db.query(DBGeneratedProject)
-            .filter(DBGeneratedProject.project_id == project_id)
-            .filter(DBGeneratedProject.owner_user_id == normalized_owner_user_id)
-            .first()
-        )
-        if not project:
-            return False
-        db.delete(project)
-        db.commit()
-        return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.delete_generated_project(project_id, normalized_owner_user_id)
 
 
 def upsert_project_chat(
@@ -730,83 +447,14 @@ def upsert_project_chat(
         "created_at": created_at,
         "updated_at": updated_at,
     }
-    if DATABASE_BACKEND == "supabase":
-        rows = (
-            get_supabase_client()
-            .table("project_chats")
-            .select("*")
-            .eq("chat_id", normalized_chat_id)
-            .eq("owner_user_id", normalized_owner_user_id)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        if rows:
-            response = (
-                get_supabase_client()
-                .table("project_chats")
-                .update({"title": record["title"], "messages": record["messages"], "updated_at": updated_at})
-                .eq("chat_id", normalized_chat_id)
-                .eq("owner_user_id", normalized_owner_user_id)
-                .execute()
-            )
-        else:
-            response = get_supabase_client().table("project_chats").insert(record).execute()
-        rows = response.data or []
-        return _as_record(rows[0]) if rows else _as_record(record)
-
-    db = _sqlite_session()
-    try:
-        chat = (
-            db.query(DBProjectChat)
-            .filter(DBProjectChat.chat_id == normalized_chat_id)
-            .filter(DBProjectChat.owner_user_id == normalized_owner_user_id)
-            .first()
-        )
-        if chat:
-            chat.title = record["title"]
-            chat.messages = record["messages"]
-            chat.updated_at = updated_at
-        else:
-            chat = DBProjectChat(**record)
-            db.add(chat)
-        db.commit()
-        db.refresh(chat)
-        return chat
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.upsert_project_chat(record)
 
 
 def list_project_chats(owner_user_id: str) -> List[Any]:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_owner_user_id:
         return []
-    if DATABASE_BACKEND == "supabase":
-        rows = (
-            get_supabase_client()
-            .table("project_chats")
-            .select("*")
-            .eq("owner_user_id", normalized_owner_user_id)
-            .order("updated_at", desc=True)
-            .execute()
-            .data
-            or []
-        )
-        return [_as_record(row) for row in rows]
-    db = _sqlite_session()
-    try:
-        return (
-            db.query(DBProjectChat)
-            .filter(DBProjectChat.owner_user_id == normalized_owner_user_id)
-            .order_by(DBProjectChat.updated_at.desc())
-            .all()
-        )
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.list_project_chats(normalized_owner_user_id)
 
 
 def get_project_chat(chat_id: str, owner_user_id: str) -> Optional[Any]:
@@ -814,29 +462,7 @@ def get_project_chat(chat_id: str, owner_user_id: str) -> Optional[Any]:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_chat_id or not normalized_owner_user_id:
         return None
-    if DATABASE_BACKEND == "supabase":
-        rows = (
-            get_supabase_client()
-            .table("project_chats")
-            .select("*")
-            .eq("chat_id", normalized_chat_id)
-            .eq("owner_user_id", normalized_owner_user_id)
-            .limit(1)
-            .execute()
-            .data
-            or []
-        )
-        return _as_record(rows[0]) if rows else None
-    db = _sqlite_session()
-    try:
-        return (
-            db.query(DBProjectChat)
-            .filter(DBProjectChat.chat_id == normalized_chat_id)
-            .filter(DBProjectChat.owner_user_id == normalized_owner_user_id)
-            .first()
-        )
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.get_project_chat(normalized_chat_id, normalized_owner_user_id)
 
 
 def delete_project_chat(chat_id: str, owner_user_id: str) -> bool:
@@ -844,37 +470,7 @@ def delete_project_chat(chat_id: str, owner_user_id: str) -> bool:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_chat_id or not normalized_owner_user_id:
         return False
-    if DATABASE_BACKEND == "supabase":
-        response = (
-            get_supabase_client()
-            .table("project_chats")
-            .delete()
-            .eq("chat_id", normalized_chat_id)
-            .eq("owner_user_id", normalized_owner_user_id)
-            .execute()
-        )
-        if response.data:
-            get_supabase_client().table("generated_projects").update({"chat_id": None}).eq("chat_id", normalized_chat_id).eq("owner_user_id", normalized_owner_user_id).execute()
-        return bool(response.data)
-    db = _sqlite_session()
-    try:
-        chat = (
-            db.query(DBProjectChat)
-            .filter(DBProjectChat.chat_id == normalized_chat_id)
-            .filter(DBProjectChat.owner_user_id == normalized_owner_user_id)
-            .first()
-        )
-        if not chat:
-            return False
-        db.delete(chat)
-        db.query(DBGeneratedProject).filter(DBGeneratedProject.chat_id == normalized_chat_id).filter(DBGeneratedProject.owner_user_id == normalized_owner_user_id).update({"chat_id": None})
-        db.commit()
-        return True
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.delete_project_chat(normalized_chat_id, normalized_owner_user_id)
 
 
 def save_alpha_signup(
@@ -896,30 +492,10 @@ def save_alpha_signup(
         "metadata_json": metadata or {},
         "created_at": created_at,
     }
-    if DATABASE_BACKEND == "supabase":
-        response = get_supabase_client().table("alpha_signups").insert(record).execute()
-        rows = response.data or []
-        return _as_record(rows[0]) if rows else _as_record(record)
-
-    db = _sqlite_session()
-    try:
-        signup = DBAlphaSignup(**record)
-        db.add(signup)
-        db.commit()
-        db.refresh(signup)
-        return signup
-    except Exception:
-        db.rollback()
-        raise
-    finally:
-        db.close()
+    return _DATABASE_REPOSITORY.save_alpha_signup(record)
 
 
 def get_database_config() -> Dict[str, Any]:
-    return {
-        "backend": DATABASE_BACKEND,
-        "source": DATABASE_SOURCE,
-        "url": DATABASE_URL,
-        "client": "supabase-py" if DATABASE_BACKEND == "supabase" else "sqlite/sqlalchemy",
-        "dev_mode": blueprint_dev_mode_enabled(),
-    }
+    config = _DATABASE_PROVIDER.describe()
+    config["dev_mode"] = blueprint_dev_mode_enabled()
+    return config

@@ -24,6 +24,8 @@ DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_BASETEN_STREAM_MODEL = "zai-org/GLM-5.2"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_GMI_STREAM_MODEL = "anthropic/claude-fable-5"
+DEFAULT_NEBIUS_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
+DEFAULT_NEBIUS_STREAM_MODEL = "Qwen/Qwen3.5-397B-A17B"
 DEFAULT_OPENAI_COMPATIBLE_CHAT_TEMPERATURE = 0.2
 DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
@@ -166,7 +168,7 @@ class OpenAICompatibleChatConfig:
     ) -> "OpenAICompatibleChatConfig":
         env = merged_env(env_file)
         provider = normalize_stream_provider_name(provider_name)
-        if provider not in {"baseten", "gmi"}:
+        if provider not in {"baseten", "gmi", "nebius"}:
             raise OpenAIStreamConfigError(f"Unsupported OpenAI-compatible stream provider {provider_name!r}.")
 
         if provider == "baseten":
@@ -180,7 +182,7 @@ class OpenAICompatibleChatConfig:
             default_base_url = DEFAULT_BASETEN_BASE_URL
             default_temperature = DEFAULT_OPENAI_COMPATIBLE_CHAT_TEMPERATURE
             missing_key_message = "Missing BASETEN_API_KEY in .env or process environment."
-        else:
+        elif provider == "gmi":
             api_key_names = ("GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY", "LLM_API_KEY")
             base_url_names = ("GMI_BASE_URL", "GMI_CLOUD_BASE_URL", "GMICLOUD_BASE_URL")
             model_names = ("GMI_STREAM_MODEL", "GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", "LLM_MODEL")
@@ -191,6 +193,17 @@ class OpenAICompatibleChatConfig:
             default_base_url = DEFAULT_GMI_BASE_URL
             default_temperature = None
             missing_key_message = "Missing GMI_API_KEY or GMI_CLOUD_API_KEY in .env or process environment."
+        else:
+            api_key_names = ("NEBIUS_API_KEY", "LLM_API_KEY")
+            base_url_names = ("NEBIUS_BASE_URL",)
+            model_names = ("NEBIUS_STREAM_MODEL", "NEBIUS_MODEL", "LLM_MODEL")
+            timeout_names = ("NEBIUS_STREAM_TIMEOUT_SECONDS", "NEBIUS_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS")
+            max_output_names = ("NEBIUS_STREAM_MAX_OUTPUT_TOKENS", "NEBIUS_MAX_TOKENS", "LLM_MAX_TOKENS")
+            temperature_names = ("NEBIUS_STREAM_TEMPERATURE", "NEBIUS_TEMPERATURE", "LLM_TEMPERATURE")
+            default_model = DEFAULT_NEBIUS_STREAM_MODEL
+            default_base_url = DEFAULT_NEBIUS_BASE_URL
+            default_temperature = DEFAULT_OPENAI_COMPATIBLE_CHAT_TEMPERATURE
+            missing_key_message = "Missing NEBIUS_API_KEY in .env or process environment."
 
         api_key = first_env(env, *api_key_names)
         if not api_key:
@@ -684,6 +697,10 @@ def normalize_stream_provider_name(value: str | None) -> str:
         "gmicloud": "gmi",
         "gemicloud": "gmi",
         "gmi-serving": "gmi",
+        "nebius-ai": "nebius",
+        "nebius-token-factory": "nebius",
+        "token-factory": "nebius",
+        "tokenfactory": "nebius",
     }
     return aliases.get(provider, provider or "openai")
 
@@ -718,6 +735,8 @@ __all__ = [
     "DEFAULT_BASETEN_STREAM_MODEL",
     "DEFAULT_GMI_BASE_URL",
     "DEFAULT_GMI_STREAM_MODEL",
+    "DEFAULT_NEBIUS_BASE_URL",
+    "DEFAULT_NEBIUS_STREAM_MODEL",
     "DEFAULT_OPENAI_BASE_URL",
     "DEFAULT_OPENAI_STREAM_MODEL",
     "DEFAULT_OPENAI_STREAM_PROMPT",

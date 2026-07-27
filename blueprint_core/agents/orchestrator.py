@@ -978,8 +978,8 @@ class HardwarePipelineOrchestrator:
             if _generation_fallback_disabled():
                 logger.error("Pipeline execution failed and fallback is disabled: %s", e)
                 raise
-            logger.error(f"Pipeline execution encountered an error: {e}. Falling back to simulation.")
-            return self._generate_simulated_project(user_prompt, has_image=bool(image_bytes))
+            logger.error("Pipeline execution encountered an error: %s", e)
+            return self._generate_failed_project(e)
 
     def _request_parti_base_seed(
         self,
@@ -1463,6 +1463,29 @@ class HardwarePipelineOrchestrator:
             return self._load_simulated_thermostat_project(prompt)
         else:
             return self._load_simulated_smart_lock_project(prompt)
+
+    def _generate_failed_project(self, error: Exception) -> HardwareIR:
+        """Return an empty, invalid project that preserves a pipeline failure for callers."""
+        error_type = error.__class__.__name__
+        error_message = str(error).strip() or error_type
+        issue = ValidationIssue(
+            severity="CRITICAL",
+            category="Generation Failure",
+            description=error_message,
+            troubleshooting="Retry generation or review the configured provider and model logs.",
+        )
+        return HardwareIR(
+            assembly_metadata={
+                "status": "failed",
+                "generation_error": {
+                    "type": error_type,
+                    "message": error_message,
+                },
+                "fallback_mode": False,
+            },
+            validation=ValidationSummary(critical=[issue]),
+            is_valid=False,
+        )
 
     def _load_simulated_mp3_player_project(self, prompt: str) -> HardwareIR:
         """Reference-style Forma project used for prompt+image MP3 player examples."""

@@ -3,7 +3,6 @@ import logging
 import os
 import re
 import sys
-from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Optional, Tuple
 
@@ -12,8 +11,6 @@ from blueprint_core.logs import resolve_backend_log_path
 
 
 DEFAULT_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
-DEFAULT_LOG_MAX_BYTES = 10_000_000
-DEFAULT_LOG_BACKUP_COUNT = 5
 SERVERLESS_ENV_VARS = ("VERCEL", "AWS_LAMBDA_FUNCTION_NAME", "AWS_EXECUTION_ENV")
 
 
@@ -34,16 +31,6 @@ def _log_level(value: Optional[str]) -> int:
         return logging.INFO
     normalized = value.strip().upper()
     return getattr(logging, normalized, logging.INFO)
-
-
-def _env_int(name: str, default: int) -> int:
-    raw_value = os.getenv(name)
-    if raw_value is None or not raw_value.strip():
-        return default
-    try:
-        return int(raw_value)
-    except ValueError:
-        return default
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
@@ -110,14 +97,9 @@ def _build_file_handler(
     level: int,
     formatter: logging.Formatter,
     namespaces: Tuple[str, ...],
-) -> RotatingFileHandler:
+) -> logging.FileHandler:
     path.parent.mkdir(parents=True, exist_ok=True)
-    handler = RotatingFileHandler(
-        path,
-        maxBytes=_env_int("BACKEND_LOG_MAX_BYTES", DEFAULT_LOG_MAX_BYTES),
-        backupCount=_env_int("BACKEND_LOG_BACKUP_COUNT", DEFAULT_LOG_BACKUP_COUNT),
-        encoding="utf-8",
-    )
+    handler = logging.FileHandler(path, encoding="utf-8")
     handler.setLevel(level)
     handler.setFormatter(formatter)
     _ensure_namespace_filter(handler, namespaces)
@@ -143,10 +125,21 @@ def _attach_file_handlers(
         uvicorn_error_logger,
         uvicorn_access_logger,
     ]
+    handler = next(
+        (
+            existing
+            for logger in target_loggers
+            if (existing := _handler_for_path(logger, log_path)) is not None
+        ),
+        None,
+    )
+    if handler is None:
+        handler = _build_file_handler(log_path, level, formatter, namespaces)
+
     for logger in target_loggers:
         logger.setLevel(level)
         if _handler_for_path(logger, log_path) is None:
-            logger.addHandler(_build_file_handler(log_path, level, formatter, namespaces))
+            logger.addHandler(handler)
 
 
 def _configure_file_logging(

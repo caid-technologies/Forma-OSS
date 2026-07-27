@@ -192,7 +192,7 @@ class GenerateProjectRequest(BaseModel):
     )
     provider: Optional[str] = Field(
         None,
-        description="Optional runtime LLM provider override, for example openai, anthropic, baseten, gmi, huggingface, nvidia, openai-compatible, gemini, runpod, runpod-serverless, or simulation"
+        description="Optional runtime LLM provider override, for example openai, anthropic, baseten, gmi, huggingface, nebius, nvidia, openai-compatible, gemini, runpod, runpod-serverless, or simulation"
     )
     model: Optional[str] = Field(
         None,
@@ -297,6 +297,14 @@ class IterateProjectRequest(BaseModel):
             return value.strip()
         return value
 
+    @field_validator("namespace", "provider", "model", mode="before")
+    @classmethod
+    def strip_optional_iteration_selector(cls, value: Any) -> Any:
+        if isinstance(value, str):
+            stripped = value.strip()
+            return stripped or None
+        return value
+
 
 class VideoSelfCorrectRequest(BaseModel):
     video_url: str = Field(..., min_length=1, description="HTTP(S) URL for the generated video to review.")
@@ -343,15 +351,6 @@ class VideoSelfCorrectRequest(BaseModel):
         if not re.match(r"^https?://", value):
             raise ValueError("video_url must be an http(s) URL.")
         return value
-
-    @field_validator("namespace", "provider", "model", mode="before")
-    @classmethod
-    def strip_optional_iteration_selector(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            stripped = value.strip()
-            return stripped or None
-        return value
-
 
 class AlphaSignupRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=120, description="Person's name")

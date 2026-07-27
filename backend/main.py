@@ -1725,8 +1725,13 @@ def iterate_project_endpoint(
 
         return {
             "project_id": project.project_id,
+            "chat_id": (
+                getattr(project, "chat_id", None)
+                or (revised_ir.assembly_metadata or {}).get("chat_id")
+            ),
             "prompt": project.prompt,
             "created_at": project.created_at,
+            "can_chat": _user_owns_project(project, user),
             "saved": request.save,
             "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
             "project_ir": revised_ir.model_dump(mode="json"),

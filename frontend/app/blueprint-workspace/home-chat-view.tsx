@@ -8,7 +8,6 @@ import {
   ArrowRight,
   CheckCircle,
   Cpu,
-  Eye,
   Info,
   KeyRound,
   Paperclip,
@@ -47,7 +46,6 @@ type HomeChatViewProps = {
   messages: HomeChatMessage[];
   endRef: RefObject<HTMLDivElement>;
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
-  onOpenProject: (projectId: string) => void;
   examples: string[];
   onSelectExample: (example: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -91,7 +89,6 @@ export default function HomeChatView({
   messages,
   endRef,
   renderPipelineProgress,
-  onOpenProject,
   examples,
   onSelectExample,
   onSubmit,
@@ -179,17 +176,7 @@ export default function HomeChatView({
                       <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
                     </div>
                     <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    {renderPipelineProgress(message)}
-                    {message.projectId && (
-                      <button
-                        type="button"
-                        onClick={() => onOpenProject(message.projectId!)}
-                        className="mt-3 inline-flex h-9 items-center gap-2 border border-emerald-300/40 px-3 text-xs font-black uppercase text-emerald-100 hover:bg-emerald-300 hover:text-black"
-                      >
-                        <Eye className="h-4 w-4" />
-                        Open project
-                      </button>
-                    )}
+                    {!message.projectId && renderPipelineProgress(message)}
                   </div>
                 </div>
               );

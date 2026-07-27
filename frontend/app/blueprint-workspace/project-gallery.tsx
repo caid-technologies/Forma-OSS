@@ -287,8 +287,11 @@ export function ProjectGallery({
               <ProjectGalleryCard
                 key={item.key}
                 item={item}
-                onOpenChat={item.canChat ? () => onOpenChat(item.chatId) : undefined}
-                onOpenProjectPage={() => onOpenProjectPage(item.projectId)}
+                onOpen={() => (
+                  item.canChat
+                    ? onOpenChat(item.chatId)
+                    : onOpenProjectPage(item.projectId)
+                )}
               />
             ))}
           </div>
@@ -433,27 +436,25 @@ function ProjectImageLoadingPanel() {
 
 function ProjectGalleryCard({
   item,
-  onOpenChat,
-  onOpenProjectPage,
+  onOpen,
 }: {
   item: ProjectGalleryItem;
-  onOpenChat?: () => void;
-  onOpenProjectPage: () => void;
+  onOpen: () => void;
 }) {
   const ageLabel = formatProjectAge(item.createdAt);
   return (
     <article
       role="link"
       tabIndex={0}
-      onClick={onOpenProjectPage}
+      onClick={onOpen}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onOpenProjectPage();
+          onOpen();
         }
       }}
       className="group cursor-pointer overflow-hidden border border-[#2c2f37] bg-[#17181d] outline-none transition hover:border-cyan-300/35 focus-visible:border-cyan-300"
-      aria-label={`Open project ${item.title}`}
+      aria-label={`${item.canChat ? "Open workspace" : "View project"} ${item.title}`}
     >
       <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
         {item.image ? (
@@ -501,22 +502,14 @@ function ProjectGalleryCard({
             )}
             <span className="truncate">{item.creatorDisplay}</span>
           </div>
-          {item.canChat && onOpenChat && (
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onOpenChat();
-              }}
-              className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
-            >
+          {item.canChat && (
+            <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
               <MessageSquare className="h-4 w-4 shrink-0" />
-              <span className="truncate">Chat</span>
-            </button>
+              <span className="truncate">Workspace</span>
+            </span>
           )}
         </div>
       </div>
     </article>
   );
 }
-

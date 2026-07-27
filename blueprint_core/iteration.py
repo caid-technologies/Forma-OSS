@@ -309,6 +309,11 @@ def _normalize_iteration_metadata(
     metadata = dict(ir.assembly_metadata or {})
     base_metadata = dict(base_ir.assembly_metadata or {})
     metadata = _preserve_output_metadata(metadata, base_metadata)
+    if (
+        _metadata_value_missing(metadata.get("chat_id"))
+        and not _metadata_value_missing(base_metadata.get("chat_id"))
+    ):
+        metadata["chat_id"] = base_metadata["chat_id"]
     metadata.update(
         {
             "project_id": normalized_project_id,

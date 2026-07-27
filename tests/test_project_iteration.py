@@ -203,6 +203,7 @@ class ProjectIterationTests(unittest.TestCase):
 
     def test_live_iteration_uses_provider_and_normalizes_metadata(self) -> None:
         current = build_sample_ir()
+        current.assembly_metadata["chat_id"] = "chat-soil-monitor"
         model_output = current.model_copy(deep=True)
         model_output.overview.description = "A revised monitor with a waterproof enclosure."
         model_output.assembly_metadata = {"project_id": PROJECT_ID, "revision": 99}
@@ -234,6 +235,7 @@ class ProjectIterationTests(unittest.TestCase):
         self.assertEqual("openai", revised.assembly_metadata["iteration_provider"])
         self.assertEqual("gpt-5.5", revised.assembly_metadata["iteration_model"])
         self.assertEqual(PROJECT_ID, revised.assembly_metadata["project_id"])
+        self.assertEqual("chat-soil-monitor", revised.assembly_metadata["chat_id"])
         self.assertEqual(2, len(revised.project_version_history))
         self.assertEqual("Make the enclosure waterproof.", revised.project_version_history[-1]["description"])
         object_metadata = revised.assembly_metadata["project_object"]

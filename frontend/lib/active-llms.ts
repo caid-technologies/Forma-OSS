@@ -56,6 +56,15 @@ function parseLlmSelector(value: string | null) {
   };
 }
 
+function parseProviderAllowlist(value: string | null) {
+  if (!value) return null;
+  const providers = value
+    .split(",")
+    .map((provider) => provider.trim().toLowerCase())
+    .filter(Boolean);
+  return providers.length ? new Set(providers) : null;
+}
+
 function firstDefaultModelForProvider(defaultLlms: GenerationLlmOption[], provider: string) {
   return defaultLlms.find((option) => option.provider === provider)?.model || "";
 }
@@ -85,8 +94,10 @@ export function activeLlmsFromIntegrations(
   const byId = new Map(integrations.map((integration) => [integration.id, integration]));
   const options: GenerationLlmOption[] = [];
   const runtime = byId.get("runtime");
+  const allowedProviders = parseProviderAllowlist(integrationFieldValue(runtime, "allowed_providers"));
+  const providerIsAllowed = (provider: string) => !allowedProviders || allowedProviders.has(provider.toLowerCase());
   const preferred = parseLlmSelector(integrationFieldValue(runtime, "llm_selector"));
-  if (preferred) {
+  if (preferred && providerIsAllowed(preferred.provider)) {
     const providerIntegration = byId.get(preferred.provider);
     if (integrationIsAvailable(providerIntegration)) {
       options.push({
@@ -98,7 +109,7 @@ export function activeLlmsFromIntegrations(
   }
 
   integrations.forEach((integration) => {
-    if (!LLM_PROVIDER_IDS.has(integration.id) || !integrationIsAvailable(integration)) return;
+    if (!LLM_PROVIDER_IDS.has(integration.id) || !providerIsAllowed(integration.id) || !integrationIsAvailable(integration)) return;
     const model = integrationFieldValue(integration, "model") || firstDefaultModelForProvider(defaultLlms, integration.id);
     if (!model) return;
     options.push({

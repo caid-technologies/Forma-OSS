@@ -118,6 +118,7 @@ from blueprint_core.runtime import (
     deployment_runtime_config,
     generation_unavailable_detail,
 )
+from blueprint_core.runtime_config import blueprint_dev_mode_enabled
 from backend.storage import get_image_storage_config, hydrate_image_storage_metadata
 from blueprint_core.validation import validate_circuit
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
@@ -364,6 +365,7 @@ def debug_config_endpoint(
         llm_config = orchestrator.get_debug_config()
         return {
             **llm_config,
+            "blueprint_dev_mode": blueprint_dev_mode_enabled(),
             "deployment": _deployment_runtime_config(llm_config),
             "database": get_database_config(),
             "job_metadata": JOB_STORE.get_config(),

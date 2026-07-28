@@ -13,11 +13,9 @@ import {
   Paperclip,
   RefreshCw,
   Settings,
-  Sparkles,
   Square,
   X,
 } from "lucide-react";
-import { generationLlmKey, type GenerationLlmOption } from "../../lib/active-llms";
 
 type HomeChatMessage = {
   id: string;
@@ -67,15 +65,6 @@ type HomeChatViewProps = {
   inputValid: boolean;
   imageInputRef: RefObject<HTMLInputElement>;
   onImageChange: ChangeEventHandler<HTMLInputElement>;
-  webResearchEnabled: boolean;
-  onWebResearchChange: (enabled: boolean) => void;
-  llmKey: string;
-  onLlmChange: (key: string) => void;
-  llms: GenerationLlmOption[];
-  llmsLoaded: boolean;
-  imageGenerationConfigLoaded: boolean;
-  generateImages: boolean;
-  onGenerateImagesChange: (enabled: boolean) => void;
 };
 
 function formatTimestamp(value: string) {
@@ -110,21 +99,12 @@ export default function HomeChatView({
   inputValid,
   imageInputRef,
   onImageChange,
-  webResearchEnabled,
-  onWebResearchChange,
-  llmKey,
-  onLlmChange,
-  llms,
-  llmsLoaded,
-  imageGenerationConfigLoaded,
-  generateImages,
-  onGenerateImagesChange,
 }: HomeChatViewProps) {
   return (
     <section
       className={`${
         !started
-          ? "fixed bottom-[276px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none"
+          ? "fixed bottom-[224px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none"
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
@@ -297,7 +277,7 @@ export default function HomeChatView({
                     <ol className="mt-2 space-y-1 text-xs leading-5 text-slate-400">
                       <li>1. Open Settings and select Image Generation.</li>
                       <li>2. Choose a provider and add its scoped key, model, and required confirmation.</li>
-                      <li>3. Enable and save it before turning Images on.</li>
+                      <li>3. Enable and save it before returning to your build.</li>
                     </ol>
                   </div>
                 )}
@@ -326,6 +306,7 @@ export default function HomeChatView({
           )}
 
           <div className="relative">
+            <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
             <textarea
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
@@ -338,8 +319,17 @@ export default function HomeChatView({
               placeholder={pendingContext ? "Optional: add final context notes before building..." : "Ask Forma to build a lab-on-chip reader, self-assembling tent, sensor node, robot fixture..."}
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
-              className={`${pendingContext ? "min-h-[72px] sm:min-h-[96px]" : "min-h-[98px] sm:min-h-[104px]"} w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-3 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:p-4 sm:pr-16 sm:leading-7`}
+              className={`${pendingContext ? "min-h-[72px] sm:min-h-[96px]" : "min-h-[98px] sm:min-h-[104px]"} w-full resize-none border border-[#2c2f37] bg-[#0f1014] py-3 pl-14 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:py-4 sm:pl-16 sm:pr-16 sm:leading-7`}
             />
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              className="absolute bottom-3 left-3 inline-flex h-9 w-9 items-center justify-center border border-[#2c2f37] text-slate-400 transition hover:bg-white hover:text-black sm:bottom-4 sm:left-4 sm:h-10 sm:w-10"
+              aria-label="Attach image"
+              title="Attach image"
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
             <button
               type={generationActive ? "button" : "submit"}
               onClick={generationActive ? onStop : undefined}
@@ -352,44 +342,8 @@ export default function HomeChatView({
             </button>
           </div>
 
-          <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="grid w-full grid-cols-[2.5rem_minmax(0,1fr)] gap-2 lg:w-fit lg:grid-cols-[2.5rem_13rem_17rem_8.25rem] lg:items-center">
-              <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
-              <button type="button" onClick={() => imageInputRef.current?.click()} className="inline-flex h-10 w-10 items-center justify-center border border-[#2c2f37] text-slate-400 hover:bg-white hover:text-black" title="Attach image">
-                <Paperclip className="h-4 w-4" />
-              </button>
-              <label className="inline-flex h-10 min-w-0 cursor-pointer items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-400 hover:border-slate-500 hover:text-white lg:justify-start" title="Use Firecrawl web research">
-                <input type="checkbox" checked={webResearchEnabled} onChange={(event) => onWebResearchChange(event.target.checked)} disabled={isLoading} className="peer sr-only" />
-                <Sparkles className={`h-4 w-4 shrink-0 ${webResearchEnabled ? "text-cyan-300" : "text-slate-500"}`} />
-                <span className="whitespace-nowrap">Web Research</span>
-                <span className={`h-4 w-7 border transition ${webResearchEnabled ? "border-cyan-300 bg-cyan-300" : "border-[#3a3d46] bg-black"}`}>
-                  <span className={`block h-full w-3.5 bg-white transition ${webResearchEnabled ? "translate-x-3" : "translate-x-0"}`} />
-                </span>
-              </label>
-              <label className="col-span-2 inline-flex h-10 min-w-0 items-center gap-2 border border-[#2c2f37] bg-[#17181d] px-3 text-xs font-black uppercase text-slate-400 lg:col-span-1">
-                <Cpu className="h-4 w-4 shrink-0 text-cyan-300" />
-                <select value={llmKey} onChange={(event) => onLlmChange(event.target.value)} disabled={isLoading || !generationReady} className="min-w-0 w-full flex-1 bg-transparent text-xs font-black uppercase text-white outline-none disabled:cursor-not-allowed disabled:opacity-50" aria-label="Generation LLM" title="Generation LLM">
-                  {llms.length ? llms.map((option) => (
-                    <option key={generationLlmKey(option)} value={generationLlmKey(option)} className="bg-[#17181d] text-white">
-                      {option.label}
-                    </option>
-                  )) : (
-                    <option value="" className="bg-[#17181d] text-white">{llmsLoaded ? "No active models" : "Loading models..."}</option>
-                  )}
-                </select>
-              </label>
-              <label className={`col-span-2 inline-flex h-10 min-w-0 items-center justify-between gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase lg:col-span-1 lg:justify-start ${imageGenerationConfigLoaded && !needsImageProvider ? "cursor-pointer text-slate-400 hover:border-slate-500 hover:text-white" : "cursor-not-allowed text-slate-600"}`} title={needsImageProvider ? "Configure an image provider in Settings first" : "Generate product images"}>
-                <input type="checkbox" checked={generateImages} onChange={(event) => onGenerateImagesChange(event.target.checked)} disabled={isLoading || !imageGenerationConfigLoaded || needsImageProvider} className="peer sr-only" />
-                <Sparkles className={`h-4 w-4 ${generateImages ? "text-cyan-300" : "text-slate-500"}`} />
-                <span>Images</span>
-                <span className={`h-4 w-7 border transition ${generateImages ? "border-cyan-300 bg-cyan-300" : "border-[#3a3d46] bg-black"}`}>
-                  <span className={`block h-full w-3.5 bg-white transition ${generateImages ? "translate-x-3" : "translate-x-0"}`} />
-                </span>
-              </label>
-            </div>
-          </div>
         </form>
-        {started && <div className="h-[276px] shrink-0 md:hidden" aria-hidden="true" />}
+        {started && <div className="h-[224px] shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
   );

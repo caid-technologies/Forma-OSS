@@ -100,7 +100,6 @@ class CorePackageTests(unittest.TestCase):
             self.assertEqual("blueprint_core/**", function_config["includeFiles"])
             exclude_files = function_config["excludeFiles"]
             self.assertIn("frontend/**", exclude_files)
-            self.assertIn("rust/**", exclude_files)
             self.assertIn("*.db", exclude_files)
         self.assertNotIn("functions", vercel_config)
         self.assertIn(

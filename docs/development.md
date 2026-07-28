@@ -36,11 +36,11 @@ npm run lint
 npm run build
 ```
 
-Rust integration:
+Rust integrations are developed in [`isayahc/Forma-Rust`](https://github.com/isayahc/Forma-Rust):
 ```bash
-./scripts/test-rust.sh
-cd rust
-cargo run -p blueprint-edge -- linux-snapshot
+git clone https://github.com/isayahc/Forma-Rust.git
+cd Forma-Rust
+cargo run --manifest-path rust/Cargo.toml -p blueprint-edge -- linux-snapshot
 ```
 
 ## Adding a new agent

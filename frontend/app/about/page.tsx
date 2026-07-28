@@ -5,7 +5,7 @@ import { ArrowLeft, Cpu, Handshake, ShieldCheck } from "lucide-react";
 import LegalFooter from "../../components/legal-footer";
 import PartnerLogoMarquee from "../../components/partner-logo-marquee";
 import { legalContactEmail, legalEntityName } from "../../lib/legal-docs";
-import { partners } from "../../lib/partners";
+import { aboutMarqueePartners } from "../../lib/partners";
 
 export const metadata: Metadata = {
   title: "About Us | Forma",
@@ -70,7 +70,7 @@ export default function AboutPage() {
         </section>
 
         <section className="mx-auto w-full max-w-6xl pb-10">
-          <PartnerLogoMarquee partners={partners} hrefPrefix="/partners" />
+          <PartnerLogoMarquee partners={aboutMarqueePartners} hrefPrefix="/partners" />
         </section>
       </main>
       <LegalFooter />

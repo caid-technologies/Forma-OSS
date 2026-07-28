@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Cpu, Handshake, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Cpu, Handshake, ShieldCheck } from "lucide-react";
 import LegalFooter from "../../components/legal-footer";
 import PartnerLogoMarquee from "../../components/partner-logo-marquee";
 import { legalContactEmail, legalEntityName } from "../../lib/legal-docs";
@@ -45,9 +45,20 @@ export default function AboutPage() {
           </div>
           <div className="max-w-2xl text-base leading-7 text-slate-400 lg:justify-self-end">
             Forma helps builders turn early hardware ideas into structured project plans with parts, wiring, validation, build notes, and generated artifacts.
-            <a href={`mailto:${legalContactEmail}`} className="mt-4 block text-sm text-cyan-200 hover:text-white">
-              {legalContactEmail}
-            </a>
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <a href={`mailto:${legalContactEmail}`} className="text-cyan-200 hover:text-white">
+                {legalContactEmail}
+              </a>
+              <a
+                href="https://www.caid-technologies.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-cyan-200 hover:text-white"
+              >
+                CAID Technologies
+                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+              </a>
+            </div>
           </div>
         </section>
 

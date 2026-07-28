@@ -397,10 +397,10 @@ export function ChatSidebar({
             href="/projects"
             onClick={onNavigate}
             className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="Projects"
+            title="Community"
           >
             <Layers className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">Projects</span>}
+            {!compact && <span className="truncate">Community</span>}
           </Link>
           {showJobs ? (
             <Link

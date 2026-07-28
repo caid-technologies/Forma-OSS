@@ -45,6 +45,7 @@ import {
   buildProjectGalleryItems,
   previewableImageSrc,
   resolveProjectImageCandidates,
+  type ProjectGalleryItem,
   type ProjectImageCandidate,
 } from "./blueprint-workspace/project-gallery";
 import {
@@ -1918,6 +1919,37 @@ export function FormaWorkspace({
       writeStoredChatIndex(nextItems, chatStorageScope);
       return nextItems;
     });
+  };
+
+  const deleteOwnedProject = async (item: ProjectGalleryItem) => {
+    const response = await fetch(`${API_URL}/projects/${encodeURIComponent(item.projectId)}`, {
+      method: "DELETE",
+      headers: await generationRequestHeaders(),
+    });
+    if (!response.ok) {
+      throw new Error(await readApiErrorMessage(response));
+    }
+
+    const removeProject = (projects: any[]) => (
+      projects.filter((project: any) => String(project?.project_id || "") !== item.projectId)
+    );
+    setProjectHistory(removeProject);
+    setMyProjectHistory(removeProject);
+    setProjectGalleryImages((current) => {
+      if (!(item.projectId in current)) return current;
+      const next = { ...current };
+      delete next[item.projectId];
+      return next;
+    });
+    if (item.chatId) {
+      detachMissingProjectFromChat(item.chatId, item.projectId, item.title);
+    }
+    if (projectIdFromIR(projectIR) === item.projectId) {
+      setProjectIR(null);
+    }
+    if (currentRouteProjectId && safeDecodeProjectId(currentRouteProjectId) === item.projectId) {
+      router.replace("/my-projects");
+    }
   };
 
   const updateHumanContextAnswer = (questionId: string, value: string) => {
@@ -4157,6 +4189,7 @@ export function FormaWorkspace({
                 items={projectGalleryItems}
                 loading={projectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onDeleteProject={deleteOwnedProject}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
               />
@@ -4173,6 +4206,7 @@ export function FormaWorkspace({
                 items={myProjectGalleryItems}
                 loading={myProjectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onDeleteProject={deleteOwnedProject}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
               />

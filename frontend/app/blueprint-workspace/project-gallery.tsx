@@ -8,6 +8,7 @@ import {
   Cpu,
   MessageSquare,
   Star,
+  Trash2,
 } from "lucide-react";
 
 export type ProjectGalleryItem = {
@@ -215,6 +216,7 @@ export function ProjectGallery({
   items,
   loading = false,
   onOpenProjectPage,
+  onDeleteProject,
   onVisibleProjectIdsChange,
   standalone = false,
 }: {
@@ -222,11 +224,15 @@ export function ProjectGallery({
   items: ProjectGalleryItem[];
   loading?: boolean;
   onOpenProjectPage: (projectId: string) => void;
+  onDeleteProject?: (item: ProjectGalleryItem) => Promise<void>;
   onVisibleProjectIdsChange?: (projectIds: string[]) => void;
   standalone?: boolean;
 }) {
   const pageSize = PROJECT_GALLERY_PAGE_SIZE;
   const [currentPage, setCurrentPage] = useState(0);
+  const [projectPendingDeletion, setProjectPendingDeletion] = useState<ProjectGalleryItem | null>(null);
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
   const safePage = Math.min(currentPage, pageCount - 1);
   const firstVisibleItem = safePage * pageSize;
@@ -256,8 +262,34 @@ export function ProjectGallery({
     onVisibleProjectIdsChange?.(visibleProjectIds);
   }, [onVisibleProjectIdsChange, visibleProjectIds]);
 
+  useEffect(() => {
+    if (!projectPendingDeletion) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !deletingProjectId) {
+        setDeleteError(null);
+        setProjectPendingDeletion(null);
+      }
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [deletingProjectId, projectPendingDeletion]);
+
   const goToPage = (page: number) => {
     setCurrentPage(Math.min(Math.max(page, 0), pageCount - 1));
+  };
+
+  const confirmProjectDeletion = async () => {
+    if (!projectPendingDeletion || !onDeleteProject) return;
+    setDeleteError(null);
+    setDeletingProjectId(projectPendingDeletion.projectId);
+    try {
+      await onDeleteProject(projectPendingDeletion);
+      setProjectPendingDeletion(null);
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : "Project deletion failed.");
+    } finally {
+      setDeletingProjectId(null);
+    }
   };
 
   return (
@@ -286,6 +318,12 @@ export function ProjectGallery({
                 key={item.key}
                 item={item}
                 onOpen={() => onOpenProjectPage(item.projectId)}
+                onDeleteRequest={item.canChat && onDeleteProject
+                  ? () => {
+                      setDeleteError(null);
+                      setProjectPendingDeletion(item);
+                    }
+                  : undefined}
               />
             ))}
           </div>
@@ -354,6 +392,70 @@ export function ProjectGallery({
       ) : (
         <div className="border border-[#2c2f37] bg-[#17181d] p-8 text-sm leading-6 text-slate-500">
           No saved projects yet.
+        </div>
+      )}
+
+      {projectPendingDeletion && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-4"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !deletingProjectId) {
+              setDeleteError(null);
+              setProjectPendingDeletion(null);
+            }
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-project-title"
+            aria-describedby="delete-project-description"
+            className="w-full max-w-md border border-rose-400/40 bg-[#17181d] p-5 shadow-2xl"
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center border border-rose-400/40 bg-rose-950/30 text-rose-300">
+                <Trash2 className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <h3 id="delete-project-title" className="text-sm font-black uppercase tracking-[0.16em] text-white">
+                  Delete project?
+                </h3>
+                <p id="delete-project-description" className="mt-2 text-sm leading-6 text-slate-400">
+                  <span className="font-bold text-slate-200">{projectPendingDeletion.title}</span> will be permanently removed. This cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            {deleteError && (
+              <div role="alert" className="mt-4 border border-rose-400/35 bg-rose-950/25 px-3 py-2 text-sm text-rose-200">
+                {deleteError}
+              </div>
+            )}
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setDeleteError(null);
+                  setProjectPendingDeletion(null);
+                }}
+                disabled={Boolean(deletingProjectId)}
+                className="h-10 border border-[#343740] px-4 text-xs font-black uppercase tracking-[0.12em] text-slate-300 transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmProjectDeletion()}
+                disabled={Boolean(deletingProjectId)}
+                className="inline-flex h-10 items-center gap-2 border border-rose-400/50 bg-rose-950/30 px-4 text-xs font-black uppercase tracking-[0.12em] text-rose-100 transition hover:bg-rose-400 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Trash2 className="h-4 w-4" />
+                {deletingProjectId ? "Deleting..." : "Delete permanently"}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </section>
@@ -431,9 +533,11 @@ function ProjectImageLoadingPanel() {
 function ProjectGalleryCard({
   item,
   onOpen,
+  onDeleteRequest,
 }: {
   item: ProjectGalleryItem;
   onOpen: () => void;
+  onDeleteRequest?: () => void;
 }) {
   const ageLabel = formatProjectAge(item.createdAt);
   return (
@@ -497,10 +601,28 @@ function ProjectGalleryCard({
             <span className="truncate">{item.creatorDisplay}</span>
           </div>
           {item.canChat && (
-            <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
-              <MessageSquare className="h-4 w-4 shrink-0" />
-              <span className="truncate">Your project</span>
-            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              <span className="inline-flex h-9 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
+                <MessageSquare className="h-4 w-4 shrink-0" />
+                <span className="hidden truncate sm:inline">Your project</span>
+              </span>
+              {onDeleteRequest && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onDeleteRequest();
+                  }}
+                  onKeyDown={(event) => event.stopPropagation()}
+                  className="inline-flex h-9 w-9 items-center justify-center border border-rose-400/35 text-rose-300 transition hover:bg-rose-400 hover:text-black"
+                  aria-label={`Delete project ${item.title}`}
+                  title="Delete project"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       </div>

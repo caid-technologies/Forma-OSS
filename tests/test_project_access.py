@@ -272,6 +272,53 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertNotIn(downloadable_url, json.dumps(response, default=str))
 
 
+class ProjectDeleteAccessTests(unittest.TestCase):
+    def test_owner_can_delete_own_project(self) -> None:
+        project = _project("owned-project", owner_user_id="user-a", visibility="private")
+
+        with (
+            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "delete_generated_project", return_value=True) as delete_project,
+        ):
+            response = main.delete_project_endpoint(project.project_id, _user_context("user-a"))
+
+        self.assertEqual({"ok": True, "project_id": project.project_id}, response)
+        delete_project.assert_called_once_with(project.project_id, "user-a")
+
+    def test_nonowner_cannot_delete_project(self) -> None:
+        project = _project("another-project", owner_user_id="user-b", visibility="public")
+
+        with (
+            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "delete_generated_project") as delete_project,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                main.delete_project_endpoint(project.project_id, _user_context("user-a"))
+
+        self.assertEqual(403, raised.exception.status_code)
+        delete_project.assert_not_called()
+
+    def test_anonymous_user_cannot_delete_project(self) -> None:
+        project = _project("owned-project", owner_user_id="user-a", visibility="public")
+
+        with (
+            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "delete_generated_project") as delete_project,
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                main.delete_project_endpoint(project.project_id, _anonymous_context())
+
+        self.assertEqual(401, raised.exception.status_code)
+        delete_project.assert_not_called()
+
+    def test_missing_project_returns_not_found(self) -> None:
+        with patch.object(main, "get_generated_project", return_value=None):
+            with self.assertRaises(HTTPException) as raised:
+                main.delete_project_endpoint("missing-project", _user_context("user-a"))
+
+        self.assertEqual(404, raised.exception.status_code)
+
+
 class ProjectChatAccessTests(unittest.TestCase):
     def test_chat_lookup_is_scoped_to_the_signed_in_owner(self) -> None:
         owned_chat = SimpleNamespace(

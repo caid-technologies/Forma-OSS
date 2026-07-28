@@ -1949,13 +1949,51 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             if not choices:
                 raise RuntimeError(f"{self.provider_name} response did not include any choices.")
 
-            finish_reason = choices[0].get("finish_reason")
-            message = choices[0].get("message") or {}
+            choice = choices[0]
+            finish_reason = choice.get("finish_reason")
+            message = choice.get("message") or {}
             content = message.get("content")
             if isinstance(content, list):
                 content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             if not isinstance(content, str) or not content.strip():
-                raise RuntimeError(f"{self.provider_name} response did not include text content.")
+                choice_text = choice.get("text")
+                if isinstance(choice_text, str) and choice_text.strip():
+                    content = choice_text
+            if not isinstance(content, str) or not content.strip():
+                refusal = message.get("refusal")
+                if isinstance(refusal, str) and refusal.strip():
+                    raise LLMProviderOutputError(
+                        f"{self.provider_name} refused to produce structured output for {_schema_name(schema_class)}."
+                    )
+
+                usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+                completion_tokens = usage.get("completion_tokens")
+                reasoning_content = message.get("reasoning_content")
+                has_reasoning_content = isinstance(reasoning_content, str) and bool(reasoning_content.strip())
+                last_error = LLMProviderOutputError(
+                    f"{self.provider_name} response did not include text content "
+                    f"(finish_reason={finish_reason}, max_tokens={budget}, "
+                    f"completion_tokens={completion_tokens}, reasoning_content={has_reasoning_content})."
+                )
+                if attempt == 0:
+                    budget = min(
+                        max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
+                        STRUCTURED_MAX_TOKENS_CEILING,
+                    )
+                    if self.provider_name == "nebius" and has_reasoning_content and not self.reasoning_effort:
+                        payload["reasoning_effort"] = "low"
+                    logger.warning(
+                        "%s returned no visible %s content (finish_reason=%s, completion_tokens=%s, "
+                        "reasoning_content=%s); retrying once with max_tokens=%d.",
+                        self.provider_name,
+                        _schema_name(schema_class),
+                        finish_reason,
+                        completion_tokens,
+                        has_reasoning_content,
+                        budget,
+                    )
+                    continue
+                break
 
             try:
                 result = _validate_structured_json(content, schema_class)

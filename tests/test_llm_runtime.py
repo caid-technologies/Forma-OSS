@@ -12,6 +12,7 @@ from blueprint_core.agents.web_research_workflow import WebResearchHardwarePipel
 from blueprint_core.llm import (
     LLMProviderConfigError,
     LLMProviderInputError,
+    LLMProviderOutputError,
     build_llm_provider,
     model_image_input_support,
     resolve_llm_runtime_config,
@@ -470,6 +471,91 @@ class LLMRuntimeTests(unittest.TestCase):
                 image_bytes=b"fake-image",
                 image_mime_type="image/png",
             )
+
+    def test_nebius_retries_when_reasoning_uses_budget_before_visible_content(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
+            NEBIUS_MAX_TOKENS="7000",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "nvidia/nemotron-3-super-120b-a12b")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+        responses = iter(
+            [
+                {
+                    "choices": [
+                        {
+                            "message": {"content": None, "reasoning_content": "internal reasoning"},
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"completion_tokens": 7000},
+                },
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "title": "Recovered Project",
+                                        "description": "A valid response after retry.",
+                                        "difficulty": "Beginner",
+                                        "estimated_cost": 5.0,
+                                        "category": "IoT",
+                                    }
+                                )
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
+            ]
+        )
+
+        def fake_request(_path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            return next(responses)
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Recovered Project", result.title)
+        self.assertEqual(7000, payloads[0]["max_tokens"])
+        self.assertEqual(14000, payloads[1]["max_tokens"])
+        self.assertNotIn("reasoning_effort", payloads[0])
+        self.assertEqual("low", payloads[1]["reasoning_effort"])
+
+    def test_nebius_empty_retry_reports_safe_response_metadata(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="some-new-model",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "some-new-model")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        provider._request_json = lambda *_args, **_kwargs: {
+            "choices": [
+                {
+                    "message": {"content": None, "reasoning_content": "internal reasoning"},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {"completion_tokens": 8192},
+        }
+
+        with self.assertRaisesRegex(
+            LLMProviderOutputError,
+            r"finish_reason=length.*completion_tokens=8192.*reasoning_content=True",
+        ):
+            provider.generate_structured("Return a project overview.", ProjectOverview)
 
     def test_nvidia_runtime_allows_qwen_coder_32b_instruct_override(self) -> None:
         with isolated_llm_env(

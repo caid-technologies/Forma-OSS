@@ -32,6 +32,7 @@ export default function PartnerLogoMarquee({ partners, hrefPrefix = "" }: Partne
               width={800}
               height={176}
               className="h-auto max-h-10 w-full object-contain"
+              unoptimized
             />
           </Link>
         ))}

@@ -55,6 +55,7 @@ export default function PartnersPage() {
                 width={800}
                 height={176}
                 className="h-auto w-full max-w-[260px]"
+                unoptimized
                 priority
               />
             </div>

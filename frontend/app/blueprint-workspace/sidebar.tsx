@@ -59,7 +59,6 @@ export function MobileWorkspaceBar({
       <MobileSidebarButton onClick={onOpenSidebar} />
       <div className="min-w-0 flex flex-1 items-center gap-2">
         <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
-        <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
       </div>
       <span
         className={`inline-flex h-8 w-8 shrink-0 items-center justify-center border ${apiStatusTone}`}
@@ -252,23 +251,23 @@ export function ChatSidebar({
               onHome();
               onNavigate?.();
             }}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black"
+            className="inline-flex h-9 w-11 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black"
             aria-label="Home"
             title="Home"
           >
             <Image
-              src="/brand/caid-dark-logo.png"
+              src="/brand/caid-dark-logo-cropped.png"
               alt=""
-              width={28}
-              height={28}
-              className="h-7 w-7 object-contain"
+              width={36}
+              height={20}
+              className="h-5 w-9 object-contain"
+              unoptimized
               aria-hidden="true"
             />
           </button>
           {!compact && (
             <div className="min-w-0 flex items-center gap-2">
               <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
-              <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
               <span
                 className={`inline-flex h-7 w-7 shrink-0 items-center justify-center border ${apiStatusTone}`}
                 title={apiStatusLabel}

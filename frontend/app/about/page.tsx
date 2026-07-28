@@ -26,11 +26,12 @@ export default function AboutPage() {
           </Link>
           <div className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400">
             <Image
-              src="/brand/caid-dark-logo.png"
+              src="/brand/caid-dark-logo-cropped.png"
               alt=""
-              width={28}
-              height={28}
-              className="h-7 w-7 object-contain"
+              width={44}
+              height={24}
+              className="h-6 w-11 object-contain"
+              unoptimized
               aria-hidden="true"
             />
             About us

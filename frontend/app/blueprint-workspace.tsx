@@ -10,6 +10,7 @@ import {
   type IntegrationsPayload,
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
+import { deploymentComposerDefaults } from "../lib/deployment-composer-defaults";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
   useAdminSession,
@@ -2349,6 +2350,14 @@ export function FormaWorkspace({
 
       const config = await res.json();
       if (!requestIsCurrent()) return;
+      const workflows = Array.isArray(config.workflows) ? config.workflows : [];
+      const imageOutput = config.image_output || {};
+      const imageProviderConfigured = Boolean(imageOutput.request_capable ?? imageOutput.configured);
+      const composerDefaults = deploymentComposerDefaults({
+        blueprintDevMode: config.blueprint_dev_mode,
+        imageProviderConfigured,
+        workflows,
+      });
       if (config.video_generation) {
         setVideoGenerationConfig({
           configured: Boolean(config.video_generation.configured),
@@ -2362,8 +2371,6 @@ export function FormaWorkspace({
         });
       }
       if (config.image_output) {
-        const imageOutput = config.image_output;
-        const imageProviderConfigured = Boolean(imageOutput.request_capable ?? imageOutput.configured);
         setImageGenerationConfig({
           configured: imageProviderConfigured,
           provider: typeof imageOutput.request_provider === "string"
@@ -2373,10 +2380,14 @@ export function FormaWorkspace({
               : null,
           reason: typeof imageOutput.reason === "string" ? imageOutput.reason : null,
         });
-        if (!imageProviderConfigured) setGenerateProductImage(false);
+        setGenerateProductImage(composerDefaults.generateImages);
       }
-      if (Array.isArray(config.workflows) && config.workflows.length > 0) {
-        setGenerationWorkflows(config.workflows);
+      if (workflows.length > 0) {
+        setGenerationWorkflows(workflows);
+        setGenerationWorkflow((current) =>
+          composerDefaults.workflowId ||
+          (workflows.some((workflow: GenerationWorkflowOption) => workflow.id === current) ? current : workflows[0].id),
+        );
       }
       if (appliedActiveUserLlms) return;
       const runtime = config.runtime || {};
@@ -4269,17 +4280,6 @@ export function FormaWorkspace({
               inputValid={generationInputValidation.isValid}
               imageInputRef={fileInputRefCenter}
               onImageChange={handleImageChange}
-              webResearchEnabled={webResearchEnabled}
-              onWebResearchChange={(enabled) => {
-                setGenerationWorkflow(enabled ? WEB_RESEARCH_WORKFLOW_ID : DEFAULT_WORKFLOW_ID);
-              }}
-              llmKey={generationLlmKeyValue}
-              onLlmChange={setGenerationLlmKeyValue}
-              llms={generationLlms}
-              llmsLoaded={generationLlmsLoaded}
-              imageGenerationConfigLoaded={imageGenerationConfigLoaded}
-              generateImages={generateProductImage}
-              onGenerateImagesChange={setGenerateProductImage}
             />
           )}
         </main>

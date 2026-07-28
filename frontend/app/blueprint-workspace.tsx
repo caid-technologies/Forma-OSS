@@ -4160,12 +4160,13 @@ export function FormaWorkspace({
             <>
               <WorkspacePageHeading
                 icon={Layers}
-                title="Projects"
-                description="Saved generated projects, grouped from the chat and project history."
+                title="Community"
+                description="Explore public projects shared by the Forma community."
               />
               <ProjectGallery
                 sectionRef={projectsSectionRef}
                 items={projectGalleryItems}
+                title="Community"
                 loading={projectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
@@ -4182,6 +4183,7 @@ export function FormaWorkspace({
               <ProjectGallery
                 sectionRef={projectsSectionRef}
                 items={myProjectGalleryItems}
+                title="My Projects"
                 loading={myProjectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}

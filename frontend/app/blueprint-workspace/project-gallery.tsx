@@ -213,6 +213,7 @@ export function buildProjectGalleryItems(
 export function ProjectGallery({
   sectionRef,
   items,
+  title = "Projects",
   loading = false,
   onOpenProjectPage,
   onVisibleProjectIdsChange,
@@ -220,6 +221,7 @@ export function ProjectGallery({
 }: {
   sectionRef: React.RefObject<HTMLElement>;
   items: ProjectGalleryItem[];
+  title?: string;
   loading?: boolean;
   onOpenProjectPage: (projectId: string) => void;
   onVisibleProjectIdsChange?: (projectIds: string[]) => void;
@@ -268,7 +270,7 @@ export function ProjectGallery({
             <span className="flex h-9 w-9 items-center justify-center border border-[#2c2f37] bg-black text-white">
               <Cpu className="h-4 w-4" />
             </span>
-            <h2 className="text-2xl font-black uppercase tracking-[0.22em] text-white">Projects</h2>
+            <h2 className="text-2xl font-black uppercase tracking-[0.22em] text-white">{title}</h2>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-500">
             {loading ? "Loading projects..." : `${items.length} saved projects.`}

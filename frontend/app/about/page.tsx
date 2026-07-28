@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <>
-      <main className="min-h-screen bg-[#141519] px-5 py-5 font-sans text-slate-100">
+    <div className="flex min-h-screen flex-col bg-[#141519]">
+      <main className="flex-1 px-5 py-5 font-sans text-slate-100">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 border-b border-[#292b31] pb-5">
           <Link
             href="/"
@@ -74,6 +74,6 @@ export default function AboutPage() {
         </section>
       </main>
       <LegalFooter />
-    </>
+    </div>
   );
 }

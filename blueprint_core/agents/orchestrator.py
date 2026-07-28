@@ -18,6 +18,7 @@ from blueprint_core.database import (
 )
 from blueprint_core.llm import (
     LLMProviderConfigError,
+    LLMProviderInputError,
     LLMProviderOutputError,
     LLMProviderValidation,
     LLMRuntimeConfig,
@@ -711,6 +712,8 @@ class HardwarePipelineOrchestrator:
 
         try:
             model_validation = self.validate_configured_model()
+            if image_bytes:
+                self.llm_provider.validate_image_input()
         except LLMProviderConfigError as e:
             if deployment_mode_enabled():
                 logger.error("LLM provider validation failed in deployment mode: %s", e)
@@ -965,6 +968,8 @@ class HardwarePipelineOrchestrator:
         except PipelineCancelledError:
             raise
         except LLMProviderConfigError:
+            raise
+        except LLMProviderInputError:
             raise
         except LLMProviderOutputError:
             raise

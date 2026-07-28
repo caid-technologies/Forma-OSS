@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { activeLlmsFromIntegrations, type GenerationLlmOption, type IntegrationsPayload } from "../lib/active-llms";
+import {
+  activeLlmsFromIntegrations,
+  generationLlmImageSupport,
+  type GenerationLlmOption,
+  type IntegrationsPayload,
+} from "../lib/active-llms";
 
 const defaults: GenerationLlmOption[] = [
   { provider: "openai", model: "gpt-5.5", label: "OpenAI GPT-5.5" },
@@ -9,8 +14,15 @@ const defaults: GenerationLlmOption[] = [
   { provider: "huggingface", model: "Qwen/Qwen2.5-Coder-3B-Instruct:nscale", label: "Hugging Face Qwen2.5 Coder" },
   { provider: "baseten", model: "zai-org/GLM-5.2", label: "GLM 5.2" },
   { provider: "nebius", model: "Qwen/Qwen3.5-397B-A17B", label: "Nebius Qwen 3.5 397B A17B" },
+  { provider: "nebius", model: "Qwen/Qwen2-VL-72B-Instruct", label: "Nebius Qwen2 VL 72B (Vision)" },
   { provider: "nvidia", model: "nvidia/z-ai/glm-5.2", label: "NVIDIA GLM 5.2" },
 ];
+
+test("image support distinguishes vision, text-only, and unknown models", () => {
+  assert.equal(generationLlmImageSupport({ provider: "nebius", model: "Qwen/Qwen2-VL-72B-Instruct" }), true);
+  assert.equal(generationLlmImageSupport({ provider: "nebius", model: "nvidia/nemotron-3-super-120b-a12b" }), false);
+  assert.equal(generationLlmImageSupport({ provider: "nebius", model: "some-new-model" }), null);
+});
 
 function label(provider: string, model: string) {
   const known = defaults.find((option) => option.provider === provider && option.model === model);
@@ -154,6 +166,11 @@ test("the runtime provider allowlist hides unrelated configured environment prov
       model: "nvidia/nemotron-3-super-120b-a12b",
       label: "nebius nvidia/nemotron-3-super-120b-a12b",
     },
+    {
+      provider: "nebius",
+      model: "Qwen/Qwen2-VL-72B-Instruct",
+      label: "Nebius Qwen2 VL 72B (Vision)",
+    },
   ]);
 });
 
@@ -177,6 +194,11 @@ test("configured Nebius falls back to its catalog default when no model is saved
       provider: "nebius",
       model: "Qwen/Qwen3.5-397B-A17B",
       label: "Nebius Qwen 3.5 397B A17B",
+    },
+    {
+      provider: "nebius",
+      model: "Qwen/Qwen2-VL-72B-Instruct",
+      label: "Nebius Qwen2 VL 72B (Vision)",
     },
   ]);
 });

@@ -4,6 +4,17 @@ export type GenerationLlmOption = {
   label: string;
 };
 
+export function generationLlmImageSupport(option: Pick<GenerationLlmOption, "provider" | "model">): boolean | null {
+  const provider = option.provider.trim().toLowerCase();
+  const model = option.model.trim().toLowerCase().replace(/^models\//, "");
+
+  if (provider === "gemini" || provider === "anthropic") return true;
+  if (["-vl", "_vl", "/vl", "vision", "llava"].some((marker) => model.includes(marker))) return true;
+  if (provider === "openai" && ["gpt-4o", "gpt-4.1", "gpt-5"].some((prefix) => model.startsWith(prefix))) return true;
+  if (["nemotron", "gpt-oss", "coder"].some((marker) => model.includes(marker))) return false;
+  return null;
+}
+
 export type IntegrationFieldStatus = {
   id: string;
   value: string | null;
@@ -117,6 +128,9 @@ export function activeLlmsFromIntegrations(
       model,
       label: labelFor(integration.id, model),
     });
+    defaultLlms
+      .filter((option) => option.provider === integration.id && generationLlmImageSupport(option) === true)
+      .forEach((option) => options.push(option));
   });
 
   return uniqueGenerationLlms(options);

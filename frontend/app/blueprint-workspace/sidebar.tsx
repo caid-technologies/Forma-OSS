@@ -251,7 +251,7 @@ export function ChatSidebar({
               onHome();
               onNavigate?.();
             }}
-            className="inline-flex h-9 w-11 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black"
+            className="inline-flex h-9 w-11 shrink-0 items-center justify-center bg-transparent text-slate-200 transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
             aria-label="Home"
             title="Home"
           >

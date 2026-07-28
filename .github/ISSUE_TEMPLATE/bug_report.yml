@@ -34,43 +34,35 @@ body:
         - Developer tooling or deployment
         - Documentation
         - Other
-    validations:
-      required: true
 
   - type: textarea
     id: reproduction
     attributes:
       label: Steps to reproduce
-      description: Provide the smallest reliable sequence that triggers the problem.
+      description: If possible, provide the smallest reliable sequence that triggers the problem.
       placeholder: |
         1. Start Forma with...
         2. Open...
         3. Submit...
         4. Observe...
-    validations:
-      required: true
 
   - type: textarea
     id: expected
     attributes:
       label: Expected behavior
       placeholder: I expected Forma to...
-    validations:
-      required: true
 
   - type: textarea
     id: actual
     attributes:
       label: Actual behavior
       placeholder: Instead, Forma...
-    validations:
-      required: true
 
   - type: textarea
     id: environment
     attributes:
       label: Environment
-      description: Include every relevant value. Write "not applicable" where appropriate.
+      description: Share any details that may help reproduce the problem.
       placeholder: |
         Forma commit/version:
         Deployment: local / Docker / Vercel / other
@@ -80,8 +72,6 @@ body:
         Browser:
         Database backend:
         Provider and model:
-    validations:
-      required: true
 
   - type: textarea
     id: logs
@@ -98,8 +88,6 @@ body:
         - No known safety impact
         - Safety impact is possible or unknown
         - Yes, this affects safety-related behavior
-    validations:
-      required: true
 
   - type: checkboxes
     id: checks
@@ -107,8 +95,5 @@ body:
       label: Submission checklist
       options:
         - label: I searched existing issues for duplicates.
-          required: true
         - label: I included the commit or version where this occurs.
-          required: true
         - label: I removed API keys, tokens, project secrets, personal data, and other sensitive information.
-          required: true

@@ -3,7 +3,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Cpu, Handshake } from "lucide-react";
 import PartnerLogoMarquee from "../../components/partner-logo-marquee";
-import { partners } from "../../lib/partners";
+import { aboutMarqueePartners, partners } from "../../lib/partners";
 
 export const metadata: Metadata = {
   title: "Partners | Forma",
@@ -35,10 +35,6 @@ export default function PartnersPage() {
         <p className="max-w-2xl text-base leading-7 text-slate-400 lg:justify-self-end">
           Infrastructure, tooling, and ecosystem collaborators that help builders move faster from idea to working systems.
         </p>
-      </section>
-
-      <section className="mx-auto w-full max-w-6xl pb-10">
-        <PartnerLogoMarquee partners={partners} />
       </section>
 
       <section className="mx-auto w-full max-w-6xl">
@@ -80,6 +76,10 @@ export default function PartnersPage() {
             </div>
           </article>
         ))}
+      </section>
+
+      <section className="mx-auto w-full max-w-6xl py-10">
+        <PartnerLogoMarquee partners={aboutMarqueePartners} hrefPrefix="/partners" />
       </section>
     </main>
   );

@@ -27,4 +27,11 @@ export const aboutMarqueePartners = [
     logoSurface: "light" as const,
     marqueeHref: null,
   },
+  {
+    name: "MIT Sandbox",
+    slug: "mit-sandbox",
+    logo: "/brand/mit-sandbox.png",
+    logoSurface: "light" as const,
+    marqueeHref: null,
+  },
 ];

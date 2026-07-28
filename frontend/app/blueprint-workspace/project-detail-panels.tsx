@@ -63,6 +63,7 @@ export function OverviewPanel({
   features,
   metrics,
   metadata,
+  showModelName = false,
 }: {
   title: string;
   description: string;
@@ -70,6 +71,7 @@ export function OverviewPanel({
   features: string[];
   metrics: ReturnType<typeof emptyMetrics>;
   metadata: Record<string, any>;
+  showModelName?: boolean;
 }) {
   const imageKey = imageCandidates.map((candidate) => candidate.src).join("|");
   const [imageIndex, setImageIndex] = useState(0);
@@ -132,7 +134,7 @@ export function OverviewPanel({
                 {metadata.workflow}
               </span>
             )}
-            {llmProvider && llmModel && (
+            {showModelName && llmProvider && llmModel && (
               <span className="max-w-full break-words border border-violet-300/30 bg-violet-300/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-violet-100 sm:tracking-[0.16em]">
                 {projectLlmDisplayLabel(llmProvider, llmModel)}
               </span>
@@ -913,4 +915,3 @@ function mechanicalToggleLabel(key: string) {
 function emptyMetrics() {
   return { electricalParts: 0, mechanicalParts: 0, totalParts: 0, electricalCost: 0, mechanicalCost: 0, totalCost: 0 };
 }
-

@@ -38,6 +38,7 @@ from blueprint_core.debug import (
     debug_mode_enabled,
     exception_debug_payload,
     get_debug_mode_config,
+    runtime_safe_error_message,
 )
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, WebSocket, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -544,7 +545,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
         ) from e
     except ValueError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
         logger.warning("Generation request rejected for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
         raise HTTPException(
             status_code=400,
@@ -560,7 +561,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
         ) from e
     except LLMProviderConfigError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
         logger.warning("Generation LLM config failed for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
         raise HTTPException(
             status_code=400,
@@ -576,7 +577,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
         ) from e
     except LLMProviderOutputError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
         logger.warning(
             "LLM output rejected for job_id=%s provider=%s model=%s: %s",
             job_id,
@@ -599,7 +600,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
         ) from e
     except AlphaGenerationUnavailableError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
         code = "alpha_generation_unavailable" if str(e) == ALPHA_GENERATION_UNAVAILABLE_MESSAGE else "llm_generation_unavailable"
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -615,7 +616,7 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
         ) from e
     except Exception as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, str(e), error_debug)
+        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
         logger.exception("Generation failed for job_id=%s provider=%s model=%s", job_id, request.provider, request.model)
         raise HTTPException(
             status_code=500,
@@ -1753,7 +1754,10 @@ def iterate_project_endpoint(
     except HTTPException:
         raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e)) from e
+        raise HTTPException(
+            status_code=400,
+            detail=runtime_safe_error_message(str(e), provider=request.provider, model=request.model),
+        ) from e
     except LLMProviderConfigError as e:
         raise HTTPException(
             status_code=400,
@@ -1780,7 +1784,14 @@ def iterate_project_endpoint(
         ) from e
     except Exception as e:
         logger.exception("Project iteration failed for project_id=%s provider=%s model=%s", project_id, request.provider, request.model)
-        raise HTTPException(status_code=500, detail=f"Project iteration failed: {str(e)}") from e
+        raise HTTPException(
+            status_code=500,
+            detail=runtime_safe_error_message(
+                f"Project iteration failed: {str(e)}",
+                provider=request.provider,
+                model=request.model,
+            ),
+        ) from e
 
 
 def _stored_video_metadata_value(video: Any, keys: List[str]) -> str:

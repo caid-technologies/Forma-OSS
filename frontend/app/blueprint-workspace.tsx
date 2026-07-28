@@ -1599,6 +1599,7 @@ export function FormaWorkspace({
     reason: null,
   });
   const [imageGenerationConfigLoaded, setImageGenerationConfigLoaded] = useState(false);
+  const [blueprintDevMode, setBlueprintDevMode] = useState(false);
   const [generateProductImage, setGenerateProductImage] = useState(false);
   const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
@@ -1643,22 +1644,24 @@ export function FormaWorkspace({
   const projectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
       projectHistory,
-      projectGalleryImages
+      projectGalleryImages,
+      blueprintDevMode,
     ).map((item) => ({
       ...item,
       canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
     })),
-    [authRequired, isSignedIn, projectHistory, projectGalleryImages]
+    [authRequired, blueprintDevMode, isSignedIn, projectHistory, projectGalleryImages]
   );
   const myProjectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
       mergeProjectRecords(myProjectHistory, projectRecordsFromChatItems(chatListItems)),
-      projectGalleryImages
+      projectGalleryImages,
+      blueprintDevMode,
     ).map((item) => ({
       ...item,
       canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
     })),
-    [authRequired, chatListItems, isSignedIn, myProjectHistory, projectGalleryImages]
+    [authRequired, blueprintDevMode, chatListItems, isSignedIn, myProjectHistory, projectGalleryImages]
   );
   const chatHistoryLoaded = myProjectHistoryLoaded && privateChatsLoaded;
   const projectsPageLoading = !projectHistoryLoaded;
@@ -2350,6 +2353,7 @@ export function FormaWorkspace({
 
       const config = await res.json();
       if (!requestIsCurrent()) return;
+      setBlueprintDevMode(config.blueprint_dev_mode === true);
       const workflows = Array.isArray(config.workflows) ? config.workflows : [];
       const imageOutput = config.image_output || {};
       const imageProviderConfigured = Boolean(imageOutput.request_capable ?? imageOutput.configured);
@@ -2709,7 +2713,7 @@ export function FormaWorkspace({
           product_image_content_type: project.product_image_content_type,
           product_image_model: project.product_image_model,
           image_output_model: project.image_output_model,
-        })[0] || null;
+        }, blueprintDevMode)[0] || null;
       return projectId && !summaryImage && projectGalleryImages[projectId] === undefined;
     });
     if (!missingProjects.length) return;
@@ -2728,7 +2732,7 @@ export function FormaWorkspace({
           if (!res.ok) return [projectId, null];
 
           const data = await res.json();
-          return [projectId, resolveProjectImageCandidates(data || {})[0] || null];
+          return [projectId, resolveProjectImageCandidates(data || {}, blueprintDevMode)[0] || null];
         } catch (error) {
           if (!controller.signal.aborted) {
             console.error("Error fetching project image", error);
@@ -2751,7 +2755,7 @@ export function FormaWorkspace({
       cancelled = true;
       controller.abort();
     };
-  }, [chatListItems, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
+  }, [blueprintDevMode, chatListItems, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -2953,7 +2957,9 @@ export function FormaWorkspace({
     const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
     const workflowLabel = selectedGenerationWorkflow?.label || generationWorkflow;
     const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
-    const loadingMessage = `Running ${workflowLabel}${providerSuffix} with ${selectedGenerationLlm.label}.`;
+    const loadingMessage = blueprintDevMode
+      ? `Running ${workflowLabel}${providerSuffix} with ${selectedGenerationLlm.label}.`
+      : `Running ${workflowLabel}${providerSuffix}.`;
     let progressPollId: number | null = null;
     const syncProgressFromJob = async () => {
       const job = await fetchA2aJob(frontendJobId);
@@ -3765,8 +3771,8 @@ export function FormaWorkspace({
   const projectTitle = projectIR?.overview?.title || "Untitled Hardware Project";
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
   const projectImageCandidates = useMemo(
-    () => resolveProjectImageCandidates(projectIR?.assembly_metadata || {}),
-    [projectIR]
+    () => resolveProjectImageCandidates(projectIR?.assembly_metadata || {}, blueprintDevMode),
+    [blueprintDevMode, projectIR]
   );
   const videoImageOptions = useMemo(
     () => projectImageCandidates.filter((candidate) => !candidate.label.toLowerCase().includes("uploaded")),
@@ -3863,6 +3869,7 @@ export function FormaWorkspace({
             features={imageFeatures}
             metrics={metrics}
             metadata={projectIR?.assembly_metadata || {}}
+            showModelName={blueprintDevMode}
           />
         );
       case "bom":

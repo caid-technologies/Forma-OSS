@@ -46,7 +46,7 @@ Commands and results
 - [ ] Temporary, fixup, and unrelated commits were cleaned up where practical.
 - [ ] Python code is typed and public classes and functions are documented where applicable.
 - [ ] Relevant deterministic tests were added or updated.
-- [ ] `./scripts/test.sh` passes, or failures are explained above.
+- [ ] `./scripts/quality/test.sh` passes, or failures are explained above.
 - [ ] Frontend lint and build checks pass when applicable.
 - [ ] Documentation was updated when behavior changed.
 - [ ] No secrets, credentials, logs, databases, build artifacts, or generated temporary files were committed.

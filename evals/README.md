@@ -15,7 +15,7 @@ evals/
 Run the deterministic offline suite from the repository root:
 
 ```bash
-./scripts/benchmark.sh
+./scripts/quality/benchmark.sh
 ./evals/performance/benchmark_offline.py --iterations 1000
 ```
 

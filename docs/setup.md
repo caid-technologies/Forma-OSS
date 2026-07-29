@@ -103,14 +103,15 @@ OPENAI_IMAGE_SIZE=1024x1024
 
 # Optional Supabase Storage upload for reference/product images.
 # Uses the Supabase client with SUPABASE_URL plus the service-role/secret key.
-SUPABASE_S3_ENDPOINT=https://knmuwxhfrgkykyvblzwi.storage.supabase.co/storage/v1/s3
 SUPABASE_S3_BUCKET=contents
 # SUPABASE_S3_REGION=us-east-1
-# Optional fallback for S3-compatible uploads when Supabase client env is absent.
+# Optional direct S3-compatible mode; all three values are required.
+# BLUEPRINT_IMAGE_STORAGE_BACKEND=s3-compatible
+# SUPABASE_S3_ENDPOINT=https://your-project-ref.storage.supabase.co/storage/v1/s3
 # SUPABASE_S3_ACCESS_KEY_ID=your_supabase_s3_access_key_id
 # SUPABASE_S3_SECRET_ACCESS_KEY=your_supabase_s3_secret_access_key
 # SUPABASE_IMAGE_SIGNED_URL_SECONDS=86400
-# SUPABASE_STORAGE_PUBLIC_BASE_URL=https://knmuwxhfrgkykyvblzwi.supabase.co
+# SUPABASE_STORAGE_PUBLIC_BASE_URL=https://your-project-ref.supabase.co
 
 # Generic provider aliases
 # LLM_API_KEY=your_provider_api_key_here

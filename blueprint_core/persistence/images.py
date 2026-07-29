@@ -17,7 +17,6 @@ from blueprint_core.runtime import blueprint_dev_mode_enabled, primary_database_
 load_dotenv()
 
 DEFAULT_BUCKET = "contents"
-DEFAULT_ENDPOINT = "https://knmuwxhfrgkykyvblzwi.storage.supabase.co/storage/v1/s3"
 DEFAULT_SIGNED_URL_SECONDS = 60 * 60 * 24
 SUPABASE_KEY_ENV_VARS = (
     "SUPABASE_SERVICE_ROLE_KEY",
@@ -83,11 +82,16 @@ def _supabase_project_ref() -> Optional[str]:
     return None
 
 
-def _default_endpoint() -> str:
+def _derived_supabase_s3_endpoint() -> Optional[str]:
+    """Derive the S3 endpoint from the configured Supabase project URL."""
+    supabase_url = _supabase_url()
+    if not supabase_url:
+        return None
+
     project_ref = _supabase_project_ref()
     if project_ref:
         return f"https://{project_ref}.storage.supabase.co/storage/v1/s3"
-    return DEFAULT_ENDPOINT
+    return f"{supabase_url.rstrip('/')}/storage/v1/s3"
 
 
 def _public_base_url() -> Optional[str]:
@@ -97,7 +101,9 @@ def _public_base_url() -> Optional[str]:
     supabase_url = _supabase_url()
     if supabase_url:
         return supabase_url.rstrip("/")
-    endpoint = _env("SUPABASE_S3_ENDPOINT", DEFAULT_ENDPOINT)
+    endpoint = _env("SUPABASE_S3_ENDPOINT")
+    if not endpoint:
+        return None
     parsed = urlparse(endpoint if "://" in endpoint else f"https://{endpoint}")
     if parsed.netloc.endswith(".storage.supabase.co"):
         project_ref = parsed.netloc.split(".", 1)[0]
@@ -174,17 +180,21 @@ def get_image_storage_config() -> Dict[str, Any]:
     service_key = _supabase_service_key()
     access_key_id = _first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"))
     secret_access_key = _first_env(("SUPABASE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"))
+    configured_s3_endpoint = _env("SUPABASE_S3_ENDPOINT")
+    endpoint = configured_s3_endpoint or _derived_supabase_s3_endpoint()
     supabase_client_enabled = storage_backend == "supabase" and bool(supabase_url and service_key)
-    s3_enabled = storage_backend == "s3-compatible" and bool(access_key_id and secret_access_key)
+    s3_enabled = storage_backend == "s3-compatible" and bool(
+        access_key_id and secret_access_key and configured_s3_endpoint
+    )
     if storage_backend == "supabase" and not supabase_client_enabled and selection_source == "primary-database":
         # Preserve the existing S3-compatible fallback for Supabase-primary
         # deployments that provide only storage access credentials.
-        s3_enabled = bool(access_key_id and secret_access_key)
-    return {
+        s3_enabled = bool(access_key_id and secret_access_key and endpoint)
+    config = {
         "enabled": supabase_client_enabled or s3_enabled,
         "provider": "supabase-storage",
         "write_method": "supabase-client" if supabase_client_enabled else "s3-compatible" if s3_enabled else None,
-        "endpoint": _env("SUPABASE_S3_ENDPOINT", _default_endpoint()),
+        "endpoint": endpoint,
         "bucket": _env("SUPABASE_S3_BUCKET", DEFAULT_BUCKET),
         "region": _first_env(("SUPABASE_S3_REGION", "AWS_REGION", "AWS_DEFAULT_REGION"), "us-east-1"),
         "signed_url_seconds": _signed_url_seconds(),
@@ -193,9 +203,13 @@ def get_image_storage_config() -> Dict[str, Any]:
         "service_key_configured": bool(service_key),
         "access_key_configured": bool(access_key_id),
         "secret_key_configured": bool(secret_access_key),
+        "endpoint_configured": bool(configured_s3_endpoint),
         "dev_mode": False,
         "selection_source": selection_source,
     }
+    if storage_backend == "s3-compatible" and not configured_s3_endpoint:
+        config["disabled_reason"] = "S3-compatible image storage requires SUPABASE_S3_ENDPOINT."
+    return config
 
 
 def _signed_url_seconds() -> int:

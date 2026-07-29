@@ -75,7 +75,7 @@ LLM configuration behavior:
 - `OPENAI_IMAGE_SIZE`: image output size, for example `1024x1024`
 - `HUGGINGFACE_IMAGE_MODEL` / `HUGGINGFACE_IMAGE_INFERENCE_PROVIDER`: Hugging Face text-to-image model and underlying inference provider when `IMAGE_PROVIDER=huggingface`
 - `HUGGINGFACE_IMAGE_MODEL_REVISION` / `HUGGINGFACE_IMAGE_MODEL_LICENSE`: optional policy metadata recorded with stored Hugging Face image outputs
-- `SUPABASE_S3_ENDPOINT`: Supabase Storage S3 endpoint associated with image uploads, defaulting from `SUPABASE_URL` when possible
+- `SUPABASE_S3_ENDPOINT`: explicit endpoint required for direct S3-compatible image uploads; Supabase-client uploads derive their endpoint from `SUPABASE_URL`
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for reference and generated product images, defaulting to `contents`
 - `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `BLUEPRINT_DEV_MODE=true` disables these image uploads
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: lifetime for refreshed Supabase Storage read URLs when projects are loaded, defaulting to `86400`

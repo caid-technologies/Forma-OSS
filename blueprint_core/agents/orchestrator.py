@@ -27,6 +27,7 @@ from blueprint_core.llm import (
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
 from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from blueprint_core.agents.component_reconciliation import reconcile_explicit_catalog_components
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -792,6 +793,16 @@ class HardwarePipelineOrchestrator:
                     
                 comp_wrapper: ComponentListWrapper = self._call_llm_structured(comp_prompt, ComponentListWrapper, image_bytes, image_mime_type)
                 components = comp_wrapper.components
+                components, reconciled_component_parts = reconcile_explicit_catalog_components(
+                    user_prompt,
+                    components,
+                    db_components,
+                )
+                if reconciled_component_parts:
+                    logger.info(
+                        "Restored explicitly requested catalog parts omitted by component selection: %s",
+                        ", ".join(reconciled_component_parts),
+                    )
 
             # Compile intermediate IR for wiring
             components_json = json.dumps([c.model_dump() for c in components], indent=2)
@@ -836,7 +847,7 @@ class HardwarePipelineOrchestrator:
             # Self-healing loop: Run validation checks on wiring
             logger.info("Running circuit validation checks on generated netlist...")
             with agent_pipeline_step("default", "validation_repair"):
-                validation_issues = validate_circuit(components, nets)
+                validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity == "CRITICAL" for issue in validation_issues)
 
                 if not is_valid:
@@ -869,7 +880,7 @@ class HardwarePipelineOrchestrator:
                     pin_mappings = corrected_wiring.pin_mappings
                     
                     # Re-validate
-                    validation_issues = validate_circuit(components, nets)
+                    validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
                     is_valid = not any(issue.severity == "CRITICAL" for issue in validation_issues)
                     logger.info(f"Self-healing completed. Is valid: {is_valid}")
 
@@ -948,6 +959,7 @@ class HardwarePipelineOrchestrator:
                     "requested_model": model_validation.requested_model,
                     "actual_model": model_validation.actual_model,
                     "llm_provider": model_validation.provider,
+                    "component_reconciliation_added": reconciled_component_parts,
                     "requested_provider": self.runtime_config.requested_provider or self.runtime_config.provider,
                     "runtime_provider": self.runtime_config.provider,
                     "runtime_model": self.runtime_config.model,
@@ -1281,7 +1293,7 @@ class HardwarePipelineOrchestrator:
         emit_agent_pipeline_event("default", "wiring_netlist", "completed", details={"net_count": len(nets)})
 
         emit_agent_pipeline_event("default", "validation_repair", "started", details={"adapter": "parti-base-v1"})
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
             category="Power Path",
@@ -1755,7 +1767,7 @@ class HardwarePipelineOrchestrator:
             ],
             manufacturability_rating="Moderate"
         )
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_summary = build_validation_summary(validation_issues)
         project_ir = HardwareIR(
             hardware_ir_version="0.1",
@@ -2021,7 +2033,7 @@ class HardwarePipelineOrchestrator:
             manufacturability_rating="Easy"
         )
 
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_summary = build_validation_summary(validation_issues)
         power_rails = extract_power_rails(components, nets)
         buses = extract_buses(nets)
@@ -2280,7 +2292,7 @@ class HardwarePipelineOrchestrator:
             manufacturability_rating="Moderate"
         )
 
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
             category="Scope Gap",
@@ -2530,7 +2542,7 @@ class HardwarePipelineOrchestrator:
             manufacturability_rating="Moderate"
         )
 
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
             category="Scope Gap",

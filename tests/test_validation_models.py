@@ -5,6 +5,7 @@ import unittest
 from blueprint_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
+    FunctionalRequirements,
     GenerateProjectRequest,
     IterateProjectRequest,
     PinDefinition,
@@ -72,6 +73,27 @@ class ValidationAndModelTests(unittest.TestCase):
 
         self.assertTrue(any(issue.severity == "CRITICAL" for issue in issues))
         self.assertTrue(any(issue.category == "Short Circuit" for issue in issues))
+
+    def test_validate_circuit_flags_uncovered_requested_hardware(self) -> None:
+        requirements = FunctionalRequirements(
+            requirements=["Measure soil moisture and sound a buzzer when the plant is dry."],
+            power_needs="5V USB",
+        )
+        components = [
+            ComponentInstance(
+                ref_des="U1",
+                part_number="ESP32-WROOM-32D",
+                name="ESP32 NodeMCU Development Board",
+                category="Microcontroller",
+                rationale="Controller",
+            )
+        ]
+
+        issues = validate_circuit(components, [], requirements)
+
+        coverage = [issue.description for issue in issues if issue.category == "Requirement Coverage"]
+        self.assertTrue(any("soil-moisture sensing" in description for description in coverage))
+        self.assertTrue(any("audible alert" in description for description in coverage))
 
 
 if __name__ == "__main__":

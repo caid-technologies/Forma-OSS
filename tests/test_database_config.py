@@ -5,9 +5,23 @@ import unittest
 from unittest.mock import patch
 
 from blueprint_core import database
+from blueprint_core.runtime import primary_database_backend_from_environment
 
 
 class DatabaseConfigSelectionTests(unittest.TestCase):
+    def test_pure_backend_resolver_matches_local_supabase_dev_selection(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "BLUEPRINT_DEV_MODE": "true",
+                "DATABASE_BACKEND": "supabase",
+                "SUPABASE_URL": "http://127.0.0.1:54321",
+                "SUPABASE_SERVICE_ROLE_KEY": "local-service-role",
+            },
+            clear=True,
+        ):
+            self.assertEqual("supabase", primary_database_backend_from_environment())
+
     def test_dev_mode_allows_local_supabase_backend(self) -> None:
         fake_client = object()
         with patch.dict(

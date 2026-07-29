@@ -393,7 +393,7 @@ def finalize_project_iteration(
             f"(title={revised.overview.title!r}, description={revised.overview.description!r})."
         )
 
-    issues = validate_circuit(revised.components, revised.nets)
+    issues = validate_circuit(revised.components, revised.nets, revised.requirements)
     revised.validation = build_validation_summary(issues)
     revised.is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
     _normalize_iteration_metadata(

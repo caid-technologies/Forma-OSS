@@ -1557,6 +1557,17 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
                 configured_base_url = _env(runpod_serverless_url_env_name)
                 self.configuration_error = _runpod_serverless_url_misconfiguration_message(runpod_serverless_url_env_name)
         self.base_url = (configured_base_url or default_base_url or "").rstrip("/")
+        parsed_base_url = urllib.parse.urlparse(self.base_url)
+        base_host = (parsed_base_url.hostname or "").lower()
+        self.ollama_native_chat = bool(
+            self.provider_name == "openai-compatible"
+            and base_host in {"localhost", "127.0.0.1", "::1"}
+            and (parsed_base_url.port == 11434 or _first_env_bool(["OLLAMA_NATIVE_CHAT"], default=False))
+        )
+        self.ollama_context_length = _first_env_int(["OLLAMA_CONTEXT_LENGTH", "OLLAMA_NUM_CTX", "LLM_CONTEXT_LENGTH"])
+        if self.ollama_native_chat and self.ollama_context_length is None:
+            self.ollama_context_length = 16384
+        self.ollama_think = _first_env_bool(["OLLAMA_THINK"], default=False)
         self.requested_model = _normalize_model_for_provider(
             self.provider_name,
             model_name or _first_env(model_names, default_model_name) or default_model_name,
@@ -1609,8 +1620,44 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         return headers
 
     def _request_json(self, path: str, method: str = "GET", payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        url = f"{self.base_url}/{path.lstrip('/')}"
-        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        use_ollama_chat = bool(
+            self.ollama_native_chat
+            and method == "POST"
+            and path.lstrip("/") == "chat/completions"
+            and payload is not None
+        )
+        request_payload = payload
+        if use_ollama_chat:
+            parsed = urllib.parse.urlparse(self.base_url)
+            url = f"{parsed.scheme}://{parsed.netloc}/api/chat"
+            response_format = payload.get("response_format") if isinstance(payload, dict) else None
+            native_format: Any = None
+            if isinstance(response_format, dict) and response_format.get("type") == "json_schema":
+                json_schema = response_format.get("json_schema")
+                if isinstance(json_schema, dict):
+                    native_format = json_schema.get("schema")
+            elif isinstance(response_format, dict) and response_format.get("type") == "json_object":
+                native_format = "json"
+
+            options: Dict[str, Any] = {
+                "num_predict": payload.get("max_tokens") or DEFAULT_STRUCTURED_MAX_TOKENS,
+            }
+            if self.ollama_context_length:
+                options["num_ctx"] = self.ollama_context_length
+            if payload.get("temperature") is not None:
+                options["temperature"] = payload["temperature"]
+            request_payload = {
+                "model": payload.get("model"),
+                "messages": payload.get("messages") or [],
+                "stream": False,
+                "think": self.ollama_think,
+                "options": options,
+            }
+            if native_format is not None:
+                request_payload["format"] = native_format
+        else:
+            url = f"{self.base_url}/{path.lstrip('/')}"
+        data = json.dumps(request_payload).encode("utf-8") if request_payload is not None else None
         request = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
 
         try:
@@ -1639,7 +1686,24 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
 
         if not body.strip():
             return {}
-        return json.loads(body)
+        decoded = json.loads(body)
+        if not use_ollama_chat:
+            return decoded
+
+        message = decoded.get("message") if isinstance(decoded.get("message"), dict) else {}
+        return {
+            "choices": [
+                {
+                    "message": message,
+                    "finish_reason": decoded.get("done_reason") or ("stop" if decoded.get("done") else None),
+                }
+            ],
+            "usage": {
+                "prompt_tokens": decoded.get("prompt_eval_count"),
+                "completion_tokens": decoded.get("eval_count"),
+            },
+            "model": decoded.get("model"),
+        }
 
     def _http_error_hint(self, status_code: int, path: str) -> str:
         if self.provider_name == "runpod" and status_code == 404 and path.lstrip("/") == "chat/completions":

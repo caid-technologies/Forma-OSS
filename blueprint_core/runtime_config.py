@@ -1,5 +1,6 @@
 import os
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse
 
 
 ALPHA_GENERATION_UNAVAILABLE_MESSAGE = "Generation is not available in this alpha deployment yet."
@@ -28,24 +29,34 @@ def blueprint_dev_mode_enabled() -> bool:
 
 def primary_database_backend_from_environment() -> str:
     """Resolve the primary persistence backend without initializing a client."""
-    if blueprint_dev_mode_enabled():
-        return "sqlite"
-
     aliases = {
         "sqlite": "sqlite",
         "sqlite3": "sqlite",
         "supabase": "supabase",
     }
+    configured_backend = None
     for name in DATABASE_BACKEND_ENV_NAMES:
         value = os.getenv(name)
         if not value or not value.strip():
             continue
         normalized = aliases.get(value.strip().lower())
         if normalized:
-            return normalized
+            configured_backend = normalized
+            break
 
     supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY")
+
+    if blueprint_dev_mode_enabled():
+        parsed = urlparse(supabase_url or "")
+        host = (parsed.hostname or "").strip().lower()
+        local_supabase = host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
+        if configured_backend == "supabase" and local_supabase and supabase_key and supabase_key.strip():
+            return "supabase"
+        return "sqlite"
+
+    if configured_backend:
+        return configured_backend
     return "supabase" if supabase_url and supabase_url.strip() and supabase_key and supabase_key.strip() else "sqlite"
 
 

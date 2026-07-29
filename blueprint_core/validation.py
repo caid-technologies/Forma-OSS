@@ -1,5 +1,65 @@
 from typing import List, Dict, Set, Optional
-from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet, PinDefinition, ValidationIssue, ValidationSummary
+from blueprint_core.workspaces.projects.models import (
+    ComponentInstance,
+    ConnectionNet,
+    FunctionalRequirements,
+    PinDefinition,
+    ValidationIssue,
+    ValidationSummary,
+)
+
+
+REQUIREMENT_CAPABILITIES = (
+    ("soil-moisture sensing", ("soil moisture", "soil-moisture"), ("soil moisture", "soil-moisture", "capacitive moisture")),
+    ("ambient-light sensing", ("ambient light", "light sensing", "light sensor", "lux"), ("ambient light", "light sensor", "photoresistor", "ldr", "bh1750", "lux sensor")),
+    ("temperature sensing", ("temperature",), ("temperature", "dht11", "dht22", "bmp280", "thermistor")),
+    ("humidity sensing", ("humidity",), ("humidity", "dht11", "dht22", "bme280")),
+    ("distance sensing", ("distance", "proximity", "ultrasonic"), ("distance", "ultrasonic", "hc-sr04", "vl53")),
+    ("motion sensing", ("motion sensing", "accelerometer", "gyroscope", "imu"), ("motion", "accelerometer", "gyroscope", "mpu6050", "imu")),
+    ("pressure sensing", ("barometric", "air pressure", "pressure sensor"), ("barometric", "pressure", "bmp280", "bme280")),
+    ("visual display", ("display", "oled", "lcd", "screen"), ("display", "oled", "lcd", "ssd1306")),
+    ("audible alert", ("buzzer", "audible alert", "beeper", "speaker"), ("buzzer", "piezo", "speaker", "beeper")),
+    ("status LED", ("status led", "indicator led"), (" led", "led-", "status indicator")),
+    ("220-ohm current limiting", ("220-ohm", "220 ohm", "220r"), ("220 ohm", "220r", "resistor-220")),
+    ("10k pull-up resistance", ("10k pull-up", "10k pull up", "10k resistor"), ("10k ohm", "resistor-10k")),
+    ("servo actuation", ("servo",), ("servo", "sg90")),
+    ("relay switching", ("relay",), ("relay",)),
+    ("USB-C connectivity", ("usb-c", "usb c", "type-c", "type c"), ("usb-c", "usb c", "type-c", "type c")),
+)
+
+
+def validate_requirement_coverage(
+    requirements: Optional[FunctionalRequirements],
+    components: List[ComponentInstance],
+    *,
+    prompt: str = "",
+) -> List[ValidationIssue]:
+    """Report requested hardware capabilities that have no matching BOM component."""
+    if requirements is None and not prompt.strip():
+        return []
+    requirement_text = " ".join(
+        [prompt, *((requirements.requirements if requirements else []) or [])]
+    ).lower()
+    component_text = " ".join(
+        f" {component.part_number} {component.name} {component.category} {component.rationale} "
+        for component in components
+    ).lower()
+    issues: List[ValidationIssue] = []
+    for label, request_phrases, component_phrases in REQUIREMENT_CAPABILITIES:
+        if not any(phrase in requirement_text for phrase in request_phrases):
+            continue
+        if any(phrase in component_text for phrase in component_phrases):
+            continue
+        issues.append(ValidationIssue(
+            severity="WARNING",
+            category="Requirement Coverage",
+            description=f"The project requests {label}, but the selected BOM has no component that provides it.",
+            troubleshooting=(
+                f"Add a catalog component that provides {label}, or explicitly mark this requirement as unsupported "
+                "instead of presenting the design as complete."
+            ),
+        ))
+    return issues
 
 
 def check_safety_violations(prompt: str) -> Optional[str]:
@@ -41,12 +101,18 @@ def check_safety_violations(prompt: str) -> Optional[str]:
 
     return None
 
-def validate_circuit(components: List[ComponentInstance], nets: List[ConnectionNet]) -> List[ValidationIssue]:
+def validate_circuit(
+    components: List[ComponentInstance],
+    nets: List[ConnectionNet],
+    requirements: Optional[FunctionalRequirements] = None,
+    *,
+    prompt: str = "",
+) -> List[ValidationIssue]:
     """
     Runs automated electrical and logical validation checks on the structured Hardware IR netlist.
     Returns a list of ValidationIssues (Errors and Warnings) with troubleshooting advice.
     """
-    issues: List[ValidationIssue] = []
+    issues: List[ValidationIssue] = validate_requirement_coverage(requirements, components, prompt=prompt)
     
     # Pre-index component pin attributes for fast lookup
     # key: (ref_des, pin_id) -> PinDefinition

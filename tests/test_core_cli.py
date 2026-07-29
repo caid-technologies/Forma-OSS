@@ -16,6 +16,20 @@ class CoreCliTests(unittest.TestCase):
         self.assertEqual("blueprint-core", parser.prog)
         self.assertIn("without a backend server", parser.description)
 
+    def test_generate_supports_one_run_image_persistence_and_terminal_output(self) -> None:
+        args = build_parser().parse_args([
+            "generate",
+            "make a sensor",
+            "--generate-image",
+            "--image-provider",
+            "gmi",
+            "--show-image",
+        ])
+
+        self.assertTrue(args.generate_image)
+        self.assertEqual("gmi", args.image_provider)
+        self.assertTrue(args.show_image)
+
     def test_workflows_lists_core_workflows_as_json(self) -> None:
         stdout = io.StringIO()
         with redirect_stdout(stdout):

@@ -19,7 +19,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
             config = storage.get_image_storage_config()
 
         self.assertFalse(config["enabled"])
-        self.assertEqual("sqlite-inline", config["provider"])
+        self.assertEqual("database-inline", config["provider"])
         self.assertIsNone(config["write_method"])
         self.assertEqual("primary-database", config["selection_source"])
 

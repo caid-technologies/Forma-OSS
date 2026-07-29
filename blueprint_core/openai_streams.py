@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
-from blueprint_core.continuous_agents import JsonlStreamStore
+from blueprint_core.agents.continuous import JsonlStreamStore
 
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"

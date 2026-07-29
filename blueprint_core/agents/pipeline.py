@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
 from typing import Any, Callable, Iterator, List, Optional
 
-from blueprint_core.job_source_usage import DEFAULT_WORKFLOW_ID, WEB_RESEARCH_WORKFLOW_ID, normalize_generation_workflow_id
+from blueprint_core.jobs.source_usage import DEFAULT_WORKFLOW_ID, WEB_RESEARCH_WORKFLOW_ID, normalize_generation_workflow_id
 
 
 @dataclass(frozen=True)

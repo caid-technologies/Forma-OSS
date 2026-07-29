@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Protocol
 
-from blueprint_core.continuous_agents import (
+from blueprint_core.agents.continuous import (
     ContinuousAgentCoordinator,
     ContinuousAgentCycleReport,
     ContinuousAgentState,

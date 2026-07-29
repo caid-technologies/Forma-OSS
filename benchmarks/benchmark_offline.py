@@ -128,7 +128,7 @@ def measure_operation(
 
 
 def make_sample_circuit() -> tuple[list[Any], list[Any]]:
-    from blueprint_core.models import ComponentInstance, ConnectionNet, PinDefinition, PinReference
+    from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet, PinDefinition, PinReference
 
     esp32 = ComponentInstance(
         ref_des="U1",

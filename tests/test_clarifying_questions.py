@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.clarifying_questions import ContextClarifierAgent
-from blueprint_core.models import ClarifyingQuestionsRequest
+from blueprint_core.agents.clarification import ContextClarifierAgent
+from blueprint_core.workspaces.projects.models import ClarifyingQuestionsRequest
 
 
 class ContextClarifierAgentTests(unittest.TestCase):

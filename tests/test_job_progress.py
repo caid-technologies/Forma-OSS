@@ -3,8 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-from backend.job_store import JobCancelledError, JobMetadataStore
-from blueprint_core.models import GenerateProjectRequest
+from blueprint_core.jobs.store import JobCancelledError, JobMetadataStore
+from blueprint_core.workspaces.projects.models import GenerateProjectRequest
 
 
 class JobProgressTests(unittest.TestCase):

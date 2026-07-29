@@ -24,8 +24,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.terminal_dashboard import DashboardRenderConfig, render_dashboard_image
-from blueprint_core.terminal_images import TerminalImageRenderConfig, render_images
+from blueprint_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
+from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
 
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000/api"

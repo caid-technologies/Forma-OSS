@@ -17,14 +17,14 @@ from blueprint_core.agents.orchestrator import (
     extract_power_rails,
 )
 from blueprint_core.database import delete_generated_project, save_generated_project
-from blueprint_core.job_source_usage import source_usage_for_workflow
+from blueprint_core.jobs.source_usage import source_usage_for_workflow
 from blueprint_core.llm import (
     LLMProviderConfigError,
     LLMRuntimeConfig,
     build_llm_provider,
     resolve_llm_runtime_config,
 )
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     AssemblyStep,
     ComponentInstance,
     ConnectionNet,
@@ -36,7 +36,7 @@ from blueprint_core.models import (
     ValidationIssue,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,

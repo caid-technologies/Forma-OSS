@@ -21,9 +21,9 @@ from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.database import save_generated_project, update_generated_project_hardware_ir
 from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from backend.auth_mode import clerk_auth_required
-from backend.job_store import JOB_STORE
+from blueprint_core.jobs.store import JOB_STORE
 from blueprint_core.llm import get_llm_runtime_debug_config
-from blueprint_core.models import ComponentInstance, ConnectionNet
+from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet
 from blueprint_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
@@ -31,7 +31,7 @@ from blueprint_core.observability import (
     start_observation,
     update_observation,
 )
-from blueprint_core.pipeline import emit_agent_pipeline_event, ensure_agent_pipeline_active, observe_agent_pipeline
+from blueprint_core.agents.pipeline import emit_agent_pipeline_event, ensure_agent_pipeline_active, observe_agent_pipeline
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
@@ -167,8 +167,8 @@ A2A_HUB = A2AHub()
 
 
 def _lattice_registry():
-    from blueprint_core.lattice import LatticeRegistry
-    from blueprint_core.lattice_agents import default_namespace_agent_cards
+    from blueprint_core.agents.contracts import LatticeRegistry
+    from blueprint_core.agents.lattice import default_namespace_agent_cards
     from fabricator import fabricator_lattice_card
 
     return LatticeRegistry([*default_namespace_agent_cards(), fabricator_lattice_card()])

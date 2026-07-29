@@ -17,6 +17,7 @@ DIST_NAME = "caid-blueprint-core"
 class CorePackageTests(unittest.TestCase):
     def test_blueprint_core_exports_package_version(self) -> None:
         self.assertRegex(blueprint_core.__version__, r"^\d+\.\d+\.\d+")
+        self.assertEqual(["__version__"], blueprint_core.__all__)
 
     def test_pyproject_declares_installable_typed_core_package(self) -> None:
         pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
@@ -25,6 +26,7 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual(["version"], pyproject["project"]["dynamic"])
         self.assertEqual("backend.main:app", pyproject["tool"]["vercel"]["entrypoint"])
         self.assertEqual("blueprint_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
+        self.assertEqual("blueprint_core.cli.main:main", pyproject["project"]["scripts"]["blueprint-core"])
         self.assertEqual("fabricator.main:main", pyproject["project"]["scripts"]["fabricator"])
         self.assertEqual("fibricator.main:main", pyproject["project"]["scripts"]["fibricator"])
         self.assertIn("blueprint_core", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
@@ -138,7 +140,7 @@ class CorePackageTests(unittest.TestCase):
 
     def test_generation_package_imports(self) -> None:
         from blueprint_core.generation import HardwarePipelineOrchestrator, list_workflows
-        from blueprint_core.models import HardwareIR
+        from blueprint_core.workspaces.projects.models import HardwareIR
 
         self.assertEqual("HardwarePipelineOrchestrator", HardwarePipelineOrchestrator.__name__)
         self.assertEqual("HardwareIR", HardwareIR.__name__)
@@ -150,9 +152,9 @@ class CorePackageTests(unittest.TestCase):
         import backend.models as backend_models
         import backend.validation as backend_validation
         from blueprint_core.agents import orchestrator as core_orchestrator
-        from blueprint_core import models as core_models
         from blueprint_core import validation as core_validation
         from blueprint_core import llm as core_llm
+        from blueprint_core.workspaces.projects import models as core_models
 
         self.assertIs(backend_models.HardwareIR, core_models.HardwareIR)
         self.assertIs(backend_validation.validate_circuit, core_validation.validate_circuit)

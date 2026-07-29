@@ -13,7 +13,7 @@ from blueprint_core.external_sources import (
     FirecrawlExternalSourceProvider,
     build_external_source_provider,
 )
-from blueprint_core.job_source_usage import infer_source_usage, normalize_source_usage
+from blueprint_core.jobs.source_usage import infer_source_usage, normalize_source_usage
 
 
 EXTERNAL_SOURCE_ENV_KEYS = {

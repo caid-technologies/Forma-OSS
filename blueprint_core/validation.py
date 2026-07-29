@@ -1,5 +1,5 @@
 from typing import List, Dict, Set, Optional
-from blueprint_core.models import ComponentInstance, ConnectionNet, ValidationIssue, PinDefinition, ValidationSummary
+from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet, PinDefinition, ValidationIssue, ValidationSummary
 
 
 def check_safety_violations(prompt: str) -> Optional[str]:

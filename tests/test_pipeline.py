@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.pipeline import (
+from blueprint_core.agents.pipeline import (
     PipelineCancelledError,
     agent_pipeline_step,
     ensure_agent_pipeline_active,

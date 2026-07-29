@@ -8,9 +8,11 @@ from unittest.mock import patch
 from pydantic import ValidationError
 
 from blueprint_core.database import _hardware_ir_with_project_id
-from blueprint_core.iteration import ProjectIterator, ProjectSelfCorrectionAgent, compact_hardware_ir_for_iteration
+from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
+from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
+from blueprint_core.workspaces.projects.iteration import ProjectIterator, compact_hardware_ir_for_iteration
 from blueprint_core.llm import LLMProviderOutputError, LLMProviderValidation, LLMRuntimeConfig
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
@@ -20,7 +22,7 @@ from blueprint_core.models import (
     ProjectOverview,
     VideoSelfCorrectRequest,
 )
-from blueprint_core.project_objects import (
+from blueprint_core.workspaces.projects.objects import (
     build_project_object,
     namespace_payload,
     normalize_project_namespace,
@@ -32,7 +34,6 @@ from blueprint_core.video_review import (
     FIREWORKS_VIDEO_REVIEW_NATIVE_MODELS,
     FireworksPreparedVideo,
     FireworksVideoReviewClient,
-    FireworksVideoSelfCorrectionAgent,
     VideoCoherenceIssue,
     VideoIterationReview,
     _distill_unstructured_review_text,

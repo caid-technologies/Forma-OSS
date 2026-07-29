@@ -20,8 +20,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 from blueprint_core.image_providers import GeneratedImage, build_image_provider
-from blueprint_core.models import HardwareIR
-from blueprint_core.terminal_images import TerminalImageRenderConfig, render_images
+from blueprint_core.workspaces.projects.models import HardwareIR
+from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / ".logs" / "image-generation"

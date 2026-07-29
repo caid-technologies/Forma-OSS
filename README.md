@@ -98,17 +98,26 @@ python3 backend/seed_db.py
 uvicorn backend.main:app --reload --port 8000
 ```
 
-**Backend CLI:**
+**Blueprint Core CLI:**
+
+The core CLI runs generation, validation, and project iteration directly. It does not require the FastAPI backend.
+
 ```bash
-./scripts/blueprint-backend serve --reload
-./scripts/blueprint-backend health
-./scripts/blueprint-backend jobs --status running
-./scripts/blueprint-backend jobs --local --limit 10
+blueprint-core workflows
+blueprint-core namespaces
+blueprint-core generate "plant watering monitor" --simulation --output project.json
+blueprint-core generate "plant watering monitor" --llm openai/gpt-5.5 --output project.json
+blueprint-core validate project.json
+blueprint-core iterate project.json "Make the enclosure splash resistant" --namespace product.mech --output revised.json
+python -m blueprint_core --help
+```
+
+**Developer utilities:**
+
+```bash
 ./scripts/test.sh
 ./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
 ./scripts/sample_async.py --llm openai/gpt-5.5 --llm runpod/caid-technologies/parti-base "Describe a low-voltage plant watering monitor with OLED status"
-./scripts/blueprint-backend generate "plant watering monitor" --llm openai/gpt-5.5
-./scripts/blueprint-backend generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
 curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Type: application/json' -d '{"instruction":"Add battery charging and make the enclosure splash resistant","namespace":"product.mech","provider":"openai","model":"gpt-5.5"}'
 ./scripts/verify-llm-providers.py --list
 ./scripts/verify-llm-providers.py
@@ -120,7 +129,6 @@ curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Typ
 ./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
 ./scripts/verify-llm-providers.py --llm nebius/Qwen/Qwen3.5-397B-A17B
 ./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
-./scripts/blueprint-backend seed
 ```
 
 `scripts/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.

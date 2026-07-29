@@ -37,6 +37,7 @@ Repository = "https://github.com/caid-technologies/Forma-OSS"
 Documentation = "https://github.com/caid-technologies/Forma-OSS#readme"
 
 [project.scripts]
+blueprint-core = "blueprint_core.cli.main:main"
 fabricator = "fabricator.main:main"
 fibricator = "fibricator.main:main"
 

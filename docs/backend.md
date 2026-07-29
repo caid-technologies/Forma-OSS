@@ -131,11 +131,11 @@ To make backend logs visible in the local frontend LOGS tab when running uvicorn
 BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn backend.main:app --reload --port 8000
 ```
 
-Switch the generation LLM from the CLI with `--llm provider/model`:
+Run generation directly through the sole Blueprint Core CLI with `--llm provider/model`:
 
 ```bash
-./scripts/blueprint-backend generate "plant watering monitor" --llm openai/gpt-5.5
-./scripts/blueprint-backend generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
+blueprint-core generate "plant watering monitor" --llm openai/gpt-5.5
+blueprint-core generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
 ```
 
 Smoke-test configured LLM providers with a tiny structured prompt:

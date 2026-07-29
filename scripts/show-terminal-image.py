@@ -11,7 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.terminal_images import TerminalImageRenderConfig, render_images
+from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:

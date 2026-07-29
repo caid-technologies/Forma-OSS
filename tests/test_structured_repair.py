@@ -31,7 +31,7 @@ from blueprint_core.llm_providers import (
     _schema_with_closed_objects,
     _validate_structured_json,
 )
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalRotation3,

@@ -414,8 +414,8 @@ def run_project_object_job(
     generate_image: bool = False,
 ) -> ProjectObjectRunResult:
     from backend.a2a import build_generation_response
-    from blueprint_core.models import HardwareIR
-    from blueprint_core.project_objects import attach_project_object_metadata, build_project_object
+    from blueprint_core.workspaces.projects.models import HardwareIR
+    from blueprint_core.workspaces.projects.objects import attach_project_object_metadata, build_project_object
 
     apply_job_environment(base_environment, job)
     started = time.monotonic()

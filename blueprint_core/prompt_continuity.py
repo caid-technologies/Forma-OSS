@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from blueprint_core.agents.firecrawl_mcp import FirecrawlMCPResearchClient, FirecrawlResearchResult
-from blueprint_core.continuous_agents import JsonlStreamStore
-from blueprint_core.continuous_openai_jobs import (
+from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.jobs.continuous import (
     ContinuousOpenAIJobMetadata,
     ContinuousOpenAIJobQueue,
     ContinuousOpenAIJobResult,

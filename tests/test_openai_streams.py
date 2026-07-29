@@ -5,9 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from blueprint_core.continuous_openai_jobs import ContinuousOpenAIJobRunner
-from blueprint_core.continuous_openai_jobs import ContinuousOpenAIJobQueue, ContinuousOpenAIJobSpec
-from blueprint_core.continuous_agents import JsonlStreamStore
+from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.jobs.continuous import ContinuousOpenAIJobQueue, ContinuousOpenAIJobRunner, ContinuousOpenAIJobSpec
 from blueprint_core.openai_streams import (
     OpenAICompatibleChatConfig,
     OpenAIStreamConfig,

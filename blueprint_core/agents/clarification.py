@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from typing import List
 
-from blueprint_core.job_source_usage import normalize_generation_workflow_id
-from blueprint_core.models import (
+from blueprint_core.jobs.source_usage import normalize_generation_workflow_id
+from blueprint_core.workspaces.projects.models import (
     ClarifyingQuestion,
     ClarifyingQuestionsRequest,
     ClarifyingQuestionsResponse,

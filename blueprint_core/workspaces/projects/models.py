@@ -172,6 +172,18 @@ class HardwareIR(BaseModel):
     validation: ValidationSummary = Field(default_factory=ValidationSummary, description="Categorized safety and electrical checks")
     is_valid: bool = Field(True, description="True if project passes critical validation checks")
 
+
+class Project(BaseModel):
+    """Durable design artifact contained by a workspace."""
+
+    project_id: str
+    chat_id: str | None = None
+    title: str
+    prompt: str
+    hardware_ir: HardwareIR | Dict[str, Any]
+    created_at: str
+    visibility: str = "public"
+
 # ==========================================
 # 3. API Requests & Response Models
 # ==========================================
@@ -241,6 +253,14 @@ class GenerateProjectRequest(BaseModel):
         if normalized in {"auto", "tavily", "firecrawl"}:
             return "firecrawl"
         raise ValueError("external_source_provider must be firecrawl.")
+
+
+class ProjectUpdateRequest(BaseModel):
+    """Owner-managed project metadata updates."""
+
+    title: str | None = None
+    prompt: str | None = None
+    visibility: str | None = None
 
 
 class ClarifyingQuestion(BaseModel):
@@ -351,50 +371,6 @@ class VideoSelfCorrectRequest(BaseModel):
         if not re.match(r"^https?://", value):
             raise ValueError("video_url must be an http(s) URL.")
         return value
-
-class AlphaSignupRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=120, description="Person's name")
-    email: str = Field(..., min_length=3, max_length=254, description="Contact email")
-    organization: Optional[str] = Field(None, max_length=160, description="Organization or team")
-    additional_info: Optional[str] = Field(None, max_length=1200, description="Optional launch or use-case context")
-
-    @field_validator("name", "email", mode="before")
-    @classmethod
-    def strip_required_text(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            return value.strip()
-        return value
-
-    @field_validator("organization", "additional_info", mode="before")
-    @classmethod
-    def strip_optional_text(cls, value: Any) -> Any:
-        if isinstance(value, str):
-            stripped = value.strip()
-            return stripped or None
-        return value
-
-    @field_validator("name")
-    @classmethod
-    def require_name(cls, value: Optional[str]) -> str:
-        if not value:
-            raise ValueError("Name is required.")
-        return value
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, value: Optional[str]) -> str:
-        if not value:
-            raise ValueError("Email is required.")
-        normalized = value.lower()
-        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", normalized):
-            raise ValueError("Enter a valid email address.")
-        return normalized
-
-
-class AlphaSignupResponse(BaseModel):
-    ok: bool
-    message: str
-
 
 class ValidationReport(BaseModel):
     is_valid: bool

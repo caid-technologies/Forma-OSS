@@ -33,6 +33,7 @@ class SQLiteProvider(DatabaseProvider):
         self._initialized = False
 
     def initialize(self) -> None:
+        from blueprint_core.jobs.persistence import DBA2AJob  # noqa: F401
         from blueprint_core.persistence.migrations import migrate_sqlite_schema
         from blueprint_core.persistence.models import Base
 

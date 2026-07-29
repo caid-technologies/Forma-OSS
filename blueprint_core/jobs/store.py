@@ -5,14 +5,14 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-from blueprint_core.job_source_usage import infer_source_usage
-from blueprint_core.persistence.providers import SQLiteProvider, SupabaseProvider, create_sqlite_provider
-from blueprint_core.persistence.repositories import (
+from blueprint_core.jobs.repositories import (
     JobCancelledError,
     JobRepository,
     SQLiteJobRepository,
     SupabaseJobRepository,
 )
+from blueprint_core.jobs.source_usage import infer_source_usage
+from blueprint_core.persistence.providers import SQLiteProvider, SupabaseProvider, create_sqlite_provider
 
 load_dotenv()
 

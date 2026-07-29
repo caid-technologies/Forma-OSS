@@ -7,11 +7,10 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from blueprint_core.runtime import blueprint_dev_mode_enabled
-from blueprint_core.project_objects import attach_project_object_metadata_to_dict
+from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from blueprint_core.persistence.base import DatabaseProvider
 from blueprint_core.persistence.models import (
     Base,
-    DBA2AJob,
     DBAlphaSignup,
     DBComponentTemplate,
     DBGeneratedProject,

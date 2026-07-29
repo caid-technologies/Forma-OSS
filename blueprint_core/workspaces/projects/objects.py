@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
-from blueprint_core.models import HardwareIR
+from blueprint_core.workspaces.projects.models import HardwareIR
 
 
 PROJECT_OBJECT_TYPE = "blueprint.project"

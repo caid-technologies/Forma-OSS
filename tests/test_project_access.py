@@ -12,7 +12,7 @@ from starlette.requests import Request
 
 from backend import main
 from backend.auth import UserContext, optional_user_context
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
     HardwareIR,
@@ -273,6 +273,36 @@ class ProjectReadAccessTests(unittest.TestCase):
 
 
 class ProjectChatAccessTests(unittest.TestCase):
+    def test_chat_upsert_serializes_typed_messages_for_persistence(self) -> None:
+        request = main.ProjectChatUpsertRequest(
+            title="Private chat",
+            messages=[
+                {
+                    "id": "message-1",
+                    "role": "assistant",
+                    "content": "Your project is ready.",
+                    "timestamp": "2026-07-29T12:00:00Z",
+                    "projectId": "project-1",
+                    "toolCalls": [{"name": "generate_project"}],
+                }
+            ],
+        )
+
+        with patch.object(
+            main,
+            "upsert_project_chat",
+            side_effect=lambda **record: SimpleNamespace(**record),
+        ) as upsert_chat:
+            response = main.upsert_chat_endpoint("private-chat", request, _user_context("user-a"))
+
+        persisted_message = upsert_chat.call_args.kwargs["messages"][0]
+        self.assertIsInstance(persisted_message, dict)
+        self.assertEqual("project-1", persisted_message["projectId"])
+        self.assertEqual("generate_project", persisted_message["toolCalls"][0]["name"])
+        self.assertNotIn("status", persisted_message)
+        self.assertNotIn("pipelineProgress", persisted_message)
+        self.assertEqual(persisted_message, response["messages"][0])
+
     def test_chat_lookup_is_scoped_to_the_signed_in_owner(self) -> None:
         owned_chat = SimpleNamespace(
             chat_id="private-chat",

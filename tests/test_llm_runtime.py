@@ -17,7 +17,7 @@ from blueprint_core.llm import (
     model_image_input_support,
     resolve_llm_runtime_config,
 )
-from blueprint_core.models import ProjectOverview
+from blueprint_core.workspaces.projects.models import ProjectOverview
 from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 
 

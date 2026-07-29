@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     AssemblyStep,
     ComponentInstance,
     FunctionalRequirements,

@@ -5,13 +5,13 @@ from typing import Any, Dict, List, Optional
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.agents.web_research_workflow import WebResearchHardwarePipeline
-from blueprint_core.job_source_usage import (
+from blueprint_core.jobs.source_usage import (
     DEFAULT_WORKFLOW_ID,
     WEB_RESEARCH_WORKFLOW_ID,
     normalize_generation_workflow_id,
     source_usage_for_workflow,
 )
-from blueprint_core.models import HardwareIR
+from blueprint_core.workspaces.projects.models import HardwareIR
 
 
 @dataclass(frozen=True)

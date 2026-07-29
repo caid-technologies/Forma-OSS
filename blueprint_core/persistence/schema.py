@@ -1,18 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Tuple
 
-
-@dataclass(frozen=True)
-class TableContract:
-    name: str
-    required_columns: Tuple[str, ...]
-
-    @property
-    def projection(self) -> str:
-        return ",".join(self.required_columns)
-
+from blueprint_core.jobs.schema import JOB_TABLE_CONTRACT
+from blueprint_core.persistence.base import TableContract
 
 # This is the schema surface used through both the local SQLite provider and
 # the hosted Supabase provider. A Supabase startup projection checks columns as
@@ -31,29 +22,7 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         "project_chats",
         ("id", "chat_id", "owner_user_id", "title", "messages", "created_at", "updated_at"),
     ),
-    TableContract(
-        "a2a_jobs",
-        (
-            "job_id",
-            "message_id",
-            "correlation_id",
-            "action",
-            "sender",
-            "recipient",
-            "status",
-            "server_owned",
-            "created_at",
-            "updated_at",
-            "started_at",
-            "completed_at",
-            "payload_json",
-            "result_summary_json",
-            "source_usage_json",
-            "progress_events_json",
-            "error",
-            "error_debug_json",
-        ),
-    ),
+    JOB_TABLE_CONTRACT,
     TableContract(
         "alpha_signups",
         ("id", "name", "email", "organization", "additional_info", "source", "metadata_json", "created_at"),

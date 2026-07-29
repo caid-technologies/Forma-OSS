@@ -26,13 +26,13 @@ from blueprint_core.llm import (
     resolve_llm_runtime_config,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
     generation_unavailable_message,
 )
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     HardwareIR, ProjectOverview, FunctionalRequirements, 
     ComponentInstance, ConnectionNet, PinReference, AssemblyStep, 
     MechanicalNotes, MechanicalSource, MechanicalVector3, MechanicalRotation3,

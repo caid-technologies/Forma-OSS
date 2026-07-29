@@ -6,10 +6,10 @@ import unittest
 import uuid
 from pathlib import Path
 
-from backend.job_store import JobMetadataStore
+from blueprint_core.jobs.store import JobMetadataStore
 from blueprint_core import database
 from blueprint_core.persistence import APPLICATION_SCHEMA
-from blueprint_core.persistence.migrations import import_legacy_job_database
+from blueprint_core.jobs.migrations import import_legacy_job_database
 from blueprint_core.persistence.providers import SupabaseProvider, create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.lattice import (
+from blueprint_core.agents.contracts import (
     LatticeRegistry,
     LatticeRunRecord,
     LatticeSchemaContract,
 )
-from blueprint_core.lattice_agents import default_namespace_agent_cards, namespace_contract_id
+from blueprint_core.agents.lattice import default_namespace_agent_cards, namespace_contract_id
 from fabricator import (
     FabricatorPlan,
     FabricatorQuestion,

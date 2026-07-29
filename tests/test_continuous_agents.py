@@ -6,7 +6,7 @@ import unittest
 import uuid
 from pathlib import Path
 
-from blueprint_core.continuous_agents import ContinuousAgentCoordinator, JsonlStreamStore, MediaInspector
+from blueprint_core.agents.continuous import ContinuousAgentCoordinator, JsonlStreamStore, MediaInspector
 
 
 def write_stream_event(path: Path, *, content: str, event_id: str | None = None) -> None:

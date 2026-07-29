@@ -1,7 +1,7 @@
 import re
 from typing import Dict
 import html
-from blueprint_core.models import HardwareIR
+from blueprint_core.workspaces.projects.models import HardwareIR
 
 _MERMAID_ID_PATTERN = re.compile(r"[^a-zA-Z0-9_]")
 

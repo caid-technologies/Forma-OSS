@@ -1,4 +1,4 @@
-"""Lattice: typed contracts for composable domain agents."""
+"""Typed contracts for composable domain agents."""
 
 from __future__ import annotations
 

@@ -6,8 +6,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from blueprint_core.lattice import LatticeAgentCard, LatticeCapability, LatticeSchemaContract
-from blueprint_core.project_objects import ProjectNamespaceDescriptor, list_project_namespaces
+from blueprint_core.agents.contracts import LatticeAgentCard, LatticeCapability, LatticeSchemaContract
+from blueprint_core.workspaces.projects.objects import ProjectNamespaceDescriptor, list_project_namespaces
 
 
 class NamespaceAgentQuestion(BaseModel):

@@ -73,12 +73,14 @@ from blueprint_core.database import (
 )
 from backend.seed_db import seed_database
 from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
-from blueprint_core.clarifying_questions import ask_clarifying_questions
-from blueprint_core.models import (
-    AlphaSignupRequest, AlphaSignupResponse, ClarifyingQuestionsRequest, ClarifyingQuestionsResponse,
-    GenerateProjectRequest, HardwareIR, IterateProjectRequest, ValidationReport, VideoSelfCorrectRequest,
-    ComponentInstance, ConnectionNet, ValidationIssue
+from blueprint_core.agents.clarification import ask_clarifying_questions
+from blueprint_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
+from blueprint_core.workspaces.projects.models import (
+    ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
+    ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
+    ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
+from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from backend.a2a import (
     A2A_HUB,
@@ -93,13 +95,14 @@ from backend.a2a import (
     submit_a2a_message,
 )
 from blueprint_core.images import get_image_output_debug_config
-from blueprint_core.iteration import ProjectIterator
+from blueprint_core.workspaces.projects.iteration import ProjectIterator
 from blueprint_core.llm import LLMProviderConfigError
 from blueprint_core.llm import LLMProviderOutputError
-from blueprint_core.project_objects import build_project_object, list_project_namespaces
-from blueprint_core.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from blueprint_core.workspaces.projects.objects import build_project_object, list_project_namespaces
+from blueprint_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
-from blueprint_core.video_review import FireworksVideoReviewClient, FireworksVideoSelfCorrectionAgent
+from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
+from blueprint_core.video_review import FireworksVideoReviewClient
 from backend.logs_api import router as logs_router
 from backend.streams_api import router as streams_router
 from backend.user_integrations_api import router as user_integrations_router
@@ -111,7 +114,7 @@ from backend.auth import (
     require_admin_user_context,
     require_user_context,
 )
-from backend.job_store import JOB_STORE, JobCancelledError
+from blueprint_core.jobs.store import JOB_STORE, JobCancelledError
 from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
 from blueprint_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
@@ -666,18 +669,6 @@ class VideoImageToVideoRequest(BaseModel):
     aspectRatio: str | None = None
     aspect_ratio: str | None = None
     sound: str | None = "off"
-
-
-class ProjectUpdateRequest(BaseModel):
-    title: str | None = None
-    prompt: str | None = None
-    visibility: str | None = None
-
-
-class ProjectChatUpsertRequest(BaseModel):
-    chat_id: str | None = None
-    title: str | None = None
-    messages: List[Dict[str, Any]] | None = None
 
 
 class VideoToVideoRequest(BaseModel):
@@ -1624,13 +1615,13 @@ def delete_project_endpoint(project_id: str, user: UserContext = Depends(require
 
 
 def _chat_response(chat: Any) -> Dict[str, Any]:
-    return {
-        "chat_id": chat.chat_id,
-        "title": chat.title,
-        "messages": getattr(chat, "messages", []) or [],
-        "created_at": chat.created_at,
-        "updated_at": chat.updated_at,
-    }
+    return Chat(
+        chat_id=chat.chat_id,
+        title=chat.title,
+        messages=getattr(chat, "messages", []) or [],
+        created_at=chat.created_at,
+        updated_at=chat.updated_at,
+    ).model_dump(mode="json", exclude_unset=True)
 
 
 @app.get("/chats")
@@ -1653,7 +1644,7 @@ def get_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_con
 @app.put("/chats/{chat_id}")
 def upsert_chat_endpoint(
     chat_id: str,
-    request: ProjectChatUpsertRequest,
+    request: ChatUpsertRequest,
     user: UserContext = Depends(require_user_context),
 ):
     """Creates or updates a private chat owned by the signed-in user."""
@@ -1663,7 +1654,7 @@ def upsert_chat_endpoint(
         chat_id=chat_id,
         owner_user_id=owner_user_id,
         title=request.title or "Untitled chat",
-        messages=request.messages or [],
+        messages=[message.model_dump(mode="json", exclude_unset=True) for message in request.messages or []],
         created_at=now,
         updated_at=now,
     )

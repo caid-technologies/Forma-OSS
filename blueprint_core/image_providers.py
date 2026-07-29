@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 
-from blueprint_core.prompt_compaction import (
+from blueprint_core.agents.prompt_compaction import (
     DEFAULT_IMAGE_PROMPT_TARGET_CHARS,
     OPENAI_IMAGE_PROMPT_MAX_CHARS,
     PromptCompactionAgent,

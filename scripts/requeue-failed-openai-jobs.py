@@ -12,8 +12,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.continuous_agents import JsonlStreamStore
-from blueprint_core.continuous_openai_jobs import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobQueue, ContinuousOpenAIJobResult, now_seconds
+from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.jobs.continuous import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobQueue, ContinuousOpenAIJobResult, now_seconds
 from blueprint_core.prompt_continuity import DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS
 
 

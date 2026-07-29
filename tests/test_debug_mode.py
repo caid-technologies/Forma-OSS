@@ -6,7 +6,7 @@ import unittest
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from backend.job_store import JobMetadataStore
+from blueprint_core.jobs.store import JobMetadataStore
 from blueprint_core.debug import api_error_detail, exception_debug_payload, redact_debug_value
 
 

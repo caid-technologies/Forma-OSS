@@ -8,7 +8,7 @@ from blueprint_core.agents.contracts import (
     LatticeSchemaContract,
 )
 from blueprint_core.agents.lattice import default_namespace_agent_cards, namespace_contract_id
-from fabricator import (
+from blueprint_core.fabricator import (
     FabricatorPlan,
     FabricatorQuestion,
     fabricator_lattice_card,

@@ -1,3 +1,5 @@
+"""Build and upload Forma artifacts to Hugging Face repositories."""
+
 from __future__ import annotations
 
 import hashlib
@@ -265,5 +267,6 @@ __all__ = [
     "HuggingFaceUploadResult",
     "HuggingFaceUploadedFile",
     "build_artifacts",
+    "path_from_repo",
     "upload_artifacts_to_huggingface",
 ]

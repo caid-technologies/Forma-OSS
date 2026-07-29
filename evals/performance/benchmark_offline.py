@@ -31,7 +31,7 @@ DEFAULT_SCHEDULER_SLEEP_MS = 10.0
 DEFAULT_OUTPUT_DIR = ".logs/benchmarks"
 LATEST_REPORT_NAME = "offline-latest.json"
 
-from blueprint_core.huggingface_artifacts import (
+from blueprint_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     upload_artifacts_to_huggingface,

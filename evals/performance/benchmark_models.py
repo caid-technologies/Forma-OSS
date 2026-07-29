@@ -17,7 +17,7 @@ from statistics import mean, median
 from typing import Any
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -327,7 +327,7 @@ def build_report(
     summary = summarize_candidate_runs(candidates, measured_rounds)
     return {
         "schema_version": 1,
-        "tool": "benchmarks/benchmark_models.py",
+        "tool": "evals/performance/benchmark_models.py",
         "started_at": sample.format_utc(started_at),
         "completed_at": sample.format_utc(completed_at),
         "duration_seconds": round((completed_at - started_at).total_seconds(), 3),

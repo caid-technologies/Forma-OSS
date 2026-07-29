@@ -10,6 +10,6 @@ fi
 
 cd "$ROOT_DIR"
 
-"$PYTHON_BIN" -m compileall -q blueprint_core backend benchmarks scripts tests
-"$PYTHON_BIN" -m py_compile scripts/sample.py scripts/sample_async.py benchmarks/benchmark_offline.py benchmarks/benchmark_models.py
+"$PYTHON_BIN" -m compileall -q blueprint_core backend evals scripts tests
+"$PYTHON_BIN" -m py_compile scripts/sample.py scripts/sample_async.py evals/performance/benchmark_offline.py evals/performance/benchmark_models.py
 "$PYTHON_BIN" -m unittest discover -s tests -v

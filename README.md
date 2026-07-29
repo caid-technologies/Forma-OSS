@@ -136,11 +136,11 @@ curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Typ
 
 Generation and project iteration logic lives in the reusable `blueprint_core` package, published as the `caid-blueprint-core` PyPI distribution. New code should import from `blueprint_core.generation`, `blueprint_core.iteration`, `blueprint_core.project_objects`, `blueprint_core.models`, `blueprint_core.validation`, `blueprint_core.llm`, `blueprint_core.images`, `blueprint_core.runtime`, and `blueprint_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
 
-Benchmarks live under `benchmarks/` and save JSON reports under `.logs/benchmarks/`:
+Performance benchmarks live under `evals/performance/` and save JSON reports under `.logs/benchmarks/`. See [`evals/README.md`](evals/README.md) for the performance/quality distinction, shared datasets, reports, and extension guidance.
 ```bash
 ./scripts/benchmark.sh
-./benchmarks/benchmark_models.py --iterations 1
-./benchmarks/benchmark_models.py --live --llm openai/gpt-5.5 --iterations 3 --concurrency 2
+./evals/performance/benchmark_models.py --iterations 1
+./evals/performance/benchmark_models.py --live --llm openai/gpt-5.5 --iterations 3 --concurrency 2
 ```
 
 `benchmark_models.py` defaults to config-only mode so it can run safely without spending provider calls. Add `--live` when you want real LLM latency measurements. Each completed provider/model attempt is also flushed immediately to per-run JSONL and CSV files named `model-job-results-*.jsonl` and `model-job-results-*.csv`, including status, round, completion time, and duration fields.
@@ -151,8 +151,8 @@ Benchmark, output, and eval artifacts can be uploaded to a Hugging Face dataset 
 export HF_TOKEN=...
 export HF_ARTIFACT_REPO_ID=username/blueprint-metrics
 
-./benchmarks/benchmark_models.py --live --iterations 3 --upload-huggingface
-./benchmarks/benchmark_offline.py --upload-huggingface
+./evals/performance/benchmark_models.py --live --iterations 3 --upload-huggingface
+./evals/performance/benchmark_offline.py --upload-huggingface
 ./scripts/upload-artifacts-to-huggingface.py --artifact-type outputs examples/results
 ./scripts/upload-artifacts-to-huggingface.py --artifact-type evals .logs/evals
 ```

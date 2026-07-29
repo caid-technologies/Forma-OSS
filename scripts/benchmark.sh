@@ -10,4 +10,4 @@ fi
 
 cd "$ROOT_DIR"
 
-"$PYTHON_BIN" benchmarks/benchmark_offline.py "$@"
+"$PYTHON_BIN" evals/performance/benchmark_offline.py "$@"

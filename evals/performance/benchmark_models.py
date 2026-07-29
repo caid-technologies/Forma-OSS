@@ -24,7 +24,7 @@ if str(ROOT_DIR) not in sys.path:
 
 from scripts import sample, sample_async
 from blueprint_core.selectors import LLMSelector
-from blueprint_core.huggingface_artifacts import (
+from blueprint_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     upload_artifacts_to_huggingface,

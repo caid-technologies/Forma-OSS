@@ -7,7 +7,7 @@ import tempfile
 import types
 import unittest
 
-from blueprint_core.huggingface_artifacts import (
+from blueprint_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     upload_artifacts_to_huggingface,
@@ -34,6 +34,16 @@ class FakeHfApi:
 
 
 class HuggingFaceArtifactTests(unittest.TestCase):
+    def test_artifact_implementation_lives_in_huggingface_integration_package(self) -> None:
+        core_root = pathlib.Path(__file__).resolve().parents[1] / "blueprint_core"
+
+        self.assertFalse((core_root / "huggingface_artifacts.py").exists())
+        self.assertTrue((core_root / "integrations" / "huggingface" / "huggingface_artifacts.py").is_file())
+        self.assertEqual(
+            "blueprint_core.integrations.huggingface.huggingface_artifacts",
+            build_artifacts.__module__,
+        )
+
     def test_build_artifacts_records_checksum_size_and_repo_path(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = pathlib.Path(temp_dir)

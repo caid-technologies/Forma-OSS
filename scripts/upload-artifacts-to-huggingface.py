@@ -15,7 +15,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-from blueprint_core.huggingface_artifacts import (
+from blueprint_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     path_from_repo,

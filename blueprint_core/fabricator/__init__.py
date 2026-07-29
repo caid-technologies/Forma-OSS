@@ -1,14 +1,11 @@
 """Fabricator fabrication-planning CLI and schemas."""
 
-from fabricator.main import (
+from blueprint_core.fabricator.main import (
     CandidateWorkflow,
     DeviceInterfaceNeed,
     FabricatorPlan,
     FabricatorQuestion,
     FabricatorRun,
-    FibricatorPlan,
-    FibricatorQuestion,
-    FibricatorRun,
     PrimitiveInventory,
     build_parser,
     build_prompt,
@@ -25,9 +22,6 @@ __all__ = [
     "FabricatorPlan",
     "FabricatorQuestion",
     "FabricatorRun",
-    "FibricatorPlan",
-    "FibricatorQuestion",
-    "FibricatorRun",
     "PrimitiveInventory",
     "build_parser",
     "build_prompt",

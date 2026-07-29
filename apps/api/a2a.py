@@ -169,7 +169,7 @@ A2A_HUB = A2AHub()
 def _lattice_registry():
     from blueprint_core.agents.contracts import LatticeRegistry
     from blueprint_core.agents.lattice import default_namespace_agent_cards
-    from fabricator import fabricator_lattice_card
+    from blueprint_core.fabricator import fabricator_lattice_card
 
     return LatticeRegistry([*default_namespace_agent_cards(), fabricator_lattice_card()])
 

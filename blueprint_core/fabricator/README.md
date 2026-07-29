@@ -1,6 +1,6 @@
 # Fabricator
 
-Fabricator is the workspace area for predicting how products can be fabricated from primitive inputs across chemistry, biotechnology, material science, and life science domains.
+Fabricator is Blueprint Core's fabrication-planning package for predicting how products can be fabricated from primitive inputs across chemistry, biotechnology, material science, and life science domains.
 
 ## MVP Direction
 
@@ -37,7 +37,7 @@ This is why Fabricator needs the Forma MCP server. MCP gives the conversational 
 
 ## Suggested Layout
 
-This directory starts intentionally small. Likely next additions are:
+This package starts intentionally small. Likely next additions are:
 
 - `main.py` for a runnable sample of Forma-backed Fabricator planning.
 - `schemas/` for product, primitive, and process definitions.
@@ -50,35 +50,37 @@ This directory starts intentionally small. Likely next additions are:
 Generate a local plan without calling a live model:
 
 ```bash
-python -m fabricator plan
+python -m blueprint_core.fabricator plan
 ```
 
 Run the same flow through Forma's configured LLM provider:
 
 ```bash
-python -m fabricator plan --live --provider runpod --material "cellulose acetate offcuts"
+python -m blueprint_core.fabricator plan --live --provider runpod --material "cellulose acetate offcuts"
 ```
+
+Live CLI runs fail if the configured provider fails; they never substitute a local heuristic plan.
 
 Inspect tools through Forma's MCP handler:
 
 ```bash
-python -m fabricator mcp-tools
+python -m blueprint_core.fabricator mcp-tools
 ```
 
 Expose Fabricator as a Lattice domain-agent card for other agents:
 
 ```bash
-python -m fabricator card
+python -m blueprint_core.fabricator card
 ```
 
 Generate a plan and write a JSON artifact:
 
 ```bash
-python -m fabricator plan --material "cellulose acetate offcuts" --include-mcp-tools --output fabricator/results/sample-plan.json
+python -m blueprint_core.fabricator plan --material "cellulose acetate offcuts" --include-mcp-tools --output results/fabricator-plan.json
 ```
 
-Use a running Forma backend instead of the in-process handler:
+Use a running Forma backend (or set `BLUEPRINT_MCP_URL`):
 
 ```bash
-python -m fabricator mcp-tools --mcp-url http://127.0.0.1:8000/mcp
+python -m blueprint_core.fabricator mcp-tools --mcp-url http://127.0.0.1:8000/mcp
 ```

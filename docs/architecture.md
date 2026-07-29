@@ -54,6 +54,7 @@ flowchart TD
 - **Frontend (Next.js + React Flow):** Visualizes the structured project, nets, BOM, and instructions.
 - **Backend (FastAPI):** Hosts the orchestration layer, validation, and storage APIs.
 - **A2A broker:** Lets external agents register, send messages, listen for queued events, or call Forma tools through MCP-style JSON-RPC.
+- **Fabricator (`blueprint_core.fabricator`):** Provides reusable fabrication-planning schemas, heuristics, Lattice registration, and the `fabricator` CLI.
 - **Rust integrations ([`isayahc/Forma-Rust`](https://github.com/isayahc/Forma-Rust)):** Host the Forma TUI, low-level source listeners, and Linux-facing integrations as standalone Rust projects.
 - **Database (Supabase client/SQLite):** Stores component templates and generated projects.
 - **Utilities:** Render Mermaid and SVG schematics from the IR.

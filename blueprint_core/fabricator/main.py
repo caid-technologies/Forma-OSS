@@ -2,21 +2,20 @@
 """Fabricator CLI using Forma for LLM and MCP integration.
 
 Generate a local plan:
-    python -m fabricator plan --material "cellulose acetate offcuts"
+    python -m blueprint_core.fabricator plan --material "cellulose acetate offcuts"
 
 Generate through the configured Forma LLM provider:
-    python -m fabricator plan --live --provider runpod --material "cellulose acetate offcuts"
+    python -m blueprint_core.fabricator plan --live --provider runpod --material "cellulose acetate offcuts"
 
 Inspect Forma MCP tools:
-    python -m fabricator mcp-tools
+    python -m blueprint_core.fabricator mcp-tools
 """
 
 from __future__ import annotations
 
 import argparse
-import asyncio
 import json
-import subprocess
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -25,18 +24,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-
-ROOT_DIR = Path(__file__).resolve().parents[1]
-if str(ROOT_DIR) not in sys.path:
-    sys.path.insert(0, str(ROOT_DIR))
-
-from blueprint_core.agents.contracts import (  # noqa: E402
+from blueprint_core.agents.contracts import (
     LatticeAgentCard,
     LatticeCapability,
     LatticeRunRecord,
     LatticeSchemaContract,
 )
-from blueprint_core.llm import build_llm_provider  # noqa: E402
+from blueprint_core.llm import build_llm_provider
 
 
 DEFAULT_MATERIAL = "cellulose fiber and mycelium biomass"
@@ -50,7 +44,7 @@ DEFAULT_EQUIPMENT = (
     "3D printer",
     "optical microscope",
 )
-DEFAULT_MCP_URL = "in-process"
+DEFAULT_MCP_URL = os.getenv("BLUEPRINT_MCP_URL", "http://127.0.0.1:8000/mcp")
 FABRICATOR_AGENT_ID = "fabricator"
 FABRICATOR_PLANNING_CONTRACT_ID = "fabricator.plan.v0"
 
@@ -98,7 +92,7 @@ class FabricatorPlan(BaseModel):
 
 
 class FabricatorRun(BaseModel):
-    mode: Literal["local", "live", "live_fallback"]
+    mode: Literal["local", "live"]
     fabricator_plan: FabricatorPlan
     lattice_run: LatticeRunRecord | None = None
     blueprint_llm: dict[str, Any] | None = None
@@ -285,24 +279,21 @@ def local_heuristic_plan(question: FabricatorQuestion) -> FabricatorPlan:
     )
 
 
-def generate_live_plan(args: argparse.Namespace, question: FabricatorQuestion) -> tuple[FabricatorPlan, dict[str, Any], list[str]]:
+def generate_live_plan(
+    args: argparse.Namespace,
+    question: FabricatorQuestion,
+) -> tuple[FabricatorPlan, dict[str, Any], list[str]]:
     provider = build_llm_provider(provider_name=args.provider, model_name=args.model)
     validation = provider.validate_configured_model(raise_on_strict=False)
     debug_config = validation.as_debug_dict()
-    warnings: list[str] = []
     if not validation.live_generation_enabled:
-        warnings.append(f"Forma live LLM is unavailable: {validation.validation_error}")
-        return local_heuristic_plan(question), debug_config, warnings
+        raise RuntimeError(f"Forma live LLM is unavailable: {validation.validation_error}")
 
-    try:
-        plan = provider.generate_structured(build_prompt(question), FabricatorPlan)
-    except Exception as exc:
-        warnings.append(f"Forma live LLM failed; using local heuristic plan: {exc}")
-        return local_heuristic_plan(question), debug_config, warnings
+    plan = provider.generate_structured(build_prompt(question), FabricatorPlan)
 
     if not plan.blueprint_mcp_handoff:
         plan.blueprint_mcp_handoff = mcp_handoff_requests()
-    return plan, debug_config, warnings
+    return plan, debug_config, []
 
 
 def fabricator_lattice_card() -> LatticeAgentCard:
@@ -410,55 +401,7 @@ def fabricator_lattice_card() -> LatticeAgentCard:
     )
 
 
-def call_in_process_mcp(payload: dict[str, Any] | list[dict[str, Any]]) -> Any:
-    try:
-        from apps.api.a2a import handle_mcp_json_rpc
-    except ModuleNotFoundError as exc:
-        venv_python = ROOT_DIR / ".venv" / "bin" / "python"
-        if venv_python.exists() and Path(sys.executable).absolute() != venv_python.absolute():
-            return call_in_process_mcp_with_python(venv_python, payload)
-        raise RuntimeError(
-            "Forma backend dependencies are unavailable. Run backend dependency setup or pass --mcp-url "
-            "to a running Forma server."
-        ) from exc
-
-    return asyncio.run(handle_mcp_json_rpc(payload))
-
-
-def call_in_process_mcp_with_python(python_path: Path, payload: dict[str, Any] | list[dict[str, Any]]) -> Any:
-    helper = """
-import asyncio
-import json
-import sys
-from pathlib import Path
-
-root_dir = Path(sys.argv[1])
-if str(root_dir) not in sys.path:
-    sys.path.insert(0, str(root_dir))
-
-from apps.api.a2a import handle_mcp_json_rpc
-
-payload = json.loads(sys.stdin.read())
-result = asyncio.run(handle_mcp_json_rpc(payload))
-print(json.dumps(result))
-"""
-    completed = subprocess.run(
-        [str(python_path), "-c", helper, str(ROOT_DIR)],
-        input=json.dumps(payload),
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if completed.returncode != 0:
-        message = completed.stderr.strip() or completed.stdout.strip() or "unknown subprocess error"
-        raise RuntimeError(f"Forma in-process MCP failed under {python_path}: {message}")
-    return json.loads(completed.stdout)
-
-
 def post_mcp_json_rpc(mcp_url: str, payload: dict[str, Any] | list[dict[str, Any]]) -> Any:
-    if mcp_url == "in-process":
-        return call_in_process_mcp(payload)
-
     try:
         request = urllib.request.Request(
             mcp_url,
@@ -494,7 +437,7 @@ def add_mcp_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--mcp-url",
         default=DEFAULT_MCP_URL,
-        help="Forma MCP endpoint URL, or 'in-process' to use Forma's handler directly.",
+        help="Forma MCP endpoint URL (defaults to BLUEPRINT_MCP_URL or http://127.0.0.1:8000/mcp).",
     )
 
 
@@ -566,11 +509,11 @@ def write_json_output(payload: Any, output_path: str | None, *, quiet: bool = Fa
 def build_run(args: argparse.Namespace, question: FabricatorQuestion) -> FabricatorRun:
     warnings: list[str] = []
     blueprint_llm: dict[str, Any] | None = None
-    mode: Literal["local", "live", "live_fallback"] = "local"
+    mode: Literal["local", "live"] = "local"
 
     if args.live:
         plan, blueprint_llm, warnings = generate_live_plan(args, question)
-        mode = "live_fallback" if warnings else "live"
+        mode = "live"
     else:
         plan = local_heuristic_plan(question)
 
@@ -627,11 +570,6 @@ def main(argv: list[str] | None = None) -> int:
     run = build_run(args, question)
     write_json_output(run.model_dump(mode="json", exclude_none=True), args.output, quiet=args.quiet)
     return 0
-
-
-FibricatorQuestion = FabricatorQuestion
-FibricatorPlan = FabricatorPlan
-FibricatorRun = FabricatorRun
 
 
 if __name__ == "__main__":

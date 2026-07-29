@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from backend import storage
+from apps.api import storage
 
 
 SUPABASE_ENV = {

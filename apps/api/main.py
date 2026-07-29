@@ -9,29 +9,36 @@ from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 
-def _ensure_backend_package_imports() -> None:
-    """Support Vercel loading backend/main.py as top-level main.py."""
-    if "backend" in sys.modules:
+def _ensure_api_package_imports() -> None:
+    """Support Vercel loading apps/api/main.py as top-level main.py."""
+    if "apps.api" in sys.modules:
         return
 
     current_dir = Path(__file__).resolve().parent
     if not (current_dir / "database.py").exists():
         return
 
-    project_root = current_dir.parent
+    project_root = current_dir.parents[1]
     if str(project_root) not in sys.path:
         sys.path.insert(0, str(project_root))
 
-    backend_package = types.ModuleType("backend")
-    backend_package.__path__ = [str(current_dir)]
-    backend_package.__file__ = str(current_dir / "__init__.py")
-    backend_package.__package__ = "backend"
-    sys.modules["backend"] = backend_package
-    sys.modules.setdefault("backend.main", sys.modules[__name__])
-    setattr(backend_package, "main", sys.modules[__name__])
+    apps_package = types.ModuleType("apps")
+    apps_package.__path__ = [str(current_dir.parent)]
+    apps_package.__file__ = str(current_dir.parent / "__init__.py")
+    apps_package.__package__ = "apps"
+    sys.modules["apps"] = apps_package
+
+    api_package = types.ModuleType("apps.api")
+    api_package.__path__ = [str(current_dir)]
+    api_package.__file__ = str(current_dir / "__init__.py")
+    api_package.__package__ = "apps.api"
+    sys.modules["apps.api"] = api_package
+    sys.modules.setdefault("apps.api.main", sys.modules[__name__])
+    setattr(apps_package, "api", api_package)
+    setattr(api_package, "main", sys.modules[__name__])
 
 
-_ensure_backend_package_imports()
+_ensure_api_package_imports()
 
 from blueprint_core.debug import (
     api_error_detail,
@@ -45,13 +52,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
 
-load_dotenv()
+REPO_ROOT = Path(__file__).resolve().parents[2]
+load_dotenv(REPO_ROOT / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
 
 apply_user_integrations_to_environment()
 
-from backend.logging_config import configure_backend_logging
+from apps.api.logging_config import configure_backend_logging
 
 configure_backend_logging()
 
@@ -71,7 +80,7 @@ from blueprint_core.database import (
     update_generated_project_hardware_ir,
     upsert_project_chat,
 )
-from backend.seed_db import seed_database
+from apps.api.seed_db import seed_database
 from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
 from blueprint_core.agents.clarification import ask_clarifying_questions
 from blueprint_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
@@ -82,7 +91,7 @@ from blueprint_core.workspaces.projects.models import (
 )
 from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from backend.a2a import (
+from apps.api.a2a import (
     A2A_HUB,
     A2AAgentRegistration,
     A2AMessage,
@@ -103,11 +112,11 @@ from blueprint_core.agents.pipeline import PipelineCancelledError, list_agent_pi
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
 from blueprint_core.video_review import FireworksVideoReviewClient
-from backend.logs_api import router as logs_router
-from backend.streams_api import router as streams_router
-from backend.user_integrations_api import router as user_integrations_router
-from backend.user_settings_api import router as user_settings_router
-from backend.auth import (
+from apps.api.logs_api import router as logs_router
+from apps.api.streams_api import router as streams_router
+from apps.api.user_integrations_api import router as user_integrations_router
+from apps.api.user_settings_api import router as user_settings_router
+from apps.api.auth import (
     UserContext,
     deployed_auth_required,
     optional_user_context,
@@ -123,10 +132,10 @@ from blueprint_core.runtime import (
     generation_unavailable_detail,
 )
 from blueprint_core.runtime_config import blueprint_dev_mode_enabled
-from backend.storage import get_image_storage_config, hydrate_image_storage_metadata
+from apps.api.storage import get_image_storage_config, hydrate_image_storage_metadata
 from blueprint_core.validation import validate_circuit
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
-from backend.video_providers import (
+from apps.api.video_providers import (
     GMICloudProvider,
     VIDEO_MODE_IMAGE_TO_VIDEO,
     VIDEO_MODE_VIDEO_TO_VIDEO,
@@ -137,7 +146,7 @@ from backend.video_providers import (
     normalize_video_aspect_ratio,
     normalize_video_mode,
 )
-from backend.video_storage import (
+from apps.api.video_storage import (
     ensure_video_storage_configured,
     get_video_storage_config,
     list_project_videos,
@@ -145,7 +154,7 @@ from backend.video_storage import (
 )
 
 logger = logging.getLogger(__name__)
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = REPO_ROOT
 EXAMPLE_RESULTS_DIR = ROOT_DIR / "examples" / "results"
 
 

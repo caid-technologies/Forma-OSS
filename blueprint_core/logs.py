@@ -75,7 +75,7 @@ def backend_log_payload(
     env: Optional[Mapping[str, str]] = None,
     cwd: Optional[Path] = None,
 ) -> dict[str, Any]:
-    """Return the frontend/API payload for recent backend logs."""
+    """Return the API payload used to show recent backend logs in the frontend."""
     path = log_path or resolve_backend_log_path(env=env, cwd=cwd)
     if not path:
         return {

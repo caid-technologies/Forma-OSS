@@ -4,7 +4,7 @@ Fabricator is the workspace area for predicting how products can be fabricated f
 
 ## MVP Direction
 
-Fabricator can use Forma as its first MVP server. The initial implementation should expose Fabricator workflows through the existing Forma backend/runtime surfaces instead of starting a separate service.
+Fabricator can use Forma as its first MVP server. The initial implementation should expose Fabricator workflows through Forma's existing backend and runtime surfaces instead of starting a separate service.
 
 LLM access should also go through Forma's provider interfaces. Fabricator should treat Forma as the boundary for model selection, prompt execution, streaming, logging, validation, and provider configuration so it can reuse the existing OpenAI, RunPod, Baseten, NVIDIA, simulation, and OpenAI-compatible paths.
 

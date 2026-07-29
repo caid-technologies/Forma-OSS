@@ -6,7 +6,7 @@ Forma OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported f
 - **Python 3.11+**
 - **Node.js 18+**
 - **Supabase project** (optional, recommended for deployed persistent storage)
-- **Docker** (optional, for containerized frontend/backend images)
+- **Docker** (optional, for containerized frontend and backend images)
 
 ## Docker setup
 From the repo root:
@@ -39,13 +39,13 @@ From the repo root:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r apps/api/requirements.txt
 ```
 
-Both `requirements.txt` and `backend/requirements.txt` list only third-party
+Both `requirements.txt` and `apps/api/requirements.txt` list only third-party
 runtime dependencies. Do not add local package paths such as `.[backend]` or
-`./backend`; Vercel may resolve dependency files from a service subdirectory and
-turn those paths into `backend/backend`. The `blueprint_core` source is bundled
+`../..`; Vercel may resolve dependency files from a service subdirectory and
+turn those into invalid deployment-relative paths. The `blueprint_core` source is bundled
 into the backend function through `vercel.json` `includeFiles`, which keeps
 deployments on the current monorepo source without relying on a stale PyPI
 wheel. `vercel.json` also excludes local databases, logs, frontend artifacts,
@@ -197,26 +197,26 @@ The server auto-seeds templates on startup if the `component_templates` table is
 
 Optional manual seed:
 ```bash
-python3 backend/seed_db.py
+python3 apps/api/seed_db.py
 ```
 
 ### Run the backend
-Run from the repo root so `backend.*` imports resolve correctly:
+Run from the repo root so `apps.api.*` imports resolve correctly:
 
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 OpenAI one-liner:
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn backend.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
 ```
 
 API docs: http://localhost:8000/api/docs
 
 ## Frontend setup (Next.js)
 ```bash
-cd frontend
+cd apps/web
 npm install
 npm run dev
 ```

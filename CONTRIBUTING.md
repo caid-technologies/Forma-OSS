@@ -150,13 +150,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 python -m pip install --upgrade pip
-pip install -r backend/requirements.txt
+pip install -r apps/api/requirements.txt
 ```
 
 Run the backend:
 
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 The API documentation will be available at:
@@ -176,7 +176,7 @@ pip install -e ".[dev]"
 In a separate terminal:
 
 ```bash
-cd frontend
+cd apps/web
 npm install
 npm run dev
 ```
@@ -212,9 +212,9 @@ By default, the backend runs on port `8000` and the frontend runs on port `3000`
 Important directories include:
 
 ```text
-backend/          FastAPI application and service integrations
+apps/api/          FastAPI application and service integrations
 blueprint_core/   Reusable generation, validation, provider, and project logic
-frontend/         Next.js frontend
+apps/web/         Next.js frontend
 tests/            Offline Python unit tests
 evals/            Performance benchmarks, quality evaluations, datasets, and reports
 docs/             Architecture and development documentation
@@ -321,7 +321,7 @@ This performs Python compilation checks and runs the unit tests under `tests/`.
 For frontend changes, run:
 
 ```bash
-cd frontend
+cd apps/web
 npm run lint
 npm run build
 ```

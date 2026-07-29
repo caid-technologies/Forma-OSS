@@ -14,11 +14,11 @@ __pycache__
 .mypy_cache
 
 node_modules
-frontend/node_modules
-frontend/.next
-frontend/out
-frontend/build
-frontend/dist
+apps/web/node_modules
+apps/web/.next
+apps/web/out
+apps/web/build
+apps/web/dist
 
 *.db
 *.log

@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend import a2a
+from apps.api import a2a
 from blueprint_core import user_integrations
 from blueprint_core.image_providers import build_image_provider
 from blueprint_core.user_integrations import UserIntegrationStore

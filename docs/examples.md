@@ -8,7 +8,7 @@ Forma ships with a few example Hardware IR projects to make the MVP easy to expl
 - **Biometric Deadbolt** (`examples/biometric_deadbolt.json`)
 - **Pocket MP3 Player** (`examples/pocket_mp3_player.json`)
 
-These same examples are mirrored in `frontend/public/examples/` for quick UI loading.
+These same examples are mirrored in `apps/web/public/examples/` for quick UI loading.
 
 You can deep-link an example in the UI:
 - `http://localhost:3000/?example=pocket_mp3_player`

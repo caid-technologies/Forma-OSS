@@ -10,8 +10,8 @@ from unittest.mock import MagicMock, call, patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from backend import main
-from backend.auth import UserContext, optional_user_context
+from apps.api import main
+from apps.api.auth import UserContext, optional_user_context
 from blueprint_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,

@@ -9,7 +9,7 @@ Forma’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic.
 - **Diffable:** Changes across versions are explicit and comparable.
 
 ## Top-level structure
-The core schema lives in `backend/models.py` and includes:
+The core schema lives in `apps/api/models.py` and includes:
 
 - **hardware_ir_version** – schema version string.
 - **overview** – `ProjectOverview` with title, description, difficulty, category.

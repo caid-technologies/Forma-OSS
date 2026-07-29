@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend import a2a
-from backend.storage import StoredImage
+from apps.api import a2a
+from apps.api.storage import StoredImage
 from blueprint_core.image_providers import GeneratedImage
 
 
@@ -23,7 +23,7 @@ class A2AImageLoggingTests(unittest.TestCase):
         )
 
         with patch.object(a2a, "upload_image_to_supabase_s3", return_value=stored), self.assertLogs(
-            "backend.a2a", level="INFO"
+            "apps.api.a2a", level="INFO"
         ) as logs:
             metadata = a2a._attach_stored_image_metadata(
                 ir,
@@ -66,7 +66,7 @@ class A2AImageLoggingTests(unittest.TestCase):
 
         with patch.object(a2a, "build_image_provider", return_value=FakeProvider()), patch.object(
             a2a, "_attach_stored_image_metadata", return_value={"product_case_image_storage_enabled": False}
-        ), self.assertLogs("backend.a2a", level="INFO") as logs:
+        ), self.assertLogs("apps.api.a2a", level="INFO") as logs:
             a2a._attach_product_image("test prompt", ir, generate_image=True)
 
         output = "\n".join(logs.output)
@@ -94,7 +94,7 @@ class A2AImageLoggingTests(unittest.TestCase):
                 raise RuntimeError("provider exploded")
 
         with patch.object(a2a, "build_image_provider", return_value=FakeProvider()), self.assertLogs(
-            "backend.a2a", level="WARNING"
+            "apps.api.a2a", level="WARNING"
         ) as logs:
             a2a._attach_product_image("test prompt", ir, generate_image=True)
 
@@ -120,7 +120,7 @@ class A2AImageLoggingTests(unittest.TestCase):
                 raise AssertionError("provider should not be called")
 
         with patch.object(a2a, "build_image_provider", return_value=FakeProvider()), self.assertLogs(
-            "backend.a2a", level="WARNING"
+            "apps.api.a2a", level="WARNING"
         ) as logs:
             a2a._attach_product_image("test prompt", ir, generate_image=True)
 

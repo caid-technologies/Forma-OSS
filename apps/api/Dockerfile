@@ -18,11 +18,12 @@ RUN useradd --create-home --shell /usr/sbin/nologin appuser \
     && mkdir -p /data \
     && chown -R appuser:appuser /data /app
 
-COPY backend/requirements.txt ./backend/requirements.txt
+COPY apps/api/requirements.txt ./apps/api/requirements.txt
 RUN pip install --upgrade pip \
-    && pip install -r backend/requirements.txt
+    && pip install -r apps/api/requirements.txt
 
-COPY backend ./backend
+COPY apps/__init__.py ./apps/__init__.py
+COPY apps/api ./apps/api
 COPY blueprint_core ./blueprint_core
 RUN chown -R appuser:appuser /app
 
@@ -30,4 +31,4 @@ USER appuser
 
 EXPOSE 8000 8766
 
-CMD ["sh", "-c", "uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn apps.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

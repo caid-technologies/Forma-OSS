@@ -11,7 +11,7 @@ import jwt
 from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
 
-from backend.auth_mode import clerk_auth_required
+from apps.api.auth_mode import clerk_auth_required
 
 
 LOCAL_USER_ID = "local-dev-user"

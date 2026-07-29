@@ -3,8 +3,8 @@
 The backend is a **FastAPI** service that orchestrates agents, validates netlists, renders diagrams, and stores generated projects.
 
 ## Key modules
-- `backend/main.py` – FastAPI app and API routes
-- `backend/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
+- `apps/api/main.py` – FastAPI app and API routes
+- `apps/api/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
 - `blueprint_core/generation.py` – high-level generation API
 - `blueprint_core/agents/orchestrator.py` – multi-agent pipeline
 - `blueprint_core/models.py` – Pydantic Hardware IR schemas
@@ -15,8 +15,8 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `blueprint_core/observability.py` – optional Langfuse tracing helpers
 - `blueprint_core/database.py` – SQLAlchemy models + DB setup
 - `blueprint_core/utils.py` – Mermaid and SVG schematic generation
-- `backend/storage.py` – Supabase Storage image uploads, disabled in development mode
-- `backend/seed_db.py` – seed component templates
+- `apps/api/storage.py` – Supabase Storage image uploads, disabled in development mode
+- `apps/api/seed_db.py` – seed component templates
 
 ## API endpoints
 - `POST /api/generate` – run the pipeline and return IR + diagrams
@@ -122,13 +122,13 @@ On startup the server:
 Run the server from the repo root:
 
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 To make backend logs visible in the local frontend LOGS tab when running uvicorn directly, set `BACKEND_LOG_FILE`:
 
 ```bash
-BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn backend.main:app --reload --port 8000
+BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn apps.api.main:app --reload --port 8000
 ```
 
 Run generation directly through the sole Blueprint Core CLI with `--llm provider/model`:
@@ -162,5 +162,5 @@ Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.lo
 Run against first-party OpenAI:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn backend.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
 ```

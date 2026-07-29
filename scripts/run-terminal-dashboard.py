@@ -172,7 +172,7 @@ def start_backend(backend_url: str, output_dir: Path, processes: ManagedProcessG
     host, port = parse_host_port(backend_url, default_port=8000)
     venv_python = ROOT_DIR / ".venv" / "bin" / "python"
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
-    command = [python_bin, "-m", "uvicorn", "backend.main:app", "--host", host, "--port", str(port)]
+    command = [python_bin, "-m", "uvicorn", "apps.api.main:app", "--host", host, "--port", str(port)]
     log_handle = open_log(output_dir / "backend.log")
     env = dict(os.environ)
     env["PYTHONPATH"] = f"{ROOT_DIR}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
@@ -195,7 +195,7 @@ def start_frontend(frontend_url: str, backend_url: str, output_dir: Path, proces
     env = dict(os.environ)
     env["NEXT_PUBLIC_API_URL"] = backend_url
     print(f"[terminal-dashboard] starting frontend: {' '.join(command)}", flush=True)
-    process = subprocess.Popen(command, cwd=ROOT_DIR / "frontend", env=env, stdout=log_handle, stderr=subprocess.STDOUT, text=True)
+    process = subprocess.Popen(command, cwd=ROOT_DIR / "apps" / "web", env=env, stdout=log_handle, stderr=subprocess.STDOUT, text=True)
     processes.add(process)
     wait_for_url(frontend_url, label="frontend", timeout_seconds=120)
 
@@ -323,7 +323,7 @@ def load_project_ir_from_backend(backend_url: str, project_id: str) -> dict[str,
 
 def load_example_ir(example: str) -> dict[str, Any]:
     filename = example if example.endswith(".json") else f"{example}.json"
-    path = ROOT_DIR / "frontend" / "public" / "examples" / filename
+    path = ROOT_DIR / "apps" / "web" / "public" / "examples" / filename
     if not path.exists():
         raise DashboardScriptError(f"Example not found: {path}")
     payload = json.loads(path.read_text(encoding="utf-8"))

@@ -413,7 +413,7 @@ def run_project_object_job(
     print_object_json: bool,
     generate_image: bool = False,
 ) -> ProjectObjectRunResult:
-    from backend.a2a import build_generation_response
+    from apps.api.a2a import build_generation_response
     from blueprint_core.workspaces.projects.models import HardwareIR
     from blueprint_core.workspaces.projects.objects import attach_project_object_metadata, build_project_object
 

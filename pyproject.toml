@@ -42,7 +42,7 @@ fabricator = "fabricator.main:main"
 fibricator = "fibricator.main:main"
 
 [tool.vercel]
-entrypoint = "backend.main:app"
+entrypoint = "apps.api.main:app"
 
 [project.optional-dependencies]
 gemini = ["google-genai>=0.1.0"]

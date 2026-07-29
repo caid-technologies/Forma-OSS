@@ -24,7 +24,7 @@ class CorePackageTests(unittest.TestCase):
 
         self.assertEqual(DIST_NAME, pyproject["project"]["name"])
         self.assertEqual(["version"], pyproject["project"]["dynamic"])
-        self.assertEqual("backend.main:app", pyproject["tool"]["vercel"]["entrypoint"])
+        self.assertEqual("apps.api.main:app", pyproject["tool"]["vercel"]["entrypoint"])
         self.assertEqual("blueprint_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
         self.assertEqual("blueprint_core.cli.main:main", pyproject["project"]["scripts"]["blueprint-core"])
         self.assertEqual("fabricator.main:main", pyproject["project"]["scripts"]["fabricator"])
@@ -39,7 +39,7 @@ class CorePackageTests(unittest.TestCase):
         self.assertTrue((ROOT_DIR / "fabricator" / "py.typed").exists())
 
     def test_backend_requirements_use_third_party_dependencies_for_vercel(self) -> None:
-        requirements_path = ROOT_DIR / "backend" / "requirements.txt"
+        requirements_path = ROOT_DIR / "apps" / "api" / "requirements.txt"
         requirements = [
             line.split("#", 1)[0].strip()
             for line in requirements_path.read_text(encoding="utf-8").splitlines()
@@ -57,8 +57,8 @@ class CorePackageTests(unittest.TestCase):
         for requirement in active_requirements:
             self.assertFalse(
                 requirement.startswith((".", "-e", "file:")),
-                "backend/requirements.txt is resolved from backend/ on Vercel; "
-                f"local project requirement {requirement!r} would point at backend/backend.",
+                "apps/api/requirements.txt must remain deployable without local project paths; "
+                f"found {requirement!r}.",
             )
         self.assertFalse(any(line.startswith(f"{DIST_NAME}==") for line in active_requirements))
 
@@ -69,7 +69,7 @@ class CorePackageTests(unittest.TestCase):
         ]
         backend_requirements = [
             line.split("#", 1)[0].strip()
-            for line in (ROOT_DIR / "backend" / "requirements.txt").read_text(encoding="utf-8").splitlines()
+            for line in (ROOT_DIR / "apps" / "api" / "requirements.txt").read_text(encoding="utf-8").splitlines()
         ]
 
         root_active = [line for line in root_requirements if line]
@@ -95,13 +95,13 @@ class CorePackageTests(unittest.TestCase):
         backend = vercel_config["services"]["backend"]
         self.assertEqual(".", backend["root"])
         self.assertEqual("fastapi", backend["framework"])
-        self.assertEqual("backend.main:app", backend["entrypoint"])
+        self.assertEqual("apps.api.main:app", backend["entrypoint"])
         self.assertNotIn("installCommand", backend)
-        for function_key in ("backend.main:app", "backend/main.py", "main.py"):
+        for function_key in ("apps.api.main:app", "apps/api/main.py", "main.py"):
             function_config = backend["functions"][function_key]
             self.assertEqual("blueprint_core/**", function_config["includeFiles"])
             exclude_files = function_config["excludeFiles"]
-            self.assertIn("frontend/**", exclude_files)
+            self.assertIn("apps/web/**", exclude_files)
             self.assertIn("*.db", exclude_files)
         self.assertNotIn("functions", vercel_config)
         self.assertIn(
@@ -109,8 +109,15 @@ class CorePackageTests(unittest.TestCase):
             vercel_config["rewrites"],
         )
 
+    def test_deployable_applications_live_under_apps(self) -> None:
+        self.assertTrue((ROOT_DIR / "apps" / "__init__.py").is_file())
+        self.assertTrue((ROOT_DIR / "apps" / "api" / "main.py").is_file())
+        self.assertTrue((ROOT_DIR / "apps" / "web" / "package.json").is_file())
+        self.assertFalse((ROOT_DIR / "backend").exists())
+        self.assertFalse((ROOT_DIR / "frontend").exists())
+
     def test_root_main_shim_exports_backend_app_for_legacy_vercel_detection(self) -> None:
-        import backend.main as backend_main
+        import apps.api.main as backend_main
         import main as root_main
 
         self.assertIs(root_main.app, backend_main.app)
@@ -133,7 +140,7 @@ class CorePackageTests(unittest.TestCase):
         offenders: list[str] = []
         for path in CORE_DIR.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
-            if "from backend" in text or "import backend" in text or "backend." in text:
+            if "from apps.api" in text or "import apps.api" in text or "apps.api." in text:
                 offenders.append(str(path.relative_to(ROOT_DIR)))
 
         self.assertEqual([], offenders)
@@ -147,10 +154,10 @@ class CorePackageTests(unittest.TestCase):
         self.assertIn("default", [item["id"] for item in list_workflows()])
 
     def test_backend_compatibility_wrappers_reexport_core_objects(self) -> None:
-        import backend.agents.orchestrator as backend_orchestrator
-        import backend.llm_providers as backend_llm
-        import backend.models as backend_models
-        import backend.validation as backend_validation
+        import apps.api.agents.orchestrator as backend_orchestrator
+        import apps.api.llm_providers as backend_llm
+        import apps.api.models as backend_models
+        import apps.api.validation as backend_validation
         from blueprint_core.agents import orchestrator as core_orchestrator
         from blueprint_core import validation as core_validation
         from blueprint_core import llm as core_llm

@@ -95,9 +95,9 @@ Alpha access leads captured when `BLUEPRINT_DEPLOYMENT=true` and live LLM genera
 - `created_at`
 
 ## Seeding the database
-Seed data is defined in `backend/seed_db.py`. Running:
+Seed data is defined in `apps/api/seed_db.py`. Running:
 ```bash
-python3 backend/seed_db.py
+python3 apps/api/seed_db.py
 ```
 creates the initial component library (MCUs, sensors, displays, actuators, power parts).
 

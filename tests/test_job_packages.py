@@ -39,8 +39,8 @@ class JobPackageTests(unittest.TestCase):
     def test_legacy_job_modules_are_removed(self) -> None:
         repository_root = Path(__file__).resolve().parents[1]
         legacy_paths = (
-            "backend/job_source_usage.py",
-            "backend/job_store.py",
+            "apps/api/job_source_usage.py",
+            "apps/api/job_store.py",
             "blueprint_core/agents/continuous_jobs.py",
             "blueprint_core/job_source_usage.py",
             "blueprint_core/persistence/repositories/jobs.py",

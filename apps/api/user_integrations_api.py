@@ -14,7 +14,7 @@ from blueprint_core.user_integrations import (
     default_integration_store,
     integration_status_payload,
 )
-from backend.auth import UserContext, require_user_context
+from apps.api.auth import UserContext, require_user_context
 from blueprint_core.debug import api_error_detail, redact_debug_text, redact_debug_value
 from blueprint_core.images import build_image_provider
 from blueprint_core.runtime import deployment_mode_enabled

@@ -44,7 +44,7 @@ Detailed instructions live in [docs/setup.md](docs/setup.md). The short version:
 From the repo root:
 
 ```bash
-./scripts/dev.sh
+./scripts/development/dev.sh
 ```
 
 This starts the FastAPI backend and Next.js frontend together. Use `BACKEND_PORT`, `FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
@@ -116,29 +116,29 @@ python -m blueprint_core --help
 **Developer utilities:**
 
 ```bash
-./scripts/test.sh
-./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
-./scripts/sample_async.py --llm openai/gpt-5.5 --llm runpod/caid-technologies/parti-base "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/quality/test.sh
+./scripts/models/sample.py "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/models/sample_async.py --llm openai/gpt-5.5 --llm runpod/caid-technologies/parti-base "Describe a low-voltage plant watering monitor with OLED status"
 curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Type: application/json' -d '{"instruction":"Add battery charging and make the enclosure splash resistant","namespace":"product.mech","provider":"openai","model":"gpt-5.5"}'
-./scripts/verify-llm-providers.py --list
-./scripts/verify-llm-providers.py
-./scripts/verify-llm-providers.py --save
-./scripts/run-llm-smoke-tests.py
-./scripts/verify-llm-providers.py --llm openai/gpt-5.5
-./scripts/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
-./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
-./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
-./scripts/verify-llm-providers.py --llm nebius/Qwen/Qwen3.5-397B-A17B
-./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
+./scripts/models/verify-llm-providers.py --list
+./scripts/models/verify-llm-providers.py
+./scripts/models/verify-llm-providers.py --save
+./scripts/models/run-llm-smoke-tests.py
+./scripts/models/verify-llm-providers.py --llm openai/gpt-5.5
+./scripts/models/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
+./scripts/models/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
+./scripts/models/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
+./scripts/models/verify-llm-providers.py --llm nebius/Qwen/Qwen3.5-397B-A17B
+./scripts/models/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
 ```
 
-`scripts/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
+`scripts/quality/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/models/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/models/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
 
 Generation and project iteration logic lives in the reusable `blueprint_core` package, published as the `caid-blueprint-core` PyPI distribution. New code should import from `blueprint_core.generation`, `blueprint_core.iteration`, `blueprint_core.project_objects`, `blueprint_core.models`, `blueprint_core.validation`, `blueprint_core.llm`, `blueprint_core.images`, `blueprint_core.runtime`, and `blueprint_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
 
 Performance benchmarks live under `evals/performance/` and save JSON reports under `.logs/benchmarks/`. See [`evals/README.md`](evals/README.md) for the performance/quality distinction, shared datasets, reports, and extension guidance.
 ```bash
-./scripts/benchmark.sh
+./scripts/quality/benchmark.sh
 ./evals/performance/benchmark_models.py --iterations 1
 ./evals/performance/benchmark_models.py --live --llm openai/gpt-5.5 --iterations 3 --concurrency 2
 ```
@@ -153,8 +153,8 @@ export HF_ARTIFACT_REPO_ID=username/blueprint-metrics
 
 ./evals/performance/benchmark_models.py --live --iterations 3 --upload-huggingface
 ./evals/performance/benchmark_offline.py --upload-huggingface
-./scripts/upload-artifacts-to-huggingface.py --artifact-type outputs examples/results
-./scripts/upload-artifacts-to-huggingface.py --artifact-type evals .logs/evals
+./scripts/operations/upload-artifacts-to-huggingface.py --artifact-type outputs examples/results
+./scripts/operations/upload-artifacts-to-huggingface.py --artifact-type evals .logs/evals
 ```
 
 The CLI uses `.venv/bin/python` when present and falls back to `python3`. `health`

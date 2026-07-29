@@ -18,14 +18,14 @@ uvicorn apps.api.main:app --reload --port 8000
 The combined dev launcher starts the backend and frontend together and writes backend and uvicorn logs to `.logs/backend-dev.log` for the local LOGS tab:
 
 ```bash
-./scripts/dev.sh
+./scripts/development/dev.sh
 ```
 
 If you run uvicorn directly and want the frontend LOGS tab to show backend output, set `BACKEND_LOG_FILE=.logs/backend-dev.log`.
 
 Tests:
 ```bash
-./scripts/test.sh
+./scripts/quality/test.sh
 ```
 
 Frontend:

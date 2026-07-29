@@ -6,7 +6,7 @@ import unittest
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-SMOKE_SCRIPT = ROOT_DIR / "scripts" / "verify-llm-providers.py"
+SMOKE_SCRIPT = ROOT_DIR / "scripts" / "models" / "verify-llm-providers.py"
 
 
 def load_smoke_script_module():

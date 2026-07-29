@@ -192,7 +192,7 @@ http://localhost:3000
 From the repository root:
 
 ```bash
-./scripts/dev.sh
+./scripts/development/dev.sh
 ```
 
 This starts the FastAPI backend and Next.js frontend together.
@@ -218,7 +218,7 @@ apps/web/         Next.js frontend
 tests/            Offline Python unit tests
 evals/            Performance benchmarks, quality evaluations, datasets, and reports
 docs/             Architecture and development documentation
-scripts/          Development, testing, verification, and operational scripts
+scripts/          Concern-grouped developer and operational tools (see scripts/README.md)
 supabase/         Supabase schema and migration resources
 examples/         Example inputs and generated outputs
 ```
@@ -313,7 +313,7 @@ Do not assume that every developer has a configured Supabase project. Local SQLi
 Run the offline Python test suite from the repository root:
 
 ```bash
-./scripts/test.sh
+./scripts/quality/test.sh
 ```
 
 This performs Python compilation checks and runs the unit tests under `tests/`.
@@ -403,7 +403,7 @@ Before requesting review, confirm that:
 * [ ] Python code is typed
 * [ ] Public classes and functions are documented
 * [ ] Relevant tests were added or updated
-* [ ] `./scripts/test.sh` passes
+* [ ] `./scripts/quality/test.sh` passes
 * [ ] Frontend lint and build checks pass when applicable
 * [ ] Documentation was updated when applicable
 * [ ] No secrets or credentials were committed

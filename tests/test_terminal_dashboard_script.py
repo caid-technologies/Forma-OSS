@@ -9,8 +9,8 @@ import json
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-SCRIPT_PATH = ROOT_DIR / "scripts" / "run-terminal-dashboard.py"
-VIDEO_SCRIPT_PATH = ROOT_DIR / "scripts" / "render-mech-video.py"
+SCRIPT_PATH = ROOT_DIR / "scripts" / "media" / "run-terminal-dashboard.py"
+VIDEO_SCRIPT_PATH = ROOT_DIR / "scripts" / "media" / "render-mech-video.py"
 
 
 def load_dashboard_module():

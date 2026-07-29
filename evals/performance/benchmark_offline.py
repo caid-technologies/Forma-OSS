@@ -322,7 +322,7 @@ def benchmark_circuit_validation(iterations: int) -> BenchmarkResult:
 
 
 def benchmark_async_scheduler(task_count: int, concurrency: int, sleep_ms: float) -> BenchmarkResult:
-    from scripts import sample_async
+    from scripts.models import sample_async
     from blueprint_core.selectors import LLMSelector
 
     candidates = [LLMSelector("benchmark", f"model-{index}") for index in range(task_count)]

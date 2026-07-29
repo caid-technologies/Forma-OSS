@@ -19,7 +19,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
             config = storage.get_image_storage_config()
 
         self.assertFalse(config["enabled"])
-        self.assertEqual("sqlite-inline", config["provider"])
+        self.assertEqual("database-inline", config["provider"])
         self.assertIsNone(config["write_method"])
         self.assertEqual("primary-database", config["selection_source"])
 
@@ -37,7 +37,61 @@ class ImageStorageSelectionTests(unittest.TestCase):
 
         self.assertTrue(config["enabled"])
         self.assertEqual("supabase-client", config["write_method"])
+        self.assertEqual(
+            "https://example.storage.supabase.co/storage/v1/s3",
+            config["endpoint"],
+        )
         self.assertEqual("BLUEPRINT_IMAGE_STORAGE_BACKEND", config["selection_source"])
+
+    def test_custom_supabase_url_derives_its_own_storage_endpoint(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_BACKEND": "supabase",
+                "SUPABASE_URL": "http://localhost:54321",
+                "SUPABASE_SERVICE_ROLE_KEY": "service-role-secret",
+            },
+            clear=True,
+        ):
+            config = storage.get_image_storage_config()
+
+        self.assertTrue(config["enabled"])
+        self.assertEqual("http://localhost:54321/storage/v1/s3", config["endpoint"])
+
+    def test_s3_compatible_storage_requires_an_explicit_endpoint(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_BACKEND": "sqlite",
+                "BLUEPRINT_IMAGE_STORAGE_BACKEND": "s3-compatible",
+                "SUPABASE_S3_ACCESS_KEY_ID": "access-key",
+                "SUPABASE_S3_SECRET_ACCESS_KEY": "secret-key",
+            },
+            clear=True,
+        ):
+            config = storage.get_image_storage_config()
+
+        self.assertFalse(config["enabled"])
+        self.assertIsNone(config["endpoint"])
+        self.assertIn("SUPABASE_S3_ENDPOINT", config["disabled_reason"])
+
+    def test_s3_compatible_storage_uses_the_explicit_endpoint(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "DATABASE_BACKEND": "sqlite",
+                "BLUEPRINT_IMAGE_STORAGE_BACKEND": "s3-compatible",
+                "SUPABASE_S3_ENDPOINT": "https://storage.example.test/s3",
+                "SUPABASE_S3_ACCESS_KEY_ID": "access-key",
+                "SUPABASE_S3_SECRET_ACCESS_KEY": "secret-key",
+            },
+            clear=True,
+        ):
+            config = storage.get_image_storage_config()
+
+        self.assertTrue(config["enabled"])
+        self.assertEqual("s3-compatible", config["write_method"])
+        self.assertEqual("https://storage.example.test/s3", config["endpoint"])
 
     def test_supabase_database_preserves_supabase_image_storage_default(self) -> None:
         with patch.dict(os.environ, {"DATABASE_BACKEND": "supabase", **SUPABASE_ENV}, clear=True):

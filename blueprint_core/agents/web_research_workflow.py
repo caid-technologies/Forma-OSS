@@ -294,14 +294,14 @@ class WebResearchHardwarePipeline:
 
         logger.info("Running circuit validation checks on web-researched netlist...")
         with agent_pipeline_step(self.workflow_id, "validation_repair"):
-            validation_issues = validate_circuit(components, nets)
+            validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
             if not is_valid:
                 logger.info("Invoking Validation + Auto-Correction Agent...")
                 corrected = self._repair_wiring(plan, components_json, nets, validation_issues)
                 nets = corrected.nets
                 pin_mappings = corrected.pin_mappings
-                validation_issues = validate_circuit(components, nets)
+                validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
 
         total_cost = sum(component.unit_price * component.quantity for component in components)

@@ -17,6 +17,7 @@ from blueprint_core.llm import (
     model_image_input_support,
     resolve_llm_runtime_config,
 )
+from blueprint_core.llm_providers import OpenAICompatibleProvider
 from blueprint_core.workspaces.projects.models import ProjectOverview
 from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 
@@ -97,8 +98,13 @@ LLM_ENV_KEYS = {
     "LLM_FALLBACK_MODEL",
     "LLM_MAX_TOKENS",
     "LLM_MODEL",
+    "LLM_CONTEXT_LENGTH",
     "LLM_PROVIDER",
     "LLM_RESPONSE_FORMAT",
+    "OLLAMA_CONTEXT_LENGTH",
+    "OLLAMA_NATIVE_CHAT",
+    "OLLAMA_NUM_CTX",
+    "OLLAMA_THINK",
     "NEBIUS_ALLOWED_MODELS",
     "NEBIUS_API_KEY",
     "NEBIUS_BASE_URL",
@@ -165,6 +171,53 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
 
 
 class LLMRuntimeTests(unittest.TestCase):
+    def test_local_ollama_uses_native_schema_api_with_request_context(self) -> None:
+        captured = {}
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "model": "qwen3:8b",
+                    "message": {"role": "assistant", "content": json.dumps({
+                        "title": "Test",
+                        "description": "Test project",
+                        "difficulty": "Beginner",
+                        "estimated_cost": 0,
+                        "category": "IoT",
+                    })},
+                    "done": True,
+                    "done_reason": "stop",
+                    "prompt_eval_count": 10,
+                    "eval_count": 20,
+                }).encode()
+
+        def fake_urlopen(request, timeout):
+            captured["url"] = request.full_url
+            captured["payload"] = json.loads(request.data.decode())
+            captured["timeout"] = timeout
+            return FakeResponse()
+
+        with isolated_llm_env(
+            LLM_BASE_URL="http://127.0.0.1:11434/v1",
+            LLM_MODEL="qwen3:8b",
+            LLM_RESPONSE_FORMAT="json_schema",
+            OLLAMA_CONTEXT_LENGTH="16384",
+        ), patch("blueprint_core.llm_providers.urllib.request.urlopen", side_effect=fake_urlopen):
+            provider = OpenAICompatibleProvider("openai-compatible", "qwen3:8b")
+            result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Test", result.title)
+        self.assertEqual("http://127.0.0.1:11434/api/chat", captured["url"])
+        self.assertEqual(16384, captured["payload"]["options"]["num_ctx"])
+        self.assertFalse(captured["payload"]["think"])
+        self.assertIsInstance(captured["payload"]["format"], dict)
+
     def test_image_input_capability_identifies_known_model_types(self) -> None:
         self.assertFalse(model_image_input_support("nebius", "nvidia/nemotron-3-super-120b-a12b"))
         self.assertTrue(model_image_input_support("nebius", "Qwen/Qwen2-VL-72B-Instruct"))

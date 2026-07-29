@@ -11,7 +11,12 @@ from blueprint_core.database import _hardware_ir_with_project_id
 from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
 from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
 from blueprint_core.workspaces.projects.iteration import ProjectIterator, compact_hardware_ir_for_iteration
-from blueprint_core.llm import LLMProviderOutputError, LLMProviderValidation, LLMRuntimeConfig
+from blueprint_core.llm import (
+    LLMProviderConfigError,
+    LLMProviderOutputError,
+    LLMProviderValidation,
+    LLMRuntimeConfig,
+)
 from blueprint_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
@@ -122,6 +127,25 @@ class FakeProvider:
         return self.revised_ir
 
 
+class UnconfiguredProvider:
+    provider_name = "openai"
+    requested_model = "missing-model"
+    model_name = "missing-model"
+    is_configured = False
+
+    def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
+        return LLMProviderValidation(
+            provider=self.provider_name,
+            requested_model=self.requested_model,
+            actual_model=None,
+            requested_model_available=False,
+            strict_mode=True,
+            fallback_active=False,
+            live_generation_enabled=False,
+            validation_error="provider is unavailable",
+        )
+
+
 class FakeVideoReviewClient:
     model = "fake-fireworks-vlm"
 
@@ -166,6 +190,16 @@ class FakeUrlopenResponse:
 
 
 class ProjectIterationTests(unittest.TestCase):
+    def test_required_live_iteration_rejects_metadata_only_fallback(self) -> None:
+        iterator = ProjectIterator(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="missing-model"),
+            llm_provider=UnconfiguredProvider(),
+            require_live_generation=True,
+        )
+
+        with self.assertRaisesRegex(LLMProviderConfigError, "CLI fallback output is disabled"):
+            iterator.iterate_project(build_sample_ir(), "Change the enclosure.")
+
     def test_metadata_only_iteration_records_revision_without_changing_hardware(self) -> None:
         current = build_sample_ir()
         iterator = ProjectIterator(

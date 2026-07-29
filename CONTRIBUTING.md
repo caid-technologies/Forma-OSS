@@ -19,7 +19,7 @@ You can contribute by:
 * Adding supported LLM or image providers
 * Improving project iteration and self-correction
 * Improving observability, persistence, or deployment support
-* Adding examples or benchmarks
+* Adding examples or evaluations
 * Reviewing issues and pull requests
 
 Small, focused contributions are welcome.
@@ -216,7 +216,7 @@ backend/          FastAPI application and service integrations
 blueprint_core/   Reusable generation, validation, provider, and project logic
 frontend/         Next.js frontend
 tests/            Offline Python unit tests
-benchmarks/       Model and pipeline benchmarks
+evals/            Performance benchmarks, quality evaluations, datasets, and reports
 docs/             Architecture and development documentation
 scripts/          Development, testing, verification, and operational scripts
 supabase/         Supabase schema and migration resources

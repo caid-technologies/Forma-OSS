@@ -10,8 +10,8 @@ import unittest
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
-OFFLINE_BENCHMARK_SCRIPT = ROOT_DIR / "benchmarks" / "benchmark_offline.py"
-MODEL_BENCHMARK_SCRIPT = ROOT_DIR / "benchmarks" / "benchmark_models.py"
+OFFLINE_BENCHMARK_SCRIPT = ROOT_DIR / "evals" / "performance" / "benchmark_offline.py"
+MODEL_BENCHMARK_SCRIPT = ROOT_DIR / "evals" / "performance" / "benchmark_models.py"
 
 
 def load_module(name: str, path: pathlib.Path):
@@ -25,10 +25,20 @@ def load_module(name: str, path: pathlib.Path):
 
 
 class BenchmarkScriptTests(unittest.TestCase):
+    def test_evaluation_layout_separates_performance_quality_and_data(self) -> None:
+        self.assertFalse((ROOT_DIR / "benchmarks" / "benchmark_offline.py").exists())
+        self.assertFalse((ROOT_DIR / "benchmarks" / "benchmark_models.py").exists())
+        self.assertTrue(OFFLINE_BENCHMARK_SCRIPT.is_file())
+        self.assertTrue(MODEL_BENCHMARK_SCRIPT.is_file())
+        for directory in ("quality", "datasets", "reports"):
+            self.assertTrue((ROOT_DIR / "evals" / directory / "README.md").is_file())
+
     def test_offline_sample_circuit_validates_without_critical_issues(self) -> None:
         module = load_module("blueprint_benchmark_offline", OFFLINE_BENCHMARK_SCRIPT)
         from blueprint_core.validation import validate_circuit
 
+        self.assertEqual(ROOT_DIR, module.ROOT_DIR)
+        self.assertEqual(".logs/benchmarks", module.DEFAULT_OUTPUT_DIR)
         components, nets = module.make_sample_circuit()
         issues = validate_circuit(components, nets)
 
@@ -46,6 +56,8 @@ class BenchmarkScriptTests(unittest.TestCase):
 
     def test_model_benchmark_summary_groups_by_candidate(self) -> None:
         module = load_module("blueprint_benchmark_models", MODEL_BENCHMARK_SCRIPT)
+        self.assertEqual(ROOT_DIR, module.ROOT_DIR)
+        self.assertEqual(".logs/benchmarks", module.DEFAULT_OUTPUT_DIR)
         candidate = module.LLMSelector("openai", "gpt-5.5")
         rounds = [
             {

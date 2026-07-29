@@ -19,7 +19,7 @@ from statistics import mean
 from typing import Any, Callable, Iterator
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
@@ -404,7 +404,7 @@ def build_report(args: argparse.Namespace, results: list[BenchmarkResult], start
     payload_results = [result.as_dict() for result in results]
     return {
         "schema_version": 1,
-        "tool": "benchmarks/benchmark_offline.py",
+        "tool": "evals/performance/benchmark_offline.py",
         "started_at": format_utc(started_at),
         "completed_at": format_utc(completed_at),
         "duration_seconds": round((completed_at - started_at).total_seconds(), 3),

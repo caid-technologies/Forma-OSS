@@ -11,15 +11,15 @@
             "functions": {
                 "backend.main:app": {
                     "includeFiles": "blueprint_core/**",
-                    "excludeFiles": "{frontend/**,rust/**,blueprint-tui/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
+                    "excludeFiles": "{frontend/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
                 },
                 "backend/main.py": {
                     "includeFiles": "blueprint_core/**",
-                    "excludeFiles": "{frontend/**,rust/**,blueprint-tui/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
+                    "excludeFiles": "{frontend/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
                 },
                 "main.py": {
                     "includeFiles": "blueprint_core/**",
-                    "excludeFiles": "{frontend/**,rust/**,blueprint-tui/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
+                    "excludeFiles": "{frontend/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
                 }
             }
         }

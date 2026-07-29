@@ -14,7 +14,6 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import {
-  ArrowRight,
   Battery,
   Box,
   Cpu,
@@ -665,22 +664,6 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
         <div className="inline-flex h-10 items-center gap-2 border border-[#3a3d46] bg-[#101116] px-3 text-xs font-black text-white">
           <Cpu className="h-4 w-4 text-slate-400" />
           <span>{primaryControllerLabel(project)}</span>
-        </div>
-        <div className="ml-auto inline-flex overflow-hidden border border-[#2d3038]">
-          <button
-            type="button"
-            className="inline-flex h-10 items-center gap-2 bg-[#ff6b3d] px-4 text-xs font-black text-white"
-          >
-            <ArrowRight className="h-4 w-4" />
-            Diagram
-          </button>
-          <button
-            type="button"
-            className="inline-flex h-10 items-center gap-2 bg-[#141519] px-4 text-xs font-bold text-slate-400"
-          >
-            <Database className="h-4 w-4" />
-            Breadboard
-          </button>
         </div>
       </div>
       <ReactFlow

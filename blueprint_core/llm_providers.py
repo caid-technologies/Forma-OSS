@@ -71,6 +71,56 @@ class LLMProviderOutputError(RuntimeError):
     """Raised when a live provider returns unusable structured output."""
 
 
+class LLMProviderInputError(ValueError):
+    """Raised when the selected provider/model cannot consume the supplied input."""
+
+
+def model_image_input_support(provider_name: str, model_name: str) -> Optional[bool]:
+    """Return known image-input support, or ``None`` when it is not known.
+
+    OpenAI-compatible model catalogs do not expose capabilities consistently, so
+    unknown models are allowed through and provider errors are normalized later.
+    The explicit text-only markers prevent known-incompatible requests from
+    starting expensive workflow steps such as web research.
+    """
+    provider = normalize_llm_provider_name(provider_name) or provider_name.strip().lower()
+    model = _normalize_model_name(model_name).lower()
+
+    if provider in {"gemini", "anthropic"}:
+        return True
+    if any(marker in model for marker in ("-vl", "_vl", "/vl", "vision", "llava")):
+        return True
+    if provider == "openai" and model.startswith(("gpt-4o", "gpt-4.1", "gpt-5")):
+        return True
+    if any(marker in model for marker in ("nemotron", "gpt-oss", "coder")):
+        return False
+    return None
+
+
+def _image_input_error_message(provider_name: str, model_name: str) -> str:
+    return (
+        f"The selected model '{provider_name}/{model_name}' cannot read reference images. "
+        "Choose a vision-capable model or remove the image attachment."
+    )
+
+
+def _is_image_input_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "unknown modality: image",
+            "image input is not supported",
+            "image inputs are not supported",
+            "does not support image input",
+            "doesn't support image input",
+            "unsupported image input",
+            "multimodal input is not supported",
+            "only supports text input",
+        )
+    )
+
+
 SUPPORTED_LLM_PROVIDERS = {
     "anthropic",
     "baseten",
@@ -134,6 +184,7 @@ class LLMProviderValidation:
     live_generation_enabled: bool = True
 
     def as_debug_dict(self) -> Dict[str, Any]:
+        image_support_model = self.actual_model or self.requested_model
         return {
             "provider": self.provider,
             "requested_model": self.requested_model,
@@ -145,6 +196,7 @@ class LLMProviderValidation:
             "fallback_model": self.fallback_model,
             "validation_error": self.validation_error,
             "live_generation_enabled": self.live_generation_enabled,
+            "supports_image_input": model_image_input_support(self.provider, image_support_model),
         }
 
 
@@ -797,6 +849,10 @@ class StructuredLLMProvider:
 
     def get_debug_config(self) -> Dict[str, Any]:
         return self.validate_configured_model(raise_on_strict=False).as_debug_dict()
+
+    def validate_image_input(self) -> None:
+        if model_image_input_support(self.provider_name, self.model_name) is False:
+            raise LLMProviderInputError(_image_input_error_message(self.provider_name, self.model_name))
 
     def generate_structured(
         self,
@@ -1881,18 +1937,63 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         finish_reason: Optional[str] = None
         for attempt in range(2):
             payload[tokens_key] = budget
-            response = self._request_json("chat/completions", method="POST", payload=payload)
+            try:
+                response = self._request_json("chat/completions", method="POST", payload=payload)
+            except RuntimeError as exc:
+                if image_bytes and _is_image_input_unsupported_error(exc):
+                    raise LLMProviderInputError(
+                        _image_input_error_message(self.provider_name, self.model_name)
+                    ) from exc
+                raise
             choices = response.get("choices") or []
             if not choices:
                 raise RuntimeError(f"{self.provider_name} response did not include any choices.")
 
-            finish_reason = choices[0].get("finish_reason")
-            message = choices[0].get("message") or {}
+            choice = choices[0]
+            finish_reason = choice.get("finish_reason")
+            message = choice.get("message") or {}
             content = message.get("content")
             if isinstance(content, list):
                 content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             if not isinstance(content, str) or not content.strip():
-                raise RuntimeError(f"{self.provider_name} response did not include text content.")
+                choice_text = choice.get("text")
+                if isinstance(choice_text, str) and choice_text.strip():
+                    content = choice_text
+            if not isinstance(content, str) or not content.strip():
+                refusal = message.get("refusal")
+                if isinstance(refusal, str) and refusal.strip():
+                    raise LLMProviderOutputError(
+                        f"{self.provider_name} refused to produce structured output for {_schema_name(schema_class)}."
+                    )
+
+                usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+                completion_tokens = usage.get("completion_tokens")
+                reasoning_content = message.get("reasoning_content")
+                has_reasoning_content = isinstance(reasoning_content, str) and bool(reasoning_content.strip())
+                last_error = LLMProviderOutputError(
+                    f"{self.provider_name} response did not include text content "
+                    f"(finish_reason={finish_reason}, max_tokens={budget}, "
+                    f"completion_tokens={completion_tokens}, reasoning_content={has_reasoning_content})."
+                )
+                if attempt == 0:
+                    budget = min(
+                        max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
+                        STRUCTURED_MAX_TOKENS_CEILING,
+                    )
+                    if self.provider_name == "nebius" and has_reasoning_content and not self.reasoning_effort:
+                        payload["reasoning_effort"] = "low"
+                    logger.warning(
+                        "%s returned no visible %s content (finish_reason=%s, completion_tokens=%s, "
+                        "reasoning_content=%s); retrying once with max_tokens=%d.",
+                        self.provider_name,
+                        _schema_name(schema_class),
+                        finish_reason,
+                        completion_tokens,
+                        has_reasoning_content,
+                        budget,
+                    )
+                    continue
+                break
 
             try:
                 result = _validate_structured_json(content, schema_class)

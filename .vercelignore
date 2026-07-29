@@ -49,9 +49,6 @@ __pycache__
 tmp
 data
 
-rust
-blueprint-tui
-
 .DS_Store
 .idea
 .vscode

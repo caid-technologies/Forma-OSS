@@ -59,7 +59,6 @@ export function MobileWorkspaceBar({
       <MobileSidebarButton onClick={onOpenSidebar} />
       <div className="min-w-0 flex flex-1 items-center gap-2">
         <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
-        <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
       </div>
       <span
         className={`inline-flex h-8 w-8 shrink-0 items-center justify-center border ${apiStatusTone}`}
@@ -252,23 +251,23 @@ export function ChatSidebar({
               onHome();
               onNavigate?.();
             }}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black"
+            className="inline-flex h-9 w-11 shrink-0 items-center justify-center bg-transparent text-slate-200 transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
             aria-label="Home"
             title="Home"
           >
             <Image
-              src="/brand/caid-dark-logo.png"
+              src="/brand/caid-dark-logo-cropped.png"
               alt=""
-              width={28}
-              height={28}
-              className="h-7 w-7 object-contain"
+              width={36}
+              height={20}
+              className="h-5 w-9 object-contain"
+              unoptimized
               aria-hidden="true"
             />
           </button>
           {!compact && (
             <div className="min-w-0 flex items-center gap-2">
               <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
-              <span className="border border-cyan-300/30 bg-cyan-300/10 px-1.5 py-0.5 text-[9px] font-black uppercase text-cyan-100">OSS</span>
               <span
                 className={`inline-flex h-7 w-7 shrink-0 items-center justify-center border ${apiStatusTone}`}
                 title={apiStatusLabel}
@@ -398,10 +397,10 @@ export function ChatSidebar({
             href="/projects"
             onClick={onNavigate}
             className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="Projects"
+            title="Community"
           >
             <Layers className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">Projects</span>}
+            {!compact && <span className="truncate">Community</span>}
           </Link>
           {showJobs ? (
             <Link

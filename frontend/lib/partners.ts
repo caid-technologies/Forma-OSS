@@ -10,3 +10,28 @@ export const partners = [
       "Forma participates in the GMI Cloud Ambassador Program and recommends GMI Cloud for builders who need scalable GPU infrastructure for AI systems.",
   },
 ];
+
+export const aboutMarqueePartners = [
+  ...partners,
+  {
+    name: "Columbia Engineering",
+    slug: "columbia-engineering",
+    logo: "/brand/columbia-eng.png",
+    logoSurface: "light" as const,
+    marqueeHref: null,
+  },
+  {
+    name: "NSF I-Corps",
+    slug: "nsf-i-corps",
+    logo: "/brand/i-corps-logo.png",
+    logoSurface: "light" as const,
+    marqueeHref: null,
+  },
+  {
+    name: "MIT Sandbox",
+    slug: "mit-sandbox",
+    logo: "/brand/mit-sandbox.png",
+    logoSurface: "light" as const,
+    marqueeHref: null,
+  },
+];

@@ -6,8 +6,17 @@ import json
 import unittest
 from contextlib import contextmanager
 from typing import Iterator
+from unittest.mock import patch
 
-from blueprint_core.llm import LLMProviderConfigError, build_llm_provider, resolve_llm_runtime_config
+from blueprint_core.agents.web_research_workflow import WebResearchHardwarePipeline
+from blueprint_core.llm import (
+    LLMProviderConfigError,
+    LLMProviderInputError,
+    LLMProviderOutputError,
+    build_llm_provider,
+    model_image_input_support,
+    resolve_llm_runtime_config,
+)
 from blueprint_core.models import ProjectOverview
 from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 
@@ -156,6 +165,12 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
 
 
 class LLMRuntimeTests(unittest.TestCase):
+    def test_image_input_capability_identifies_known_model_types(self) -> None:
+        self.assertFalse(model_image_input_support("nebius", "nvidia/nemotron-3-super-120b-a12b"))
+        self.assertTrue(model_image_input_support("nebius", "Qwen/Qwen2-VL-72B-Instruct"))
+        self.assertTrue(model_image_input_support("openai", "gpt-5.5"))
+        self.assertIsNone(model_image_input_support("nebius", "some-new-model"))
+
     def test_parse_provider_model_selector(self) -> None:
         selector = parse_llm_selector("runpod/caid-technologies/parti-base")
 
@@ -398,6 +413,149 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("json_schema", payloads[0]["response_format"]["type"])
         self.assertEqual(321, payloads[0]["max_tokens"])
         self.assertNotIn("max_completion_tokens", payloads[0])
+
+    def test_known_text_only_model_rejects_image_before_request(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "nvidia/nemotron-3-super-120b-a12b")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        with self.assertRaisesRegex(LLMProviderInputError, "vision-capable model"):
+            provider.validate_image_input()
+
+    def test_web_research_rejects_text_only_image_input_before_research(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            pipeline = WebResearchHardwarePipeline(
+                provider_name="nebius",
+                model_name="nvidia/nemotron-3-super-120b-a12b",
+            )
+            with patch.object(pipeline, "_research") as research:
+                with self.assertRaises(LLMProviderInputError):
+                    pipeline.generate_project(
+                        "Build the safe low-voltage circuit shown in this image.",
+                        image_bytes=b"fake-image",
+                        image_mime_type="image/png",
+                    )
+
+        research.assert_not_called()
+
+    def test_provider_normalizes_unknown_image_modality_error(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="some-new-model",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "some-new-model")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        def reject_image(*_args, **_kwargs):
+            raise RuntimeError('nebius request failed with HTTP 400: {"detail":"Unknown modality: image"}')
+
+        provider._request_json = reject_image
+        with self.assertRaisesRegex(LLMProviderInputError, "cannot read reference images"):
+            provider.generate_structured(
+                "Infer the hardware project.",
+                ProjectOverview,
+                image_bytes=b"fake-image",
+                image_mime_type="image/png",
+            )
+
+    def test_nebius_retries_when_reasoning_uses_budget_before_visible_content(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
+            NEBIUS_MAX_TOKENS="7000",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "nvidia/nemotron-3-super-120b-a12b")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+        responses = iter(
+            [
+                {
+                    "choices": [
+                        {
+                            "message": {"content": None, "reasoning_content": "internal reasoning"},
+                            "finish_reason": "length",
+                        }
+                    ],
+                    "usage": {"completion_tokens": 7000},
+                },
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": json.dumps(
+                                    {
+                                        "title": "Recovered Project",
+                                        "description": "A valid response after retry.",
+                                        "difficulty": "Beginner",
+                                        "estimated_cost": 5.0,
+                                        "category": "IoT",
+                                    }
+                                )
+                            },
+                            "finish_reason": "stop",
+                        }
+                    ]
+                },
+            ]
+        )
+
+        def fake_request(_path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            return next(responses)
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Recovered Project", result.title)
+        self.assertEqual(7000, payloads[0]["max_tokens"])
+        self.assertEqual(14000, payloads[1]["max_tokens"])
+        self.assertNotIn("reasoning_effort", payloads[0])
+        self.assertEqual("low", payloads[1]["reasoning_effort"])
+
+    def test_nebius_empty_retry_reports_safe_response_metadata(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="nebius",
+            LLM_ALLOWED_PROVIDERS="nebius,simulation",
+            NEBIUS_API_KEY="nebius_test",
+            NEBIUS_MODEL="some-new-model",
+            NEBIUS_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("nebius", "some-new-model")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        provider._request_json = lambda *_args, **_kwargs: {
+            "choices": [
+                {
+                    "message": {"content": None, "reasoning_content": "internal reasoning"},
+                    "finish_reason": "length",
+                }
+            ],
+            "usage": {"completion_tokens": 8192},
+        }
+
+        with self.assertRaisesRegex(
+            LLMProviderOutputError,
+            r"finish_reason=length.*completion_tokens=8192.*reasoning_content=True",
+        ):
+            provider.generate_structured("Return a project overview.", ProjectOverview)
 
     def test_nvidia_runtime_allows_qwen_coder_32b_instruct_override(self) -> None:
         with isolated_llm_env(

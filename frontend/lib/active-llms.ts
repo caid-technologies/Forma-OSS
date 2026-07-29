@@ -4,6 +4,17 @@ export type GenerationLlmOption = {
   label: string;
 };
 
+export function generationLlmImageSupport(option: Pick<GenerationLlmOption, "provider" | "model">): boolean | null {
+  const provider = option.provider.trim().toLowerCase();
+  const model = option.model.trim().toLowerCase().replace(/^models\//, "");
+
+  if (provider === "gemini" || provider === "anthropic") return true;
+  if (["-vl", "_vl", "/vl", "vision", "llava"].some((marker) => model.includes(marker))) return true;
+  if (provider === "openai" && ["gpt-4o", "gpt-4.1", "gpt-5"].some((prefix) => model.startsWith(prefix))) return true;
+  if (["nemotron", "gpt-oss", "coder"].some((marker) => model.includes(marker))) return false;
+  return null;
+}
+
 export type IntegrationFieldStatus = {
   id: string;
   value: string | null;
@@ -56,6 +67,15 @@ function parseLlmSelector(value: string | null) {
   };
 }
 
+function parseProviderAllowlist(value: string | null) {
+  if (!value) return null;
+  const providers = value
+    .split(",")
+    .map((provider) => provider.trim().toLowerCase())
+    .filter(Boolean);
+  return providers.length ? new Set(providers) : null;
+}
+
 function firstDefaultModelForProvider(defaultLlms: GenerationLlmOption[], provider: string) {
   return defaultLlms.find((option) => option.provider === provider)?.model || "";
 }
@@ -85,8 +105,10 @@ export function activeLlmsFromIntegrations(
   const byId = new Map(integrations.map((integration) => [integration.id, integration]));
   const options: GenerationLlmOption[] = [];
   const runtime = byId.get("runtime");
+  const allowedProviders = parseProviderAllowlist(integrationFieldValue(runtime, "allowed_providers"));
+  const providerIsAllowed = (provider: string) => !allowedProviders || allowedProviders.has(provider.toLowerCase());
   const preferred = parseLlmSelector(integrationFieldValue(runtime, "llm_selector"));
-  if (preferred) {
+  if (preferred && providerIsAllowed(preferred.provider)) {
     const providerIntegration = byId.get(preferred.provider);
     if (integrationIsAvailable(providerIntegration)) {
       options.push({
@@ -98,7 +120,7 @@ export function activeLlmsFromIntegrations(
   }
 
   integrations.forEach((integration) => {
-    if (!LLM_PROVIDER_IDS.has(integration.id) || !integrationIsAvailable(integration)) return;
+    if (!LLM_PROVIDER_IDS.has(integration.id) || !providerIsAllowed(integration.id) || !integrationIsAvailable(integration)) return;
     const model = integrationFieldValue(integration, "model") || firstDefaultModelForProvider(defaultLlms, integration.id);
     if (!model) return;
     options.push({
@@ -106,6 +128,9 @@ export function activeLlmsFromIntegrations(
       model,
       label: labelFor(integration.id, model),
     });
+    defaultLlms
+      .filter((option) => option.provider === integration.id && generationLlmImageSupport(option) === true)
+      .forEach((option) => options.push(option));
   });
 
   return uniqueGenerationLlms(options);

@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft, Cpu, Handshake, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowUpRight, Cpu, Handshake, ShieldCheck } from "lucide-react";
 import LegalFooter from "../../components/legal-footer";
 import PartnerLogoMarquee from "../../components/partner-logo-marquee";
 import { legalContactEmail, legalEntityName } from "../../lib/legal-docs";
-import { partners } from "../../lib/partners";
+import { aboutMarqueePartners } from "../../lib/partners";
 
 export const metadata: Metadata = {
   title: "About Us | Forma",
@@ -14,8 +14,8 @@ export const metadata: Metadata = {
 
 export default function AboutPage() {
   return (
-    <>
-      <main className="min-h-screen bg-[#141519] px-5 py-5 font-sans text-slate-100">
+    <div className="flex min-h-screen flex-col bg-[#141519]">
+      <main className="flex-1 px-5 py-5 font-sans text-slate-100">
         <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-3 border-b border-[#292b31] pb-5">
           <Link
             href="/"
@@ -26,11 +26,12 @@ export default function AboutPage() {
           </Link>
           <div className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400">
             <Image
-              src="/brand/caid-dark-logo.png"
+              src="/brand/caid-dark-logo-cropped.png"
               alt=""
-              width={28}
-              height={28}
-              className="h-7 w-7 object-contain"
+              width={44}
+              height={24}
+              className="h-6 w-11 object-contain"
+              unoptimized
               aria-hidden="true"
             />
             About us
@@ -44,9 +45,20 @@ export default function AboutPage() {
           </div>
           <div className="max-w-2xl text-base leading-7 text-slate-400 lg:justify-self-end">
             Forma helps builders turn early hardware ideas into structured project plans with parts, wiring, validation, build notes, and generated artifacts.
-            <a href={`mailto:${legalContactEmail}`} className="mt-4 block text-sm text-cyan-200 hover:text-white">
-              {legalContactEmail}
-            </a>
+            <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+              <a href={`mailto:${legalContactEmail}`} className="text-cyan-200 hover:text-white">
+                {legalContactEmail}
+              </a>
+              <a
+                href="https://www.caid-technologies.com/"
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1.5 text-cyan-200 hover:text-white"
+              >
+                CAID Technologies
+                <ArrowUpRight className="h-4 w-4" aria-hidden="true" />
+              </a>
+            </div>
           </div>
         </section>
 
@@ -69,10 +81,10 @@ export default function AboutPage() {
         </section>
 
         <section className="mx-auto w-full max-w-6xl pb-10">
-          <PartnerLogoMarquee partners={partners} hrefPrefix="/partners" />
+          <PartnerLogoMarquee partners={aboutMarqueePartners} hrefPrefix="/partners" />
         </section>
       </main>
       <LegalFooter />
-    </>
+    </div>
   );
 }

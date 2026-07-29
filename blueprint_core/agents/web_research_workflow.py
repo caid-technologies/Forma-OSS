@@ -253,6 +253,8 @@ class WebResearchHardwarePipeline:
         try:
             model_validation = self.llm_provider.validate_configured_model()
             self.model_name = model_validation.actual_model or self.llm_provider.model_name
+            if image_bytes:
+                self.llm_provider.validate_image_input()
         except LLMProviderConfigError as exc:
             if deployment_mode_enabled():
                 raise AlphaGenerationUnavailableError(generation_unavailable_message(self.get_debug_config())) from exc
@@ -280,13 +282,13 @@ class WebResearchHardwarePipeline:
             plan = self._plan_project(user_prompt, research_context, image_bytes, image_mime_type)
         logger.info("Invoking Web Component Sourcing Agent...")
         with agent_pipeline_step(self.workflow_id, "web_component_sourcing"):
-            selection = self._select_components(user_prompt, plan, research_context, image_bytes, image_mime_type)
+            selection = self._select_components(user_prompt, plan, research_context)
             components = selection.components
             components_json = json.dumps([component.model_dump() for component in components], indent=2)
 
         logger.info("Invoking Wiring/Netlist Agent...")
         with agent_pipeline_step(self.workflow_id, "wiring_netlist"):
-            wiring = self._wire_project(user_prompt, plan, components_json, image_bytes, image_mime_type)
+            wiring = self._wire_project(user_prompt, plan, components_json)
             nets = wiring.nets
             pin_mappings = wiring.pin_mappings
 
@@ -296,7 +298,7 @@ class WebResearchHardwarePipeline:
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
             if not is_valid:
                 logger.info("Invoking Validation + Auto-Correction Agent...")
-                corrected = self._repair_wiring(plan, components_json, nets, validation_issues, image_bytes, image_mime_type)
+                corrected = self._repair_wiring(plan, components_json, nets, validation_issues)
                 nets = corrected.nets
                 pin_mappings = corrected.pin_mappings
                 validation_issues = validate_circuit(components, nets)
@@ -307,10 +309,10 @@ class WebResearchHardwarePipeline:
 
         logger.info("Invoking Mechanical/Fabrication Agent...")
         with agent_pipeline_step(self.workflow_id, "mechanical_fabrication"):
-            mechanical = self._generate_mechanical(plan, components_json, research_context, image_bytes, image_mime_type)
+            mechanical = self._generate_mechanical(plan, components_json, research_context)
         logger.info("Invoking Assembly Instruction Agent...")
         with agent_pipeline_step(self.workflow_id, "assembly"):
-            assembly = self._generate_assembly(plan, components_json, nets, mechanical, image_bytes, image_mime_type)
+            assembly = self._generate_assembly(plan, components_json, nets, mechanical)
 
         constraints = plan.requirements.physical_constraints + [f"Operating Voltage: {plan.requirements.operating_voltage}V"]
         fab_notes = mechanical.fabrication_details if mechanical else []
@@ -442,8 +444,6 @@ class WebResearchHardwarePipeline:
         user_prompt: str,
         plan: WebProjectPlan,
         research_context: str,
-        image_bytes: Optional[bytes],
-        image_mime_type: Optional[str],
     ) -> WebComponentSelection:
         prompt = f"""
         You are a Web Component Sourcing Agent.
@@ -470,15 +470,13 @@ class WebResearchHardwarePipeline:
 
         Return WebComponentSelection.
         """
-        return self._call_llm_structured(prompt, WebComponentSelection, image_bytes, image_mime_type, pipeline_step_id="web_component_sourcing")
+        return self._call_llm_structured(prompt, WebComponentSelection, pipeline_step_id="web_component_sourcing")
 
     def _wire_project(
         self,
         user_prompt: str,
         plan: WebProjectPlan,
         components_json: str,
-        image_bytes: Optional[bytes],
-        image_mime_type: Optional[str],
     ) -> WiringWrapper:
         prompt = f"""
         You are a Wiring/Netlist Agent for sourced web components.
@@ -504,7 +502,7 @@ class WebResearchHardwarePipeline:
 
         Return WiringWrapper.
         """
-        return self._call_llm_structured(prompt, WiringWrapper, image_bytes, image_mime_type, pipeline_step_id="wiring_netlist")
+        return self._call_llm_structured(prompt, WiringWrapper, pipeline_step_id="wiring_netlist")
 
     def _repair_wiring(
         self,
@@ -512,8 +510,6 @@ class WebResearchHardwarePipeline:
         components_json: str,
         nets: List[ConnectionNet],
         issues: List[ValidationIssue],
-        image_bytes: Optional[bytes],
-        image_mime_type: Optional[str],
     ) -> WiringWrapper:
         prompt = f"""
         You are a Wiring/Netlist Auto-Correction Agent.
@@ -533,15 +529,13 @@ class WebResearchHardwarePipeline:
 
         Return corrected WiringWrapper.
         """
-        return self._call_llm_structured(prompt, WiringWrapper, image_bytes, image_mime_type, pipeline_step_id="validation_repair")
+        return self._call_llm_structured(prompt, WiringWrapper, pipeline_step_id="validation_repair")
 
     def _generate_mechanical(
         self,
         plan: WebProjectPlan,
         components_json: str,
         research_context: str,
-        image_bytes: Optional[bytes],
-        image_mime_type: Optional[str],
     ) -> MechanicalNotes:
         prompt = f"""
         You are a Mechanical/Fabrication and CAD Sourcing Agent.
@@ -559,7 +553,7 @@ class WebResearchHardwarePipeline:
         Use CAD/enclosure URLs only when present in research or well-known source data. If no source exists, keep cad_sources empty.
         Return MechanicalNotes.
         """
-        return self._call_llm_structured(prompt, MechanicalNotes, image_bytes, image_mime_type, pipeline_step_id="mechanical_fabrication")
+        return self._call_llm_structured(prompt, MechanicalNotes, pipeline_step_id="mechanical_fabrication")
 
     def _generate_assembly(
         self,
@@ -567,8 +561,6 @@ class WebResearchHardwarePipeline:
         components_json: str,
         nets: List[ConnectionNet],
         mechanical: MechanicalNotes,
-        image_bytes: Optional[bytes],
-        image_mime_type: Optional[str],
     ) -> List[AssemblyStep]:
         prompt = f"""
         You are an Assembly Instruction Agent.
@@ -589,7 +581,7 @@ class WebResearchHardwarePipeline:
         Mention safety flags for batteries, motors, relays, soldering, heat, moving parts, and polarity.
         Return AssemblyWrapper.
         """
-        wrapper: AssemblyWrapper = self._call_llm_structured(prompt, AssemblyWrapper, image_bytes, image_mime_type, pipeline_step_id="assembly")
+        wrapper: AssemblyWrapper = self._call_llm_structured(prompt, AssemblyWrapper, pipeline_step_id="assembly")
         return wrapper.steps
 
     def _audit_output(

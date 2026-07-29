@@ -12,10 +12,10 @@ This project is research-oriented and welcomes contributors. Keep changes focuse
 Backend (from repo root):
 ```bash
 source .venv/bin/activate
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
-The combined dev launcher starts the backend and frontend together and writes backend/uvicorn logs to `.logs/backend-dev.log` for the local LOGS tab:
+The combined dev launcher starts the backend and frontend together and writes backend and uvicorn logs to `.logs/backend-dev.log` for the local LOGS tab:
 
 ```bash
 ./scripts/dev.sh
@@ -30,7 +30,7 @@ Tests:
 
 Frontend:
 ```bash
-cd frontend
+cd apps/web
 npm run dev
 npm run lint
 npm run build
@@ -44,22 +44,22 @@ cargo run --manifest-path rust/Cargo.toml -p blueprint-edge -- linux-snapshot
 ```
 
 ## Adding a new agent
-1. Define or extend the relevant Pydantic schema in `backend/models.py`.
-2. Add a new step in `backend/agents/orchestrator.py`.
+1. Define or extend the relevant Pydantic schema in `apps/api/models.py`.
+2. Add a new step in `apps/api/agents/orchestrator.py`.
 3. Ensure the agent’s output is merged into the Hardware IR.
 4. Update docs in `docs/agents.md` and `docs/architecture.md`.
 
 ## Extending validation rules
-1. Add a new rule function in `backend/validation.py`.
+1. Add a new rule function in `apps/api/validation.py`.
 2. Emit a structured `ValidationIssue` with severity and troubleshooting.
 3. Re-run validation in the pipeline and update `docs/validation.md`.
 
 ## Adding seed components
-1. Add new entries in `backend/seed_db.py`.
-2. Re-run `python3 backend/seed_db.py` to repopulate the database.
+1. Add new entries in `apps/api/seed_db.py`.
+2. Re-run `python3 apps/api/seed_db.py` to repopulate the database.
 3. Ensure pin definitions are complete and typed (power/ground/digital/etc).
 
 ## Frontend development tips
-- Main UI: `frontend/app/page.tsx`
-- Styling: Tailwind + custom CSS in `frontend/app/globals.css`
-- Example IRs: `frontend/public/examples/`
+- Main UI: `apps/web/app/page.tsx`
+- Styling: Tailwind + custom CSS in `apps/web/app/globals.css`
+- Example IRs: `apps/web/public/examples/`

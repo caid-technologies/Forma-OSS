@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from blueprint_core.logs import redact_log_line
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 SPACEBASE_ROOT = ROOT_DIR / ".spacebase"
 STREAMS_DIR = SPACEBASE_ROOT / "streams"
 ROOT_STREAM_ID = "__root__"

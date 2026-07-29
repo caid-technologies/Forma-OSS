@@ -412,7 +412,7 @@ def fabricator_lattice_card() -> LatticeAgentCard:
 
 def call_in_process_mcp(payload: dict[str, Any] | list[dict[str, Any]]) -> Any:
     try:
-        from backend.a2a import handle_mcp_json_rpc
+        from apps.api.a2a import handle_mcp_json_rpc
     except ModuleNotFoundError as exc:
         venv_python = ROOT_DIR / ".venv" / "bin" / "python"
         if venv_python.exists() and Path(sys.executable).absolute() != venv_python.absolute():
@@ -436,7 +436,7 @@ root_dir = Path(sys.argv[1])
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-from backend.a2a import handle_mcp_json_rpc
+from apps.api.a2a import handle_mcp_json_rpc
 
 payload = json.loads(sys.stdin.read())
 result = asyncio.run(handle_mcp_json_rpc(payload))

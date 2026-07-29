@@ -9,7 +9,7 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/blueprint-core-dev.log}"
-BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-blueprint_core,backend.main,backend.user_integrations_api,backend.logging_config}"
+BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-blueprint_core,apps.api.main,apps.api.user_integrations_api,apps.api.logging_config}"
 FRONTEND_LOG_FILE="${FRONTEND_LOG_FILE:-$ROOT_DIR/.logs/frontend-dev.log}"
 UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-warning}"
 UVICORN_ACCESS_LOG="${UVICORN_ACCESS_LOG:-false}"
@@ -102,12 +102,12 @@ fi
 
 if ! "$VENV_DIR/bin/python" -m uvicorn --version >/dev/null 2>&1; then
   log "Installing backend dependencies"
-  "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/backend/requirements.txt"
+  "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/apps/api/requirements.txt"
 fi
 
-if [ ! -d "$ROOT_DIR/frontend/node_modules" ]; then
+if [ ! -d "$ROOT_DIR/apps/web/node_modules" ]; then
   log "Installing frontend dependencies"
-  (cd "$ROOT_DIR/frontend" && npm install)
+  (cd "$ROOT_DIR/apps/web" && npm install)
 fi
 
 if is_port_open "$BACKEND_PORT"; then
@@ -125,7 +125,7 @@ else
   log "Backend log file: $BACKEND_LOG_FILE"
   log "Backend log namespaces: $BACKEND_LOG_NAMESPACES"
   uvicorn_args=(
-    backend.main:app
+    apps.api.main:app
     --host "$BACKEND_HOST"
     --port "$BACKEND_PORT"
     --log-level "$UVICORN_LOG_LEVEL"
@@ -142,7 +142,7 @@ FRONTEND_PORT="$(first_free_port "$FRONTEND_PORT")"
 mkdir -p "$(dirname "$FRONTEND_LOG_FILE")"
 log "Starting frontend at http://$FRONTEND_HOST:$FRONTEND_PORT"
 log "Frontend log file: $FRONTEND_LOG_FILE"
-(cd "$ROOT_DIR/frontend" && npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT" >"$FRONTEND_LOG_FILE" 2>&1) &
+(cd "$ROOT_DIR/apps/web" && npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT" >"$FRONTEND_LOG_FILE" 2>&1) &
 frontend_pid="$!"
 
 wait_for_url "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Frontend"

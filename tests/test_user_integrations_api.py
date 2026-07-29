@@ -8,8 +8,8 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from fastapi.routing import APIRoute
 
-from backend.auth import UserContext, require_user_context
-from backend.user_integrations_api import (
+from apps.api.auth import UserContext, require_user_context
+from apps.api.user_integrations_api import (
     ImageModelTestRequest,
     IntegrationUpdateRequest,
     get_user_integrations,
@@ -58,7 +58,7 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
     def test_local_context_uses_encrypted_workspace_store(self) -> None:
         workspace_store = SupabaseWorkspaceIntegrationStore()
         with patch(
-            "backend.user_integrations_api.default_integration_store",
+            "apps.api.user_integrations_api.default_integration_store",
             return_value=workspace_store,
         ):
             self.assertIs(workspace_store, _store_for_context(LOCAL_CONTEXT))
@@ -66,7 +66,7 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
     def test_hosted_context_uses_authenticated_user_store(self) -> None:
         user_store = SupabaseUserIntegrationStore("user_test")
         with patch(
-            "backend.user_integrations_api.UserIntegrationStore.for_user",
+            "apps.api.user_integrations_api.UserIntegrationStore.for_user",
             return_value=user_store,
         ) as for_user:
             self.assertIs(user_store, _store_for_context(HOSTED_CONTEXT))
@@ -95,8 +95,8 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
             self.assertIn(require_user_context, dependency_calls, route.path)
 
     def test_load_failure_is_logged_and_returned_as_structured_error(self) -> None:
-        with patch("backend.user_integrations_api._store_for_context", return_value=BrokenIntegrationStore()):
-            with self.assertLogs("backend.user_integrations_api", level="ERROR") as logs:
+        with patch("apps.api.user_integrations_api._store_for_context", return_value=BrokenIntegrationStore()):
+            with self.assertLogs("apps.api.user_integrations_api", level="ERROR") as logs:
                 with self.assertRaises(HTTPException) as raised:
                     get_user_integrations(HOSTED_CONTEXT)
 
@@ -108,8 +108,8 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
 
     def test_save_failure_is_logged_and_returned_as_structured_error(self) -> None:
         request = IntegrationUpdateRequest(enabled=True, fields={"api_key": "test-secret"})
-        with patch("backend.user_integrations_api._store_for_context", return_value=BrokenIntegrationStore()):
-            with self.assertLogs("backend.user_integrations_api", level="ERROR") as logs:
+        with patch("apps.api.user_integrations_api._store_for_context", return_value=BrokenIntegrationStore()):
+            with self.assertLogs("apps.api.user_integrations_api", level="ERROR") as logs:
                 with self.assertRaises(HTTPException) as raised:
                     update_user_integration("anthropic", request, HOSTED_CONTEXT)
 
@@ -121,8 +121,8 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
 
     def test_post_save_reload_failure_is_distinguished_from_write_failure(self) -> None:
         request = IntegrationUpdateRequest(enabled=True, fields={"api_key": "test-secret"})
-        with patch("backend.user_integrations_api._store_for_context", return_value=PersistThenBrokenReloadStore()):
-            with self.assertLogs("backend.user_integrations_api", level="INFO") as logs:
+        with patch("apps.api.user_integrations_api._store_for_context", return_value=PersistThenBrokenReloadStore()):
+            with self.assertLogs("apps.api.user_integrations_api", level="INFO") as logs:
                 with self.assertRaises(HTTPException) as raised:
                     update_user_integration("anthropic", request, HOSTED_CONTEXT)
 
@@ -168,9 +168,9 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
         provider = FakeProvider()
         request = ImageModelTestRequest(provider="gmi", model="seedream-5.0-pro", prompt="  test render  ")
         with patch.dict(os.environ, {}, clear=True), patch(
-            "backend.user_integrations_api._store_for_context", return_value=object()
-        ), patch("backend.user_integrations_api.apply_user_integrations_to_environment"), patch(
-            "backend.user_integrations_api.build_image_provider", return_value=provider
+            "apps.api.user_integrations_api._store_for_context", return_value=object()
+        ), patch("apps.api.user_integrations_api.apply_user_integrations_to_environment"), patch(
+            "apps.api.user_integrations_api.build_image_provider", return_value=provider
         ):
             response = test_image_model(request, HOSTED_CONTEXT)
 

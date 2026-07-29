@@ -90,12 +90,12 @@ fi
 
 if ! "$VENV_DIR/bin/python" -m uvicorn --version >/dev/null 2>&1; then
   log "Installing backend dependencies"
-  "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/backend/requirements.txt"
+  "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/apps/api/requirements.txt"
 fi
 
-if [ ! -d "$ROOT_DIR/frontend/node_modules" ]; then
+if [ ! -d "$ROOT_DIR/apps/web/node_modules" ]; then
   log "Installing frontend dependencies"
-  (cd "$ROOT_DIR/frontend" && npm install)
+  (cd "$ROOT_DIR/apps/web" && npm install)
 fi
 
 if is_port_open "$BACKEND_PORT"; then
@@ -111,14 +111,14 @@ else
   export BACKEND_LOG_FILE
   log "Starting backend at http://$BACKEND_HOST:$BACKEND_PORT"
   log "Backend log file: $BACKEND_LOG_FILE"
-  "$VENV_DIR/bin/python" -m uvicorn backend.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
+  "$VENV_DIR/bin/python" -m uvicorn apps.api.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
   backend_pid="$!"
   wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend" 60 "$backend_pid"
 fi
 
 FRONTEND_PORT="$(first_free_port "$FRONTEND_PORT")"
 log "Starting frontend at http://$FRONTEND_HOST:$FRONTEND_PORT"
-(cd "$ROOT_DIR/frontend" && npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT") &
+(cd "$ROOT_DIR/apps/web" && npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT") &
 frontend_pid="$!"
 
 wait_for_url "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Frontend"

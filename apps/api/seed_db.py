@@ -1,8 +1,8 @@
 import sys
 import os
 
-# Add parent directory to path so imports work when running this file directly
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Add the repository root so imports work when running this file directly.
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 from blueprint_core.database import init_db, insert_component_template_if_missing
 from blueprint_core.workspaces.projects.models import ComponentTemplate, PinDefinition

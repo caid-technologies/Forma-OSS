@@ -83,19 +83,19 @@ From the repo root:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r apps/api/requirements.txt
 ```
 
 **Optional: seed the component library**
 The server auto-seeds the component library on startup if empty. To seed manually:
 
 ```bash
-python3 backend/seed_db.py
+python3 apps/api/seed_db.py
 ```
 
 **Run the backend:**
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 **Blueprint Core CLI:**
@@ -165,7 +165,7 @@ both.
 
 To run with OpenAI:
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn backend.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
 ```
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
@@ -259,7 +259,7 @@ If no live LLM provider is configured or generation fails, the backend returns d
 
 ### Frontend (Next.js)
 ```bash
-cd frontend
+cd apps/web
 npm install
 npm run dev
 ```
@@ -268,7 +268,7 @@ Open:
 - http://localhost:3000 (UI)
 - http://localhost:8000/api/docs (API docs)
 
-Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_player (or any JSON under `frontend/public/examples/`).
+Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_player (or any JSON under `apps/web/public/examples/`).
 
 ## Documentation
 - [Architecture](docs/architecture.md)

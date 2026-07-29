@@ -8,7 +8,7 @@ from unittest.mock import patch
 from fastapi import HTTPException
 from starlette.requests import Request
 
-from backend.auth import (
+from apps.api.auth import (
     LOCAL_USER_ID,
     UserContext,
     optional_deployed_clerk_auth,
@@ -36,7 +36,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
         request = request_with_authorization("Bearer ignored-in-local-mode")
 
         with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=True), patch(
-            "backend.auth.verify_clerk_bearer_token"
+            "apps.api.auth.verify_clerk_bearer_token"
         ) as verify_token:
             optional_context = await optional_user_context(request)
             required_context = await require_user_context(request)
@@ -67,7 +67,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
         request = request_with_authorization("Bearer valid-token")
 
         with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch(
-            "backend.auth.verify_clerk_bearer_token", return_value=claims
+            "apps.api.auth.verify_clerk_bearer_token", return_value=claims
         ) as verify_token:
             context = await optional_user_context(request)
 
@@ -89,7 +89,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
     async def test_admin_context_rejects_non_admin_clerk_user(self) -> None:
         request = request_with_authorization("Bearer valid-token")
         with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch(
-            "backend.auth.verify_clerk_bearer_token", return_value={"sub": "user_123"}
+            "apps.api.auth.verify_clerk_bearer_token", return_value={"sub": "user_123"}
         ):
             with self.assertRaises(HTTPException) as raised:
                 await require_admin_user_context(request)
@@ -105,7 +105,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
         clerk_request = request_with_authorization("Bearer valid-token")
         claims = {"sub": "user_123"}
         with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch(
-            "backend.auth.verify_clerk_bearer_token", return_value=claims
+            "apps.api.auth.verify_clerk_bearer_token", return_value=claims
         ):
             self.assertEqual(claims, await optional_deployed_clerk_auth(clerk_request))
             self.assertEqual(claims, await require_deployed_clerk_auth(clerk_request))

@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 from fastapi.routing import APIRoute
 
-from backend.auth import UserContext, require_user_context
-from backend.user_settings_api import (
+from apps.api.auth import UserContext, require_user_context
+from apps.api.user_settings_api import (
     DataUsagePreferenceUpdateRequest,
     get_data_usage_preference,
     router,
@@ -33,7 +33,7 @@ class UserSettingsApiTests(unittest.TestCase):
             self.assertIn(require_user_context, dependency_calls, route.path)
 
     def test_missing_preference_uses_default_allow_state_without_writing(self) -> None:
-        with patch("backend.user_settings_api.get_user_settings", return_value=None) as get_settings:
+        with patch("apps.api.user_settings_api.get_user_settings", return_value=None) as get_settings:
             payload = get_data_usage_preference(USER_CONTEXT)
 
         get_settings.assert_called_once_with("user_test")
@@ -51,7 +51,7 @@ class UserSettingsApiTests(unittest.TestCase):
         )
         request = DataUsagePreferenceUpdateRequest(allow_model_training=False)
         with patch(
-            "backend.user_settings_api.set_user_model_training_preference",
+            "apps.api.user_settings_api.set_user_model_training_preference",
             return_value=saved,
         ) as save_preference:
             payload = update_data_usage_preference(request, USER_CONTEXT)

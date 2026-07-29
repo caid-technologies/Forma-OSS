@@ -20,7 +20,7 @@ from blueprint_core.agents.workflows import (
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.database import save_generated_project, update_generated_project_hardware_ir
 from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
-from backend.auth_mode import clerk_auth_required
+from apps.api.auth_mode import clerk_auth_required
 from blueprint_core.jobs.store import JOB_STORE
 from blueprint_core.llm import get_llm_runtime_debug_config
 from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet
@@ -38,7 +38,7 @@ from blueprint_core.runtime import (
     generation_unavailable_message,
 )
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
-from backend.storage import get_image_storage_config, upload_image_to_supabase_s3
+from apps.api.storage import get_image_storage_config, upload_image_to_supabase_s3
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
 from blueprint_core.validation import validate_circuit
 

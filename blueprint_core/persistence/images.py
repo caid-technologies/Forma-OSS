@@ -236,7 +236,7 @@ def _supabase_storage_bucket(bucket: str):
     try:
         from supabase import create_client
     except ImportError as exc:
-        raise RuntimeError("Supabase client is not installed. Run pip install -r backend/requirements.txt.") from exc
+        raise RuntimeError("Supabase client is not installed. Run pip install -r apps/api/requirements.txt.") from exc
 
     return create_client(supabase_url, service_key).storage.from_(bucket)
 

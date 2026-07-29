@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from backend import logging_config
+from apps.api import logging_config
 from blueprint_core.logs import backend_log_payload, redact_log_line, resolve_backend_log_path
 
 

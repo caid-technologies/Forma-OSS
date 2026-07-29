@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from backend.video_storage import list_project_videos
+from apps.api.video_storage import list_project_videos
 
 
 class VideoStorageTests(unittest.TestCase):

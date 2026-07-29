@@ -7,7 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from backend.auth import UserContext, require_user_context
+from apps.api.auth import UserContext, require_user_context
 from blueprint_core.database import get_user_settings, set_user_model_training_preference
 from blueprint_core.debug import api_error_detail
 

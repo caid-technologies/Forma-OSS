@@ -59,7 +59,7 @@ def load_project_ir_from_json(path: Path) -> HardwareIR:
 
 def load_example_ir(example: str) -> HardwareIR:
     filename = example if example.endswith(".json") else f"{example}.json"
-    return load_project_ir_from_json(ROOT_DIR / "frontend" / "public" / "examples" / filename)
+    return load_project_ir_from_json(ROOT_DIR / "apps" / "web" / "public" / "examples" / filename)
 
 
 def suffix_for_content_type(content_type: str, fallback_format: str) -> str:

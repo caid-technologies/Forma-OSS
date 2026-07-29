@@ -1,6 +1,6 @@
 # Agents
 
-Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `backend/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
+Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `apps/api/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
 
 ## Pipeline overview
 0. Safety guardrails → 1. Intent Parser → 2. Requirements → 3. Component Selection → 4. Wiring/Netlist (+ repair loop) → 5. BOM → 6. Mechanical/Fabrication → 7. Assembly Instructions → 8. Mechanical render enrichment

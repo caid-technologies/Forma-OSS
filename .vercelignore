@@ -6,12 +6,14 @@
 !.python-version
 !requirements.txt
 !main.py
-!backend
-!backend/**
+!apps
+!apps/__init__.py
+!apps/api
+!apps/api/**
 !blueprint_core
 !blueprint_core/**
-!frontend
-!frontend/**
+!apps/web
+!apps/web/**
 
 .git
 .vercel
@@ -23,9 +25,9 @@
 skills-lock.json
 
 node_modules
-frontend/node_modules
+apps/web/node_modules
 .next
-frontend/.next
+apps/web/.next
 out
 build
 dist

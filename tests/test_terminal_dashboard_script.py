@@ -77,7 +77,7 @@ class TerminalDashboardScriptTests(unittest.TestCase):
     def test_pillow_dashboard_renderer_writes_png(self) -> None:
         from blueprint_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
 
-        project_ir = json.loads((ROOT_DIR / "frontend" / "public" / "examples" / "plant_watering.json").read_text(encoding="utf-8"))
+        project_ir = json.loads((ROOT_DIR / "apps" / "web" / "public" / "examples" / "plant_watering.json").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = pathlib.Path(temp_dir) / "dashboard.png"
 

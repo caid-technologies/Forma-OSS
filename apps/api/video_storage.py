@@ -4,6 +4,7 @@ import os
 import re
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote, urlparse
 
@@ -11,7 +12,8 @@ from dotenv import load_dotenv
 
 from blueprint_core.runtime import blueprint_dev_mode_enabled
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +121,7 @@ def _supabase_storage_bucket(bucket: str):
     try:
         from supabase import create_client
     except ImportError as exc:
-        raise RuntimeError("Supabase client is not installed. Run pip install -r backend/requirements.txt.") from exc
+        raise RuntimeError("Supabase client is not installed. Run pip install -r apps/api/requirements.txt.") from exc
 
     return create_client(supabase_url, service_key).storage.from_(bucket)
 

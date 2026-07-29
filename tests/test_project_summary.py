@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from backend import main
-from backend.auth import UserContext
+from apps.api import main
+from apps.api.auth import UserContext
 
 
 ANONYMOUS_USER = UserContext(

@@ -524,6 +524,7 @@ class ProjectIterator:
         runtime_config: Optional[LLMRuntimeConfig] = None,
         llm_provider: Optional[StructuredLLMProvider] = None,
         use_simulation: bool = False,
+        require_live_generation: bool = False,
     ) -> None:
         self.runtime_config = runtime_config or resolve_llm_runtime_config(
             provider_name=provider_name,
@@ -531,6 +532,7 @@ class ProjectIterator:
         )
         self.llm_provider = llm_provider or build_llm_provider(runtime_config=self.runtime_config)
         self.use_simulation = use_simulation or not self.llm_provider.is_configured
+        self.require_live_generation = require_live_generation
 
     def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
         return self.llm_provider.validate_configured_model(raise_on_strict=raise_on_strict)
@@ -564,6 +566,11 @@ class ProjectIterator:
             raise
 
         if self.use_simulation or not validation.live_generation_enabled:
+            if self.require_live_generation:
+                raise LLMProviderConfigError(
+                    "Project iteration requires a live LLM provider; CLI fallback output is disabled. "
+                    "Configure the requested provider or pass --simulation explicitly."
+                )
             logger.info("Project iteration using metadata-only mode: provider=%s model=%s", validation.provider, validation.actual_model)
             return build_metadata_only_iteration(
                 base,
@@ -610,6 +617,7 @@ def iterate_project(
     runtime_config: Optional[LLMRuntimeConfig] = None,
     llm_provider: Optional[StructuredLLMProvider] = None,
     use_simulation: bool = False,
+    require_live_generation: bool = False,
 ) -> HardwareIR:
     iterator = ProjectIterator(
         provider_name=provider_name,
@@ -617,6 +625,7 @@ def iterate_project(
         runtime_config=runtime_config,
         llm_provider=llm_provider,
         use_simulation=use_simulation,
+        require_live_generation=require_live_generation,
     )
     return iterator.iterate_project(
         current_ir,

@@ -138,6 +138,8 @@ blueprint-core generate "plant watering monitor" --llm openai/gpt-5.5
 blueprint-core generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
 ```
 
+Live CLI generation and iteration are strict: provider, model, and pipeline failures return a nonzero exit code instead of producing fallback output. Simulated output requires the explicit `--simulation` flag.
+
 Smoke-test configured LLM providers with a tiny structured prompt:
 
 ```bash

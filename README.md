@@ -101,6 +101,7 @@ uvicorn backend.main:app --reload --port 8000
 **Blueprint Core CLI:**
 
 The core CLI runs generation, validation, and project iteration directly. It does not require the FastAPI backend.
+Live CLI operations fail with a nonzero exit code when their requested provider, model, or pipeline fails; they never substitute another model or simulated project. Use `--simulation` only when deterministic simulated output is intentional.
 
 ```bash
 blueprint-core workflows

@@ -641,10 +641,11 @@ class HardwarePipelineOrchestrator:
         }
         # 0. Safety Guardrail Pre-check
         emit_agent_pipeline_event("default", "safety_guardrail", "started")
-        safety_error = check_safety_violations(user_prompt)
+        safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
+        safety_error = check_safety_violations(safety_prompt)
         if safety_error:
             emit_agent_pipeline_event("default", "safety_guardrail", "failed", details={"reason": safety_error})
-            logger.warning(f"Safety block triggered for prompt: '{user_prompt}'")
+            logger.warning(f"Safety block triggered for prompt: '{safety_prompt}'")
             # Compile a default safety-blocked IR package
             overview = ProjectOverview(
                 title="PROJECT BLOCKED - Safe Scope Enforced",
@@ -1434,7 +1435,7 @@ class HardwarePipelineOrchestrator:
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
-            if key != "owner_user_id"
+            if key not in {"owner_user_id", "project_prompt"}
         }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
@@ -1445,7 +1446,7 @@ class HardwarePipelineOrchestrator:
             save_generated_project(
                 project_id=project_id,
                 title=ir.overview.title,
-                prompt=prompt,
+                prompt=str(generation_metadata.get("project_prompt") or prompt),
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 chat_id=generation_metadata.get("chat_id"),

@@ -213,7 +213,8 @@ class WebResearchHardwarePipeline:
             if value is not None and value != ""
         }
         emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "started")
-        safety_error = check_safety_violations(user_prompt)
+        safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
+        safety_error = check_safety_violations(safety_prompt)
         if safety_error:
             emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "failed", details={"reason": safety_error})
             logger.info("Web research workflow safety guardrail blocked request; delegating to safety response.")
@@ -268,7 +269,10 @@ class WebResearchHardwarePipeline:
             pass
         logger.info("Starting Web Research Pipeline Execution...")
         logger.info("Invoking External Source Research Agent...")
-        research_queries = self._research_queries(user_prompt)
+        # Past-job context belongs in the architecture prompts, not in external
+        # search queries where it would create oversized or overly specific requests.
+        research_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
+        research_queries = self._research_queries(research_prompt)
         with agent_pipeline_step(self.workflow_id, "external_research", details={
             "provider": self.research_client.provider_name,
             "query_count": len(research_queries),
@@ -294,14 +298,14 @@ class WebResearchHardwarePipeline:
 
         logger.info("Running circuit validation checks on web-researched netlist...")
         with agent_pipeline_step(self.workflow_id, "validation_repair"):
-            validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+            validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
             if not is_valid:
                 logger.info("Invoking Validation + Auto-Correction Agent...")
                 corrected = self._repair_wiring(plan, components_json, nets, validation_issues)
                 nets = corrected.nets
                 pin_mappings = corrected.pin_mappings
-                validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+                validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
 
         total_cost = sum(component.unit_price * component.quantity for component in components)
@@ -695,7 +699,7 @@ class WebResearchHardwarePipeline:
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
-            if key != "owner_user_id"
+            if key not in {"owner_user_id", "project_prompt"}
         }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
@@ -706,7 +710,7 @@ class WebResearchHardwarePipeline:
             save_generated_project(
                 project_id=project_id,
                 title=ir.overview.title if ir.overview else "Untitled Forma Project",
-                prompt=prompt,
+                prompt=str(generation_metadata.get("project_prompt") or prompt),
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 chat_id=generation_metadata.get("chat_id"),

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import unittest
@@ -363,9 +364,11 @@ class ProjectGenerationAccessTests(unittest.TestCase):
             patch.object(main, "_attach_generation_timing_metadata", side_effect=lambda response, _job: response),
             patch.object(main, "update_generated_project_hardware_ir"),
         ):
-            response = main.generate_project_endpoint(
-                GenerateProjectRequest(prompt="Build a sensor", chat_id="generated-chat"),
-                _user_context("user-a"),
+            response = asyncio.run(
+                main.generate_project_endpoint(
+                    GenerateProjectRequest(prompt="Build a sensor", chat_id="generated-chat"),
+                    _user_context("user-a"),
+                )
             )
 
         self.assertTrue(response["can_chat"])

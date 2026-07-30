@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
+import asyncio
 import json
 import logging
 import sys
@@ -124,6 +125,7 @@ from apps.api.auth import (
     require_user_context,
 )
 from blueprint_core.jobs.store import JOB_STORE, JobCancelledError
+from blueprint_core.jobs.context import PAST_JOBS_DATA_SOURCE, PastJobContextSource, list_generation_data_sources
 from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
 from blueprint_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
@@ -390,6 +392,7 @@ def debug_config_endpoint(
             "video_self_correction": FireworksVideoReviewClient().get_debug_config(),
             "video_storage": get_video_storage_config(),
             "workflows": list_workflows(),
+            "data_sources": list_generation_data_sources(),
             "project_namespaces": [namespace.model_dump(mode="json") for namespace in list_project_namespaces()],
         }
     except LLMProviderConfigError as e:
@@ -405,7 +408,7 @@ def debug_config_endpoint(
         ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])
-def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext = Depends(require_user_context)):
+async def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext = Depends(require_user_context)):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
@@ -487,6 +490,8 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
         "client_job_id": request.client_job_id,
         "owner_user_id": owner_user_id,
         "external_source_provider": request.external_source_provider,
+        "data_sources": request.data_sources,
+        "past_jobs_limit": request.past_jobs_limit,
     }
     JOB_STORE.create_job(
         job_id=job_id,
@@ -502,11 +507,20 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
     JOB_STORE.mark_running(job_id)
 
     try:
+        past_job_context = None
+        if PAST_JOBS_DATA_SOURCE in request.data_sources:
+            past_job_context = await PastJobContextSource(JOB_STORE, get_generated_project).retrieve(
+                request.prompt,
+                owner_user_id=owner_user_id,
+                limit=request.past_jobs_limit,
+                exclude_job_id=job_id,
+            )
         with observe_agent_pipeline(
             lambda event: JOB_STORE.append_progress_event(job_id, event.as_dict()),
             cancellation_check=lambda: JOB_STORE.is_cancelled(job_id),
         ):
-            response = build_generation_response(
+            response = await asyncio.to_thread(
+                build_generation_response,
                 request.prompt,
                 request.image_data,
                 generate_image=request.generate_image,
@@ -518,6 +532,8 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
                 source_project_id=request.source_project_id,
                 frontend_job_id=job_id,
                 owner_user_id=owner_user_id,
+                data_sources=request.data_sources,
+                past_job_context=past_job_context,
             )
         if JOB_STORE.is_cancelled(job_id):
             raise JobCancelledError(f"Job {job_id} was cancelled.")
@@ -648,6 +664,12 @@ def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext
 def list_generation_workflows_endpoint():
     """List generation workflows available to frontend and CLI clients."""
     return list_workflows()
+
+
+@app.get("/data-sources")
+def list_generation_data_sources_endpoint():
+    """List optional lightweight context sources available during generation."""
+    return list_generation_data_sources()
 
 
 @app.get("/pipeline/steps")

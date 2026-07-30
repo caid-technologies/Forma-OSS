@@ -13,7 +13,7 @@ from contextlib import redirect_stdout
 from blueprint_core.providers import ProviderEvent, ProviderRequest
 
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 EXAMPLE_SCRIPT = ROOT_DIR / "examples" / "async_glm_openai_prompt.py"
 
 

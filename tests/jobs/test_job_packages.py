@@ -23,7 +23,7 @@ class JobPackageTests(unittest.TestCase):
         self.assertIn(JOB_TABLE_CONTRACT, APPLICATION_SCHEMA)
 
     def test_job_classes_are_defined_only_in_the_jobs_package(self) -> None:
-        package_root = Path(__file__).resolve().parents[1] / "blueprint_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         misplaced: list[str] = []
         for path in package_root.rglob("*.py"):
             relative_path = path.relative_to(package_root)
@@ -37,7 +37,7 @@ class JobPackageTests(unittest.TestCase):
         self.assertEqual([], misplaced)
 
     def test_legacy_job_modules_are_removed(self) -> None:
-        repository_root = Path(__file__).resolve().parents[1]
+        repository_root = Path(__file__).resolve().parents[2]
         legacy_paths = (
             "apps/api/job_source_usage.py",
             "apps/api/job_store.py",

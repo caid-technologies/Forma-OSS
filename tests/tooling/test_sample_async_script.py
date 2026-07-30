@@ -8,7 +8,7 @@ import time
 import unittest
 
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 ASYNC_SAMPLE_SCRIPT = ROOT_DIR / "scripts" / "models" / "sample_async.py"
 
 

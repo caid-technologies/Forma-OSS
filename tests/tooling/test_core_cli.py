@@ -150,7 +150,7 @@ class CoreCliTests(unittest.TestCase):
         self.assertEqual({"critical": [], "info": [], "warning": []}, json.loads(stdout.getvalue())["validation"])
 
     def test_core_cli_is_a_package_not_another_flat_module(self) -> None:
-        core_root = Path(__file__).resolve().parents[1] / "blueprint_core"
+        core_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         self.assertTrue((core_root / "cli" / "main.py").exists())
         self.assertFalse((core_root / "cli.py").exists())
 

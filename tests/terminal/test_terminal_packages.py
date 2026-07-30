@@ -15,7 +15,7 @@ class TerminalPackageTests(unittest.TestCase):
         self.assertEqual("blueprint_core.terminal.images", TerminalImageRenderer.__module__)
 
     def test_legacy_terminal_modules_are_removed(self) -> None:
-        package_root = Path(__file__).resolve().parents[1] / "blueprint_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         legacy_modules = ("terminal_dashboard.py", "terminal_images.py")
         self.assertEqual([], [name for name in legacy_modules if (package_root / name).exists()])
 

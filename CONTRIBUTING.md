@@ -215,7 +215,7 @@ Important directories include:
 apps/api/          FastAPI application and service integrations
 blueprint_core/   Reusable generation, validation, provider, and project logic
 apps/web/         Next.js frontend
-tests/            Offline Python unit tests
+tests/            Concern-grouped offline Python unit tests (see tests/README.md)
 evals/            Performance benchmarks, quality evaluations, datasets, and reports
 docs/             Architecture and development documentation
 scripts/          Concern-grouped developer and operational tools (see scripts/README.md)

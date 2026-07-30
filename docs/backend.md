@@ -19,7 +19,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `apps/api/seed_db.py` – seed component templates
 
 ## API endpoints
-- `POST /api/generate` – run the pipeline and return IR + diagrams
+- `POST /api/generate` – asynchronously run the pipeline off the API event loop and return IR + diagrams
 - `POST /api/alpha-signups` – capture alpha launch interest while deployed generation is gated
 - `GET /api/a2a/capabilities` – inspect agent transports and actions
 - `PUT /api/a2a/agents/{agent_id}` – register an agent listener
@@ -27,6 +27,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/a2a/agents/{agent_id}/events` – long-poll queued A2A events
 - `GET /api/a2a/jobs` – list persisted A2A job metadata, including generation `source_usage`
 - `GET /api/a2a/jobs/{job_id}` – fetch one persisted A2A job metadata record, including generation `source_usage`
+- `GET /api/data-sources` – list optional generation context sources and their limits
 - `GET /api/logs/backend` – tail recent backend and uvicorn log lines for the frontend LOGS tab
 - `WebSocket /api/a2a/socket/{agent_id}` – bidirectional A2A event stream
 - `POST /api/mcp` and `POST /api/a2a/mcp` – MCP-style JSON-RPC tool endpoint
@@ -55,6 +56,7 @@ LLM configuration behavior:
 - `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching. The backend validates them before generation and records requested/actual provider/model metadata on the project.
+- `/api/generate` accepts `data_sources: ["past_jobs"]` and an optional `past_jobs_limit` (1-8, default 3). This retrieves the signed-in owner's relevant completed generation jobs, compacts their stored project outputs into bounded prompt context, and requires no embedding model or vector database. The current request always takes precedence over historical examples.
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
 - `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NEBIUS_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`

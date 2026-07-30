@@ -18,10 +18,19 @@ from blueprint_core.agents.workflows import (
     normalize_workflow_id,
 )
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.database import save_generated_project, update_generated_project_hardware_ir
+from blueprint_core.database import get_generated_project, save_generated_project, update_generated_project_hardware_ir
 from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from apps.api.auth_mode import clerk_auth_required
 from blueprint_core.jobs.store import JOB_STORE
+from blueprint_core.jobs.context import (
+    PAST_JOBS_DATA_SOURCE,
+    PastJobContext,
+    PastJobContextSource,
+    compose_prompt_with_past_jobs,
+    list_generation_data_sources,
+    normalize_generation_data_sources,
+)
+from blueprint_core.jobs.source_usage import normalize_source_usage
 from blueprint_core.llm import get_llm_runtime_debug_config
 from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet
 from blueprint_core.observability import (
@@ -218,6 +227,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         "image_storage": get_image_storage_config(),
         "observability": get_langfuse_debug_config(),
         "workflows": list_workflows(),
+        "data_sources": list_generation_data_sources(),
         "actions": [
             "blueprint.generate_project",
             "blueprint.debug_config",
@@ -742,6 +752,8 @@ def build_generation_response(
     source_project_id: Optional[str] = None,
     frontend_job_id: Optional[str] = None,
     owner_user_id: Optional[str] = None,
+    data_sources: Optional[List[str]] = None,
+    past_job_context: Optional[PastJobContext] = None,
 ) -> Dict[str, Any]:
     _apply_owner_user_integrations(owner_user_id)
 
@@ -752,6 +764,13 @@ def build_generation_response(
         raise ValueError("Provide a prompt or reference image.")
     if not has_prompt:
         prompt_text = "Infer a buildable hardware project from the uploaded reference image."
+    normalized_data_sources = normalize_generation_data_sources(data_sources)
+    context_requested = PAST_JOBS_DATA_SOURCE in normalized_data_sources
+    resolved_past_job_context = past_job_context or PastJobContext(
+        reason="No past-job context was retrieved." if context_requested else None
+    )
+    generation_prompt = compose_prompt_with_past_jobs(prompt_text, resolved_past_job_context)
+    past_jobs_metadata = resolved_past_job_context.metadata() if context_requested else None
 
     try:
         image_bytes, image_mime_type = _decode_image_data(image_data)
@@ -783,6 +802,8 @@ def build_generation_response(
         "generate_image": generate_image,
         "frontend_job_id": frontend_job_id,
         "external_source_provider": external_source_provider,
+        "data_sources": normalized_data_sources,
+        "past_jobs_context": past_jobs_metadata,
     }
     with start_observation(
         name="blueprint.generate_project",
@@ -805,7 +826,7 @@ def build_generation_response(
         ):
             ir = generate_project_with_workflow(
                 workflow_id,
-                prompt_text,
+                generation_prompt,
                 image_bytes=image_bytes,
                 image_mime_type=image_mime_type,
                 provider_name=provider,
@@ -817,6 +838,9 @@ def build_generation_response(
                     "frontend_job_id": frontend_job_id,
                     "owner_user_id": owner_user_id,
                     "external_source_provider": external_source_provider,
+                    "data_sources": normalized_data_sources,
+                    "past_jobs_context": past_jobs_metadata,
+                    "project_prompt": prompt_text,
                 },
             )
             ensure_agent_pipeline_active()
@@ -827,6 +851,15 @@ def build_generation_response(
                 "frontend_job_id": frontend_job_id or (ir.assembly_metadata or {}).get("frontend_job_id"),
                 "workflow": workflow_id,
                 "external_source_provider": external_source_provider or (ir.assembly_metadata or {}).get("external_source_provider"),
+                "data_sources": normalized_data_sources,
+                "past_jobs_context": past_jobs_metadata,
+                "source_usage": normalize_source_usage(
+                    {
+                        **((ir.assembly_metadata or {}).get("source_usage") or {}),
+                        "past_jobs": resolved_past_job_context.used,
+                    },
+                    fallback_workflow=workflow_id,
+                ),
             }
 
             if image_data:
@@ -909,6 +942,15 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
     _apply_owner_user_integrations(owner_user_id if isinstance(owner_user_id, str) else None)
 
     if normalized == "generate_project":
+        data_sources = normalize_generation_data_sources(payload.get("data_sources") or [])
+        past_job_context = None
+        if PAST_JOBS_DATA_SOURCE in data_sources:
+            past_job_context = await PastJobContextSource(JOB_STORE, get_generated_project).retrieve(
+                str(payload.get("prompt") or ""),
+                owner_user_id=owner_user_id if isinstance(owner_user_id, str) else None,
+                limit=int(payload.get("past_jobs_limit") or 3),
+                exclude_job_id=payload.get("client_job_id") or payload.get("frontend_job_id"),
+            )
         return await asyncio.to_thread(
             build_generation_response,
             payload.get("prompt", ""),
@@ -922,6 +964,8 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             payload.get("source_project_id"),
             payload.get("client_job_id") or payload.get("frontend_job_id"),
             payload.get("owner_user_id"),
+            data_sources,
+            past_job_context,
         )
 
     if normalized == "debug_config":
@@ -935,6 +979,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             "image_storage": get_image_storage_config(),
             "observability": get_langfuse_debug_config(),
             "workflows": list_workflows(),
+            "data_sources": list_generation_data_sources(),
         }
 
     if normalized == "validate_circuit":
@@ -1185,6 +1230,17 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                         "type": "string",
                         "enum": ["firecrawl"],
                         "description": "Optional provider for web_research workflow.",
+                    },
+                    "data_sources": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["past_jobs"]},
+                        "description": "Optional lightweight context sources.",
+                    },
+                    "past_jobs_limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 8,
+                        "default": 3,
                     },
                 },
                 "required": ["prompt"],

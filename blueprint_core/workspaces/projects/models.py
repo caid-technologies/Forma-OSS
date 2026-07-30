@@ -226,6 +226,16 @@ class GenerateProjectRequest(BaseModel):
         None,
         description="Optional web research provider override. Firecrawl is the only active provider."
     )
+    data_sources: List[str] = Field(
+        default_factory=list,
+        description="Optional lightweight context sources. Currently supports past_jobs.",
+    )
+    past_jobs_limit: int = Field(
+        3,
+        ge=1,
+        le=8,
+        description="Maximum number of relevant completed jobs to include when data_sources contains past_jobs.",
+    )
 
     @field_validator("provider", "model", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod
@@ -253,6 +263,19 @@ class GenerateProjectRequest(BaseModel):
         if normalized in {"auto", "tavily", "firecrawl"}:
             return "firecrawl"
         raise ValueError("external_source_provider must be firecrawl.")
+
+    @field_validator("data_sources", mode="before")
+    @classmethod
+    def validate_data_sources(cls, value: Any) -> List[str]:
+        from blueprint_core.jobs.context import normalize_generation_data_sources
+
+        if value is None:
+            return []
+        if isinstance(value, str):
+            value = [value]
+        if not isinstance(value, (list, tuple, set)):
+            raise ValueError("data_sources must be a list of source ids.")
+        return normalize_generation_data_sources(value)
 
 
 class ProjectUpdateRequest(BaseModel):

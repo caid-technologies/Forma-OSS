@@ -35,6 +35,7 @@ def source_usage_for_workflow(
     *,
     strict: bool = False,
     external_provider: Optional[str] = None,
+    uses_past_jobs: bool = False,
 ) -> Dict[str, Any]:
     workflow = normalize_generation_workflow_id(workflow_id, strict=strict)
     uses_catalog = workflow == DEFAULT_WORKFLOW_ID
@@ -49,6 +50,7 @@ def source_usage_for_workflow(
         uses_catalog=uses_catalog,
         uses_web_research=uses_web_research,
         external_provider=normalized_provider or None,
+        uses_past_jobs=uses_past_jobs,
     )
 
 
@@ -85,7 +87,15 @@ def infer_source_usage(
         existing = _as_dict(current.get("source_usage"))
         return normalize_source_usage(existing) if existing else {}
 
-    usage = source_usage_for_workflow(str(workflow), strict=False)
+    requested_data_sources = payload.get("data_sources") or []
+    if isinstance(requested_data_sources, str):
+        requested_data_sources = [requested_data_sources]
+    uses_past_jobs = bool(
+        metadata.get("past_jobs_context", {}).get("used")
+        if isinstance(metadata.get("past_jobs_context"), dict)
+        else False
+    ) or "past_jobs" in requested_data_sources
+    usage = source_usage_for_workflow(str(workflow), strict=False, uses_past_jobs=uses_past_jobs)
     pipeline = str(metadata.get("pipeline") or result_summary.get("pipeline") or "").lower()
     component_source_policy = str(metadata.get("component_source_policy") or "").lower()
     external_research = _as_dict(metadata.get("external_research"))
@@ -108,6 +118,7 @@ def infer_source_usage(
             uses_catalog=usage["catalog"],
             uses_web_research=True,
             external_provider=external_provider,
+            uses_past_jobs=usage["past_jobs"],
         )
     if "not constrained to seed_db.py" in component_source_policy:
         usage = _source_usage_payload(
@@ -115,6 +126,7 @@ def infer_source_usage(
             uses_catalog=False,
             uses_web_research=usage["web_research"],
             external_provider=external_provider,
+            uses_past_jobs=usage["past_jobs"],
         )
     return usage
 
@@ -141,11 +153,15 @@ def normalize_source_usage(value: Dict[str, Any], *, fallback_workflow: Optional
         external_provider = "tavily"
     if not external_provider and source_usage.get("firecrawl"):
         external_provider = "firecrawl"
+    past_jobs = _optional_bool(
+        source_usage.get("past_jobs", source_usage.get("used_past_jobs", source_usage.get("job_history")))
+    )
     return _source_usage_payload(
         usage["workflow"],
         uses_catalog=usage["catalog"] if catalog is None else catalog,
         uses_web_research=usage["web_research"] if web_research is None else web_research,
         external_provider=str(external_provider) if external_provider else None,
+        uses_past_jobs=usage["past_jobs"] if past_jobs is None else past_jobs,
     )
 
 
@@ -155,6 +171,7 @@ def _source_usage_payload(
     uses_catalog: bool,
     uses_web_research: bool,
     external_provider: Optional[str] = None,
+    uses_past_jobs: bool = False,
 ) -> Dict[str, Any]:
     sources = []
     source_labels = []
@@ -169,6 +186,9 @@ def _source_usage_payload(
             source_labels.append(normalized_provider.title())
         else:
             source_labels.append("Web Research")
+    if uses_past_jobs:
+        sources.append("past_jobs")
+        source_labels.append("Past Jobs")
     return {
         "workflow": workflow,
         "catalog": uses_catalog,
@@ -178,6 +198,8 @@ def _source_usage_payload(
         "data_warehouse": uses_catalog,
         "firecrawl": uses_web_research if external_provider in (None, "firecrawl") else False,
         "tavily": external_provider == "tavily",
+        "past_jobs": uses_past_jobs,
+        "job_history": uses_past_jobs,
         "sources": sources,
         "source_labels": source_labels,
     }

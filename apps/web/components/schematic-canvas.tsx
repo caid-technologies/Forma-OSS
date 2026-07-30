@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   Background,
   Controls,
@@ -23,6 +23,7 @@ import {
   Sliders,
   Volume2,
   Wrench,
+  X,
 } from "lucide-react";
 
 type SchematicCanvasProps = {
@@ -40,6 +41,7 @@ type SchematicPin = {
 
 type SchematicNodeData = {
   component: any;
+  allPins: SchematicPin[];
   leftPins: SchematicPin[];
   rightPins: SchematicPin[];
   tone: {
@@ -129,10 +131,22 @@ function iconForCategory(category = "") {
 }
 
 function SchematicPartNode({ data }: NodeProps<SchematicNodeData>) {
+  return <SchematicPartCard data={data} />;
+}
+
+function SchematicPartCard({ data, viewMode = false }: { data: SchematicNodeData; viewMode?: boolean }) {
   const { component, leftPins, rightPins, tone, roleLabel, connectionSide, isController } = data;
   const Icon = iconForCategory(component.category);
-  const visibleLeftPins = leftPins.length ? leftPins : [];
-  const visibleRightPins = rightPins.length ? rightPins : [];
+  const expandedPins = viewMode && data.allPins.length ? data.allPins : undefined;
+  const expandedPinColumns = expandedPins
+    ? isController
+      ? splitControllerPins(expandedPins, expandedPins.length)
+      : connectionSide === "left"
+        ? { leftPins: [], rightPins: expandedPins }
+        : { leftPins: expandedPins, rightPins: [] }
+    : undefined;
+  const visibleLeftPins = expandedPinColumns?.leftPins || leftPins;
+  const visibleRightPins = expandedPinColumns?.rightPins || rightPins;
   const modulePins = connectionSide === "left" ? visibleRightPins : visibleLeftPins;
   const modulePinSide = connectionSide === "left" ? "right" : "left";
   const visiblePinCount = visibleLeftPins.length + visibleRightPins.length;
@@ -141,28 +155,30 @@ function SchematicPartNode({ data }: NodeProps<SchematicNodeData>) {
 
   return (
     <div
-      className={`schematic-node schematic-card ${isController ? "schematic-controller-card" : ""}`}
+      className={`schematic-node schematic-card ${isController ? "schematic-controller-card" : ""} ${viewMode ? "schematic-view-card" : ""}`}
       style={{
         ["--schematic-accent" as string]: tone.border,
         ["--schematic-soft" as string]: tone.soft,
         ["--schematic-text" as string]: tone.text,
       }}
     >
-      <div className="flex items-start gap-3">
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center border border-[var(--schematic-accent)] bg-[var(--schematic-soft)] text-[var(--schematic-text)]">
-          <Icon className="h-4 w-4" />
+      <div className={`flex items-start ${viewMode ? "gap-4" : "gap-3"}`}>
+        <div
+          className={`flex shrink-0 items-center justify-center border border-[var(--schematic-accent)] bg-[var(--schematic-soft)] text-[var(--schematic-text)] ${viewMode ? "h-14 w-14" : "h-9 w-9"}`}
+        >
+          <Icon className={viewMode ? "h-6 w-6" : "h-4 w-4"} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <div className="text-[9px] font-black uppercase leading-none tracking-[0.16em] text-[var(--schematic-text)]">
+            <div className={`${viewMode ? "text-[11px]" : "text-[9px]"} font-black uppercase leading-none tracking-[0.16em] text-[var(--schematic-text)]`}>
               {roleLabel || tone.label}
             </div>
             <div className="h-px flex-1" style={{ backgroundColor: tone.border, opacity: 0.35 }} />
           </div>
-          <div className="mt-1 truncate text-[13px] font-black leading-tight text-white">
+          <div className={`${viewMode ? "mt-2 break-words text-xl" : "mt-1 truncate text-[13px]"} font-black leading-tight text-white`}>
             {component.name || component.ref_des}
           </div>
-          <div className="mt-1 flex items-center gap-2 text-[8px] font-bold uppercase tracking-[0.08em] text-slate-500">
+          <div className={`mt-1 flex items-center gap-2 font-bold uppercase tracking-[0.08em] text-slate-500 ${viewMode ? "text-[10px]" : "text-[8px]"}`}>
             <span className="truncate">{partNumber}</span>
             <span className="h-1 w-1 shrink-0 bg-slate-700" />
             <span className="shrink-0">{component.ref_des}</span>
@@ -171,25 +187,45 @@ function SchematicPartNode({ data }: NodeProps<SchematicNodeData>) {
       </div>
 
       {!isController && (
-        <div className="mt-3 flex items-center justify-between gap-2 border-t border-[#2b3038] pt-2 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
+        <div className={`${viewMode ? "mt-5 pt-3 text-[11px]" : "mt-3 pt-2 text-[9px]"} flex items-center justify-between gap-2 border-t border-[#2b3038] font-bold uppercase tracking-[0.12em] text-slate-500`}>
           <span className="truncate">{subtitle}</span>
           <span className="shrink-0 text-[var(--schematic-text)]">{visiblePinCount || 0} pins</span>
         </div>
       )}
 
-      <div className={isController ? "mt-3 grid grid-cols-[1fr_72px_1fr] gap-2" : "mt-3"}>
+      <div
+        className={
+          isController
+            ? `${viewMode ? "mt-5 grid-cols-[minmax(0,1fr)_96px_minmax(0,1fr)] gap-3" : "mt-3 grid-cols-[1fr_72px_1fr] gap-2"} grid`
+            : viewMode
+              ? "mt-5"
+              : "mt-3"
+        }
+      >
         {isController && (
-          <PinColumn componentRef={component.ref_des} pins={visibleLeftPins} side="left" tone={tone} />
+          <PinColumn
+            componentRef={component.ref_des}
+            pins={visibleLeftPins}
+            side="left"
+            tone={tone}
+            viewMode={viewMode}
+          />
         )}
         {isController && (
-          <div className="flex min-h-[156px] flex-col items-center justify-center border border-[#334155] bg-[#0f1720] px-2 text-center">
-            <Cpu className="mb-2 h-7 w-7 text-cyan-200" />
-            <div className="text-[8px] font-black uppercase tracking-[0.12em] text-white">{component.ref_des}</div>
-            <div className="mt-1 text-[7px] font-bold leading-tight text-slate-500">Controller</div>
+          <div className={`flex flex-col items-center justify-center border border-[#334155] bg-[#0f1720] px-2 text-center ${viewMode ? "min-h-[230px]" : "min-h-[156px]"}`}>
+            <Cpu className={`mb-2 text-cyan-200 ${viewMode ? "h-10 w-10" : "h-7 w-7"}`} />
+            <div className={`${viewMode ? "text-xs" : "text-[8px]"} font-black uppercase tracking-[0.12em] text-white`}>{component.ref_des}</div>
+            <div className={`mt-1 font-bold leading-tight text-slate-500 ${viewMode ? "text-[9px]" : "text-[7px]"}`}>Controller</div>
           </div>
         )}
         {isController ? (
-          <PinColumn componentRef={component.ref_des} pins={visibleRightPins} side="right" tone={tone} />
+          <PinColumn
+            componentRef={component.ref_des}
+            pins={visibleRightPins}
+            side="right"
+            tone={tone}
+            viewMode={viewMode}
+          />
         ) : (
           <PinColumn
             componentRef={component.ref_des}
@@ -197,6 +233,7 @@ function SchematicPartNode({ data }: NodeProps<SchematicNodeData>) {
             side={modulePinSide}
             tone={tone}
             emptyLabel="No linked pins"
+            viewMode={viewMode}
           />
         )}
       </div>
@@ -210,16 +247,18 @@ function PinColumn({
   side,
   tone,
   emptyLabel,
+  viewMode = false,
 }: {
   componentRef: string;
   pins: SchematicPin[];
   side: "left" | "right";
   tone: SchematicNodeData["tone"];
   emptyLabel?: string;
+  viewMode?: boolean;
 }) {
   if (!pins.length) {
     return (
-      <div className="border border-dashed border-[#333844] bg-[#101116] px-3 py-2 text-[9px] font-bold uppercase tracking-[0.12em] text-slate-600">
+      <div className={`border border-dashed border-[#333844] bg-[#101116] px-3 font-bold uppercase tracking-[0.12em] text-slate-600 ${viewMode ? "py-4 text-[11px]" : "py-2 text-[9px]"}`}>
         {emptyLabel || "No pins"}
       </div>
     );
@@ -236,31 +275,35 @@ function PinColumn({
             className={`schematic-pin-row ${side === "left" ? "pl-2 text-left" : "pr-2 text-right"} ${pin.connected ? "schematic-pin-connected" : ""}`}
             title={`${pin.pin_id}${pin.name ? ` - ${pin.name}` : ""}${pin.voltage !== undefined && pin.voltage !== null ? ` / ${pin.voltage}V` : ""}`}
           >
-            <Handle
-              type="target"
-              id={schematicHandleId(componentRef, pin.pin_id)}
-              position={handlePosition}
-              className="schematic-pin-handle"
-              style={{
-                ...handleStyle,
-                ["--handle-border" as string]: tone.border,
-                ["--handle-color" as string]: pin.connected ? tone.border : "#111216",
-              }}
-            />
-            <Handle
-              type="source"
-              id={schematicHandleId(componentRef, pin.pin_id)}
-              position={handlePosition}
-              className="schematic-pin-handle"
-              style={{
-                ...handleStyle,
-                ["--handle-border" as string]: tone.border,
-                ["--handle-color" as string]: pin.connected ? tone.border : "#111216",
-              }}
-            />
-            <span className="block truncate text-[8px] font-black uppercase leading-none text-white">{pin.pin_id}</span>
+            {!viewMode && (
+              <>
+                <Handle
+                  type="target"
+                  id={schematicHandleId(componentRef, pin.pin_id)}
+                  position={handlePosition}
+                  className="schematic-pin-handle"
+                  style={{
+                    ...handleStyle,
+                    ["--handle-border" as string]: tone.border,
+                    ["--handle-color" as string]: pin.connected ? tone.border : "#111216",
+                  }}
+                />
+                <Handle
+                  type="source"
+                  id={schematicHandleId(componentRef, pin.pin_id)}
+                  position={handlePosition}
+                  className="schematic-pin-handle"
+                  style={{
+                    ...handleStyle,
+                    ["--handle-border" as string]: tone.border,
+                    ["--handle-color" as string]: pin.connected ? tone.border : "#111216",
+                  }}
+                />
+              </>
+            )}
+            <span className={`block truncate font-black uppercase leading-none text-white ${viewMode ? "text-[11px]" : "text-[8px]"}`}>{pin.pin_id}</span>
             {pin.name && (
-              <span className="mt-0.5 block truncate text-[6px] font-bold uppercase leading-none text-slate-500">
+              <span className={`mt-0.5 block truncate font-bold uppercase leading-none text-slate-500 ${viewMode ? "text-[8px]" : "text-[6px]"}`}>
                 {pin.name}
               </span>
             )}
@@ -343,11 +386,11 @@ function sortSchematicPins(pins: SchematicPin[]) {
   );
 }
 
-function splitControllerPins(pins: SchematicPin[]) {
+function splitControllerPins(pins: SchematicPin[], maxPins = 28) {
   const sorted = sortSchematicPins(pins);
   const connected = sorted.filter((pin) => pin.connected);
   const rest = sorted.filter((pin) => !pin.connected);
-  const ordered = [...connected, ...rest].slice(0, 28);
+  const ordered = [...connected, ...rest].slice(0, maxPins);
   const leftPins: SchematicPin[] = [];
   const rightPins: SchematicPin[] = [];
   ordered.forEach((pin, index) => {
@@ -510,8 +553,10 @@ function buildSchematicGraph(project: any): SchematicGraph {
       type: "schematicPart",
       position,
       draggable: true,
+      ariaLabel: `View ${component.name || component.ref_des}`,
       data: {
         component,
+        allPins,
         leftPins: splitPins.leftPins,
         rightPins: splitPins.rightPins,
         tone: schematicToneForCategory(category),
@@ -635,6 +680,68 @@ function SchematicLegend() {
   );
 }
 
+function ComponentViewOverlay({ data, onClose }: { data: SchematicNodeData; onClose: () => void }) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const title = data.component.name || data.component.ref_des || "Component";
+
+  useEffect(() => {
+    const previouslyFocused = document.activeElement;
+    closeButtonRef.current?.focus();
+
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    };
+
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      if (previouslyFocused instanceof HTMLElement && previouslyFocused.isConnected) {
+        previouslyFocused.focus();
+      }
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      className="absolute inset-0 z-50 flex items-center justify-center bg-[#050609]/85 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="schematic-view-mode-title"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={`flex max-h-full w-full flex-col overflow-hidden border border-[#3a3d46] bg-[#101116] shadow-[0_30px_100px_rgba(0,0,0,0.8)] ${data.isController ? "max-w-[640px]" : "max-w-[480px]"}`}
+      >
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[#30343d] bg-[#17181d] px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-[9px] font-black uppercase tracking-[0.18em] text-cyan-300">View mode</div>
+            <h2 id="schematic-view-mode-title" className="mt-1 truncate text-sm font-black text-white">
+              {title}
+            </h2>
+          </div>
+          <button
+            ref={closeButtonRef}
+            type="button"
+            onClick={onClose}
+            className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#3a3d46] text-slate-300 hover:border-white hover:bg-white hover:text-black focus:outline-none focus:ring-2 focus:ring-cyan-300"
+            aria-label="Close component view"
+            title="Close component view (Escape)"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="min-h-0 overflow-y-auto p-4 sm:p-6">
+          <SchematicPartCard data={data} viewMode />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SchematicCanvas({ project }: SchematicCanvasProps) {
   const graph = useMemo(() => buildSchematicGraph(project), [project]);
   const projectKey = schematicProjectKey(project);
@@ -642,8 +749,11 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
     restoreNodePositions(graph.nodes, projectKey)
   );
   const [edges, setEdges, onEdgesChange] = useEdgesState(graph.edges);
+  const [viewedNodeId, setViewedNodeId] = useState<string | null>(null);
   const appliedProjectRef = useRef(project);
   const nodesProjectKeyRef = useRef(projectKey);
+  const viewedNode = viewedNodeId ? nodes.find((node) => node.id === viewedNodeId) : undefined;
+  const closeViewMode = useCallback(() => setViewedNodeId(null), []);
 
   useEffect(() => {
     cacheNodePositions(nodesProjectKeyRef.current, nodes);
@@ -653,17 +763,21 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
     if (appliedProjectRef.current === project) return;
     appliedProjectRef.current = project;
     nodesProjectKeyRef.current = projectKey;
+    setViewedNodeId(null);
     setNodes(restoreNodePositions(graph.nodes, projectKey));
     setEdges(graph.edges);
   }, [graph, project, projectKey, setEdges, setNodes]);
 
   return (
-    <div className="flex h-full min-h-[620px] flex-col bg-[#111216]">
+    <div className="relative flex h-full min-h-[620px] flex-col overflow-hidden bg-[#111216]">
       <div className="flex min-h-[60px] flex-wrap items-center gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
         <div className="mr-2 text-sm font-black text-white">Wiring diagram</div>
         <div className="inline-flex h-10 items-center gap-2 border border-[#3a3d46] bg-[#101116] px-3 text-xs font-black text-white">
           <Cpu className="h-4 w-4 text-slate-400" />
           <span>{primaryControllerLabel(project)}</span>
+        </div>
+        <div className="ml-auto text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
+          Click a component to view
         </div>
       </div>
       <ReactFlow
@@ -672,6 +786,7 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
         nodeTypes={schematicNodeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
+        onNodeClick={(_, node) => setViewedNodeId(node.id)}
         fitView
         fitViewOptions={{ padding: 0.16 }}
         minZoom={0.28}
@@ -686,6 +801,7 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
         />
         <SchematicLegend />
       </ReactFlow>
+      {viewedNode && <ComponentViewOverlay data={viewedNode.data} onClose={closeViewMode} />}
     </div>
   );
 }

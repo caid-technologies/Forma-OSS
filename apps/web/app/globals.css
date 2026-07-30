@@ -105,6 +105,35 @@ button:disabled {
     #15161b;
 }
 
+.schematic-flow .react-flow__node {
+  cursor: zoom-in;
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+.schematic-flow .react-flow__node:hover,
+.schematic-flow .react-flow__node:focus-visible {
+  filter: brightness(1.12);
+  box-shadow: 0 0 0 1px var(--schematic-accent, #38bdf8);
+}
+
+.schematic-flow .react-flow__node.dragging {
+  cursor: grabbing;
+}
+
+.schematic-view-card,
+.schematic-view-card.schematic-controller-card {
+  width: 100%;
+  min-height: 180px;
+  padding: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.52);
+}
+
+.schematic-view-card .schematic-pin-row {
+  min-height: 30px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
 .schematic-pin-row {
   position: relative;
   min-height: 17px;
@@ -176,6 +205,10 @@ button:disabled {
     flex-wrap: wrap;
     justify-content: center;
     width: 100%;
+  }
+
+  .schematic-flow .react-flow__node {
+    transition: none;
   }
 }
 

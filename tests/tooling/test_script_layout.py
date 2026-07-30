@@ -4,7 +4,7 @@ from pathlib import Path
 import unittest
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[2]
 SCRIPTS_DIR = ROOT_DIR / "scripts"
 SCRIPT_CATEGORIES = {
     "continuous",

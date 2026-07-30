@@ -13,7 +13,7 @@ They cover the four layers of the fix in blueprint_core/llm_providers.py:
   D - json_schema response_format is emitted when configured
 
 Runnable via pytest (the tests are a package, so the isolated_llm_env fixture is
-imported from tests.test_llm_runtime).
+imported from the neighboring test_llm_runtime module).
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import json
 import unittest
 from typing import Any, Dict, List, Optional, Tuple
 
-from tests.test_llm_runtime import isolated_llm_env
+from .test_llm_runtime import isolated_llm_env
 
 from blueprint_core import llm_providers as lp
 from blueprint_core.llm import build_llm_provider, resolve_llm_runtime_config

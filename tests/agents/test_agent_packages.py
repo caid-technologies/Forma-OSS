@@ -21,7 +21,7 @@ class AgentPackageTests(unittest.TestCase):
         self.assertIs(agents.FireworksVideoSelfCorrectionAgent, FireworksVideoSelfCorrectionAgent)
 
     def test_agent_classes_are_defined_only_in_the_agents_package(self) -> None:
-        package_root = Path(__file__).resolve().parents[1] / "blueprint_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         misplaced: list[str] = []
         for path in package_root.rglob("*.py"):
             relative_path = path.relative_to(package_root)
@@ -35,7 +35,7 @@ class AgentPackageTests(unittest.TestCase):
         self.assertEqual([], misplaced)
 
     def test_legacy_agent_modules_are_removed(self) -> None:
-        package_root = Path(__file__).resolve().parents[1] / "blueprint_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         legacy_modules = (
             "clarifying_questions.py",
             "continuous_agents.py",

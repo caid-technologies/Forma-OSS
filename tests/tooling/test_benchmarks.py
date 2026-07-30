@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 OFFLINE_BENCHMARK_SCRIPT = ROOT_DIR / "evals" / "performance" / "benchmark_offline.py"
 MODEL_BENCHMARK_SCRIPT = ROOT_DIR / "evals" / "performance" / "benchmark_models.py"
 

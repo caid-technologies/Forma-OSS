@@ -35,7 +35,7 @@ class FakeHfApi:
 
 class HuggingFaceArtifactTests(unittest.TestCase):
     def test_artifact_implementation_lives_in_huggingface_integration_package(self) -> None:
-        core_root = pathlib.Path(__file__).resolve().parents[1] / "blueprint_core"
+        core_root = pathlib.Path(__file__).resolve().parents[2] / "blueprint_core"
 
         self.assertFalse((core_root / "huggingface_artifacts.py").exists())
         self.assertTrue((core_root / "integrations" / "huggingface" / "huggingface_artifacts.py").is_file())

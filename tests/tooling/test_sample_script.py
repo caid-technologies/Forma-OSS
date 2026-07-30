@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 SAMPLE_SCRIPT = ROOT_DIR / "scripts" / "models" / "sample.py"
 
 

@@ -25,7 +25,7 @@ class DomainPackageTests(unittest.TestCase):
         self.assertEqual("blueprint_core.signups.models", AlphaSignupRequest.__module__)
 
     def test_legacy_domain_modules_are_removed(self) -> None:
-        package_root = Path(__file__).resolve().parents[1] / "blueprint_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         legacy_modules = ("iteration.py", "models.py", "project_objects.py")
         self.assertEqual([], [name for name in legacy_modules if (package_root / name).exists()])
 

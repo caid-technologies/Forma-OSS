@@ -8,7 +8,7 @@ import unittest
 import json
 
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 SCRIPT_PATH = ROOT_DIR / "scripts" / "media" / "run-terminal-dashboard.py"
 VIDEO_SCRIPT_PATH = ROOT_DIR / "scripts" / "media" / "render-mech-video.py"
 

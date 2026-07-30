@@ -9,7 +9,7 @@ import unittest
 import blueprint_core
 
 
-ROOT_DIR = pathlib.Path(__file__).resolve().parents[1]
+ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
 CORE_DIR = ROOT_DIR / "blueprint_core"
 DIST_NAME = "caid-blueprint-core"
 

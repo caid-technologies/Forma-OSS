@@ -4,7 +4,9 @@ Forma is AI-native full-stack hardware. It turns a prompt (and optionally an ima
 
 This repository is an **MVP and research prototype** focused on **low-voltage maker electronics** (3.3V–5V) and safe, educational projects.
 
-![Forma project workspace showing a generated 3D printer concept and validated parts list](docs/assets/blueprint-project-3d-printer.png)
+[![Forma main user flow demo creating a security camera](docs/assets/forma-security-camera-demo.gif)](https://www.youtube.com/watch?v=XaIIJT7OX4M)
+
+[Watch the full security camera demo on YouTube](https://www.youtube.com/watch?v=XaIIJT7OX4M)
 
 ## What you can do
 - Compile a hardware idea into typed **Hardware IR** (Pydantic)

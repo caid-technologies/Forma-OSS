@@ -1,6 +1,9 @@
 import base64
+from collections import defaultdict, deque
 import json
 import os
+import threading
+import time
 from dataclasses import dataclass, field
 from functools import lru_cache
 from types import MappingProxyType
@@ -15,6 +18,8 @@ from apps.api.auth_mode import clerk_auth_required
 
 
 LOCAL_USER_ID = "local-dev-user"
+_DESTRUCTIVE_RATE_LOCK = threading.Lock()
+_DESTRUCTIVE_RATE_EVENTS: Dict[str, deque[float]] = defaultdict(deque)
 
 
 def _empty_claims() -> Mapping[str, Any]:
@@ -305,6 +310,49 @@ async def require_user_context(request: Request) -> UserContext:
     if context.is_authenticated:
         return context
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
+
+
+async def require_recent_user_context(request: Request) -> UserContext:
+    """Require a fresh session for destructive or consent-changing operations."""
+    context = await require_user_context(request)
+    if context.provider == "local":
+        return context
+    issued_at = context.claims.get("auth_time") or context.claims.get("iat")
+    try:
+        age_seconds = time.time() - float(issued_at)
+        max_age_seconds = max(60, int(os.getenv("DESTRUCTIVE_AUTH_MAX_AGE_SECONDS", "600")))
+    except (TypeError, ValueError):
+        age_seconds = float("inf")
+        max_age_seconds = 600
+    if 0 <= age_seconds <= max_age_seconds:
+        return context
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Recent authentication is required for this action. Sign in again and retry.",
+    )
+
+
+async def require_destructive_user_context(request: Request) -> UserContext:
+    """Require recent authentication and apply a per-user destructive-action limit."""
+    context = await require_recent_user_context(request)
+    user_id = context.owner_user_id or context.subject or "anonymous"
+    now = time.time()
+    try:
+        window_seconds = max(60, int(os.getenv("DESTRUCTIVE_RATE_LIMIT_WINDOW_SECONDS", "300")))
+        request_limit = max(1, int(os.getenv("DESTRUCTIVE_RATE_LIMIT_REQUESTS", "20")))
+    except ValueError:
+        window_seconds, request_limit = 300, 20
+    with _DESTRUCTIVE_RATE_LOCK:
+        events = _DESTRUCTIVE_RATE_EVENTS[user_id]
+        while events and events[0] <= now - window_seconds:
+            events.popleft()
+        if len(events) >= request_limit:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Too many destructive actions. Wait and retry.",
+            )
+        events.append(now)
+    return context
 
 
 async def require_admin_user_context(request: Request) -> UserContext:

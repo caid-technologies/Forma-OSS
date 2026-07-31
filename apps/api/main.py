@@ -71,11 +71,14 @@ from blueprint_core.database import (
     delete_project_chat,
     get_database_config,
     get_generated_project,
+    get_latest_project_deletion_audit,
+    get_project_contribution_consent,
     get_project_chat,
     init_db,
     list_project_chats,
     list_component_templates,
     list_generated_projects,
+    list_project_deletion_audits,
     save_alpha_signup,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
@@ -88,7 +91,7 @@ from blueprint_core.workspaces.chats.models import Chat, ChatUpsertRequest, Proj
 from blueprint_core.workspaces.projects.models import (
     ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
-    ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
+    ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
 from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
@@ -122,7 +125,18 @@ from apps.api.auth import (
     deployed_auth_required,
     optional_user_context,
     require_admin_user_context,
+    require_destructive_user_context,
     require_user_context,
+)
+from apps.api.project_deletion import (
+    DELETION_POLICY_VERSION,
+    PERMITTED_CONTRIBUTION_PURPOSES,
+    deletion_metrics,
+    grant_contribution_consent,
+    purge_worker,
+    request_project_deletion,
+    restore_project,
+    withdraw_contribution,
 )
 from blueprint_core.jobs.store import JOB_STORE, JobCancelledError
 from blueprint_core.jobs.context import PAST_JOBS_DATA_SOURCE, PastJobContextSource, list_generation_data_sources
@@ -212,6 +226,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
     swagger_ui_oauth2_redirect_url="/docs/oauth2-redirect",
 )
+
+_project_purge_stop_event: Optional[asyncio.Event] = None
+_project_purge_task: Optional[asyncio.Task[Any]] = None
 
 
 class ApiPrefixCompatibilityMiddleware:
@@ -323,6 +340,7 @@ def _delete_cancelled_generation_projects(job_id: str, job: Optional[Dict[str, A
 # Initialize and seed database on startup
 @app.on_event("startup")
 async def startup_event():
+    global _project_purge_stop_event, _project_purge_task
     logger.info("Starting up Forma server...")
     require_user_secrets_key()
     logger.info("Authentication mode: %s", "clerk" if deployed_auth_required() else "local")
@@ -338,10 +356,22 @@ async def startup_event():
         logger.exception("Error during database startup: %s", e)
         raise
     await start_a2a_tcp_server()
+    _project_purge_stop_event = asyncio.Event()
+    _project_purge_task = asyncio.create_task(
+        purge_worker(_project_purge_stop_event),
+        name="project-retention-purge-worker",
+    )
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
+    global _project_purge_stop_event, _project_purge_task
+    if _project_purge_stop_event is not None:
+        _project_purge_stop_event.set()
+    if _project_purge_task is not None:
+        await _project_purge_task
+    _project_purge_stop_event = None
+    _project_purge_task = None
     await stop_a2a_tcp_server()
     flush_langfuse()
 
@@ -1632,17 +1662,159 @@ def update_project_endpoint(
     return {"ok": True, "project_id": project.project_id}
 
 
-@app.delete("/projects/{project_id}")
-def delete_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
-    """Deletes a project owned by the signed-in user."""
-    project = get_generated_project(project_id)
+@app.delete("/projects/{project_id}", status_code=status.HTTP_202_ACCEPTED)
+def delete_project_endpoint(
+    project_id: str,
+    user: UserContext = Depends(require_destructive_user_context),
+):
+    """Immediately hide a project and schedule its permanent purge."""
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        project = get_generated_project(project_id, include_deleted=True)
+        if not project:
+            audit = get_latest_project_deletion_audit(project_id)
+            if (
+                audit
+                and getattr(audit, "acting_user_id", None) == owner_user_id
+                and getattr(audit, "action", None) == "purge_completed"
+                and getattr(audit, "status", None) == "succeeded"
+            ):
+                return {
+                    "ok": True,
+                    "project_id": project_id,
+                    "status": "purged",
+                    "policy_version": DELETION_POLICY_VERSION,
+                }
+            raise HTTPException(status_code=404, detail="Project not found.")
+        _require_project_owner(project, user)
+        deleted = request_project_deletion(project_id, owner_user_id)
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "status": getattr(deleted, "status", "deletion_pending"),
+            "deleted_at": getattr(deleted, "deleted_at", None),
+            "purge_after": getattr(deleted, "purge_after", None),
+            "policy_version": DELETION_POLICY_VERSION,
+        }
+    except HTTPException:
+        raise
+    except (LookupError, ValueError):
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+
+@app.post("/projects/{project_id}/restore")
+def restore_project_endpoint(
+    project_id: str,
+    user: UserContext = Depends(require_destructive_user_context),
+):
+    """Restore a project while it is still inside the retention window."""
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        project = restore_project(project_id, owner_user_id)
+    except (LookupError, ValueError):
+        raise HTTPException(status_code=404, detail="Project not found.")
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"ok": True, "project_id": project_id, "status": getattr(project, "status", "active")}
+
+
+@app.get("/projects/{project_id}/data-contribution-consent")
+def get_project_contribution_consent_endpoint(
+    project_id: str,
+    user: UserContext = Depends(require_user_context),
+):
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        project = get_generated_project(project_id, include_deleted=True)
+    except ValueError:
+        project = None
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    owner_user_id = _require_project_owner(project, user)
-    deleted = delete_generated_project(project.project_id, owner_user_id)
-    if not deleted:
+    _require_project_owner(project, user)
+    consent = get_project_contribution_consent(project_id, owner_user_id)
+    return {
+        "project_id": project_id,
+        "granted": bool(consent and not getattr(consent, "withdrawn_at", None)),
+        "consent_version": getattr(consent, "consent_version", None),
+        "permitted_purposes": getattr(consent, "permitted_purposes", []) if consent else [],
+        "granted_at": getattr(consent, "granted_at", None),
+        "withdrawn_at": getattr(consent, "withdrawn_at", None),
+        "anonymized_at": getattr(consent, "anonymized_at", None),
+        "available_purposes": sorted(PERMITTED_CONTRIBUTION_PURPOSES),
+    }
+
+
+@app.put("/projects/{project_id}/data-contribution-consent")
+def grant_project_contribution_consent_endpoint(
+    project_id: str,
+    request: ProjectContributionConsentRequest,
+    user: UserContext = Depends(require_destructive_user_context),
+):
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        consent = grant_contribution_consent(
+            project_id,
+            owner_user_id,
+            consent_version=request.consent_version,
+            permitted_purposes=request.permitted_purposes,
+        )
+    except LookupError:
         raise HTTPException(status_code=404, detail="Project not found.")
-    return {"ok": True, "project_id": project.project_id}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {
+        "ok": True,
+        "project_id": project_id,
+        "granted": True,
+        "consent_version": getattr(consent, "consent_version", request.consent_version),
+        "permitted_purposes": getattr(consent, "permitted_purposes", request.permitted_purposes),
+        "granted_at": getattr(consent, "granted_at", None),
+    }
+
+
+@app.delete("/projects/{project_id}/data-contribution-consent")
+def withdraw_project_contribution_consent_endpoint(
+    project_id: str,
+    user: UserContext = Depends(require_destructive_user_context),
+):
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        project = get_generated_project(project_id, include_deleted=True)
+    except ValueError:
+        project = None
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
+    withdrawn = withdraw_contribution(project_id, owner_user_id)
+    return {"ok": True, "project_id": project_id, "granted": False, "withdrawn": bool(withdrawn)}
+
+
+@app.get("/admin/project-deletions")
+def list_project_deletions_endpoint(
+    limit: int = Query(100, ge=1, le=500),
+    _user: UserContext = Depends(require_admin_user_context),
+):
+    """Return content-free deletion lifecycle events for operational audits."""
+    return [
+        {
+            "id": getattr(event, "id", None),
+            "project_id": getattr(event, "project_id", None),
+            "acting_user_id": getattr(event, "acting_user_id", None),
+            "action": getattr(event, "action", None),
+            "status": getattr(event, "status", None),
+            "policy_version": getattr(event, "policy_version", None),
+            "details": getattr(event, "details_json", {}) or {},
+            "created_at": getattr(event, "created_at", None),
+        }
+        for event in list_project_deletion_audits(limit)
+    ]
+
+
+@app.get("/admin/project-deletion-metrics")
+def project_deletion_metrics_endpoint(
+    _user: UserContext = Depends(require_admin_user_context),
+):
+    return deletion_metrics()
 
 
 def _chat_response(chat: Any) -> Dict[str, Any]:

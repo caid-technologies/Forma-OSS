@@ -593,3 +593,65 @@ def list_project_videos(project_id: str) -> List[StoredVideo]:
     if config["write_method"] == "supabase-client":
         return _list_supabase_project_videos(config, project_id)
     return _list_s3_project_videos(config, project_id)
+
+
+def delete_project_videos(project_id: str) -> int:
+    """Delete current and legacy video objects owned by a project."""
+    if not project_id or not str(project_id).strip():
+        raise ValueError("Video deletion requires projectId.")
+
+    config = get_video_storage_config()
+    if not config.get("enabled"):
+        return 0
+
+    project_part = _safe_path_part(project_id, "project")
+    folders = [f"{config['prefix']}/{project_part}", f"projects/{project_part}/videos"]
+    folders = list(dict.fromkeys(folders))
+
+    if config.get("write_method") == "supabase-client":
+        bucket_proxy = _supabase_storage_bucket(config["bucket"])
+        keys: List[str] = []
+        for folder in folders:
+            offset = 0
+            while True:
+                items = bucket_proxy.list(folder, {"limit": 1000, "offset": offset}) or []
+                keys.extend(
+                    f"{folder}/{item['name']}"
+                    for item in items
+                    if isinstance(item, dict) and isinstance(item.get("name"), str)
+                )
+                if len(items) < 1000:
+                    break
+                offset += 1000
+        for start in range(0, len(keys), 1000):
+            bucket_proxy.remove(keys[start : start + 1000])
+        for folder in folders:
+            if bucket_proxy.list(folder, {"limit": 1}) or []:
+                raise RuntimeError("Project video objects remain after deletion.")
+        return len(keys)
+
+    import boto3
+
+    client_kwargs: Dict[str, Any] = {"region_name": config["region"]}
+    if config.get("endpoint_url"):
+        client_kwargs["endpoint_url"] = config["endpoint_url"]
+    client = boto3.client("s3", **client_kwargs)
+    paginator = client.get_paginator("list_objects_v2")
+    keys = [
+        item["Key"]
+        for folder in folders
+        for page in paginator.paginate(Bucket=config["bucket"], Prefix=f"{folder}/")
+        for item in page.get("Contents") or []
+        if isinstance(item.get("Key"), str) and item["Key"].startswith(f"{folder}/")
+    ]
+    for start in range(0, len(keys), 1000):
+        response = client.delete_objects(
+            Bucket=config["bucket"],
+            Delete={"Objects": [{"Key": key} for key in keys[start : start + 1000]], "Quiet": True},
+        )
+        if response.get("Errors"):
+            raise RuntimeError("One or more project video objects could not be deleted.")
+    for folder in folders:
+        if (client.list_objects_v2(Bucket=config["bucket"], Prefix=f"{folder}/", MaxKeys=1).get("Contents") or []):
+            raise RuntimeError("Project video objects remain after deletion.")
+    return len(keys)

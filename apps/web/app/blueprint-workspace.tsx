@@ -88,6 +88,7 @@ import {
   Square,
   Maximize2,
   Minimize2,
+  Trash2,
 } from "lucide-react";
 
 const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), {
@@ -199,6 +200,11 @@ type PendingHumanContext = {
   basePrompt: string;
   questions: HumanContextQuestion[];
   answers: Record<string, string>;
+};
+
+type PendingProjectDeletion = {
+  projectId: string;
+  title: string;
 };
 
 const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
@@ -1558,6 +1564,11 @@ export function FormaWorkspace({
   const [projectGalleryImages, setProjectGalleryImages] = useState<Record<string, ProjectImageCandidate | null>>({});
   const [visibleProjectGalleryIds, setVisibleProjectGalleryIds] = useState<string[]>([]);
   const [routeProjectError, setRouteProjectError] = useState<string | null>(null);
+  const [pendingProjectDeletion, setPendingProjectDeletion] = useState<PendingProjectDeletion | null>(null);
+  const [deletionAcknowledged, setDeletionAcknowledged] = useState(false);
+  const [contributeDeletedProject, setContributeDeletedProject] = useState(false);
+  const [projectDeletionBusy, setProjectDeletionBusy] = useState(false);
+  const [projectDeletionError, setProjectDeletionError] = useState<string | null>(null);
   const [chatRouteTransition, setChatRouteTransition] = useState<ChatRouteTransition | null>(() => (
     currentRouteChatId && !currentRouteProjectId
       ? {
@@ -1958,6 +1969,65 @@ export function FormaWorkspace({
       return {};
     }
   }, [getToken, isSignedIn]);
+
+  const openProjectDeletion = useCallback((project: PendingProjectDeletion) => {
+    setPendingProjectDeletion(project);
+    setDeletionAcknowledged(false);
+    setContributeDeletedProject(false);
+    setProjectDeletionError(null);
+  }, []);
+
+  const closeProjectDeletion = useCallback(() => {
+    if (projectDeletionBusy) return;
+    setPendingProjectDeletion(null);
+    setProjectDeletionError(null);
+  }, [projectDeletionBusy]);
+
+  const confirmProjectDeletion = async () => {
+    if (!pendingProjectDeletion || !deletionAcknowledged || projectDeletionBusy) return;
+    setProjectDeletionBusy(true);
+    setProjectDeletionError(null);
+    const projectId = pendingProjectDeletion.projectId;
+    try {
+      const headers = await generationRequestHeaders();
+      if (contributeDeletedProject) {
+        const consentResponse = await fetch(
+          `${API_URL}/projects/${encodeURIComponent(projectId)}/data-contribution-consent`,
+          {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({
+              granted: true,
+              consent_version: "2026-07-31",
+              permitted_purposes: ["product_research", "evaluation", "ai_system_improvement"],
+            }),
+          },
+        );
+        if (!consentResponse.ok) throw new Error(await readApiErrorMessage(consentResponse));
+      }
+      const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+        method: "DELETE",
+        headers,
+      });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      setProjectHistory((projects) => projects.filter((project: any) => project?.project_id !== projectId));
+      setMyProjectHistory((projects) => projects.filter((project: any) => project?.project_id !== projectId));
+      setProjectGalleryImages((images) => {
+        const next = { ...images };
+        delete next[projectId];
+        return next;
+      });
+      setPendingProjectDeletion(null);
+      if (currentRouteProjectId && safeDecodeProjectId(currentRouteProjectId) === projectId) goHome();
+      void fetchProjectHistory();
+      void fetchMyProjectHistory();
+      void fetchPrivateChats();
+    } catch (error) {
+      setProjectDeletionError(error instanceof Error ? error.message : "Project deletion failed.");
+    } finally {
+      setProjectDeletionBusy(false);
+    }
+  };
 
   const { isAdmin, loaded: adminSessionLoaded } = useAdminSession({
     apiUrl: API_URL,
@@ -4160,6 +4230,7 @@ export function FormaWorkspace({
                 title="Community"
                 loading={projectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
               />
@@ -4177,6 +4248,7 @@ export function FormaWorkspace({
                 title="My Projects"
                 loading={myProjectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
+                onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 standalone
               />
@@ -4276,6 +4348,17 @@ export function FormaWorkspace({
             />
           )}
         </main>
+        <ProjectDeletionDialog
+          project={pendingProjectDeletion}
+          acknowledged={deletionAcknowledged}
+          contribute={contributeDeletedProject}
+          busy={projectDeletionBusy}
+          error={projectDeletionError}
+          onAcknowledgedChange={setDeletionAcknowledged}
+          onContributeChange={setContributeDeletedProject}
+          onCancel={closeProjectDeletion}
+          onConfirm={confirmProjectDeletion}
+        />
       </WorkspaceFrame>
     );
   }
@@ -4340,6 +4423,9 @@ export function FormaWorkspace({
                 projectId={currentProjectId}
                 projectTitle={projectTitle}
                 owned={currentUserOwnsProject}
+                onDelete={currentProjectId
+                  ? () => openProjectDeletion({ projectId: currentProjectId, title: projectTitle })
+                  : undefined}
                 onOpenChat={ownerProjectChatId
                   ? () => router.push(chatRoute(ownerProjectChatId))
                   : undefined}
@@ -4374,11 +4460,119 @@ export function FormaWorkspace({
             )}
           </section>
       </main>
+      <ProjectDeletionDialog
+        project={pendingProjectDeletion}
+        acknowledged={deletionAcknowledged}
+        contribute={contributeDeletedProject}
+        busy={projectDeletionBusy}
+        error={projectDeletionError}
+        onAcknowledgedChange={setDeletionAcknowledged}
+        onContributeChange={setContributeDeletedProject}
+        onCancel={closeProjectDeletion}
+        onConfirm={confirmProjectDeletion}
+      />
     </WorkspaceFrame>
   );
 }
 
 export default FormaWorkspace;
+
+function ProjectDeletionDialog({
+  project,
+  acknowledged,
+  contribute,
+  busy,
+  error,
+  onAcknowledgedChange,
+  onContributeChange,
+  onCancel,
+  onConfirm,
+}: {
+  project: PendingProjectDeletion | null;
+  acknowledged: boolean;
+  contribute: boolean;
+  busy: boolean;
+  error: string | null;
+  onAcknowledgedChange: (value: boolean) => void;
+  onContributeChange: (value: boolean) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  if (!project) return null;
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4" role="presentation">
+      <section
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-project-title"
+        className="w-full max-w-xl border border-red-400/35 bg-[#17181d] p-5 shadow-2xl sm:p-7"
+      >
+        <div className="flex items-start gap-3">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center border border-red-400/40 text-red-300">
+            <Trash2 className="h-5 w-5" />
+          </span>
+          <div className="min-w-0">
+            <h2 id="delete-project-title" className="text-lg font-black uppercase tracking-[0.14em] text-white">
+              Delete this project?
+            </h2>
+            <p className="mt-2 break-words text-sm font-bold text-slate-400">{project.title}</p>
+          </div>
+        </div>
+        <p className="mt-5 text-sm leading-6 text-slate-300">
+          The project will be removed from your workspace immediately and permanently deleted after the configured retention period (30 days by default).
+        </p>
+        <label className="mt-5 flex cursor-pointer items-start gap-3 border border-[#30333b] bg-[#101115] p-4 text-sm leading-5 text-slate-300">
+          <input
+            type="checkbox"
+            checked={acknowledged}
+            onChange={(event) => onAcknowledgedChange(event.target.checked)}
+            disabled={busy}
+            className="mt-0.5 h-4 w-4 accent-red-400"
+          />
+          <span>I understand this project will no longer be accessible from my workspace.</span>
+        </label>
+        <div className="mt-4 border border-cyan-300/25 bg-cyan-300/[0.04] p-4">
+          <label className="flex cursor-pointer items-start gap-3 text-sm font-bold leading-5 text-slate-200">
+            <input
+              type="checkbox"
+              checked={contribute}
+              onChange={(event) => onContributeChange(event.target.checked)}
+              disabled={busy}
+              className="mt-0.5 h-4 w-4 accent-cyan-300"
+            />
+            <span>Allow CAID Technologies to retain a sanitized copy of this project for product research, evaluations, and AI system improvement.</span>
+          </label>
+          <p className="mt-3 text-xs leading-5 text-slate-500">
+            CAID Technologies may retain an aggregate copy that removes account identifiers, prompts, credentials, URLs, and identifying metadata. You may withdraw permission before it is irreversibly anonymized; after anonymization it can no longer be linked back or withdrawn.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-4 text-xs font-black uppercase tracking-[0.1em]">
+            <a href="/legal/privacy-policy" target="_blank" rel="noreferrer" className="text-cyan-200 hover:text-white">Privacy policy</a>
+            <a href="/legal/data-contribution-terms" target="_blank" rel="noreferrer" className="text-cyan-200 hover:text-white">Data contribution terms</a>
+          </div>
+        </div>
+        {error && <p className="mt-4 border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
+        <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={busy}
+            className="h-11 border border-[#343740] px-5 text-xs font-black uppercase tracking-[0.12em] text-slate-300 hover:bg-white hover:text-black disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={!acknowledged || busy}
+            className="h-11 border border-red-400 bg-red-400 px-5 text-xs font-black uppercase tracking-[0.12em] text-black hover:bg-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Deleting..." : "Delete project"}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 function buildChatListItems(projectHistory: any[], localChatItems: ChatListItem[] = []): ChatListItem[] {
   const groups = new Map<string, { latest: any; projectCount: number }>();
@@ -5468,6 +5662,7 @@ function ProjectDetailWorkspace({
   projectId,
   projectTitle,
   owned,
+  onDelete,
   onOpenChat,
   namespaceTabs,
   activeNamespace,
@@ -5479,6 +5674,7 @@ function ProjectDetailWorkspace({
   projectId: string | null;
   projectTitle: string;
   owned: boolean;
+  onDelete?: () => void;
   onOpenChat?: () => void;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
@@ -5502,15 +5698,29 @@ function ProjectDetailWorkspace({
             <span className="truncate text-cyan-300/70">{activeNamespaceName}</span>
           </div>
         </div>
-        {owned && onOpenChat && (
-          <button
-            type="button"
-            onClick={onOpenChat}
-            className="inline-flex h-10 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
-          >
-            <MessageSquare className="h-4 w-4" />
-            <span className="hidden sm:inline">Open chat</span>
-          </button>
+        {owned && (
+          <div className="flex shrink-0 items-center gap-2">
+            {onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="inline-flex h-10 items-center justify-center gap-2 border border-red-400/35 px-3 text-xs font-black uppercase text-red-100 transition hover:bg-red-400 hover:text-black"
+              >
+                <Trash2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Delete</span>
+              </button>
+            )}
+            {onOpenChat && (
+              <button
+                type="button"
+                onClick={onOpenChat}
+                className="inline-flex h-10 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">Open chat</span>
+              </button>
+            )}
+          </div>
         )}
       </header>
 

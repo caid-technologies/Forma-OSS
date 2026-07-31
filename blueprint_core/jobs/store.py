@@ -336,6 +336,35 @@ class JobMetadataStore:
         assert self._repository is not None
         return self._repository.list(sender=sender, status=status, limit=limit)
 
+    def list_project_jobs(self, project_id: str) -> List[Dict[str, Any]]:
+        """Return every persisted job whose payload or result references a project."""
+        self.init_db()
+        assert self._repository is not None
+        return self._repository.list_for_project(project_id)
+
+    def cancel_project_jobs(
+        self,
+        project_id: str,
+        reason: str = "Cancelled because the project was scheduled for deletion.",
+    ) -> int:
+        """Cancel all non-terminal work for a project and return the match count."""
+        jobs = self.list_project_jobs(project_id)
+        for job in jobs:
+            if str(job.get("status") or "").lower() not in {
+                "succeeded",
+                "failed",
+                "cancelled",
+                "canceled",
+            }:
+                self.mark_cancelled(str(job["job_id"]), reason)
+        return len(jobs)
+
+    def delete_project_jobs(self, project_id: str) -> int:
+        """Permanently remove durable job metadata associated with a project."""
+        self.init_db()
+        assert self._repository is not None
+        return self._repository.delete_for_project(project_id)
+
     def _update_status(self, job_id: str, status: str) -> None:
         self.init_db()
         now = _utc_now()

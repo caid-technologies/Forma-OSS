@@ -1,6 +1,6 @@
 export const legalContactEmail = "team@caid-technologies.com";
 export const legalEntityName = "CAID TECHNOLOGIES, INC.";
-export const legalLastUpdated = "July 27, 2026";
+export const legalLastUpdated = "July 31, 2026";
 export const legalEffectiveDate = "July 8, 2026";
 
 export type LegalSection = {
@@ -91,7 +91,7 @@ export const legalDocuments: LegalDocument[] = [
         heading: "How We Use Information",
         paragraphs: [
           "We use information to provide, operate, maintain, secure, debug, improve, and support the Service; create and store generated projects; route requests to configured providers; communicate with users; enforce policies; comply with law; and develop aggregated or de-identified analytics.",
-          "Subject to your Data & Privacy preference, generated outputs may be included in datasets used to evaluate, improve, or fine-tune Forma models.",
+          "A deleted project is not used as a research contribution unless you separately and explicitly opt in for that project. General acceptance of the Terms of Service is not contribution consent.",
         ],
       },
       {
@@ -111,7 +111,9 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "Retention and Security",
         paragraphs: [
-          "We keep information for as long as reasonably necessary to provide the Service, maintain project history, meet legal obligations, resolve disputes, prevent abuse, enforce agreements, and support security and reliability.",
+          "Deleting a project removes it from normal product access immediately. Its identifiable operational copy is normally scheduled for permanent deletion after a 30-day retention period, unless the published retention configuration changes or a narrowly applicable legal or security obligation requires otherwise. During that window, restoration may be available until purge begins.",
+          "Deletion covers active project records, project-linked conversations, jobs, generated images and videos, and other active project storage. Encrypted backups expire under the backup provider's retention schedule and are not restored into normal product access; a disaster recovery restore must reapply deletion records before service resumes.",
+          "If you separately opt in, we may create an aggregate sanitized contribution that excludes account and workspace identifiers, prompts, titles, names, URLs, credentials, uploads, and free text. Before irreversible anonymization you may withdraw permission and the pending contribution will be deleted. Once irreversibly anonymized, it cannot be linked back to you or selectively withdrawn.",
           "We use reasonable safeguards designed to protect information. No method of transmission or storage is completely secure.",
         ],
       },
@@ -121,7 +123,7 @@ export const legalDocuments: LegalDocument[] = [
           "You may request access, correction, deletion, export, restriction, portability, or objection where available under applicable law.",
           "You may control cookies and local storage through your browser.",
           "You may disconnect third-party integrations and opt out of non-essential emails.",
-          "You may opt out of future model-improvement dataset exports in Settings under Data & Privacy. This does not remove data already incorporated into a completed training run.",
+          "Project contribution is optional, is off by default, and does not affect deletion or core product functionality. Consent is purpose-specific and can be withdrawn before irreversible anonymization.",
         ],
       },
       {
@@ -133,6 +135,53 @@ export const legalDocuments: LegalDocument[] = [
       {
         heading: "Contact",
         paragraphs: [`Privacy requests can be sent to ${legalContactEmail}.`],
+      },
+    ],
+  },
+  {
+    slug: "data-contribution-terms",
+    title: "Project Data Contribution Terms",
+    summary: "Optional terms for contributing a sanitized project copy for approved research and evaluation purposes.",
+    sections: [
+      {
+        heading: "Separate and Optional Choice",
+        paragraphs: [
+          "Project contribution is optional, off by default, and separate from deleting a project or accepting the general Terms of Service. Declining does not limit core Forma functionality.",
+          "Your recorded consent identifies the policy version and the permitted purposes. Materially expanded uses require renewed consent.",
+        ],
+      },
+      {
+        heading: "What Is Retained",
+        paragraphs: [
+          "Forma retains only an aggregate hardware summary produced by the documented sanitization process. It excludes prompts, project titles, account and workspace identifiers, names, email and IP addresses, credentials, connection strings, repository information, URLs, uploads, file metadata, request metadata, and other free text.",
+          "The sanitized contribution is not made public, sold, or licensed to third parties under these terms.",
+        ],
+      },
+      {
+        heading: "Permitted Purposes",
+        bullets: [
+          "Product research and reliability testing.",
+          "Evaluation datasets and model evaluation.",
+          "AI system and product improvement when that purpose is included in your recorded consent.",
+        ],
+      },
+      {
+        heading: "Ownership and Limited License",
+        paragraphs: [
+          "You retain ownership of content you own. You grant CAID Technologies a non-exclusive, worldwide, royalty-free license to process the sanitized contribution solely for the purposes listed in your recorded consent.",
+          "You represent that you have the right to contribute the content. Do not contribute employer-confidential information or third-party personal information without authorization.",
+        ],
+      },
+      {
+        heading: "Withdrawal and Anonymization",
+        paragraphs: [
+          "You may withdraw consent before irreversible anonymization. Withdrawal deletes any identifiable or pseudonymized pending contribution and prevents its future dataset use.",
+          "After irreversible anonymization, the contribution is severed from project, workspace, consent, and account identifiers, so it can no longer be located as yours or selectively withdrawn. Existing aggregate evaluations or completed model artifacts cannot necessarily be reversed, but a withdrawn pending contribution will not be used in future datasets.",
+        ],
+      },
+      {
+        heading: "Contact",
+        paragraphs: [`Questions or withdrawal requests can be sent to ${legalContactEmail}.`],
       },
     ],
   },

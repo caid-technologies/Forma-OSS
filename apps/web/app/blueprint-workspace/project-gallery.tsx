@@ -8,6 +8,7 @@ import {
   Cpu,
   MessageSquare,
   Star,
+  Trash2,
 } from "lucide-react";
 
 export type ProjectGalleryItem = {
@@ -219,6 +220,7 @@ export function ProjectGallery({
   title = "Projects",
   loading = false,
   onOpenProjectPage,
+  onDeleteProject,
   onVisibleProjectIdsChange,
   standalone = false,
 }: {
@@ -227,6 +229,7 @@ export function ProjectGallery({
   title?: string;
   loading?: boolean;
   onOpenProjectPage: (projectId: string) => void;
+  onDeleteProject?: (item: ProjectGalleryItem) => void;
   onVisibleProjectIdsChange?: (projectIds: string[]) => void;
   standalone?: boolean;
 }) {
@@ -291,6 +294,7 @@ export function ProjectGallery({
                 key={item.key}
                 item={item}
                 onOpen={() => onOpenProjectPage(item.projectId)}
+                onDelete={onDeleteProject && item.canChat ? () => onDeleteProject(item) : undefined}
               />
             ))}
           </div>
@@ -436,9 +440,11 @@ function ProjectImageLoadingPanel() {
 function ProjectGalleryCard({
   item,
   onOpen,
+  onDelete,
 }: {
   item: ProjectGalleryItem;
   onOpen: () => void;
+  onDelete?: () => void;
 }) {
   const ageLabel = formatProjectAge(item.createdAt);
   return (
@@ -501,12 +507,28 @@ function ProjectGalleryCard({
             )}
             <span className="truncate">{item.creatorDisplay}</span>
           </div>
-          {item.canChat && (
-            <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
-              <MessageSquare className="h-4 w-4 shrink-0" />
-              <span className="truncate">Your project</span>
-            </span>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {onDelete && (
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onDelete();
+                }}
+                onKeyDown={(event) => event.stopPropagation()}
+                className="inline-flex h-9 w-9 items-center justify-center border border-red-400/35 text-red-200 transition hover:bg-red-400 hover:text-black"
+                aria-label={`Delete ${item.title}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            )}
+            {item.canChat && (
+              <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
+                <MessageSquare className="h-4 w-4 shrink-0" />
+                <span className="truncate">Your project</span>
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </article>

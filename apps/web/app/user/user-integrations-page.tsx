@@ -9,11 +9,14 @@ import {
   ChevronDown,
   FlaskConical,
   KeyRound,
+  Moon,
+  Palette,
   RefreshCw,
   Save,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Sun,
   Trash2,
 } from "lucide-react";
 import {
@@ -24,6 +27,7 @@ import {
   type ProviderModelOption,
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
+import { useTheme } from "../../lib/theme-provider";
 
 const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
 const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
@@ -1175,6 +1179,90 @@ function ImageModelTestPanel({
   );
 }
 
+function ThemeSettingsPanel() {
+  const { theme, setTheme } = useTheme();
+  const options = [
+    {
+      id: "light" as const,
+      label: "Light",
+      description: "Bright surfaces with dark text for daytime and high-ambient-light use.",
+      icon: Sun,
+      previewStyle: { backgroundColor: "#f8fafc", borderColor: "#cbd5e1", color: "#1e293b" },
+    },
+    {
+      id: "dark" as const,
+      label: "Dark",
+      description: "Low-luminance surfaces with light text for focused or low-light use.",
+      icon: Moon,
+      previewStyle: { backgroundColor: "#111216", borderColor: "#343740", color: "#f1f5f9" },
+    },
+  ];
+
+  return (
+    <article className="border border-[#2c2f37] bg-[#17181d]">
+      <div className="border-b border-[#2c2f37] p-5">
+        <div className="flex flex-wrap items-center gap-2">
+          <Palette className="h-5 w-5 text-cyan-300" />
+          <h2 className="text-xl font-black uppercase tracking-wide text-white">Appearance</h2>
+          <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
+            Browser preference
+          </span>
+        </div>
+        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+          Choose how Forma looks in this browser. Changes apply immediately across the workspace.
+        </p>
+      </div>
+
+      <div className="grid gap-5 p-5">
+        <section className="border border-[#2c2f37] bg-[#101115] p-4 sm:p-5">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-wide text-white">Theme</h3>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Your selection is saved automatically on this device and restored before the interface loads.
+            </p>
+          </div>
+
+          <div className="mt-5 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Color theme">
+            {options.map((option) => {
+              const Icon = option.icon;
+              const selected = theme === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setTheme(option.id)}
+                  className={`min-w-0 border p-4 text-left transition ${
+                    selected
+                      ? "border-cyan-300 bg-cyan-300/10"
+                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
+                  }`}
+                >
+                  <span className="flex h-20 items-center justify-center border" style={option.previewStyle} aria-hidden="true">
+                    <Icon className="h-7 w-7" />
+                  </span>
+                  <span className="mt-4 flex items-center justify-between gap-3">
+                    <span className="text-sm font-black uppercase tracking-wide text-white">{option.label}</span>
+                    <span className={`border px-2 py-1 text-[10px] font-black uppercase ${
+                      selected
+                        ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-200"
+                        : "border-[#2c2f37] text-slate-500"
+                    }`}>
+                      {selected ? "Selected" : "Choose"}
+                    </span>
+                  </span>
+                  <span className="mt-2 block text-xs leading-5 text-slate-500">{option.description}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    </article>
+  );
+}
+
 export default function UserIntegrationsPage() {
   const { authRequired, getToken, hasIdentity, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
@@ -1207,8 +1295,10 @@ export default function UserIntegrationsPage() {
     [navigationGroups, selectedNavigationKey]
   );
 
+  const isAppearanceView = selectedNavigationKey === "appearance:theme";
   const isDataPrivacyView = selectedNavigationKey === "privacy:data-usage";
-  const selectedIntegration = isDataPrivacyView
+  const isLocalSettingsView = isAppearanceView || isDataPrivacyView;
+  const selectedIntegration = isLocalSettingsView
     ? null
     : selectedNavigationItem?.integration || payload?.integrations[0] || null;
   const selectedView = selectedNavigationItem?.view || "all";
@@ -1295,7 +1385,7 @@ export default function UserIntegrationsPage() {
       setForms(Object.fromEntries(data.integrations.map((integration) => [integration.id, formFromIntegration(integration)])));
       const availableNavigationItems = integrationNavigationGroups(data.integrations).flatMap((group) => group.items);
       setSelectedNavigationKey((current) =>
-        current === "privacy:data-usage" || availableNavigationItems.some((item) => item.key === current)
+        current === "appearance:theme" || current === "privacy:data-usage" || availableNavigationItems.some((item) => item.key === current)
           ? current
           : availableNavigationItems[0]?.key || "runtime:all"
       );
@@ -1589,11 +1679,11 @@ export default function UserIntegrationsPage() {
                 <h1 className="truncate text-lg font-black uppercase tracking-wide text-white">Settings</h1>
               </div>
               <p className="mt-1 text-xs leading-5 text-slate-500">
-                Provider credentials, model defaults, and account data preferences for your Forma workspace.
+                Appearance, provider credentials, model defaults, and account data preferences for your Forma workspace.
               </p>
             </div>
           </div>
-          {!isDataPrivacyView && (
+          {!isLocalSettingsView && (
             <button
               type="button"
               onClick={reloadRuntime}
@@ -1612,8 +1702,9 @@ export default function UserIntegrationsPage() {
           <div className="border border-[#2c2f37] bg-[#17181d] p-6 text-sm text-slate-500">Checking session...</div>
         </section>
       ) : !hasIdentity ? (
-        <section className="mx-auto w-full max-w-7xl px-4 py-5">
-          <div className="max-w-xl border border-[#2c2f37] bg-[#17181d] p-6">
+        <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+          <ThemeSettingsPanel />
+          <div className="h-fit border border-[#2c2f37] bg-[#17181d] p-6">
             <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
               <KeyRound className="h-4 w-4 text-cyan-300" />
               Sign in required
@@ -1661,6 +1752,24 @@ export default function UserIntegrationsPage() {
                 <p className="mt-2 text-[11px] leading-5 text-slate-500">Privacy and personal account preferences.</p>
               </div>
               <div className="p-3">
+                <div className="mb-2 border-l border-[#3a3d46] pl-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  Personalization
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedNavigationKey("appearance:theme")}
+                  className={`mb-4 block w-full border p-3 text-left transition ${
+                    isAppearanceView
+                      ? "border-cyan-300 bg-cyan-300/10"
+                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="truncate text-sm font-black uppercase tracking-wide text-white">Appearance</span>
+                    <Palette className="h-4 w-4 shrink-0 text-cyan-300" />
+                  </div>
+                  <p className="mt-2 line-clamp-1 text-xs text-slate-500">Choose and save your light or dark theme.</p>
+                </button>
                 <div className="mb-2 border-l border-[#3a3d46] pl-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
                   Data controls
                 </div>
@@ -1768,7 +1877,7 @@ export default function UserIntegrationsPage() {
             </div>
           )}
 
-          {!isDataPrivacyView && payload && selectedView === "image" && (
+          {!isLocalSettingsView && payload && selectedView === "image" && (
             <section className="mb-4 border border-cyan-300/40 bg-[#17181d] p-5">
               <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
                 <div className="min-w-0">
@@ -1801,7 +1910,9 @@ export default function UserIntegrationsPage() {
             </section>
           )}
 
-          {isDataPrivacyView ? (
+          {isAppearanceView ? (
+            <ThemeSettingsPanel />
+          ) : isDataPrivacyView ? (
             <article className="border border-[#2c2f37] bg-[#17181d]">
               <div className="border-b border-[#2c2f37] p-5">
                 <div className="flex flex-wrap items-center gap-2">

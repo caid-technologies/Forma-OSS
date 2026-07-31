@@ -4,6 +4,20 @@
 
 :root {
   color-scheme: dark;
+  --forma-page: #141519;
+  --forma-surface: #17181d;
+  --forma-surface-muted: #101115;
+  --forma-border: #2c2f37;
+  --forma-text: #f8fafc;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --forma-page: #eef2f7;
+  --forma-surface: #ffffff;
+  --forma-surface-muted: #f8fafc;
+  --forma-border: #cbd5e1;
+  --forma-text: #0f172a;
 }
 
 * {
@@ -16,8 +30,8 @@ body {
   width: 100%;
   max-width: 100%;
   overflow-x: hidden;
-  background: #141519;
-  color: #f8fafc;
+  background: var(--forma-page);
+  color: var(--forma-text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
   text-rendering: geometricPrecision;
 }
@@ -251,4 +265,164 @@ button:disabled {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #5b606c;
+}
+
+/*
+ * The original interface uses a compact set of Tailwind color utilities.
+ * These overrides translate that existing palette to light surfaces while
+ * keeping semantic status colors and media overlays intact.
+ */
+html[data-theme="light"] [class~='bg-[#141519]'] {
+  background-color: var(--forma-page);
+}
+
+html[data-theme="light"] [class~='bg-[#141519]/95'] {
+  background-color: rgb(238 242 247 / 0.95);
+}
+
+html[data-theme="light"] [class~='bg-[#17181d]'],
+html[data-theme="light"] [class~='bg-[#15161b]'],
+html[data-theme="light"] [class~='bg-[#111216]'],
+html[data-theme="light"] [class~='bg-[#101116]'],
+html[data-theme="light"] [class~='bg-[#101115]'],
+html[data-theme="light"] [class~='bg-[#0f1014]'],
+html[data-theme="light"] [class~='bg-[#0f1013]'],
+html[data-theme="light"] [class~='bg-[#0f1720]'],
+html[data-theme="light"] [class~='bg-[#111820]'],
+html[data-theme="light"] [class~='bg-[#1d1f26]'],
+html[data-theme="light"] [class~='bg-[#1d2027]'],
+html[data-theme="light"] [class~='bg-[#20242d]'],
+html[data-theme="light"] [class~='bg-[#242832]'],
+html[data-theme="light"] [class~='bg-[#252832]'],
+html[data-theme="light"] [class~='bg-[#0c0d10]'],
+html[data-theme="light"] [class~='bg-[#050609]'],
+html[data-theme="light"] [class~="bg-black"] {
+  background-color: var(--forma-surface);
+}
+
+html[data-theme="light"] [class~='bg-[#101115]'],
+html[data-theme="light"] [class~='bg-[#0f1014]'] {
+  background-color: var(--forma-surface-muted);
+}
+
+html[data-theme="light"] [class~="text-white"],
+html[data-theme="light"] [class~="text-slate-100"] {
+  color: #0f172a;
+}
+
+html[data-theme="light"] [class~="text-slate-200"],
+html[data-theme="light"] [class~="text-slate-300"] {
+  color: #334155;
+}
+
+html[data-theme="light"] [class~="text-slate-400"] {
+  color: #475569;
+}
+
+html[data-theme="light"] [class~="text-slate-500"],
+html[data-theme="light"] [class~="text-slate-600"],
+html[data-theme="light"] [class~="text-slate-700"] {
+  color: #64748b;
+}
+
+html[data-theme="light"] [class~="text-cyan-50"],
+html[data-theme="light"] [class~="text-cyan-100"],
+html[data-theme="light"] [class~="text-cyan-200"],
+html[data-theme="light"] [class~="text-cyan-300"] {
+  color: #0e7490;
+}
+
+html[data-theme="light"] [class~="text-emerald-50"],
+html[data-theme="light"] [class~="text-emerald-100"],
+html[data-theme="light"] [class~="text-emerald-200"],
+html[data-theme="light"] [class~="text-emerald-300"] {
+  color: #047857;
+}
+
+html[data-theme="light"] [class~="text-amber-50"],
+html[data-theme="light"] [class~="text-amber-100"],
+html[data-theme="light"] [class~="text-amber-200"],
+html[data-theme="light"] [class~="text-amber-300"] {
+  color: #a16207;
+}
+
+html[data-theme="light"] [class~="text-red-100"],
+html[data-theme="light"] [class~="text-red-200"],
+html[data-theme="light"] [class~="text-red-300"],
+html[data-theme="light"] [class~="text-rose-100"],
+html[data-theme="light"] [class~="text-rose-200"],
+html[data-theme="light"] [class~="text-rose-300"] {
+  color: #be123c;
+}
+
+html[data-theme="light"] [class~="text-violet-100"],
+html[data-theme="light"] [class~="text-violet-200"],
+html[data-theme="light"] [class~="text-violet-300"],
+html[data-theme="light"] [class~="text-fuchsia-200"],
+html[data-theme="light"] [class~="text-fuchsia-300"] {
+  color: #7e22ce;
+}
+
+html[data-theme="light"] [class~='border-[#24262c]'],
+html[data-theme="light"] [class~='border-[#242832]'],
+html[data-theme="light"] [class~='border-[#25272e]'],
+html[data-theme="light"] [class~='border-[#282a30]'],
+html[data-theme="light"] [class~='border-[#292b31]'],
+html[data-theme="light"] [class~='border-[#2a2c33]'],
+html[data-theme="light"] [class~='border-[#2b3038]'],
+html[data-theme="light"] [class~='border-[#2c2f37]'],
+html[data-theme="light"] [class~='border-[#2f333c]'],
+html[data-theme="light"] [class~='border-[#30323a]'],
+html[data-theme="light"] [class~='border-[#30333b]'],
+html[data-theme="light"] [class~='border-[#30333d]'],
+html[data-theme="light"] [class~='border-[#30343d]'],
+html[data-theme="light"] [class~='border-[#333640]'],
+html[data-theme="light"] [class~='border-[#333844]'],
+html[data-theme="light"] [class~='border-[#34363f]'],
+html[data-theme="light"] [class~='border-[#343740]'],
+html[data-theme="light"] [class~='border-[#3a3d46]'],
+html[data-theme="light"] [class~='border-[#4b4d56]'] {
+  border-color: var(--forma-border);
+}
+
+html[data-theme="light"] [class~="bg-white"][class~="text-black"] {
+  background-color: #0f172a;
+  color: #ffffff;
+}
+
+html[data-theme="light"] [class~="hover:bg-white"]:hover {
+  background-color: #0f172a;
+}
+
+html[data-theme="light"] [class~="hover:text-black"]:hover,
+html[data-theme="light"] [class~="group-hover:text-black"]:where(.group:hover *) {
+  color: #ffffff;
+}
+
+html[data-theme="light"] .schematic-card,
+html[data-theme="light"] .schematic-controller-card {
+  background: #ffffff;
+  color: #0f172a;
+  box-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
+}
+
+html[data-theme="light"] .schematic-pin-row {
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+html[data-theme="light"] .react-flow__controls-button {
+  background: #ffffff !important;
+  border-bottom-color: #cbd5e1 !important;
+  color: #334155 !important;
+  fill: #334155 !important;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-track {
+  background: #eef2f7;
+}
+
+html[data-theme="light"] ::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-color: #eef2f7;
 }

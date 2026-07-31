@@ -16,7 +16,29 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
     ),
     TableContract(
         "generated_projects",
-        ("id", "project_id", "chat_id", "owner_user_id", "visibility", "title", "prompt", "hardware_ir", "created_at"),
+        (
+            "id", "project_id", "chat_id", "owner_user_id", "visibility", "title", "prompt", "hardware_ir", "created_at",
+            "status", "deleted_at", "deletion_requested_by", "purge_after", "purge_started_at", "purge_completed_at",
+            "deletion_error",
+        ),
+    ),
+    TableContract(
+        "project_contribution_consents",
+        (
+            "id", "project_id", "user_id", "workspace_id", "consent_version", "permitted_purposes", "granted_at",
+            "withdrawn_at", "snapshot_created_at", "sanitized_at", "anonymized_at", "purged_at",
+        ),
+    ),
+    TableContract(
+        "project_contribution_snapshots",
+        (
+            "id", "source_project_id", "consent_record_id", "sanitization_version", "contribution_status",
+            "payload_json", "created_at", "sanitized_at", "anonymized_at", "purged_at",
+        ),
+    ),
+    TableContract(
+        "project_deletion_audit",
+        ("id", "project_id", "acting_user_id", "action", "status", "policy_version", "details_json", "created_at"),
     ),
     TableContract(
         "project_chats",

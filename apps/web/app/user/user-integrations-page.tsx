@@ -1512,7 +1512,7 @@ export default function UserIntegrationsPage() {
       setDataUsagePreference(data);
       setAllowModelTraining(data.allow_model_training);
       setNotice(data.allow_model_training
-        ? "Data usage preference saved. Eligible outputs may be included in future model-improvement datasets."
+        ? "Data usage preference saved. This does not grant project contribution consent."
         : "Opt-out saved. Your outputs will be excluded from future model-improvement dataset exports.");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save data usage preference.");
@@ -1812,7 +1812,7 @@ export default function UserIntegrationsPage() {
                   </span>
                 </div>
                 <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                  Choose whether outputs generated under your account may be included in datasets used to evaluate, improve, or fine-tune Forma models.
+                  Set an account-wide limit on future dataset use. This setting never grants project contribution consent.
                 </p>
               </div>
 
@@ -1821,16 +1821,16 @@ export default function UserIntegrationsPage() {
                   <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
                     <div className="max-w-3xl">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-black uppercase tracking-wide text-white">Help improve Forma</h3>
+                        <h3 className="text-sm font-black uppercase tracking-wide text-white">Account-wide contribution limit</h3>
                         <span className="border border-emerald-400/35 bg-emerald-400/10 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">
-                          On by default
+                          No blanket consent
                         </span>
                       </div>
                       <p className="mt-3 text-sm leading-6 text-slate-400">
-                        Allow Forma to use your generated outputs for model evaluation and fine-tuning. Turn this off to exclude outputs tied to your account from future training-dataset exports.
+                        Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice. Turn this off to block account-linked outputs from future training-dataset exports.
                       </p>
                       <p className="mt-3 text-xs leading-5 text-slate-500">
-                        Opting out applies to future dataset exports and does not remove data already incorporated into a completed training run. For access or deletion requests, use the contact in the Privacy Policy.
+                        Eligibility alone does not contribute a project. Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy.
                       </p>
                     </div>
 
@@ -1846,7 +1846,7 @@ export default function UserIntegrationsPage() {
                         disabled={dataUsageLoading || dataUsageSaving}
                         className="h-4 w-4 accent-cyan-300"
                       />
-                      {allowModelTraining ? "Allowed" : "Opted out"}
+                      {allowModelTraining ? "Eligible" : "Opted out"}
                     </label>
                   </div>
 
@@ -1878,7 +1878,7 @@ export default function UserIntegrationsPage() {
 
                 <section className="border border-[#2c2f37] bg-black/30 p-4 text-xs leading-5 text-slate-500">
                   <span className="font-black uppercase tracking-widest text-slate-300">How opt-outs are tracked:</span>{" "}
-                  Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set.
+                      Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set, and eligibility never replaces a project-specific consent record.
                 </section>
               </div>
             </article>

@@ -286,6 +286,34 @@ class ProjectUpdateRequest(BaseModel):
     visibility: str | None = None
 
 
+class ProjectContributionConsentRequest(BaseModel):
+    """Explicit, versioned consent for a sanitized project contribution."""
+
+    granted: bool = Field(..., description="Must be true; withdrawal uses DELETE.")
+    consent_version: str = Field(..., min_length=1, max_length=80)
+    permitted_purposes: List[str] = Field(..., min_length=1, max_length=5)
+
+    @field_validator("granted")
+    @classmethod
+    def require_grant(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("granted must be true; use DELETE to withdraw consent.")
+        return value
+
+    @field_validator("consent_version")
+    @classmethod
+    def normalize_consent_version(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("permitted_purposes")
+    @classmethod
+    def normalize_purposes(cls, value: List[str]) -> List[str]:
+        normalized = sorted({str(item).strip().lower() for item in value if str(item).strip()})
+        if not normalized:
+            raise ValueError("At least one permitted purpose is required.")
+        return normalized
+
+
 class ClarifyingQuestion(BaseModel):
     id: str = Field(..., min_length=1, description="Stable question id.")
     label: str = Field(..., min_length=1, description="Short UI label for the question.")

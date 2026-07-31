@@ -533,3 +533,66 @@ def upload_image_to_supabase_s3(
         endpoint=config["endpoint"],
         region=config["region"],
     )
+
+
+def delete_project_images(project_id: str) -> int:
+    """Delete every remotely stored image beneath a project's isolated prefix."""
+    config = get_image_storage_config()
+    if not config.get("enabled"):
+        return 0
+
+    project_part = _project_uuid_path_part(project_id)
+    folder = f"images/{project_part}"
+    prefix = f"{folder}/"
+    bucket = str(config["bucket"])
+
+    if config.get("write_method") == "supabase-client":
+        bucket_proxy = _supabase_storage_bucket(bucket)
+        keys = []
+        offset = 0
+        while True:
+            items = bucket_proxy.list(folder, {"limit": 1000, "offset": offset}) or []
+            page_keys = [
+                f"{folder}/{item['name']}"
+                for item in items
+                if isinstance(item, dict) and isinstance(item.get("name"), str)
+            ]
+            keys.extend(key for key in page_keys if key.startswith(prefix))
+            if len(items) < 1000:
+                break
+            offset += 1000
+        for start in range(0, len(keys), 1000):
+            bucket_proxy.remove(keys[start : start + 1000])
+        remaining = bucket_proxy.list(folder, {"limit": 1}) or []
+        if remaining:
+            raise RuntimeError("Project image objects remain after deletion.")
+        return len(keys)
+
+    import boto3
+    from botocore.config import Config
+
+    client = boto3.client(
+        "s3",
+        endpoint_url=config["endpoint"],
+        aws_access_key_id=_first_env(("SUPABASE_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID")),
+        aws_secret_access_key=_first_env(("SUPABASE_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY")),
+        region_name=config["region"],
+        config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    paginator = client.get_paginator("list_objects_v2")
+    keys = [
+        item["Key"]
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix)
+        for item in page.get("Contents") or []
+        if isinstance(item.get("Key"), str) and item["Key"].startswith(prefix)
+    ]
+    for start in range(0, len(keys), 1000):
+        response = client.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": [{"Key": key} for key in keys[start : start + 1000]], "Quiet": True},
+        )
+        if response.get("Errors"):
+            raise RuntimeError("One or more project image objects could not be deleted.")
+    if (client.list_objects_v2(Bucket=bucket, Prefix=prefix, MaxKeys=1).get("Contents") or []):
+        raise RuntimeError("Project image objects remain after deletion.")
+    return len(keys)

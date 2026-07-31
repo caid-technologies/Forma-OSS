@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Column, Float, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, Float, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import declarative_base
 
 
@@ -33,6 +33,59 @@ class DBGeneratedProject(Base):
     prompt = Column(Text, nullable=False)
     hardware_ir = Column(JSON, nullable=False)
     created_at = Column(String, nullable=False)
+    status = Column(String, index=True, nullable=False, default="active")
+    deleted_at = Column(String, nullable=True)
+    deletion_requested_by = Column(String, nullable=True)
+    purge_after = Column(String, index=True, nullable=True)
+    purge_started_at = Column(String, nullable=True)
+    purge_completed_at = Column(String, nullable=True)
+    deletion_error = Column(Text, nullable=True)
+
+
+class DBProjectContributionConsent(Base):
+    __tablename__ = "project_contribution_consents"
+    __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_contribution_consent_project_user"),)
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    user_id = Column(String, index=True, nullable=False)
+    workspace_id = Column(String, nullable=True)
+    consent_version = Column(String, nullable=False)
+    permitted_purposes = Column(JSON, nullable=False, default=list)
+    granted_at = Column(String, nullable=False)
+    withdrawn_at = Column(String, nullable=True)
+    snapshot_created_at = Column(String, nullable=True)
+    sanitized_at = Column(String, nullable=True)
+    anonymized_at = Column(String, nullable=True)
+    purged_at = Column(String, nullable=True)
+
+
+class DBProjectContributionSnapshot(Base):
+    __tablename__ = "project_contribution_snapshots"
+
+    id = Column(String, primary_key=True)
+    source_project_id = Column(String, index=True, nullable=False)
+    consent_record_id = Column(String, unique=True, index=True, nullable=False)
+    sanitization_version = Column(String, nullable=False)
+    contribution_status = Column(String, index=True, nullable=False)
+    payload_json = Column(JSON, nullable=False)
+    created_at = Column(String, nullable=False)
+    sanitized_at = Column(String, nullable=True)
+    anonymized_at = Column(String, nullable=True)
+    purged_at = Column(String, nullable=True)
+
+
+class DBProjectDeletionAudit(Base):
+    __tablename__ = "project_deletion_audit"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    acting_user_id = Column(String, index=True, nullable=True)
+    action = Column(String, index=True, nullable=False)
+    status = Column(String, index=True, nullable=False)
+    policy_version = Column(String, nullable=False)
+    details_json = Column(JSON, nullable=False, default=dict)
+    created_at = Column(String, index=True, nullable=False)
 
 
 class DBProjectChat(Base):

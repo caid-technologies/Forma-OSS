@@ -50,6 +50,20 @@ def _row_to_dict(row: Any) -> Dict[str, Any]:
     return result
 
 
+def _job_matches_project(job: Dict[str, Any], project_id: str) -> bool:
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    summary = job.get("result_summary") if isinstance(job.get("result_summary"), dict) else {}
+    return any(
+        str(value or "") == project_id
+        for value in (
+            payload.get("project_id"),
+            payload.get("source_project_id"),
+            summary.get("project_id"),
+            summary.get("source_project_id"),
+        )
+    )
+
+
 class JobRepository(Protocol):
     def initialize(self) -> None: ...
 
@@ -66,6 +80,10 @@ class JobRepository(Protocol):
     def get(self, job_id: str) -> Optional[Dict[str, Any]]: ...
 
     def list(self, *, sender: Optional[str], status: Optional[str], limit: int) -> List[Dict[str, Any]]: ...
+
+    def list_for_project(self, project_id: str) -> List[Dict[str, Any]]: ...
+
+    def delete_for_project(self, project_id: str) -> int: ...
 
     def update_status(self, job_id: str, status: str, now: str) -> None: ...
 
@@ -173,6 +191,31 @@ class SupabaseJobRepository:
         self._client.table("a2a_jobs").update(
             {"status": status, "updated_at": now}
         ).eq("job_id", job_id).execute()
+
+    def list_for_project(self, project_id: str) -> List[Dict[str, Any]]:
+        matches: List[Dict[str, Any]] = []
+        offset = 0
+        batch_size = 1000
+        while True:
+            rows = (
+                self._client.table("a2a_jobs")
+                .select("*")
+                .range(offset, offset + batch_size - 1)
+                .execute()
+                .data
+                or []
+            )
+            matches.extend(job for job in (_row_to_dict(row) for row in rows) if _job_matches_project(job, project_id))
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+        return matches
+
+    def delete_for_project(self, project_id: str) -> int:
+        jobs = self.list_for_project(project_id)
+        for job in jobs:
+            self._client.table("a2a_jobs").delete().eq("job_id", job["job_id"]).execute()
+        return len(jobs)
 
 
 class SQLiteJobRepository:
@@ -302,6 +345,22 @@ class SQLiteJobRepository:
                 "UPDATE a2a_jobs SET status = ?, updated_at = ? WHERE job_id = ?",
                 (status, now, job_id),
             )
+
+    def list_for_project(self, project_id: str) -> List[Dict[str, Any]]:
+        with closing(self._provider.connect_dbapi()) as connection:
+            rows = connection.execute("SELECT * FROM a2a_jobs").fetchall()
+        return [job for job in (_row_to_dict(row) for row in rows) if _job_matches_project(job, project_id)]
+
+    def delete_for_project(self, project_id: str) -> int:
+        jobs = self.list_for_project(project_id)
+        if not jobs:
+            return 0
+        with self._locked_connection() as connection:
+            connection.executemany(
+                "DELETE FROM a2a_jobs WHERE job_id = ?",
+                [(job["job_id"],) for job in jobs],
+            )
+        return len(jobs)
 
     def _locked_connection(self) -> "_LockedConnection":
         return _LockedConnection(self._lock, self._provider.connect_dbapi())

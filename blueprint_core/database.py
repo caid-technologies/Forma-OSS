@@ -335,6 +335,11 @@ def save_generated_project(
     visibility: Optional[str] = "public",
 ) -> None:
     project_id = _canonical_project_id(project_id)
+    source_project_id = (hardware_ir.get("assembly_metadata") or {}).get("source_project_id") if isinstance(hardware_ir, dict) else None
+    if source_project_id:
+        source_project = get_generated_project(_canonical_project_id(source_project_id), include_deleted=True)
+        if not source_project or getattr(source_project, "status", "active") != "active":
+            raise RuntimeError("Cannot persist output for a deleted or missing source project.")
     hardware_ir = _hardware_ir_with_project_id(project_id, hardware_ir, chat_id=chat_id)
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
     normalized_chat_id = _normalize_chat_id(chat_id) or _normalize_chat_id(metadata.get("chat_id"))
@@ -349,6 +354,7 @@ def save_generated_project(
         "prompt": prompt,
         "hardware_ir": hardware_ir,
         "created_at": created_at,
+        "status": "active",
     }
     chat_record = None
     if normalized_chat_id and normalized_owner_user_id:
@@ -368,8 +374,36 @@ def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
     return _DATABASE_REPOSITORY.list_generated_projects(normalized_owner_user_id)
 
 
-def get_generated_project(project_id: str) -> Optional[Any]:
-    return _DATABASE_REPOSITORY.get_generated_project(project_id)
+def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
+
+
+def list_due_project_purges(before: str, limit: int = 25) -> List[Any]:
+    return _DATABASE_REPOSITORY.list_due_project_purges(before, max(1, min(limit, 100)))
+
+
+def update_project_deletion_state(
+    project_id: str,
+    *,
+    owner_user_id: Optional[str],
+    allowed_statuses: List[str],
+    updates: Dict[str, Any],
+    expected_purge_started_at: Optional[str] = None,
+) -> Optional[Any]:
+    project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    return _DATABASE_REPOSITORY.update_project_deletion_state(
+        project_id,
+        normalized_owner_user_id,
+        allowed_statuses,
+        updates,
+        expected_purge_started_at,
+    )
+
+
+def hard_purge_generated_project(project_id: str, owner_user_id: Optional[str] = None) -> bool:
+    project_id = _canonical_project_id(project_id)
+    return _DATABASE_REPOSITORY.hard_purge_project(project_id, _normalize_user_id(owner_user_id))
 
 
 def update_generated_project_hardware_ir(
@@ -426,6 +460,74 @@ def delete_generated_project(project_id: str, owner_user_id: str) -> bool:
     return _DATABASE_REPOSITORY.delete_generated_project(project_id, normalized_owner_user_id)
 
 
+def get_project_contribution_consent(project_id: str, user_id: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_project_contribution_consent(
+        _canonical_project_id(project_id),
+        _normalize_user_id(user_id) or "",
+    )
+
+
+def upsert_project_contribution_consent(record: Dict[str, Any]) -> Any:
+    normalized = dict(record)
+    normalized["project_id"] = _canonical_project_id(normalized["project_id"])
+    normalized["user_id"] = _normalize_user_id(normalized.get("user_id")) or ""
+    if not normalized["user_id"]:
+        raise ValueError("Contribution consent requires a user id.")
+    return _DATABASE_REPOSITORY.upsert_project_contribution_consent(normalized)
+
+
+def withdraw_project_contribution_consent(project_id: str, user_id: str, withdrawn_at: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.withdraw_project_contribution_consent(
+        _canonical_project_id(project_id),
+        _normalize_user_id(user_id) or "",
+        withdrawn_at,
+    )
+
+
+def anonymize_project_contribution_consent(project_id: str, user_id: str, anonymized_at: str) -> bool:
+    return _DATABASE_REPOSITORY.anonymize_project_contribution_consent(
+        _canonical_project_id(project_id),
+        _normalize_user_id(user_id) or "",
+        str(uuid.uuid4()),
+        f"anonymous-{uuid.uuid4()}",
+        anonymized_at,
+    )
+
+
+def upsert_project_contribution_snapshot(record: Dict[str, Any]) -> Any:
+    normalized = dict(record)
+    normalized["source_project_id"] = _canonical_project_id(normalized["source_project_id"])
+    return _DATABASE_REPOSITORY.upsert_project_contribution_snapshot(normalized)
+
+
+def anonymize_project_contribution_snapshot(consent_record_id: str, anonymized_at: str) -> bool:
+    return _DATABASE_REPOSITORY.anonymize_project_contribution_snapshot(
+        consent_record_id,
+        str(uuid.uuid4()),
+        str(uuid.uuid4()),
+        anonymized_at,
+    )
+
+
+def purge_project_contribution_snapshots(consent_record_id: str, purged_at: str) -> int:
+    return _DATABASE_REPOSITORY.purge_project_contribution_snapshots(consent_record_id, purged_at)
+
+
+def add_project_deletion_audit(record: Dict[str, Any]) -> Any:
+    normalized = dict(record)
+    normalized["project_id"] = _canonical_project_id(normalized["project_id"])
+    normalized["acting_user_id"] = _normalize_user_id(normalized.get("acting_user_id"))
+    return _DATABASE_REPOSITORY.add_project_deletion_audit(normalized)
+
+
+def get_latest_project_deletion_audit(project_id: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_latest_project_deletion_audit(_canonical_project_id(project_id))
+
+
+def list_project_deletion_audits(limit: int = 100) -> List[Any]:
+    return _DATABASE_REPOSITORY.list_project_deletion_audits(max(1, min(limit, 500)))
+
+
 def upsert_project_chat(
     *,
     chat_id: str,
@@ -439,6 +541,18 @@ def upsert_project_chat(
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_chat_id or not normalized_owner_user_id:
         raise ValueError("chat_id and owner_user_id are required.")
+    for message in messages or []:
+        linked_project_id = None
+        if isinstance(message, dict):
+            linked_project_id = message.get("projectId") or message.get("project_id")
+        if not linked_project_id:
+            continue
+        try:
+            linked_project = get_generated_project(str(linked_project_id), include_deleted=True)
+        except ValueError:
+            linked_project = None
+        if not linked_project or getattr(linked_project, "status", "active") != "active":
+            raise ValueError("Cannot write chat data for a deleted or missing project.")
     record = {
         "chat_id": normalized_chat_id,
         "owner_user_id": normalized_owner_user_id,

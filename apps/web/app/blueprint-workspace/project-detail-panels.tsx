@@ -13,7 +13,6 @@ import {
   Download,
   ExternalLink,
   Eye,
-  Info,
   Monitor,
   Printer,
   RefreshCw,
@@ -23,7 +22,6 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { JobMetric } from "./admin-panels";
 import { type ProjectImageCandidate } from "./project-gallery";
 
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
@@ -596,94 +594,6 @@ export function AssemblyPanel({
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-export function ChatNamespaceSummaryPanel({
-  projectId,
-  title,
-  description,
-  namespace,
-  totalGenerationTime,
-  components,
-  metrics,
-  issues,
-}: {
-  projectId: string | null;
-  title: string;
-  description: string;
-  namespace: string;
-  totalGenerationTime: string;
-  components: any[];
-  metrics: ReturnType<typeof emptyMetrics>;
-  issues: any[];
-}) {
-  const topComponents = components.slice(0, 8);
-  return (
-    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
-      <section className="border border-[#2a2c33] bg-[#17181d] p-4 sm:p-5">
-        <div className="flex flex-col gap-3 border-b border-[#2a2c33] pb-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <Info className="h-4 w-4 text-cyan-300" />
-              <h2 className="truncate text-sm font-black uppercase tracking-[0.16em] text-white">Info</h2>
-            </div>
-            <p className="mt-2 break-words text-sm leading-6 text-slate-400">{description}</p>
-          </div>
-          <div className="shrink-0 border border-cyan-300/30 bg-cyan-300/10 px-3 py-2 font-mono text-[11px] text-cyan-100">
-            {namespace}
-          </div>
-        </div>
-
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 xl:grid-cols-5">
-          <JobMetric label="Project" value={projectId || "-"} />
-          <JobMetric label="Title" value={title} />
-          <JobMetric label="Parts" value={metrics.totalParts} />
-          <JobMetric label="Total Generation Time" value={totalGenerationTime} />
-          <JobMetric label="Validation" value={issues.length ? `${issues.length} issues` : "approved"} />
-        </div>
-
-        <div className="mt-5 border border-[#2a2c33] bg-[#141519] p-4">
-          <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Project Components</div>
-          {topComponents.length ? (
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              {topComponents.map((component, index) => {
-                const tone = categoryTone[component.category?.toLowerCase()] || categoryTone.default;
-                const Icon = iconForCategory(component.category);
-                return (
-                  <div key={`${component.ref_des || component.name}-${index}`} className="flex min-w-0 items-center gap-2 border border-[#25272e] bg-black/20 px-3 py-2">
-                    <Icon className={`h-4 w-4 shrink-0 ${tone.text}`} />
-                    <span className="truncate text-xs font-bold text-slate-300">{component.ref_des ? `${component.ref_des} ` : ""}{component.name || component.part_number || "Component"}</span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <div className="mt-3 border border-[#25272e] bg-black/20 p-3 text-xs leading-5 text-slate-500">
-              No components attached to this project yet.
-            </div>
-          )}
-        </div>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <div className="border border-[#2a2c33] bg-[#141519] p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Electrical</div>
-            <div className="mt-2 text-xl font-black text-white">{metrics.electricalParts}</div>
-            <div className="mt-1 text-xs text-slate-500">~${metrics.electricalCost.toFixed(2)}</div>
-          </div>
-          <div className="border border-[#2a2c33] bg-[#141519] p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Mechanical</div>
-            <div className="mt-2 text-xl font-black text-white">{metrics.mechanicalParts}</div>
-            <div className="mt-1 text-xs text-slate-500">~${metrics.mechanicalCost.toFixed(2)}</div>
-          </div>
-          <div className="border border-[#2a2c33] bg-[#141519] p-4">
-            <div className="text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Total Cost</div>
-            <div className="mt-2 text-xl font-black text-white">~${metrics.totalCost.toFixed(2)}</div>
-            <div className="mt-1 text-xs text-slate-500">{metrics.totalParts} parts</div>
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

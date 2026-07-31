@@ -52,7 +52,6 @@ import {
 import {
   AssemblyPanel,
   BomPanel,
-  ChatNamespaceSummaryPanel,
   MechanicalPanel,
   OverviewPanel,
 } from "./blueprint-workspace/project-detail-panels";
@@ -1369,8 +1368,7 @@ type ImageGenerationConfig = {
 };
 
 const workspaceTabs = [
-  { id: "chat", label: "INFO", icon: Info },
-  { id: "overview", label: "IMAGE", icon: Eye },
+  { id: "overview", label: "INFO", icon: Info },
   { id: "bom", label: "BOM", icon: ShoppingBag },
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
@@ -1379,8 +1377,7 @@ const workspaceTabs = [
 ];
 
 const workspaceTabNamespaces: Record<string, string> = {
-  overview: "product.visuals",
-  chat: "project.chat",
+  overview: "product.overview",
   bom: "product.bom",
   mechanical: "product.mech",
   schematic: "product.electrical",
@@ -1393,6 +1390,9 @@ const workspaceTabNamespaces: Record<string, string> = {
 function normalizeTab(tab: string | null) {
   if (!tab) return null;
   const aliases: Record<string, string> = {
+    chat: "overview",
+    concept: "overview",
+    info: "overview",
     image: "overview",
     mech: "mechanical",
     wire: "schematic",
@@ -1404,7 +1404,7 @@ function normalizeTab(tab: string | null) {
 
 function workspaceTabMeta(tab: string | null) {
   const normalized = normalizeTab(tab);
-  return workspaceTabs.find((item) => item.id === normalized) || workspaceTabs.find((item) => item.id === "chat") || workspaceTabs[0];
+  return workspaceTabs.find((item) => item.id === normalized) || workspaceTabs[0];
 }
 
 function workspaceNamespaceForTab(tab: string | null) {
@@ -1462,21 +1462,6 @@ function formatDurationSeconds(value: any) {
   if (hours) return `${hours}h ${minutes}m ${remainingSeconds}s`;
   if (minutes) return `${minutes}m ${remainingSeconds}s`;
   return `${remainingSeconds}s`;
-}
-
-function formatTotalGenerationTime(metadata: Record<string, any> = {}) {
-  const explicitSeconds =
-    metadata.total_generation_time_seconds ??
-    metadata.total_generation_duration_seconds ??
-    metadata.generation_duration_seconds ??
-    metadata.duration_seconds;
-  const formatted = formatDurationSeconds(explicitSeconds);
-  if (formatted !== "-") return formatted;
-  const derivedSeconds = durationSecondsBetween(
-    metadata.total_generation_started_at || metadata.generation_started_at || metadata.started_at,
-    metadata.total_generation_completed_at || metadata.generation_completed_at || metadata.completed_at
-  );
-  return formatDurationSeconds(derivedSeconds);
 }
 
 function projectIdFromIR(ir: any) {
@@ -1559,7 +1544,7 @@ export function FormaWorkspace({
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
-  const [activeTab, setActiveTab] = useState("chat");
+  const [activeTab, setActiveTab] = useState("overview");
   const [projectIR, setProjectIR] = useState<any>(null);
   const [projectHistory, setProjectHistory] = useState<any[]>([]);
   const [myProjectHistory, setMyProjectHistory] = useState<any[]>([]);
@@ -2107,7 +2092,7 @@ export function FormaWorkspace({
     setSelectedImage(null);
     setChatRouteTransition(null);
     setProjectIR(null);
-    setActiveTab("chat");
+    setActiveTab("overview");
   };
 
   const goHome = () => {
@@ -2116,7 +2101,7 @@ export function FormaWorkspace({
     } else {
       setChatRouteTransition(null);
       setProjectIR(null);
-      setActiveTab("chat");
+      setActiveTab("overview");
     }
     router.push("/");
   };
@@ -2133,7 +2118,7 @@ export function FormaWorkspace({
       return;
     }
     setActiveChatId(item.chatId);
-    setActiveTab("chat");
+    setActiveTab("overview");
     const storedMessages = readStoredChatThread(item.chatId, null, chatStorageScope);
     if (storedMessages.length) {
       setChatThreads((current) => ({ ...current, [item.chatId]: storedMessages }));
@@ -2160,7 +2145,7 @@ export function FormaWorkspace({
       return;
     }
     setActiveChatId(chatId);
-    setActiveTab("chat");
+    setActiveTab("overview");
     setChatRouteTransition({
       chatId,
       title: "Opening chat",
@@ -2588,7 +2573,7 @@ export function FormaWorkspace({
 
 
   useEffect(() => {
-    if (!normalizeTab(activeTab)) setActiveTab("chat");
+    if (!normalizeTab(activeTab)) setActiveTab("overview");
   }, [activeTab]);
 
 
@@ -3215,7 +3200,7 @@ export function FormaWorkspace({
       if (progressPollId !== null) window.clearInterval(progressPollId);
       if (generatedProject) {
         setSelectedImage(null);
-        setActiveTab("chat");
+        setActiveTab("overview");
       }
       if (generatedProjectId) {
         refreshProjectAndChatLists();
@@ -3243,7 +3228,7 @@ export function FormaWorkspace({
 
     const sourceProjectId = currentProjectId;
     const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
-    const targetNamespace = activeTab === "chat" ? null : workspaceNamespaceForTab(activeTab);
+    const targetNamespace = activeTab === "overview" ? null : workspaceNamespaceForTab(activeTab);
     const generationRun = beginGenerationRun("project-chat", sourceChatId);
     setActiveChatId(sourceChatId);
     rememberChatItem({
@@ -3444,7 +3429,7 @@ export function FormaWorkspace({
       if (options.hydrateChat && canChatWithProjectIR(ir)) {
         ensureChatThread(projectId, ir, data.prompt);
       }
-      setActiveTab(normalizeTab(options.tab || "") || "chat");
+      setActiveTab(normalizeTab(options.tab || "") || "overview");
       if (shouldSyncRoute) syncProjectRoute(projectId);
       return true;
     } catch (error) {
@@ -3485,7 +3470,7 @@ export function FormaWorkspace({
         if (canChatWithProjectIR(ir)) {
           ensureChatThread(inlineChatProjectId, ir, data.prompt);
         }
-        setActiveTab("chat");
+        setActiveTab("overview");
       } catch (error) {
         if (controller.signal.aborted) return;
         if (attempt < 4) {
@@ -3555,7 +3540,7 @@ export function FormaWorkspace({
       ? readStoredChatThread(chatId, null, chatStorageScope)
       : [];
     setActiveChatId(chatId);
-    setActiveTab("chat");
+    setActiveTab("overview");
     setRouteProjectError(null);
     if (storedMessages.length) {
       setChatThreads((current) => ({ ...current, [chatId]: storedMessages }));
@@ -3627,7 +3612,7 @@ export function FormaWorkspace({
         return;
       }
       setProjectIR(null);
-      setActiveTab("chat");
+      setActiveTab("overview");
       const nextMessages = messagesWithoutMissingProject(
         storedMessages.length ? storedMessages : initialChatMessages(),
         routedChatProjectId
@@ -3868,9 +3853,7 @@ export function FormaWorkspace({
   );
   const activeWorkspaceTab = workspaceTabMeta(activeTab);
   const activeWorkspaceNamespace = workspaceNamespaceForTab(activeTab);
-  const displayedWorkspaceNamespace = routedProjectId && activeWorkspaceTab.id === "chat"
-    ? "project.overview"
-    : activeWorkspaceNamespace;
+  const displayedWorkspaceNamespace = activeWorkspaceNamespace;
   const projectNamespaceContent = (() => {
     switch (activeWorkspaceTab.id) {
       case "overview":
@@ -3954,20 +3937,8 @@ export function FormaWorkspace({
             pollIntervalMs={LOG_POLL_INTERVAL_MS}
           />
         ) : null;
-      case "chat":
       default:
-        return (
-          <ChatNamespaceSummaryPanel
-            projectId={currentProjectId}
-            title={projectTitle}
-            description={projectDescription}
-            namespace={displayedWorkspaceNamespace}
-            totalGenerationTime={formatTotalGenerationTime(projectIR?.assembly_metadata || {})}
-            components={components}
-            metrics={metrics}
-            issues={issues}
-          />
-        );
+        return null;
     }
   })();
 

@@ -6,8 +6,6 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 
 [![Forma main user flow demo creating a security camera](docs/assets/forma-security-camera-demo.gif)](https://www.youtube.com/watch?v=XaIIJT7OX4M)
 
-[Watch the full security camera demo on YouTube](https://www.youtube.com/watch?v=XaIIJT7OX4M)
-
 ## What you can do
 - Compile a hardware idea into typed **Hardware IR** (Pydantic)
 - Run **rule-based electrical validation** (shorts, voltage mismatch, unpowered ICs, pin conflicts, overcurrent risk)

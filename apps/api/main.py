@@ -86,7 +86,11 @@ from blueprint_core.database import (
     update_generated_project_hardware_ir,
     upsert_project_chat,
 )
-from blueprint_core.project_list_cache import cache_project_list, get_cached_project_list
+from blueprint_core.project_list_cache import (
+    cache_project_list,
+    get_cached_project_list,
+    require_project_list_cache_config,
+)
 from apps.api.seed_db import seed_database
 from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
 from blueprint_core.agents.clarification import ask_clarifying_questions
@@ -348,6 +352,7 @@ async def startup_event():
     global _project_purge_stop_event, _project_purge_task
     logger.info("Starting up Forma server...")
     require_user_secrets_key()
+    require_project_list_cache_config()
     logger.info("Authentication mode: %s", "clerk" if deployed_auth_required() else "local")
     try:
         init_db()

@@ -14,6 +14,8 @@ import threading
 import time
 from typing import Any, Optional
 
+from blueprint_core.runtime_config import blueprint_dev_mode_enabled
+
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +28,28 @@ _client: Any = None
 _client_url: Optional[str] = None
 _client_lock = threading.Lock()
 _disabled_until = 0.0
+
+
+def require_project_list_cache_config() -> None:
+    """Require explicit Redis settings outside development mode."""
+    if blueprint_dev_mode_enabled():
+        return
+
+    missing = [
+        name
+        for name in ("REDIS_URL", "REDIS_CACHE_PREFIX")
+        if not os.getenv(name, "").strip()
+    ]
+    if not missing:
+        return
+
+    names = ", ".join(missing)
+    message = (
+        "BLUEPRINT_DEV_MODE=false requires Redis project caching. "
+        f"Set the following server-only environment variables: {names}."
+    )
+    logger.critical(message)
+    raise RuntimeError(message)
 
 
 def _bounded_float(name: str, default: float, minimum: float, maximum: float) -> float:

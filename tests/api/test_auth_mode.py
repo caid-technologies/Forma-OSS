@@ -59,6 +59,25 @@ class AuthModeTests(unittest.IsolatedAsyncioTestCase):
                     await main.startup_event()
         init_db.assert_not_called()
 
+    async def test_backend_startup_fails_before_database_initialization_without_redis(self) -> None:
+        from apps.api import main
+
+        with patch.dict(
+            os.environ,
+            {
+                "BLUEPRINT_AUTH_MODE": "local",
+                "BLUEPRINT_DEV_MODE": "false",
+                "BLUEPRINT_USER_SECRETS_KEY": "test-secrets-key",
+                "REDIS_URL": "",
+                "REDIS_CACHE_PREFIX": "",
+            },
+            clear=True,
+        ), patch.object(main, "init_db") as init_db:
+            with self.assertLogs("blueprint_core.project_list_cache", level="CRITICAL"):
+                with self.assertRaisesRegex(RuntimeError, "REDIS_URL, REDIS_CACHE_PREFIX"):
+                    await main.startup_event()
+        init_db.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

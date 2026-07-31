@@ -86,7 +86,8 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:///./blueprint.db
 
-# Optional project gallery cache. Leave unset to read directly from the DB.
+# Project gallery cache. Required when BLUEPRINT_DEV_MODE is false; development
+# mode may leave these unset to read directly from the database.
 REDIS_URL=redis://localhost:6379/0
 # PROJECTS_CACHE_TTL_SECONDS=60
 # REDIS_CACHE_PREFIX=blueprint
@@ -167,6 +168,7 @@ Notes:
 - `BLUEPRINT_DEV_MODE=true` selects SQLite for the complete application database when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
+- `REDIS_URL` and `REDIS_CACHE_PREFIX` are required at backend startup whenever `BLUEPRINT_DEV_MODE` is false. Development mode can omit them and fall back directly to the primary database.
 - Docker Compose uses `COMPOSE_DATABASE_BACKEND` instead and defaults it to `sqlite`; this prevents host-only loopback Supabase URLs from breaking the container quickstart. `COMPOSE_SQLITE_DATABASE_URL` optionally overrides the container SQLite URL.
 - Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
 - Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.

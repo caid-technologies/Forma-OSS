@@ -73,6 +73,28 @@ class ProjectListCacheTests(unittest.TestCase):
         self.assertIsNone(cached)
         self.assertIsNone(generation)
 
+    def test_development_mode_allows_missing_redis_config(self) -> None:
+        with patch.dict("os.environ", {"BLUEPRINT_DEV_MODE": "true"}, clear=True):
+            project_list_cache.require_project_list_cache_config()
+
+    def test_non_development_mode_requires_url_and_prefix(self) -> None:
+        with patch.dict("os.environ", {"BLUEPRINT_DEV_MODE": "false"}, clear=True):
+            with self.assertLogs(project_list_cache.logger, level="CRITICAL"):
+                with self.assertRaisesRegex(RuntimeError, "REDIS_URL, REDIS_CACHE_PREFIX"):
+                    project_list_cache.require_project_list_cache_config()
+
+    def test_non_development_mode_accepts_complete_redis_config(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "BLUEPRINT_DEV_MODE": "false",
+                "REDIS_URL": "rediss://default:secret@example.test:6379/0",
+                "REDIS_CACHE_PREFIX": "blueprint-preview",
+            },
+            clear=True,
+        ):
+            project_list_cache.require_project_list_cache_config()
+
 
 if __name__ == "__main__":
     unittest.main()

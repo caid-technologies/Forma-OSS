@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import asyncio
+import hashlib
 import json
 import logging
 import sys
@@ -49,6 +50,7 @@ from blueprint_core.debug import (
     runtime_safe_error_message,
 )
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, WebSocket, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
@@ -83,6 +85,11 @@ from blueprint_core.database import (
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
     upsert_project_chat,
+)
+from blueprint_core.project_list_cache import (
+    cache_project_list,
+    get_cached_project_list,
+    require_project_list_cache_config,
 )
 from apps.api.seed_db import seed_database
 from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
@@ -172,6 +179,8 @@ from apps.api.video_storage import (
 logger = logging.getLogger(__name__)
 ROOT_DIR = REPO_ROOT
 EXAMPLE_RESULTS_DIR = ROOT_DIR / "examples" / "results"
+_CACHE_OWNER_DIGEST_FIELD = "_blueprint_cache_owner_digest"
+_CACHE_OWNER_CHAT_FIELD = "_blueprint_cache_owner_chat_id"
 
 
 def _parse_job_timestamp(value: Any) -> Optional[datetime]:
@@ -343,6 +352,7 @@ async def startup_event():
     global _project_purge_stop_event, _project_purge_task
     logger.info("Starting up Forma server...")
     require_user_secrets_key()
+    require_project_list_cache_config()
     logger.info("Authentication mode: %s", "clerk" if deployed_auth_required() else "local")
     try:
         init_db()
@@ -1484,6 +1494,43 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
     }
 
 
+def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
+    if not isinstance(owner_user_id, str) or not owner_user_id.strip():
+        return None
+    return hashlib.sha256(owner_user_id.strip().encode("utf-8")).hexdigest()
+
+
+def _public_project_cache_record(project: Any) -> Dict[str, Any]:
+    """Build one shared gallery record with non-response ownership hints."""
+    summary = _project_summary_response(project, current_user_id=None)
+    summary[_CACHE_OWNER_DIGEST_FIELD] = _project_owner_digest(_project_owner_user_id(project))
+    summary[_CACHE_OWNER_CHAT_FIELD] = getattr(project, "chat_id", None)
+    return summary
+
+
+def _personalize_public_project_records(
+    records: List[Dict[str, Any]],
+    current_user_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Strip cache-only fields and restore owner-only gallery capabilities."""
+    current_owner_digest = _project_owner_digest(current_user_id)
+    response: List[Dict[str, Any]] = []
+    for record in records:
+        item = {
+            key: value
+            for key, value in record.items()
+            if key not in {_CACHE_OWNER_DIGEST_FIELD, _CACHE_OWNER_CHAT_FIELD}
+        }
+        can_chat = bool(
+            current_owner_digest
+            and record.get(_CACHE_OWNER_DIGEST_FIELD) == current_owner_digest
+        )
+        item["can_chat"] = can_chat
+        item["chat_id"] = record.get(_CACHE_OWNER_CHAT_FIELD) if can_chat else None
+        response.append(item)
+    return response
+
+
 def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[str, Any]:
     """Keep public project reads inspectable while withholding owner-only files."""
     sanitized = json.loads(json.dumps(hardware_ir))
@@ -1526,8 +1573,15 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
     """Lists public compiled hardware projects."""
     try:
+        cached, generation = get_cached_project_list("public", None)
+        if cached is not None:
+            return _personalize_public_project_records(cached, user.owner_user_id)
         projects = [project for project in list_generated_projects() if _project_visibility(project) == "public"]
-        return [_project_summary_response(p, current_user_id=user.owner_user_id) for p in projects]
+        cache_records = jsonable_encoder(
+            [_public_project_cache_record(project) for project in projects]
+        )
+        cache_project_list("public", None, cache_records, generation)
+        return _personalize_public_project_records(cache_records, user.owner_user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1537,8 +1591,15 @@ def list_my_projects_endpoint(user: UserContext = Depends(require_user_context))
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
+        cached, generation = get_cached_project_list("mine", owner_user_id)
+        if cached is not None:
+            return cached
         projects = list_generated_projects(owner_user_id=owner_user_id)
-        return [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
+        response = jsonable_encoder(
+            [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
+        )
+        cache_project_list("mine", owner_user_id, response, generation)
+        return response
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

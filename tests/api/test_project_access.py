@@ -102,6 +102,8 @@ class ProjectReadAccessTests(unittest.TestCase):
             )
         )
         stack.enter_context(patch.object(main, "creator_display_name", return_value="test-user"))
+        stack.enter_context(patch.object(main, "get_cached_project_list", return_value=(None, None)))
+        stack.enter_context(patch.object(main, "cache_project_list"))
         return stack
 
     def test_public_list_includes_public_and_excludes_another_users_private_project(self) -> None:
@@ -126,6 +128,33 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertEqual(["public-project"], [item["project_id"] for item in response])
         self.assertIsNone(response[0]["chat_id"])
         self.assertFalse(response[0]["can_chat"])
+
+    def test_public_list_cache_is_shared_but_restores_owner_capabilities(self) -> None:
+        owner_digest = main._project_owner_digest("user-a")
+        cached_record = {
+            "project_id": "public-project",
+            "chat_id": None,
+            "can_chat": False,
+            main._CACHE_OWNER_DIGEST_FIELD: owner_digest,
+            main._CACHE_OWNER_CHAT_FIELD: "chat-public-project",
+        }
+
+        with patch.object(
+            main,
+            "get_cached_project_list",
+            return_value=([cached_record], "3"),
+        ) as get_cached, patch.object(main, "list_generated_projects") as list_projects:
+            owner_response = main.list_projects_endpoint(_user_context("user-a"))
+            other_response = main.list_projects_endpoint(_user_context("user-b"))
+
+        get_cached.assert_has_calls([call("public", None), call("public", None)])
+        list_projects.assert_not_called()
+        self.assertTrue(owner_response[0]["can_chat"])
+        self.assertEqual("chat-public-project", owner_response[0]["chat_id"])
+        self.assertFalse(other_response[0]["can_chat"])
+        self.assertIsNone(other_response[0]["chat_id"])
+        self.assertNotIn(main._CACHE_OWNER_DIGEST_FIELD, owner_response[0])
+        self.assertNotIn(main._CACHE_OWNER_CHAT_FIELD, owner_response[0])
 
     def test_owner_can_read_own_private_project(self) -> None:
         private_project = _project(

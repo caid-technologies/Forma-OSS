@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
 import { blueprintAuthMode } from "../lib/auth-mode";
 import { FormaAuthProvider } from "../lib/forma-auth";
+import { themeBootstrapScript } from "../lib/theme";
+import { ThemeProvider } from "../lib/theme-provider";
 import "./globals.css";
 
 export const dynamic = "force-dynamic";
@@ -18,9 +20,14 @@ export default function RootLayout({
 }>) {
   const authMode = blueprintAuthMode();
   const document = (
-    <html lang="en">
+    <html lang="en" data-theme="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
+      </head>
       <body data-auth-mode={authMode} data-auth-required={authMode === "clerk" ? "true" : "false"}>
-        <FormaAuthProvider mode={authMode}>{children}</FormaAuthProvider>
+        <ThemeProvider>
+          <FormaAuthProvider mode={authMode}>{children}</FormaAuthProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

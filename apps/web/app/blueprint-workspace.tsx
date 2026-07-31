@@ -14,6 +14,10 @@ import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export
 import { deploymentComposerDefaults } from "../lib/deployment-composer-defaults";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
+  humanContextDefaultsChatSummary,
+  humanContextDefaultsPromptSection,
+} from "../lib/human-context-defaults";
+import {
   useAdminSession,
   useBackendLogs,
   useJobs,
@@ -1054,18 +1058,6 @@ function messagesWithoutMissingProject(messages: ChatMessage[], projectId: strin
     projectId: null,
   };
   return [...normalizedMessages, noticeMessage].slice(-MAX_PROJECT_CHAT_MESSAGES);
-}
-
-function automaticHumanContextPromptSection(basePrompt: string) {
-  const inferredQuestions = humanContextQuestionsForPrompt(basePrompt);
-  return [
-    basePrompt,
-    "",
-    "HUMAN-IN-THE-LOOP CONTEXT:",
-    "- User submitted this from the chat interface; generate the project immediately.",
-    "- Missing human context should be recorded as unspecified in project docs, not invented.",
-    ...inferredQuestions.map((question) => `- ${question.label}: not specified at creation time; preserve as an explicit open question if it affects safety, wiring, materials, or validation.`),
-  ].join("\n");
 }
 
 function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestion[] {
@@ -2920,6 +2912,10 @@ export function FormaWorkspace({
       return;
     }
     const contextCheckpoint = pendingHumanContext;
+    const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const useHumanContextDefaults = Boolean(
+      contextCheckpoint && submitter?.name === "humanContextAction" && submitter.value === "use-defaults"
+    );
     const validationSubject = contextCheckpoint ? contextCheckpoint.basePrompt : prompt;
     const validation = validateGenerationInput(validationSubject, Boolean(selectedImage));
     if (!validation.isValid) {
@@ -3011,10 +3007,14 @@ export function FormaWorkspace({
 
     const finalContextNotes = contextCheckpoint ? prompt.trim() : "";
     const promptText = contextCheckpoint
-      ? humanContextPromptSection(contextCheckpoint, finalContextNotes)
+      ? useHumanContextDefaults
+        ? humanContextDefaultsPromptSection(contextCheckpoint.basePrompt, contextCheckpoint.questions, finalContextNotes)
+        : humanContextPromptSection(contextCheckpoint, finalContextNotes)
       : rawPromptText;
     const userMessageContent = contextCheckpoint
-      ? humanContextChatSummary(contextCheckpoint, finalContextNotes)
+      ? useHumanContextDefaults
+        ? humanContextDefaultsChatSummary(contextCheckpoint.questions, finalContextNotes)
+        : humanContextChatSummary(contextCheckpoint, finalContextNotes)
       : rawPromptText;
     let generatedProject = false;
     let generatedProjectId: string | null = null;

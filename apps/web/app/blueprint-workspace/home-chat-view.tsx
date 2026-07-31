@@ -190,7 +190,7 @@ export default function HomeChatView({
                   <Info className="h-3.5 w-3.5" />
                   Human Context Checkpoint
                 </div>
-                <div className="min-w-0 break-anywhere text-xs leading-5 text-slate-500">Answer what matters. Blank answers are recorded as unspecified.</div>
+                <div className="min-w-0 break-anywhere text-xs leading-5 text-slate-500">Optional: answer what matters, or use safe prototype defaults.</div>
               </div>
               <div className="break-anywhere mt-3 max-h-24 overflow-y-auto border border-[#2c2f37] bg-[#0f1014] px-3 py-2 text-xs leading-5 text-slate-400">
                 {pendingContext.basePrompt}
@@ -229,6 +229,16 @@ export default function HomeChatView({
                 >
                   {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   Build with context
+                </button>
+                <button
+                  type="submit"
+                  name="humanContextAction"
+                  value="use-defaults"
+                  disabled={isLoading || !generationReady}
+                  className="inline-flex h-10 items-center justify-center gap-2 border border-cyan-300/40 px-4 text-xs font-black uppercase text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                  Skip — use defaults
                 </button>
                 <button
                   type="button"

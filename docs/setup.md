@@ -21,11 +21,31 @@ The Compose backend defaults to:
 
 ```env
 BLUEPRINT_DEV_MODE=false
+DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:////data/blueprint.db
 LLM_PROVIDER=simulation
 ```
 
-Set the same database and live-provider variables listed below in your shell or repo-root `.env` before running Compose if you want Supabase or model-backed generation.
+Compose also starts an ephemeral Redis service and configures the backend to
+cache project gallery responses for 60 seconds. Project writes invalidate the
+cache immediately; Redis outages fall back to the primary database.
+
+Host-side `DATABASE_BACKEND` and `SQLITE_DATABASE_URL` values are intentionally
+ignored by Compose so a repo-root `.env` cannot accidentally route the backend
+container to a database on its own loopback interface. Live-provider variables
+still pass through normally.
+
+To intentionally use Supabase from Compose, set
+`COMPOSE_DATABASE_BACKEND=supabase` and use a URL reachable from the container.
+For a Supabase CLI instance running on the Docker host:
+
+```bash
+COMPOSE_DATABASE_BACKEND=supabase \
+SUPABASE_URL=http://host.docker.internal:54321 \
+docker compose up --build
+```
+
+Use the API port reported by `supabase status` if it differs from `54321`.
 
 If you publish the backend on a different host or port, rebuild the frontend with a matching browser-visible API URL:
 
@@ -65,6 +85,12 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # BLUEPRINT_DEV_MODE=true
 # DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:///./blueprint.db
+
+# Optional project gallery cache. Leave unset to read directly from the DB.
+REDIS_URL=redis://localhost:6379/0
+# PROJECTS_CACHE_TTL_SECONDS=60
+# REDIS_CACHE_PREFIX=blueprint
+# REDIS_SOCKET_TIMEOUT_SECONDS=0.25
 
 # Deployment-only alpha gate
 # BLUEPRINT_DEPLOYMENT=true
@@ -141,6 +167,7 @@ Notes:
 - `BLUEPRINT_DEV_MODE=true` selects SQLite for the complete application database when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
+- Docker Compose uses `COMPOSE_DATABASE_BACKEND` instead and defaults it to `sqlite`; this prevents host-only loopback Supabase URLs from breaking the container quickstart. `COMPOSE_SQLITE_DATABASE_URL` optionally overrides the container SQLite URL.
 - Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
 - Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.

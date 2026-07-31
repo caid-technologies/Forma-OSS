@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 from blueprint_core.runtime import blueprint_dev_mode_enabled
+from blueprint_core.project_list_cache import invalidate_project_lists
 from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from blueprint_core.persistence.base import DatabaseProvider
 from blueprint_core.persistence.models import (
@@ -367,6 +368,7 @@ def save_generated_project(
             "updated_at": created_at,
         }
     _DATABASE_REPOSITORY.save_generated_project(record, chat_record)
+    invalidate_project_lists()
 
 
 def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
@@ -392,18 +394,24 @@ def update_project_deletion_state(
 ) -> Optional[Any]:
     project_id = _canonical_project_id(project_id)
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
-    return _DATABASE_REPOSITORY.update_project_deletion_state(
+    updated = _DATABASE_REPOSITORY.update_project_deletion_state(
         project_id,
         normalized_owner_user_id,
         allowed_statuses,
         updates,
         expected_purge_started_at,
     )
+    if updated:
+        invalidate_project_lists()
+    return updated
 
 
 def hard_purge_generated_project(project_id: str, owner_user_id: Optional[str] = None) -> bool:
     project_id = _canonical_project_id(project_id)
-    return _DATABASE_REPOSITORY.hard_purge_project(project_id, _normalize_user_id(owner_user_id))
+    purged = _DATABASE_REPOSITORY.hard_purge_project(project_id, _normalize_user_id(owner_user_id))
+    if purged:
+        invalidate_project_lists()
+    return purged
 
 
 def update_generated_project_hardware_ir(
@@ -416,12 +424,15 @@ def update_generated_project_hardware_ir(
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
     chat_id = _normalize_chat_id(metadata.get("chat_id"))
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
-    return _DATABASE_REPOSITORY.update_generated_project_hardware_ir(
+    updated = _DATABASE_REPOSITORY.update_generated_project_hardware_ir(
         project_id,
         hardware_ir,
         chat_id,
         normalized_owner_user_id,
     )
+    if updated:
+        invalidate_project_lists()
+    return updated
 
 
 def update_generated_project_metadata(
@@ -445,11 +456,14 @@ def update_generated_project_metadata(
         updates["visibility"] = _normalize_visibility(visibility)
     if not updates:
         return True
-    return _DATABASE_REPOSITORY.update_generated_project_metadata(
+    updated = _DATABASE_REPOSITORY.update_generated_project_metadata(
         project_id,
         normalized_owner_user_id,
         updates,
     )
+    if updated:
+        invalidate_project_lists()
+    return updated
 
 
 def delete_generated_project(project_id: str, owner_user_id: str) -> bool:
@@ -457,7 +471,10 @@ def delete_generated_project(project_id: str, owner_user_id: str) -> bool:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_owner_user_id:
         return False
-    return _DATABASE_REPOSITORY.delete_generated_project(project_id, normalized_owner_user_id)
+    deleted = _DATABASE_REPOSITORY.delete_generated_project(project_id, normalized_owner_user_id)
+    if deleted:
+        invalidate_project_lists()
+    return deleted
 
 
 def get_project_contribution_consent(project_id: str, user_id: str) -> Optional[Any]:

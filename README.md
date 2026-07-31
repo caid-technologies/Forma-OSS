@@ -69,7 +69,12 @@ Build and run both images from the repo root:
 docker compose up --build
 ```
 
-The Docker setup runs the backend on port `8000`, the frontend on port `3000`, and stores SQLite data in a named Docker volume. Set `LLM_PROVIDER`, `OPENAI_API_KEY`, `LLM_API_KEY`, or the other variables from `.env.example` before running Compose to use a live model provider; otherwise the backend defaults to simulation mode.
+The Docker setup runs the backend on port `8000`, the frontend on port `3000`,
+Redis for project-list caching, and stores SQLite data in a named Docker volume.
+Compose deliberately defaults to SQLite even if the repo `.env` configures a
+host-side database. Set `COMPOSE_DATABASE_BACKEND=supabase` only with a
+container-reachable `SUPABASE_URL`. Live model-provider variables still pass
+through normally.
 
 If you change the published backend URL, rebuild the frontend with a matching public API URL:
 

@@ -16,12 +16,11 @@ import {
   RefreshCw,
   Settings,
   Terminal,
-  Wifi,
-  WifiOff,
   X,
 } from "lucide-react";
 
 import { FormaUserButton, useFormaAuth } from "../../lib/forma-auth";
+import { connectionStatusPresentation, type ServerConnectionStatus } from "../../lib/connection-status";
 
 export type ChatListItem = {
   chatId: string;
@@ -38,35 +37,39 @@ function formatSidebarDate(value: string | null) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
+function ApiConnectionStatus({ status }: { status: ServerConnectionStatus }) {
+  const presentation = connectionStatusPresentation(status);
+  const accessibleLabel = `API ${presentation.label.toLowerCase()}`;
+
+  return (
+    <span
+      className="inline-flex shrink-0 items-center"
+      role="status"
+      aria-live="polite"
+      aria-label={accessibleLabel}
+      title={accessibleLabel}
+    >
+      <span className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${presentation.dotClassName}`} aria-hidden="true" />
+    </span>
+  );
+}
+
 export function MobileWorkspaceBar({
   onOpenSidebar,
   serverStatus = "disconnected",
   authRequired,
 }: {
   onOpenSidebar: () => void;
-  serverStatus?: "connected" | "disconnected";
+  serverStatus?: ServerConnectionStatus;
   authRequired: boolean;
 }) {
-  const ApiStatusIcon = serverStatus === "connected" ? Wifi : WifiOff;
-  const apiStatusLabel = serverStatus === "connected" ? "API connected" : "API disconnected";
-  const apiStatusTone =
-    serverStatus === "connected"
-      ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
-      : "border-orange-500/30 bg-orange-950/20 text-orange-300";
-
   return (
     <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
       <div className="min-w-0 flex flex-1 items-center gap-2">
         <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
       </div>
-      <span
-        className={`inline-flex h-8 w-8 shrink-0 items-center justify-center border ${apiStatusTone}`}
-        title={apiStatusLabel}
-        aria-label={apiStatusLabel}
-      >
-        <ApiStatusIcon className="h-4 w-4" />
-      </span>
+      <ApiConnectionStatus status={serverStatus} />
       <AuthStatusControl authRequired={authRequired} compact />
     </header>
   );
@@ -223,17 +226,11 @@ export function ChatSidebar({
   jobsPending?: boolean;
   showDeveloperTools: boolean;
   authRequired: boolean;
-  serverStatus?: "connected" | "disconnected";
+  serverStatus?: ServerConnectionStatus;
   mode?: "desktop" | "drawer";
 }) {
   const isDrawer = mode === "drawer";
   const compact = !isDrawer && collapsed;
-  const ApiStatusIcon = serverStatus === "connected" ? Wifi : WifiOff;
-  const apiStatusLabel = serverStatus === "connected" ? "API connected" : "API disconnected";
-  const apiStatusTone =
-    serverStatus === "connected"
-      ? "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
-      : "border-orange-500/30 bg-orange-950/20 text-orange-300";
 
   return (
     <aside
@@ -268,13 +265,7 @@ export function ChatSidebar({
           {!compact && (
             <div className="min-w-0 flex items-center gap-2">
               <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
-              <span
-                className={`inline-flex h-7 w-7 shrink-0 items-center justify-center border ${apiStatusTone}`}
-                title={apiStatusLabel}
-                aria-label={apiStatusLabel}
-              >
-                <ApiStatusIcon className="h-3.5 w-3.5" />
-              </span>
+              <ApiConnectionStatus status={serverStatus} />
               <AuthStatusControl authRequired={authRequired} />
             </div>
           )}

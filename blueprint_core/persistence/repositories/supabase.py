@@ -168,6 +168,64 @@ class SupabaseRepository:
             return None
         return _record(payload["workflow"]), _record(payload["transition"])
 
+    def get_project_build_by_idempotency(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("project_builds")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .eq("idempotency_key", idempotency_key)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def get_latest_project_build(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        rows = (
+            self._client.table("project_builds")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def apply_project_build_initiation(
+        self,
+        state_record: Dict[str, Any],
+        transition_record: Dict[str, Any],
+        build_record: Dict[str, Any],
+        expected_state: str,
+        expected_revision: int,
+    ) -> Optional[tuple[Any, Any, Any]]:
+        data = (
+            self._client.rpc(
+                "apply_project_build_initiation",
+                {
+                    "p_state": state_record,
+                    "p_transition": transition_record,
+                    "p_build": build_record,
+                    "p_expected_state": expected_state,
+                    "p_expected_revision": expected_revision,
+                },
+            ).execute().data
+        )
+        payload = data[0] if isinstance(data, list) and data else data
+        if not isinstance(payload, dict) or not all(payload.get(key) for key in ("workflow", "transition", "build")):
+            return None
+        return _record(payload["workflow"]), _record(payload["transition"]), _record(payload["build"])
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         rows = (
             self._client.table("generated_projects")
@@ -212,6 +270,7 @@ class SupabaseRepository:
             query = query.eq("owner_user_id", owner_user_id)
         deleted = bool(query.execute().data)
         if deleted:
+            self._client.table("project_builds").delete().eq("project_id", project_id).execute()
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
@@ -280,12 +339,7 @@ class SupabaseRepository:
             .eq("status", "active")
             .execute()
         )
-        deleted = bool(response.data)
-        if deleted:
-            self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
-            self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
-            self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
-        return deleted
+        return bool(response.data)
 
     def delete_generated_project(self, project_id: str, owner_user_id: str) -> bool:
         response = (
@@ -295,7 +349,13 @@ class SupabaseRepository:
             .eq("owner_user_id", owner_user_id)
             .execute()
         )
-        return bool(response.data)
+        deleted = bool(response.data)
+        if deleted:
+            self._client.table("project_builds").delete().eq("project_id", project_id).execute()
+            self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
+            self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
+            self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
+        return deleted
 
     def get_project_contribution_consent(self, project_id: str, user_id: str) -> Optional[Any]:
         rows = (

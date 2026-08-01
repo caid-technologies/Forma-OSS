@@ -91,6 +91,29 @@ class DBProjectWorkflowTransition(Base):
     created_at = Column(String, index=True, nullable=False)
 
 
+class DBProjectBuild(Base):
+    __tablename__ = "project_builds"
+    __table_args__ = (
+        UniqueConstraint("project_id", "idempotency_key", name="uq_project_build_idempotency"),
+        UniqueConstraint("transition_id", name="uq_project_build_transition"),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    design_brief_id = Column(String, index=True, nullable=False)
+    brief_version = Column(Integer, nullable=False)
+    brief_snapshot_json = Column(JSON, nullable=False)
+    mode = Column(String, index=True, nullable=False)
+    readiness_result_json = Column(JSON, nullable=False)
+    introduced_assumptions_json = Column(JSON, nullable=False, default=list)
+    warnings_json = Column(JSON, nullable=False, default=list)
+    transition_id = Column(String, nullable=False)
+    idempotency_key = Column(String, nullable=False)
+    initiated_by = Column(String, nullable=False)
+    created_at = Column(String, index=True, nullable=False)
+
+
 class DBProjectContributionConsent(Base):
     __tablename__ = "project_contribution_consents"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_contribution_consent_project_user"),)

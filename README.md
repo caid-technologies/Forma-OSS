@@ -361,6 +361,8 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [DesignBrief contract](docs/design-brief.md)
 - [Worker contracts and capability registry](docs/worker-contracts.md)
 - [Project workflow state machine](docs/project-workflow.md)
+- [Conversational context gathering](docs/context-gathering.md)
+- [Project readiness and build initiation](docs/project-readiness.md)
 - [Agents](docs/agents.md)
 - [Hardware IR](docs/hardware-ir.md)
 - [Validation](docs/validation.md)

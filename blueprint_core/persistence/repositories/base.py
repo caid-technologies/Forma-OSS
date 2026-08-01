@@ -56,6 +56,24 @@ class ApplicationRepository(Protocol):
         expected_revision: Optional[int],
     ) -> Optional[tuple[Any, Any]]: ...
 
+    def get_project_build_by_idempotency(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]: ...
+
+    def get_latest_project_build(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def apply_project_build_initiation(
+        self,
+        state_record: Dict[str, Any],
+        transition_record: Dict[str, Any],
+        build_record: Dict[str, Any],
+        expected_state: str,
+        expected_revision: int,
+    ) -> Optional[tuple[Any, Any, Any]]: ...
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]: ...
 
     def update_project_deletion_state(

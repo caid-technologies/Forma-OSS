@@ -173,6 +173,7 @@ type ChatMessage = {
   timestamp: string;
   projectId?: string | null;
   pipelineProgress?: AgentPipelineProgress | null;
+  imagePreview?: string | null;
 };
 
 type ActiveGenerationRun = {
@@ -402,6 +403,7 @@ function normalizeChatMessage(value: any): ChatMessage | null {
     timestamp: typeof value.timestamp === "string" && value.timestamp ? value.timestamp : chatTimestamp(),
     projectId: typeof value.projectId === "string" ? value.projectId : null,
     pipelineProgress: normalizeAgentPipelineProgress(value.pipelineProgress),
+    imagePreview: typeof value.imagePreview === "string" ? value.imagePreview : null,
   };
 }
 
@@ -1511,6 +1513,7 @@ export function FormaWorkspace({
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => initialChatMessages());
   const [pendingHumanContext, setPendingHumanContext] = useState<PendingHumanContext | null>(null);
+  const contextProjectIdsRef = useRef<Record<string, string>>({});
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -1548,6 +1551,7 @@ export function FormaWorkspace({
     () => lastKnownServerStatus || "disconnected"
   );
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [selectedImageSource, setSelectedImageSource] = useState<"upload" | "clipboard">("upload");
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
   const [videoGenerationConfig, setVideoGenerationConfig] = useState<VideoGenerationConfig>({
     configured: null,
@@ -1683,16 +1687,12 @@ export function FormaWorkspace({
     () => generationLlms.find((option) => generationLlmKey(option) === generationLlmKeyValue) || generationLlms[0] || null,
     [generationLlmKeyValue, generationLlms]
   );
-  const generationLlmsReady = Boolean(selectedGenerationLlm);
   const needsGenerationProvider = generationLlmsLoaded && providerSetup.llmRequired && (!authRequired || authLoaded);
   const needsImageProvider = imageGenerationConfigLoaded && providerSetup.imageRequired && (!authRequired || authLoaded);
-  const visibleGenerationInputNotice =
-    generationInputNotice ||
-    (needsGenerationProvider
-      ? "No model provider is active. Add and enable one in Settings before building."
-      : (prompt.trim() || pendingHumanContext) && !generationInputValidation.isValid
-        ? generationInputValidation.message
-        : null);
+  const visibleContextInputNotice =
+    generationInputNotice || ((prompt.trim() || selectedImage) && !generationInputValidation.isValid
+      ? generationInputValidation.message
+      : null);
   const appendChatMessage = (message: Omit<ChatMessage, "id" | "timestamp"> & { id?: string }) => {
     const nextMessage: ChatMessage = {
       id: message.id || newChatMessageId(),
@@ -1701,6 +1701,7 @@ export function FormaWorkspace({
       status: message.status || "idle",
       projectId: message.projectId,
       pipelineProgress: message.pipelineProgress || null,
+      imagePreview: message.imagePreview || null,
       timestamp: chatTimestamp(),
     };
     setChatMessages((current) => [...current, nextMessage]);
@@ -1748,6 +1749,7 @@ export function FormaWorkspace({
       status: message.status || "idle",
       projectId: message.projectId,
       pipelineProgress: message.pipelineProgress || null,
+      imagePreview: message.imagePreview || null,
       timestamp: chatTimestamp(),
     };
     setChatThreads((current) => {
@@ -2129,6 +2131,7 @@ export function FormaWorkspace({
     setPendingHumanContext(null);
     setGenerationInputNotice(null);
     setSelectedImage(null);
+    setSelectedImageSource("upload");
     setChatRouteTransition(null);
     setProjectIR(null);
     setActiveTab("overview");
@@ -2718,7 +2721,7 @@ export function FormaWorkspace({
     };
   }, [blueprintDevMode, chatListItems, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
 
-  const attachImageFile = (file: File) => {
+  const attachImageFile = (file: File, source: "upload" | "clipboard" = "upload") => {
     if (!file.type.startsWith("image/")) {
       setGenerationInputNotice("Only image files can be attached as hardware references.");
       return;
@@ -2731,6 +2734,7 @@ export function FormaWorkspace({
       }
       setGenerationInputNotice(null);
       setSelectedImage(reader.result);
+      setSelectedImageSource(source);
     };
     reader.onerror = () => {
       setGenerationInputNotice("Forma could not read that image. Try copying or uploading it again.");
@@ -2740,7 +2744,7 @@ export function FormaWorkspace({
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) attachImageFile(file);
+    if (file) attachImageFile(file, "upload");
   };
 
   const handleImagePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -2748,12 +2752,13 @@ export function FormaWorkspace({
       || Array.from(event.clipboardData.items)
         .find((item) => item.type.startsWith("image/"))
         ?.getAsFile();
-    if (imageFile) attachImageFile(imageFile);
+    if (imageFile) attachImageFile(imageFile, "clipboard");
   };
 
   const removeSelectedImage = () => {
     setGenerationInputNotice(null);
     setSelectedImage(null);
+    setSelectedImageSource("upload");
     if (fileInputRefSidebar.current) fileInputRefSidebar.current.value = "";
     if (fileInputRefCenter.current) fileInputRefCenter.current.value = "";
   };
@@ -2823,6 +2828,88 @@ export function FormaWorkspace({
     setGenerationInputNotice("Generation stopped. You can send another message whenever you're ready.");
     if (run.jobId) void cancelGenerationJob(run.jobId);
     finishGenerationRun(run);
+  };
+
+  const handleGatherContext = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isLoading || activeGenerationRef.current) return;
+    if (!(await requireSignedInForGeneration())) return;
+
+    const validation = validateGenerationInput(prompt, Boolean(selectedImage));
+    if (!validation.isValid) {
+      setGenerationInputNotice(validation.message);
+      return;
+    }
+
+    const requestChatId = activeChatId || newBuildChatId();
+    const requestProjectId = contextProjectIdsRef.current[requestChatId] || (
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestChatId)
+        ? requestChatId
+        : newBuildChatId()
+    );
+    contextProjectIdsRef.current[requestChatId] = requestProjectId;
+    const text = prompt.trim();
+    const imageData = selectedImage;
+    const userMessageId = newChatMessageId();
+    const assistantMessageId = newChatMessageId();
+    const userContent = text || "Shared a hardware reference image.";
+
+    setActiveChatId(requestChatId);
+    rememberChatItem({
+      chatId: requestChatId,
+      title: text || "Hardware reference",
+      projectId: "",
+      createdAt: chatTimestamp(),
+      projectCount: 0,
+    });
+    syncChatRoute(requestChatId);
+    appendChatMessage({ id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
+    appendThreadMessage(requestChatId, { id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
+    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
+    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
+    setPrompt("");
+    setSelectedImage(null);
+    setSelectedImageSource("upload");
+    setGenerationInputNotice(null);
+    setIsLoading(true);
+
+    try {
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(requestProjectId)}/context/messages`, {
+        method: "POST",
+        headers: await generationRequestHeaders(),
+        body: JSON.stringify({
+          conversation_id: requestChatId,
+          text,
+          attachments: imageData ? [{
+            attachment_id: `context-image-${userMessageId}`,
+            kind: "image",
+            name: "hardware-reference.png",
+            media_type: imageData.match(/^data:([^;,]+)/)?.[1] || "image/png",
+            data_url: imageData,
+            source: selectedImageSource,
+          }] : [],
+        }),
+      });
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      const data = await res.json();
+      const persistedProjectId = typeof data?.design_brief?.project_id === "string"
+        ? data.design_brief.project_id
+        : requestProjectId;
+      contextProjectIdsRef.current[requestChatId] = persistedProjectId;
+      const assistantContent = typeof data?.assistant_message === "string"
+        ? data.assistant_message
+        : "I saved that project context. What else should the design account for?";
+      updateChatMessage(assistantMessageId, { content: assistantContent, status: "success" });
+      updateThreadMessage(requestChatId, assistantMessageId, { content: assistantContent, status: "success" });
+      setGenerationInputNotice("Context saved. Continue the conversation to refine the design brief.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not save project context.";
+      updateChatMessage(assistantMessageId, { content: message, status: "error" });
+      updateThreadMessage(requestChatId, assistantMessageId, { content: message, status: "error" });
+      setGenerationInputNotice(message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleGenerate = async (event: React.FormEvent) => {
@@ -4258,17 +4345,17 @@ export function FormaWorkspace({
                 setPendingHumanContext(null);
                 setPrompt(example);
               }}
-              onSubmit={handleGenerate}
+              onSubmit={handleGatherContext}
               pendingContext={pendingHumanContext}
               onContextAnswer={updateHumanContextAnswer}
               onClearContext={clearHumanContextCheckpoint}
               isLoading={isLoading}
-              generationReady={generationLlmsReady}
-              needsGenerationProvider={needsGenerationProvider}
-              needsImageProvider={needsImageProvider}
+              generationReady
+              needsGenerationProvider={false}
+              needsImageProvider={false}
               selectedImage={selectedImage}
               onRemoveImage={removeSelectedImage}
-              notice={visibleGenerationInputNotice}
+              notice={visibleContextInputNotice}
               prompt={prompt}
               onPromptChange={(value) => {
                 setGenerationInputNotice(null);

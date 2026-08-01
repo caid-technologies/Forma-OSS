@@ -363,6 +363,7 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [Dependency-aware worker orchestration](docs/worker-orchestration.md)
 - [Generation worker and canonical project revisions](docs/generation-worker.md)
 - [Validation worker and revision-bound findings](docs/validation-worker.md)
+- [Reverse-Engineering worker and artifact findings](docs/reverse-engineering-worker.md)
 - [Project workflow state machine](docs/project-workflow.md)
 - [Conversational context gathering](docs/context-gathering.md)
 - [Project readiness and build initiation](docs/project-readiness.md)

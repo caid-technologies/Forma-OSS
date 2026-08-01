@@ -51,6 +51,17 @@ from blueprint_core.workers.validation import (
     ValidationWorkerPayload,
     build_validation_request,
 )
+from blueprint_core.workers.reverse_engineering import (
+    REVERSE_ENGINEERING_CAPABILITY_ID,
+    REVERSE_ENGINEERING_INPUT_VERSION,
+    REVERSE_ENGINEERING_OUTPUT_VERSION,
+    REVERSE_ENGINEERING_WORKER_ID,
+    InlineImageInspectionEngine,
+    ReverseEngineeringEngine,
+    ReverseEngineeringWorker,
+    ReverseEngineeringWorkerPayload,
+    build_reverse_engineering_request,
+)
 
 __all__ = [
     "WORKER_CONTRACT_VERSION",
@@ -63,6 +74,14 @@ __all__ = [
     "GenerationWorker",
     "GenerationWorkerPayload",
     "HardwareIRGenerationEngine",
+    "InlineImageInspectionEngine",
+    "REVERSE_ENGINEERING_CAPABILITY_ID",
+    "REVERSE_ENGINEERING_INPUT_VERSION",
+    "REVERSE_ENGINEERING_OUTPUT_VERSION",
+    "REVERSE_ENGINEERING_WORKER_ID",
+    "ReverseEngineeringEngine",
+    "ReverseEngineeringWorker",
+    "ReverseEngineeringWorkerPayload",
     "RuleBasedValidationEngine",
     "VALIDATION_CAPABILITY_ID",
     "VALIDATION_INPUT_VERSION",
@@ -95,5 +114,6 @@ __all__ = [
     "WorkerResult",
     "WorkerResultStatus",
     "build_generation_draft",
+    "build_reverse_engineering_request",
     "build_validation_request",
 ]

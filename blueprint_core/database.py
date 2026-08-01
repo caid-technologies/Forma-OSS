@@ -11,6 +11,7 @@ from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_list_cache import invalidate_project_lists
 from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from blueprint_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
+from blueprint_core.workspaces.projects import ProjectRevision, ProjectStateService
 from blueprint_core.workspaces.readiness import (
     BuildInitiationOutcome,
     BuildMode,
@@ -668,6 +669,12 @@ def initialize_project_workflow(
 
 def get_project_workflow(project_id: str, owner_user_id: str) -> ProjectWorkflow:
     return ProjectWorkflowService(_DATABASE_REPOSITORY).get(project_id, owner_user_id)
+
+
+def get_latest_project_revision(project_id: str, owner_user_id: str) -> ProjectRevision:
+    """Read the latest immutable state through the canonical project boundary."""
+
+    return ProjectStateService(_DATABASE_REPOSITORY).get_latest(project_id, owner_user_id)
 
 
 def list_project_workflow_transitions(

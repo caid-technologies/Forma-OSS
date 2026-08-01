@@ -557,6 +557,7 @@ class HardwarePipelineOrchestrator:
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
         runtime_config: Optional[LLMRuntimeConfig] = None,
+        persist_project: bool = True,
     ):
         self.runtime_config = runtime_config or resolve_llm_runtime_config(
             provider_name=provider_name,
@@ -565,6 +566,7 @@ class HardwarePipelineOrchestrator:
         self.llm_provider = build_llm_provider(runtime_config=self.runtime_config)
         self.use_simulation = use_simulation or not self.llm_provider.is_configured
         self.model_name = self.llm_provider.model_name
+        self.persist_project = persist_project
         self._active_generation_metadata: Dict[str, Any] = {}
 
     def get_debug_config(self) -> Dict[str, Any]:
@@ -1430,8 +1432,10 @@ class HardwarePipelineOrchestrator:
     def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         """Saves a successfully generated HardwareIR to the configured database."""
         ensure_agent_pipeline_active()
-        project_id = canonical_project_uuid((ir.assembly_metadata or {}).get("project_id"))
         generation_metadata = self._active_generation_metadata or {}
+        project_id = canonical_project_uuid(
+            (ir.assembly_metadata or {}).get("project_id") or generation_metadata.get("project_id")
+        )
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
@@ -1442,6 +1446,8 @@ class HardwarePipelineOrchestrator:
             **public_generation_metadata,
             "project_id": project_id,
         }
+        if not self.persist_project:
+            return project_id
         try:
             save_generated_project(
                 project_id=project_id,

@@ -29,10 +29,29 @@ from blueprint_core.workers.orchestration import (
     WorkerPlanStatus,
     WorkerPlanningError,
 )
+from blueprint_core.workers.generation import (
+    GENERATION_CAPABILITY_ID,
+    GENERATION_INPUT_VERSION,
+    GENERATION_OUTPUT_VERSION,
+    GENERATION_WORKER_ID,
+    GenerationEngine,
+    GenerationWorker,
+    GenerationWorkerPayload,
+    HardwareIRGenerationEngine,
+    build_generation_draft,
+)
 
 __all__ = [
     "WORKER_CONTRACT_VERSION",
     "WORKER_REGISTRY_VERSION",
+    "GENERATION_CAPABILITY_ID",
+    "GENERATION_INPUT_VERSION",
+    "GENERATION_OUTPUT_VERSION",
+    "GENERATION_WORKER_ID",
+    "GenerationEngine",
+    "GenerationWorker",
+    "GenerationWorkerPayload",
+    "HardwareIRGenerationEngine",
     "OrchestrationTaskState",
     "OrchestrationTaskStatus",
     "ProgressReporter",
@@ -56,4 +75,5 @@ __all__ = [
     "WorkerResolution",
     "WorkerResult",
     "WorkerResultStatus",
+    "build_generation_draft",
 ]

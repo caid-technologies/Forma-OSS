@@ -411,8 +411,6 @@ class WorkerOrchestrator:
         plan: WorkerExecutionPlan,
         request: WorkerRequest,
     ) -> WorkerRequest:
-        if not request.dependencies:
-            return request
         dependency_results = {
             dependency.job_id: (
                 plan.jobs[dependency.job_id].result.model_dump(mode="json")
@@ -422,7 +420,12 @@ class WorkerOrchestrator:
             for dependency in request.dependencies
         }
         return request.model_copy(update={
-            "payload": {**request.payload, "dependency_results": dependency_results},
+            "payload": (
+                {**request.payload, "dependency_results": dependency_results}
+                if request.dependencies
+                else dict(request.payload)
+            ),
+            "metadata": {**request.metadata, "execution_owner_user_id": plan.owner_user_id},
         })
 
     def _failure_result(self, request: WorkerRequest, exc: Exception) -> WorkerResult:

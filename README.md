@@ -359,6 +359,7 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 ## Documentation
 - [Architecture](docs/architecture.md)
 - [DesignBrief contract](docs/design-brief.md)
+- [Worker contracts and capability registry](docs/worker-contracts.md)
 - [Agents](docs/agents.md)
 - [Hardware IR](docs/hardware-ir.md)
 - [Validation](docs/validation.md)

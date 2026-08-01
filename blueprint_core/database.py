@@ -11,6 +11,14 @@ from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_list_cache import invalidate_project_lists
 from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from blueprint_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
+from blueprint_core.workspaces.workflow import (
+    ProjectWorkflow,
+    ProjectWorkflowService,
+    ProjectWorkflowState,
+    ProjectWorkflowTransition,
+    WorkflowActorType,
+    WorkflowTransitionOutcome,
+)
 from blueprint_core.persistence.base import DatabaseProvider
 from blueprint_core.persistence.models import (
     Base,
@@ -358,6 +366,9 @@ def save_generated_project(
     linked_brief = _DATABASE_REPOSITORY.get_latest_design_brief(project_id, None)
     if linked_brief is not None and getattr(linked_brief, "owner_user_id", None) != normalized_owner_user_id:
         raise DesignBriefAccessError("DesignBrief is not owned by the project owner.")
+    linked_workflow = _DATABASE_REPOSITORY.get_project_workflow(project_id, None)
+    if linked_workflow is not None and getattr(linked_workflow, "owner_user_id", None) != normalized_owner_user_id:
+        raise DesignBriefAccessError("Workflow is not owned by the project owner.")
     normalized_visibility = _normalize_visibility(visibility)
     record = {
         "project_id": project_id,
@@ -416,6 +427,10 @@ def create_design_brief_version(
             raise DesignBriefAccessError("Project is not owned by the current user.")
         if getattr(project, "status", "active") != "active":
             raise DesignBriefAccessError("Cannot append a DesignBrief to a deleted project.")
+
+    workflow = _DATABASE_REPOSITORY.get_project_workflow(canonical_project_id, None)
+    if workflow is not None and getattr(workflow, "owner_user_id", None) != normalized_owner_user_id:
+        raise DesignBriefAccessError("Project workflow is not owned by the current user.")
 
     previous = _DATABASE_REPOSITORY.get_latest_design_brief(canonical_project_id, None)
     if previous is not None and getattr(previous, "owner_user_id", None) != normalized_owner_user_id:
@@ -490,6 +505,55 @@ def get_latest_design_brief(project_id: str, owner_user_id: str) -> DesignBrief:
     if record is None:
         raise DesignBriefNotFoundError("DesignBrief not found.")
     return _design_brief_from_record(record)
+
+
+def initialize_project_workflow(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    actor_type: WorkflowActorType = WorkflowActorType.SYSTEM,
+    actor_id: Optional[str] = None,
+    reason: str = "Project workflow initialized.",
+) -> WorkflowTransitionOutcome:
+    return ProjectWorkflowService(_DATABASE_REPOSITORY).initialize(
+        project_id,
+        owner_user_id,
+        actor_type=actor_type,
+        actor_id=actor_id,
+        reason=reason,
+    )
+
+
+def get_project_workflow(project_id: str, owner_user_id: str) -> ProjectWorkflow:
+    return ProjectWorkflowService(_DATABASE_REPOSITORY).get(project_id, owner_user_id)
+
+
+def list_project_workflow_transitions(
+    project_id: str,
+    owner_user_id: str,
+) -> List[ProjectWorkflowTransition]:
+    return ProjectWorkflowService(_DATABASE_REPOSITORY).history(project_id, owner_user_id)
+
+
+def transition_project_workflow(
+    project_id: str,
+    owner_user_id: str,
+    to_state: ProjectWorkflowState,
+    *,
+    actor_type: WorkflowActorType,
+    actor_id: Optional[str],
+    reason: str,
+    idempotency_key: Optional[str] = None,
+) -> WorkflowTransitionOutcome:
+    return ProjectWorkflowService(_DATABASE_REPOSITORY).transition(
+        project_id,
+        owner_user_id,
+        to_state,
+        actor_type=actor_type,
+        actor_id=actor_id,
+        reason=reason,
+        idempotency_key=idempotency_key,
+    )
 
 
 def list_due_project_purges(before: str, limit: int = 25) -> List[Any]:

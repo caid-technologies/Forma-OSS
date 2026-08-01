@@ -106,6 +106,68 @@ class SupabaseRepository:
         rows = query.order("brief_version", desc=True).limit(1).execute().data or []
         return _record(rows[0]) if rows else None
 
+    def get_project_workflow(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]:
+        query = self._client.table("project_workflows").select("*").eq("project_id", project_id)
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        rows = query.limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def list_project_workflow_transitions(self, project_id: str, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("project_workflow_transitions")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .order("revision")
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def get_project_workflow_transition_by_idempotency(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("project_workflow_transitions")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .eq("idempotency_key", idempotency_key)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def apply_project_workflow_transition(
+        self,
+        state_record: Dict[str, Any],
+        transition_record: Dict[str, Any],
+        expected_state: Optional[str],
+        expected_revision: Optional[int],
+    ) -> Optional[tuple[Any, Any]]:
+        data = (
+            self._client.rpc(
+                "apply_project_workflow_transition",
+                {
+                    "p_state": state_record,
+                    "p_transition": transition_record,
+                    "p_expected_state": expected_state,
+                    "p_expected_revision": expected_revision,
+                },
+            ).execute().data
+        )
+        payload = data[0] if isinstance(data, list) and data else data
+        if not isinstance(payload, dict) or not payload.get("workflow") or not payload.get("transition"):
+            return None
+        return _record(payload["workflow"]), _record(payload["transition"])
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         rows = (
             self._client.table("generated_projects")
@@ -151,6 +213,8 @@ class SupabaseRepository:
         deleted = bool(query.execute().data)
         if deleted:
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
+            self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
+            self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
         if not deleted or not getattr(project, "chat_id", None) or not getattr(project, "owner_user_id", None):
             return deleted
         remaining = (
@@ -219,6 +283,8 @@ class SupabaseRepository:
         deleted = bool(response.data)
         if deleted:
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
+            self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
+            self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
         return deleted
 
     def delete_generated_project(self, project_id: str, owner_user_id: str) -> bool:

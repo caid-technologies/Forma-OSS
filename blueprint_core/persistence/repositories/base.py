@@ -37,6 +37,25 @@ class ApplicationRepository(Protocol):
 
     def get_latest_design_brief(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]: ...
 
+    def get_project_workflow(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]: ...
+
+    def list_project_workflow_transitions(self, project_id: str, owner_user_id: str) -> List[Any]: ...
+
+    def get_project_workflow_transition_by_idempotency(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]: ...
+
+    def apply_project_workflow_transition(
+        self,
+        state_record: Dict[str, Any],
+        transition_record: Dict[str, Any],
+        expected_state: Optional[str],
+        expected_revision: Optional[int],
+    ) -> Optional[tuple[Any, Any]]: ...
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]: ...
 
     def update_project_deletion_state(

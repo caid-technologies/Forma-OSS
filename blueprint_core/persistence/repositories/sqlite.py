@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from blueprint_core.persistence.models import (
@@ -13,6 +14,8 @@ from blueprint_core.persistence.models import (
     DBProjectContributionSnapshot,
     DBProjectChat,
     DBProjectDeletionAudit,
+    DBProjectWorkflow,
+    DBProjectWorkflowTransition,
     DBUserSettings,
 )
 
@@ -124,6 +127,81 @@ class SqlAlchemyRepository:
                 query = query.filter(DBDesignBrief.owner_user_id == owner_user_id)
             return query.order_by(DBDesignBrief.brief_version.desc()).first()
 
+    def get_project_workflow(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]:
+        with self._session() as session:
+            query = session.query(DBProjectWorkflow).filter(DBProjectWorkflow.project_id == project_id)
+            if owner_user_id:
+                query = query.filter(DBProjectWorkflow.owner_user_id == owner_user_id)
+            return query.first()
+
+    def list_project_workflow_transitions(self, project_id: str, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBProjectWorkflowTransition)
+                .filter(
+                    DBProjectWorkflowTransition.project_id == project_id,
+                    DBProjectWorkflowTransition.owner_user_id == owner_user_id,
+                )
+                .order_by(DBProjectWorkflowTransition.revision.asc())
+                .all()
+            )
+
+    def get_project_workflow_transition_by_idempotency(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBProjectWorkflowTransition)
+                .filter(
+                    DBProjectWorkflowTransition.project_id == project_id,
+                    DBProjectWorkflowTransition.owner_user_id == owner_user_id,
+                    DBProjectWorkflowTransition.idempotency_key == idempotency_key,
+                )
+                .first()
+            )
+
+    def apply_project_workflow_transition(
+        self,
+        state_record: Dict[str, Any],
+        transition_record: Dict[str, Any],
+        expected_state: Optional[str],
+        expected_revision: Optional[int],
+    ) -> Optional[tuple[Any, Any]]:
+        try:
+            with self._session() as session, session.begin():
+                workflow = session.query(DBProjectWorkflow).filter(
+                    DBProjectWorkflow.project_id == state_record["project_id"]
+                ).first()
+                if expected_state is None:
+                    if workflow is not None:
+                        return None
+                    workflow = DBProjectWorkflow(**state_record)
+                    session.add(workflow)
+                else:
+                    if (
+                        workflow is None
+                        or workflow.owner_user_id != state_record["owner_user_id"]
+                        or workflow.state != expected_state
+                        or workflow.revision != expected_revision
+                    ):
+                        return None
+                    workflow.state = state_record["state"]
+                    workflow.revision = state_record["revision"]
+                    workflow.updated_at = state_record["updated_at"]
+                transition = DBProjectWorkflowTransition(**transition_record)
+                session.add(transition)
+                session.flush()
+                session.refresh(workflow)
+                session.refresh(transition)
+                session.expunge(workflow)
+                session.expunge(transition)
+                return workflow, transition
+        except IntegrityError:
+            return None
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
             return (
@@ -176,6 +254,12 @@ class SqlAlchemyRepository:
             chat_id = project.chat_id
             project_owner_user_id = project.owner_user_id
             session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBProjectWorkflowTransition).filter(
+                DBProjectWorkflowTransition.project_id == project_id
+            ).delete(synchronize_session=False)
+            session.query(DBProjectWorkflow).filter(DBProjectWorkflow.project_id == project_id).delete(
                 synchronize_session=False
             )
             session.delete(project)
@@ -248,6 +332,12 @@ class SqlAlchemyRepository:
             if not project:
                 return False
             session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBProjectWorkflowTransition).filter(
+                DBProjectWorkflowTransition.project_id == project_id
+            ).delete(synchronize_session=False)
+            session.query(DBProjectWorkflow).filter(DBProjectWorkflow.project_id == project_id).delete(
                 synchronize_session=False
             )
             session.delete(project)

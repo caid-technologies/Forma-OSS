@@ -127,6 +127,7 @@ from blueprint_core.video_review import FireworksVideoReviewClient
 from apps.api.logs_api import router as logs_router
 from apps.api.streams_api import router as streams_router
 from apps.api.design_briefs_api import router as design_briefs_router
+from apps.api.project_workflow_api import router as project_workflow_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
 from apps.api.auth import (
@@ -278,6 +279,7 @@ app.add_middleware(
 app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(streams_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(design_briefs_router)
+app.include_router(project_workflow_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
 

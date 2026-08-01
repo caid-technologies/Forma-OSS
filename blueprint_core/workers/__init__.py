@@ -19,10 +19,23 @@ from blueprint_core.workers.registry import (
     WorkerRegistryError,
     WorkerResolution,
 )
+from blueprint_core.workers.orchestration import (
+    OrchestrationTaskState,
+    OrchestrationTaskStatus,
+    ProgressReporter,
+    WorkerExecutionPlan,
+    WorkerExecutor,
+    WorkerOrchestrator,
+    WorkerPlanStatus,
+    WorkerPlanningError,
+)
 
 __all__ = [
     "WORKER_CONTRACT_VERSION",
     "WORKER_REGISTRY_VERSION",
+    "OrchestrationTaskState",
+    "OrchestrationTaskStatus",
+    "ProgressReporter",
     "WorkerArtifact",
     "WorkerCapability",
     "WorkerContract",
@@ -30,6 +43,11 @@ __all__ = [
     "WorkerDefinitionProvider",
     "WorkerDependency",
     "WorkerError",
+    "WorkerExecutionPlan",
+    "WorkerExecutor",
+    "WorkerOrchestrator",
+    "WorkerPlanStatus",
+    "WorkerPlanningError",
     "WorkerProgress",
     "WorkerProgressStatus",
     "WorkerRegistry",

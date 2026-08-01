@@ -28,3 +28,5 @@ Successful outputs are aggregated by job ID from validated `WorkerResult` values
 The `worker_execution_plans` record contains the validated requests and every job's status, progress events, result, artifacts, and error, along with the aggregate output. A new orchestrator instance can reload and resume a plan after process restart. Completed jobs are retained; jobs that were running when the process stopped are safely requeued.
 
 When all jobs are terminal, the project workflow advances from `building` to `awaiting_feedback` with an idempotent system transition. Both successful and failed terminal plans preserve their results for feedback and diagnosis.
+
+The first production capability on this boundary is the [Generation worker](generation-worker.md), which persists canonical project revision 1 from a frozen DesignBrief.

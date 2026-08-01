@@ -72,3 +72,4 @@ flowchart LR
 - External agents can call or listen to Forma through the A2A layer documented in `docs/a2a.md`.
 - Specialized worker execution boundaries use the versioned contracts and capability registry documented in `docs/worker-contracts.md`.
 - Dependency-aware concurrent execution and restart recovery are documented in `docs/worker-orchestration.md`.
+- Frozen-brief generation and canonical revision persistence are documented in `docs/generation-worker.md`.

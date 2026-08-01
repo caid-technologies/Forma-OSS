@@ -85,6 +85,17 @@ class ApplicationRepository(Protocol):
         updates: Dict[str, Any],
     ) -> Optional[Any]: ...
 
+    def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def get_project_revision_by_source_job(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        source_job_id: str,
+    ) -> Optional[Any]: ...
+
+    def insert_initial_project_revision(self, record: Dict[str, Any]) -> Optional[Any]: ...
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]: ...
 
     def update_project_deletion_state(

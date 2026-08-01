@@ -17,6 +17,7 @@ from blueprint_core.persistence.models import (
     DBProjectDeletionAudit,
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
+    DBProjectRevision,
     DBWorkerExecutionPlan,
     DBUserSettings,
 )
@@ -303,6 +304,48 @@ class SqlAlchemyRepository:
             session.expunge(plan)
             return plan
 
+    def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBProjectRevision)
+                .filter(
+                    DBProjectRevision.project_id == project_id,
+                    DBProjectRevision.owner_user_id == owner_user_id,
+                )
+                .order_by(DBProjectRevision.revision.desc())
+                .first()
+            )
+
+    def get_project_revision_by_source_job(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        source_job_id: str,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id,
+                DBProjectRevision.owner_user_id == owner_user_id,
+                DBProjectRevision.source_job_id == source_job_id,
+            ).first()
+
+    def insert_initial_project_revision(self, record: Dict[str, Any]) -> Optional[Any]:
+        try:
+            with self._session() as session, session.begin():
+                existing = session.query(DBProjectRevision).filter(
+                    DBProjectRevision.project_id == record["project_id"]
+                ).first()
+                if existing is not None or record["revision"] != 1 or record["parent_revision"] is not None:
+                    return None
+                revision = DBProjectRevision(**record)
+                session.add(revision)
+                session.flush()
+                session.refresh(revision)
+                session.expunge(revision)
+                return revision
+        except IntegrityError:
+            return None
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
             return (
@@ -354,6 +397,9 @@ class SqlAlchemyRepository:
                 return False
             chat_id = project.chat_id
             project_owner_user_id = project.owner_user_id
+            session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id
+            ).delete(synchronize_session=False)
             session.query(DBWorkerExecutionPlan).filter(
                 DBWorkerExecutionPlan.project_id == project_id
             ).delete(synchronize_session=False)
@@ -438,6 +484,9 @@ class SqlAlchemyRepository:
             ).first()
             if not project:
                 return False
+            session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id
+            ).delete(synchronize_session=False)
             session.query(DBWorkerExecutionPlan).filter(
                 DBWorkerExecutionPlan.project_id == project_id
             ).delete(synchronize_session=False)

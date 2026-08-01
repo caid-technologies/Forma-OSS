@@ -361,6 +361,7 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [DesignBrief contract](docs/design-brief.md)
 - [Worker contracts and capability registry](docs/worker-contracts.md)
 - [Dependency-aware worker orchestration](docs/worker-orchestration.md)
+- [Generation worker and canonical project revisions](docs/generation-worker.md)
 - [Project workflow state machine](docs/project-workflow.md)
 - [Conversational context gathering](docs/context-gathering.md)
 - [Project readiness and build initiation](docs/project-readiness.md)

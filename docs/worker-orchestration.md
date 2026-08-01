@@ -29,4 +29,4 @@ The `worker_execution_plans` record contains the validated requests and every jo
 
 When all jobs are terminal, the project workflow advances from `building` to `awaiting_feedback` with an idempotent system transition. Both successful and failed terminal plans preserve their results for feedback and diagnosis.
 
-Production capabilities on this boundary include the [Generation worker](generation-worker.md), which persists canonical project revision 1 from a frozen DesignBrief, and the [Validation worker](validation-worker.md), which persists actionable findings against an exact revision.
+Production capabilities on this boundary include the [Generation worker](generation-worker.md), which persists canonical project revision 1 from a frozen DesignBrief; the [Validation worker](validation-worker.md), which persists actionable findings against an exact revision; and the [Reverse-Engineering worker](reverse-engineering-worker.md), which produces evidence-linked artifact findings without mutating project state.

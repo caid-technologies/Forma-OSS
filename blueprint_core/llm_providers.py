@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-import os
+from blueprint_core.config import config
 import socket
 import time
 import urllib.error
@@ -39,12 +39,12 @@ DEFAULT_RUNPOD_POLL_TIMEOUT_SECONDS = 1200.0
 DEFAULT_BASETEN_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 DEFAULT_GMI_MODEL = "anthropic/claude-fable-5"
 DEFAULT_HUGGINGFACE_MODEL = "Qwen/Qwen2.5-Coder-3B-Instruct:nscale"
-DEFAULT_NEBIUS_MODEL = "Qwen/Qwen3.5-397B-A17B"
+DEFAULT_CLOUDFLARE_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 DEFAULT_NVIDIA_MODEL = "nvidia/z-ai/glm-5.2"
 DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_NEBIUS_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
+DEFAULT_CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
@@ -88,6 +88,8 @@ def model_image_input_support(provider_name: str, model_name: str) -> Optional[b
 
     if provider in {"gemini", "anthropic"}:
         return True
+    if provider == "cloudflare" and model == DEFAULT_CLOUDFLARE_MODEL:
+        return True
     if any(marker in model for marker in ("-vl", "_vl", "/vl", "vision", "llava")):
         return True
     if provider == "openai" and model.startswith(("gpt-4o", "gpt-4.1", "gpt-5")):
@@ -127,7 +129,7 @@ SUPPORTED_LLM_PROVIDERS = {
     "gemini",
     "gmi",
     "huggingface",
-    "nebius",
+    "cloudflare",
     "nvidia",
     "openai",
     "openai-compatible",
@@ -156,10 +158,10 @@ PROVIDER_ALIASES = {
     "hugging-face": "huggingface",
     "huggingface-inference": "huggingface",
     "huggingface-router": "huggingface",
-    "nebius-ai": "nebius",
-    "nebius-token-factory": "nebius",
-    "token-factory": "nebius",
-    "tokenfactory": "nebius",
+    "cloudflare-ai": "cloudflare",
+    "cloudflare-workers-ai": "cloudflare",
+    "workers-ai": "cloudflare",
+    "workers_ai": "cloudflare",
     "compatible": "openai-compatible",
     "openai_compatible": "openai-compatible",
     "runpod-openai": "runpod",
@@ -227,7 +229,7 @@ class LLMRuntimeConfig:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     stripped = value.strip()
@@ -240,6 +242,17 @@ def _first_env(names: List[str], default: Optional[str] = None) -> Optional[str]
         if value is not None:
             return value
     return default
+
+
+def _cloudflare_base_url_from_env() -> Optional[str]:
+    configured = _first_env(["CLOUDFLARE_BASE_URL"])
+    if configured:
+        return configured.rstrip("/")
+    account_id = _first_env(["CLOUDFLARE_ACCOUNT_ID"])
+    if not account_id:
+        return None
+    encoded_account_id = urllib.parse.quote(account_id, safe="")
+    return f"https://api.cloudflare.com/client/v4/accounts/{encoded_account_id}/ai/v1"
 
 
 def _parse_csv_env(names: List[str]) -> Optional[List[str]]:
@@ -332,7 +345,7 @@ def normalize_llm_provider_name(value: Optional[str]) -> Optional[str]:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -340,7 +353,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 def _first_env_bool(names: List[str], default: bool = False) -> bool:
     for name in names:
-        if os.getenv(name) is not None:
+        if config.get(name) is not None:
             return _env_bool(name, default)
     return default
 
@@ -430,8 +443,8 @@ def _default_provider_name() -> str:
         DEFAULT_HUGGINGFACE_BASE_URL,
     ):
         return "huggingface"
-    if _first_env(["NEBIUS_API_KEY"]) and _first_env(["NEBIUS_BASE_URL"], DEFAULT_NEBIUS_BASE_URL):
-        return "nebius"
+    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"]) and _cloudflare_base_url_from_env():
+        return "cloudflare"
     if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
@@ -456,11 +469,8 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         DEFAULT_HUGGINGFACE_BASE_URL,
     ):
         providers.add("huggingface")
-    if _first_env(["NEBIUS_API_KEY"]) and _first_env(
-        ["NEBIUS_BASE_URL"],
-        DEFAULT_NEBIUS_BASE_URL,
-    ):
-        providers.add("nebius")
+    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"]) and _cloudflare_base_url_from_env():
+        providers.add("cloudflare")
     if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL", "LLM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
@@ -491,33 +501,34 @@ def _allowed_provider_names(default_provider: str) -> Optional[List[str]]:
     return sorted(set(allowed))
 
 
-def _default_model_for_provider(provider_name: str) -> str:
+def _default_model_for_provider(provider_name: str, *, include_runtime_override: bool = True) -> str:
+    runtime_model = ["LLM_MODEL"] if include_runtime_override else []
     if provider_name == "anthropic":
-        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", "LLM_MODEL"], DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
+        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", *runtime_model], DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
     if provider_name == "baseten":
-        return _first_env(["BASETEN_MODEL", "LLM_MODEL"], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
+        return _first_env(["BASETEN_MODEL", *runtime_model], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
     if provider_name == "gemini":
-        return _first_env(["LLM_MODEL", "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
+        return _first_env([*runtime_model, "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
     if provider_name == "gmi":
         return _normalize_model_for_provider(
             provider_name,
-            _first_env(["GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", "LLM_MODEL"], DEFAULT_GMI_MODEL) or DEFAULT_GMI_MODEL,
+            _first_env(["GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", *runtime_model], DEFAULT_GMI_MODEL) or DEFAULT_GMI_MODEL,
         )
     if provider_name == "huggingface":
         return _first_env(["HUGGINGFACE_MODEL", "HF_MODEL"], DEFAULT_HUGGINGFACE_MODEL) or DEFAULT_HUGGINGFACE_MODEL
-    if provider_name == "nebius":
-        return _first_env(["NEBIUS_MODEL", "LLM_MODEL"], DEFAULT_NEBIUS_MODEL) or DEFAULT_NEBIUS_MODEL
+    if provider_name == "cloudflare":
+        return _first_env(["CLOUDFLARE_MODEL", *runtime_model], DEFAULT_CLOUDFLARE_MODEL) or DEFAULT_CLOUDFLARE_MODEL
     if provider_name == "nvidia":
-        return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", "LLM_MODEL"], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
+        return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", *runtime_model], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
     if provider_name == "openai":
-        return _first_env(["OPENAI_MODEL", "LLM_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        return _first_env(["OPENAI_MODEL", *runtime_model], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
     if provider_name == "openai-compatible":
-        return _first_env(["LLM_MODEL", "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        return _first_env([*runtime_model, "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
     if provider_name == "runpod":
-        return _first_env(["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL"], "runpod-default") or "runpod-default"
+        return _first_env(["RUNPOD_OPENAI_MODEL", *runtime_model, "RUNPOD_MODEL"], "runpod-default") or "runpod-default"
     if provider_name == "runpod-serverless":
         return (
-            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", "LLM_MODEL"], "runpod-serverless")
+            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", *runtime_model], "runpod-serverless")
             or "runpod-serverless"
         )
     return "simulation"
@@ -535,8 +546,8 @@ def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
         return _normalize_model_for_provider(provider_name, fallback) if fallback else None
     if provider_name == "huggingface":
         return _first_env(["HUGGINGFACE_FALLBACK_MODEL", "HF_FALLBACK_MODEL"])
-    if provider_name == "nebius":
-        return _first_env(["NEBIUS_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+    if provider_name == "cloudflare":
+        return _first_env(["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "nvidia":
         return _first_env(["NVIDIA_FALLBACK_MODEL", "NVIDIA_NIM_FALLBACK_MODEL", "NIM_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "openai":
@@ -584,8 +595,8 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
         env_names = ["GMI_ALLOWED_MODELS", "GMI_CLOUD_ALLOWED_MODELS", "GMICLOUD_ALLOWED_MODELS", "ALLOWED_GMI_MODELS", *env_names]
     elif provider_name == "huggingface":
         env_names = ["HUGGINGFACE_ALLOWED_MODELS", "HF_ALLOWED_MODELS", "ALLOWED_HUGGINGFACE_MODELS", *env_names]
-    elif provider_name == "nebius":
-        env_names = ["NEBIUS_ALLOWED_MODELS", "ALLOWED_NEBIUS_MODELS", *env_names]
+    elif provider_name == "cloudflare":
+        env_names = ["CLOUDFLARE_ALLOWED_MODELS", "ALLOWED_CLOUDFLARE_MODELS", *env_names]
     elif provider_name == "openai":
         env_names = ["OPENAI_ALLOWED_MODELS", "ALLOWED_OPENAI_MODELS", *env_names]
     elif provider_name == "openai-compatible":
@@ -639,7 +650,10 @@ def resolve_llm_runtime_config(
                 "Set LLM_ALLOWED_PROVIDERS to include it."
             )
 
-    default_model = _default_model_for_provider(provider)
+    default_model = _default_model_for_provider(
+        provider,
+        include_runtime_override=provider == default_provider,
+    )
     requested_model = model_name.strip() if isinstance(model_name, str) else None
     requested_model = requested_model or None
     model = _normalize_model_for_provider(provider, requested_model or default_model)
@@ -1119,7 +1133,7 @@ class AnthropicProvider(StructuredLLMProvider):
         return {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": os.getenv("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "User-Agent": config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
             "x-api-key": self.api_key or "",
             "anthropic-version": self.anthropic_version,
         }
@@ -1413,7 +1427,7 @@ class AnthropicProvider(StructuredLLMProvider):
 class OpenAICompatibleProvider(StructuredLLMProvider):
     def __init__(self, provider_name: str = "openai", model_name: Optional[str] = None):
         normalized_provider = normalize_llm_provider_name(provider_name) or "openai"
-        if normalized_provider in {"baseten", "gmi", "huggingface", "nebius", "nvidia", "openai", "runpod"}:
+        if normalized_provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "runpod"}:
             self.provider_name = normalized_provider
         else:
             self.provider_name = "openai-compatible"
@@ -1466,21 +1480,21 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             default_model_name = DEFAULT_HUGGINGFACE_MODEL
             default_base_url = DEFAULT_HUGGINGFACE_BASE_URL
             default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
-        elif self.provider_name == "nebius":
-            api_key_names = ["NEBIUS_API_KEY", "LLM_API_KEY"]
-            base_url_names = ["NEBIUS_BASE_URL"]
-            model_names = ["NEBIUS_MODEL", "LLM_MODEL"]
-            fallback_model_names = ["NEBIUS_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
-            strict_names = ["STRICT_NEBIUS", "STRICT_LLM"]
-            validate_model_names = ["NEBIUS_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
-            response_format_names = ["NEBIUS_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
-            timeout_names = ["NEBIUS_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
-            max_tokens_names = ["NEBIUS_MAX_TOKENS", "LLM_MAX_TOKENS"]
-            temperature_names = ["NEBIUS_TEMPERATURE", "LLM_TEMPERATURE"]
-            reasoning_effort_names = ["NEBIUS_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
-            allow_no_api_key_names = ["NEBIUS_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
-            default_model_name = DEFAULT_NEBIUS_MODEL
-            default_base_url = DEFAULT_NEBIUS_BASE_URL
+        elif self.provider_name == "cloudflare":
+            api_key_names = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY", "LLM_API_KEY"]
+            base_url_names = ["CLOUDFLARE_BASE_URL"]
+            model_names = ["CLOUDFLARE_MODEL", "LLM_MODEL"]
+            fallback_model_names = ["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
+            strict_names = ["STRICT_CLOUDFLARE", "STRICT_LLM"]
+            validate_model_names = ["CLOUDFLARE_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
+            response_format_names = ["CLOUDFLARE_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
+            timeout_names = ["CLOUDFLARE_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
+            max_tokens_names = ["CLOUDFLARE_MAX_TOKENS", "LLM_MAX_TOKENS"]
+            temperature_names = ["CLOUDFLARE_TEMPERATURE", "LLM_TEMPERATURE"]
+            reasoning_effort_names = ["CLOUDFLARE_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
+            allow_no_api_key_names = ["CLOUDFLARE_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
+            default_model_name = DEFAULT_CLOUDFLARE_MODEL
+            default_base_url = None
             default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
         elif self.provider_name == "nvidia":
             api_key_names = ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY", "LLM_API_KEY"]
@@ -1550,7 +1564,12 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.api_key = _first_env(api_key_names)
         self.organization_id = _first_env(["OPENAI_ORG_ID", "OPENAI_ORGANIZATION", "OPENAI_ORGANIZATION_ID"])
         self.project_id = _first_env(["OPENAI_PROJECT_ID", "OPENAI_PROJECT"])
-        configured_base_url = _runpod_openai_base_url_from_env() if self.provider_name == "runpod" else _first_env(base_url_names)
+        if self.provider_name == "runpod":
+            configured_base_url = _runpod_openai_base_url_from_env()
+        elif self.provider_name == "cloudflare":
+            configured_base_url = _cloudflare_base_url_from_env()
+        else:
+            configured_base_url = _first_env(base_url_names)
         if self.provider_name == "runpod" and configured_base_url is None:
             runpod_serverless_url_env_name = _runpod_serverless_url_env_name()
             if runpod_serverless_url_env_name:
@@ -1576,7 +1595,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.fallback_model = _normalize_model_for_provider(self.provider_name, raw_fallback_model) if raw_fallback_model else None
         self.strict_mode = _first_env_bool(strict_names, default=True)
         self.validate_models = _first_env_bool(validate_model_names, default=False)
-        default_response_format = "json_schema" if self.provider_name in {"nebius", "openai"} else "json_object"
+        default_response_format = "json_schema" if self.provider_name in {"cloudflare", "openai"} else "json_object"
         self.response_format = (
             _first_env(response_format_names, default_response_format)
             or default_response_format
@@ -1590,6 +1609,9 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.reasoning_effort = _first_env_optional_string(
             reasoning_effort_names,
             omit_values=["default", "omit"],
+        )
+        self.cloudflare_enable_thinking = (
+            config.cloudflare_enable_thinking if self.provider_name == "cloudflare" else None
         )
         self.allow_no_api_key = _first_env_bool(
             allow_no_api_key_names,
@@ -1608,7 +1630,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": os.getenv("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "User-Agent": config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -1721,8 +1743,8 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Increase HUGGINGFACE_TIMEOUT_SECONDS/HF_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "gmi":
             return "Increase GMI_TIMEOUT_SECONDS/GMI_CLOUD_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
-        if self.provider_name == "nebius":
-            return "Increase NEBIUS_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
+        if self.provider_name == "cloudflare":
+            return "Increase CLOUDFLARE_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "nvidia":
             return "Increase NVIDIA_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "runpod":
@@ -1736,8 +1758,8 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Set HF_TOKEN, HUGGINGFACE_API_KEY, or HUGGINGFACE_HUB_TOKEN. HUGGINGFACE_BASE_URL defaults to https://router.huggingface.co/v1."
         if self.provider_name == "gmi":
             return "Set GMI_API_KEY or GMI_CLOUD_API_KEY. GMI_BASE_URL defaults to https://api.gmi-serving.com/v1."
-        if self.provider_name == "nebius":
-            return "Set NEBIUS_API_KEY. NEBIUS_BASE_URL defaults to https://api.tokenfactory.nebius.com/v1."
+        if self.provider_name == "cloudflare":
+            return "Set CLOUDFLARE_API_TOKEN plus CLOUDFLARE_ACCOUNT_ID, or set CLOUDFLARE_BASE_URL explicitly."
         if self.provider_name == "nvidia":
             return "Set NVIDIA_API_KEY. NVIDIA_BASE_URL defaults to https://integrate.api.nvidia.com/v1."
         if self.provider_name == "runpod":
@@ -1972,6 +1994,11 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         if self.temperature is not None:
             payload["temperature"] = self.temperature
 
+        if self.provider_name == "cloudflare":
+            payload["chat_template_kwargs"] = {
+                "enable_thinking": bool(self.cloudflare_enable_thinking),
+            }
+
         if self.reasoning_effort:
             payload["reasoning_effort"] = self.reasoning_effort
 
@@ -2044,7 +2071,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
                         max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
                         STRUCTURED_MAX_TOKENS_CEILING,
                     )
-                    if self.provider_name == "nebius" and has_reasoning_content and not self.reasoning_effort:
+                    if self.provider_name == "cloudflare" and has_reasoning_content and not self.reasoning_effort:
                         payload["reasoning_effort"] = "low"
                     logger.warning(
                         "%s returned no visible %s content (finish_reason=%s, completion_tokens=%s, "
@@ -2355,7 +2382,7 @@ def build_llm_provider(
         return AnthropicProvider(model_name=runtime.model)
     if runtime.provider == "gemini":
         return GeminiProvider(model_name=runtime.model)
-    if runtime.provider in {"baseten", "gmi", "huggingface", "nebius", "nvidia", "openai", "openai-compatible"}:
+    if runtime.provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "openai-compatible"}:
         return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model)
     if runtime.provider == "runpod":
         return OpenAICompatibleProvider(provider_name="runpod", model_name=runtime.model)
@@ -2366,7 +2393,7 @@ def build_llm_provider(
 
     message = (
         f"Unsupported LLM_PROVIDER '{runtime.provider}'. Supported providers are "
-        "anthropic, baseten, gemini, gmi, huggingface, nebius, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
+        "anthropic, baseten, gemini, gmi, huggingface, cloudflare, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
     )
     logger.warning(message)
     return SimulationProvider(validation_error=message)

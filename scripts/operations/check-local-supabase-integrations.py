@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -12,6 +11,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from blueprint_core.config import config  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.local", override=False)
@@ -33,11 +34,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    os.environ.setdefault("DATABASE_BACKEND", "supabase")
-    os.environ.setdefault("BLUEPRINT_DEV_MODE", "true")
-    os.environ.setdefault("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", "supabase")
-    os.environ.setdefault("BLUEPRINT_WORKSPACE_CONFIG_CACHE_TTL_SECONDS", "0")
-    os.environ.setdefault("BLUEPRINT_WORKSPACE_CONFIG_FAILURE_TTL_SECONDS", "0")
+    config.set_default("DATABASE_BACKEND", "supabase")
+    config.set_default("BLUEPRINT_DEV_MODE", "true")
+    config.set_default("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", "supabase")
+    config.set_default("BLUEPRINT_WORKSPACE_CONFIG_CACHE_TTL_SECONDS", "0")
+    config.set_default("BLUEPRINT_WORKSPACE_CONFIG_FAILURE_TTL_SECONDS", "0")
 
     from blueprint_core.database import get_database_config
     from blueprint_core.user_integrations import SupabaseWorkspaceIntegrationStore, UserIntegrationConfig

@@ -38,7 +38,7 @@ class ProviderRegistry:
                     env_file=env_file,
                     streamer_factory=openai_compatible_streamer_factory,
                 ),
-                OpenAICompatibleChatProviderClient.nebius(
+                OpenAICompatibleChatProviderClient.cloudflare(
                     env_file=env_file,
                     streamer_factory=openai_compatible_streamer_factory,
                 ),

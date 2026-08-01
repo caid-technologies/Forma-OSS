@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
 import sys
 import time
@@ -20,6 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config  # noqa: E402
 
 DEFAULT_PROMPT = (
     "Design a compact blue desktop environmental monitor with an OLED display, "
@@ -48,7 +48,7 @@ class EnvSetting:
     value: str
 
     def apply(self) -> None:
-        os.environ[self.name] = self.value
+        config.set(self.name, self.value)
 
 
 @dataclass(frozen=True)
@@ -205,7 +205,7 @@ def ollama_job(model: str, base_url: str, timeout_seconds: float, *, generate_im
         dict.fromkeys(
             [
                 model,
-                os.getenv("OLLAMA_BLUEPRINT_MODEL", ""),
+                config.get("OLLAMA_BLUEPRINT_MODEL", ""),
                 "qwen3:0.6b",
                 "qwen3:8b",
                 "qwen3-vl:8b",
@@ -334,8 +334,7 @@ def huggingface_job(
 
 
 def apply_job_environment(base_environment: dict[str, str], job: ProviderJob) -> None:
-    os.environ.clear()
-    os.environ.update(base_environment)
+    config.replace(base_environment)
     for setting in job.settings:
         setting.apply()
 
@@ -555,16 +554,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=f"Directory for JSON output. Defaults to {DEFAULT_OUTPUT_DIR}.")
     parser.add_argument("--run-id", default=None, help="Stable run id for output filenames.")
     parser.add_argument("--only", action="append", choices=("ollama", "runpod", "baseten", "gmi", "huggingface"), help="Run only one provider. Can be repeated.")
-    parser.add_argument("--ollama-model", default=os.getenv("OLLAMA_BLUEPRINT_MODEL", DEFAULT_OLLAMA_MODEL))
-    parser.add_argument("--ollama-base-url", default=os.getenv("OLLAMA_OPENAI_BASE_URL", DEFAULT_OLLAMA_BASE_URL))
-    parser.add_argument("--runpod-model", default=os.getenv("RUNPOD_BLUEPRINT_MODEL", DEFAULT_RUNPOD_MODEL))
-    parser.add_argument("--runpod-base-url", default=os.getenv("RUNPOD_OPENAI_BASE_URL"), help="Optional Runpod OpenAI-compatible base URL override.")
-    parser.add_argument("--baseten-model", default=os.getenv("BASETEN_BLUEPRINT_MODEL", DEFAULT_BASETEN_GLM_MODEL))
-    parser.add_argument("--baseten-base-url", default=os.getenv("BASETEN_BASE_URL", DEFAULT_BASETEN_BASE_URL))
-    parser.add_argument("--gmi-model", default=os.getenv("GMI_BLUEPRINT_MODEL", os.getenv("GMI_MODEL", DEFAULT_GMI_FABLE_MODEL)))
-    parser.add_argument("--gmi-base-url", default=os.getenv("GMI_BASE_URL", DEFAULT_GMI_BASE_URL))
-    parser.add_argument("--huggingface-model", default=os.getenv("HUGGINGFACE_BLUEPRINT_MODEL", DEFAULT_HUGGINGFACE_QWEN_MODEL))
-    parser.add_argument("--huggingface-base-url", default=os.getenv("HUGGINGFACE_BASE_URL", DEFAULT_HUGGINGFACE_BASE_URL))
+    parser.add_argument("--ollama-model", default=config.get("OLLAMA_BLUEPRINT_MODEL", DEFAULT_OLLAMA_MODEL))
+    parser.add_argument("--ollama-base-url", default=config.get("OLLAMA_OPENAI_BASE_URL", DEFAULT_OLLAMA_BASE_URL))
+    parser.add_argument("--runpod-model", default=config.get("RUNPOD_BLUEPRINT_MODEL", DEFAULT_RUNPOD_MODEL))
+    parser.add_argument("--runpod-base-url", default=config.get("RUNPOD_OPENAI_BASE_URL"), help="Optional Runpod OpenAI-compatible base URL override.")
+    parser.add_argument("--baseten-model", default=config.get("BASETEN_BLUEPRINT_MODEL", DEFAULT_BASETEN_GLM_MODEL))
+    parser.add_argument("--baseten-base-url", default=config.get("BASETEN_BASE_URL", DEFAULT_BASETEN_BASE_URL))
+    parser.add_argument("--gmi-model", default=config.get("GMI_BLUEPRINT_MODEL", config.get("GMI_MODEL", DEFAULT_GMI_FABLE_MODEL)))
+    parser.add_argument("--gmi-base-url", default=config.get("GMI_BASE_URL", DEFAULT_GMI_BASE_URL))
+    parser.add_argument("--huggingface-model", default=config.get("HUGGINGFACE_BLUEPRINT_MODEL", DEFAULT_HUGGINGFACE_QWEN_MODEL))
+    parser.add_argument("--huggingface-base-url", default=config.get("HUGGINGFACE_BASE_URL", DEFAULT_HUGGINGFACE_BASE_URL))
     parser.add_argument("--timeout-seconds", type=float, default=1200.0, help="Provider timeout for slow jobs.")
     parser.add_argument("--generate-image", action="store_true", help="Request product image generation for each project object.")
     parser.add_argument("--print-object-json", action="store_true", help="Also print full project objects to stdout.")
@@ -584,7 +583,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[project-objects] config error: {exc}", file=sys.stderr)
         return 2
 
-    base_environment = dict(os.environ)
+    base_environment = config.snapshot()
     requested = set(args.only or ("ollama", "runpod", "baseten"))
     jobs: list[ProviderJob] = []
     if "ollama" in requested:

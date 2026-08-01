@@ -1,4 +1,4 @@
-import os
+from blueprint_core.config.environment import config
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
 
@@ -17,10 +17,7 @@ class AlphaGenerationUnavailableError(RuntimeError):
 
 
 def env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return config.boolean(name, default)
 
 
 def blueprint_dev_mode_enabled() -> bool:
@@ -36,7 +33,7 @@ def primary_database_backend_from_environment() -> str:
     }
     configured_backend = None
     for name in DATABASE_BACKEND_ENV_NAMES:
-        value = os.getenv(name)
+        value = config.get(name)
         if not value or not value.strip():
             continue
         normalized = aliases.get(value.strip().lower())
@@ -44,8 +41,8 @@ def primary_database_backend_from_environment() -> str:
             configured_backend = normalized
             break
 
-    supabase_url = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
-    supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_SECRET_KEY")
+    supabase_url = config.get("SUPABASE_URL") or config.get("NEXT_PUBLIC_SUPABASE_URL")
+    supabase_key = config.get("SUPABASE_SERVICE_ROLE_KEY") or config.get("SUPABASE_SECRET_KEY")
 
     if blueprint_dev_mode_enabled():
         parsed = urlparse(supabase_url or "")

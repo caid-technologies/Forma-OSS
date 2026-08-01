@@ -1,6 +1,7 @@
 import errno
 import logging
-import os
+
+from blueprint_core.config import config
 import re
 import sys
 from pathlib import Path
@@ -34,21 +35,18 @@ def _log_level(value: Optional[str]) -> int:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    raw_value = os.getenv(name)
-    if raw_value is None:
-        return default
-    return raw_value.strip().lower() in {"1", "true", "yes", "on"}
+    return config.boolean(name, default)
 
 
 def _serverless_runtime_detected() -> bool:
-    return any(os.getenv(name) for name in SERVERLESS_ENV_VARS)
+    return any(config.get(name) for name in SERVERLESS_ENV_VARS)
 
 
 def _tmp_log_fallback_path(path: Path) -> Optional[Path]:
     if not _env_bool("BACKEND_LOG_TMP_FALLBACK", True):
         return None
 
-    tmp_dir = Path(os.getenv("TMPDIR") or "/tmp").expanduser()
+    tmp_dir = Path(config.get("TMPDIR") or "/tmp").expanduser()
     try:
         resolved_tmp_dir = tmp_dir.resolve()
         resolved_path = path.resolve()
@@ -64,7 +62,7 @@ def _tmp_log_fallback_path(path: Path) -> Optional[Path]:
 
 
 def _log_namespaces() -> Tuple[str, ...]:
-    raw_value = os.getenv("BACKEND_LOG_NAMESPACES") or os.getenv("BLUEPRINT_LOG_NAMESPACES") or ""
+    raw_value = config.get("BACKEND_LOG_NAMESPACES") or config.get("BLUEPRINT_LOG_NAMESPACES") or ""
     if not raw_value.strip():
         return ()
     namespaces = []
@@ -161,7 +159,7 @@ def _configure_file_logging(
                 exc,
                 fallback_path,
             )
-            os.environ["BACKEND_LOG_FILE"] = str(fallback_path)
+            config.set("BACKEND_LOG_FILE", str(fallback_path))
             try:
                 _attach_file_handlers(fallback_path, level, formatter, namespaces)
                 return fallback_path
@@ -199,8 +197,8 @@ def _ensure_console_handler(
 
 def configure_backend_logging() -> None:
     """Configure Forma backend logging for console and optional file output."""
-    level = _log_level(os.getenv("LOG_LEVEL") or ("DEBUG" if debug_mode_enabled() else None))
-    formatter = logging.Formatter(os.getenv("BACKEND_LOG_FORMAT", DEFAULT_LOG_FORMAT))
+    level = _log_level(config.get("LOG_LEVEL") or ("DEBUG" if debug_mode_enabled() else None))
+    formatter = logging.Formatter(config.get("BACKEND_LOG_FORMAT", DEFAULT_LOG_FORMAT))
     namespaces = _log_namespaces()
     root_logger = logging.getLogger()
     root_logger.setLevel(level)

@@ -204,7 +204,7 @@ class GenerateProjectRequest(BaseModel):
     )
     provider: Optional[str] = Field(
         None,
-        description="Optional runtime LLM provider override, for example openai, anthropic, baseten, gmi, huggingface, nebius, nvidia, openai-compatible, gemini, runpod, runpod-serverless, or simulation"
+        description="Optional runtime LLM provider override, for example openai, anthropic, baseten, gmi, huggingface, cloudflare, nvidia, openai-compatible, gemini, runpod, runpod-serverless, or simulation"
     )
     model: Optional[str] = Field(
         None,

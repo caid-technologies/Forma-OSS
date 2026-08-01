@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import os
+from blueprint_core.config import config
 import re
 import traceback
 from typing import Any, Dict, Optional
 
-from blueprint_core.runtime_config import blueprint_dev_mode_enabled
+from blueprint_core.config.runtime import blueprint_dev_mode_enabled
 
 
 DEBUG_ENV_VARS = ("BLUEPRINT_DEBUG", "BLUEPRINT_DEBUG_MODE", "API_DEBUG", "DEBUG")
@@ -27,10 +27,7 @@ RUNTIME_CONTEXT_PATTERN = re.compile(
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return config.boolean(name, default)
 
 
 def debug_mode_enabled() -> bool:
@@ -40,7 +37,7 @@ def debug_mode_enabled() -> bool:
 def get_debug_mode_config() -> Dict[str, Any]:
     return {
         "enabled": debug_mode_enabled(),
-        "env_vars": [name for name in DEBUG_ENV_VARS if os.getenv(name) is not None],
+        "env_vars": [name for name in DEBUG_ENV_VARS if config.get(name) is not None],
     }
 
 

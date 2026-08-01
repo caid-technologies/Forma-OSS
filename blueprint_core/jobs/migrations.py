@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-import os
+from blueprint_core.config import config
 import sqlite3
 from contextlib import closing
 from pathlib import Path
@@ -32,7 +32,7 @@ def _json_dumps(value: Any) -> str:
 
 
 def legacy_job_database_path() -> str:
-    return os.getenv("JOB_METADATA_DB_PATH", DEFAULT_LEGACY_JOB_DB_PATH)
+    return config.get("JOB_METADATA_DB_PATH", DEFAULT_LEGACY_JOB_DB_PATH)
 
 
 def migrate_job_schema(engine: Engine, *, import_legacy_jobs: bool = True) -> None:

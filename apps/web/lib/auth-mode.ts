@@ -1,7 +1,9 @@
+import { webConfig } from "./config";
+
 export type BlueprintAuthMode = "local" | "clerk";
 
 export function blueprintAuthMode(): BlueprintAuthMode {
-  const value = (process.env.BLUEPRINT_AUTH_MODE || "").trim().toLowerCase();
+  const value = webConfig.authMode;
   if (!value) {
     throw new Error('BLUEPRINT_AUTH_MODE is required. Expected "local" or "clerk".');
   }

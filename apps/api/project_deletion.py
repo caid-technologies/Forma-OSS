@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
+from blueprint_core.config import config
 import re
 import uuid
 from collections import Counter
@@ -60,7 +60,7 @@ def iso_timestamp(value: Optional[datetime] = None) -> str:
 
 def retention_days() -> int:
     try:
-        return max(1, int(os.getenv("PROJECT_DELETION_RETENTION_DAYS", str(DEFAULT_RETENTION_DAYS))))
+        return max(1, int(config.get("PROJECT_DELETION_RETENTION_DAYS", str(DEFAULT_RETENTION_DAYS))))
     except ValueError:
         return DEFAULT_RETENTION_DAYS
 
@@ -347,7 +347,7 @@ def purge_project(project_id: str) -> Dict[str, Any]:
         except ValueError:
             parsed_started_at = utc_now() - timedelta(hours=1)
         try:
-            stale_after = max(60, int(os.getenv("PROJECT_PURGE_STALE_AFTER_SECONDS", str(DEFAULT_PURGE_STALE_AFTER_SECONDS))))
+            stale_after = max(60, int(config.get("PROJECT_PURGE_STALE_AFTER_SECONDS", str(DEFAULT_PURGE_STALE_AFTER_SECONDS))))
         except ValueError:
             stale_after = DEFAULT_PURGE_STALE_AFTER_SECONDS
         if parsed_started_at > utc_now() - timedelta(seconds=stale_after):
@@ -402,7 +402,7 @@ def purge_due_projects(limit: int = 25) -> List[Dict[str, Any]]:
     for project in list_due_project_purges(iso_timestamp(), limit):
         project_id = str(_attr(project, "project_id"))
         try:
-            alert_after = max(60, int(os.getenv("PROJECT_PURGE_ALERT_AFTER_SECONDS", "3600")))
+            alert_after = max(60, int(config.get("PROJECT_PURGE_ALERT_AFTER_SECONDS", "3600")))
             deadline = datetime.fromisoformat(str(_attr(project, "purge_after")).replace("Z", "+00:00"))
             if deadline.tzinfo is None:
                 deadline = deadline.replace(tzinfo=timezone.utc)
@@ -451,7 +451,7 @@ def deletion_metrics() -> Dict[str, int]:
 
 async def purge_worker(stop_event: asyncio.Event) -> None:
     try:
-        interval = max(10, int(os.getenv("PROJECT_PURGE_INTERVAL_SECONDS", str(DEFAULT_PURGE_INTERVAL_SECONDS))))
+        interval = max(10, int(config.get("PROJECT_PURGE_INTERVAL_SECONDS", str(DEFAULT_PURGE_INTERVAL_SECONDS))))
     except ValueError:
         interval = DEFAULT_PURGE_INTERVAL_SECONDS
     while not stop_event.is_set():

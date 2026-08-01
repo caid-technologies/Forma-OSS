@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import os
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
@@ -23,6 +22,7 @@ from sync_project_objects import (
     scrub,
     utc_run_id,
 )
+from blueprint_core.config import config
 
 
 PROMPT = (
@@ -60,7 +60,7 @@ def run_provider(provider_label: str, run_id: str) -> dict[str, Any]:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     load_env_file(repo_path(ENV_FILE))
-    base_environment = dict(os.environ)
+    base_environment = config.snapshot()
 
     if provider_label == "ollama":
         job = ollama_job(OLLAMA_MODEL, OLLAMA_BASE_URL, TIMEOUT_SECONDS, generate_image=GENERATE_IMAGE)

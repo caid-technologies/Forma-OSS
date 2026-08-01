@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-import os
+from blueprint_core.config import config
 from typing import Literal
 
 
@@ -16,7 +16,7 @@ AUTH_MODES = {"local", "clerk"}
 
 def blueprint_auth_mode() -> AuthMode:
     """Return the explicitly configured authentication mode."""
-    value = (os.getenv(AUTH_MODE_ENV) or "").strip().lower()
+    value = (config.get(AUTH_MODE_ENV) or "").strip().lower()
     if not value:
         message = f"{AUTH_MODE_ENV} is required. Expected 'local' or 'clerk'."
         logger.critical(message)

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-import os
 import sys
 import urllib.error
 import urllib.parse
@@ -14,6 +13,11 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from blueprint_core.config import config  # noqa: E402
 
 DEFAULT_ENV_FILE = ".env"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
@@ -371,7 +375,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         env_file = Path(args.env_file).expanduser()
         file_env = load_env_file(env_file)
-        env = dict(os.environ)
+        env = config.snapshot()
         env.update(file_env)
 
         api_key = first_env(env, ["OPENAI_API_KEY", "LLM_API_KEY"])

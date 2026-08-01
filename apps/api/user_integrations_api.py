@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-import os
+from blueprint_core.config import config
 import time
 from typing import Optional
 
@@ -37,10 +37,10 @@ class ImageModelTestRequest(BaseModel):
 
 
 def image_model_test_available() -> bool:
-    vercel_env = (os.getenv("VERCEL_ENV") or "").strip().lower()
+    vercel_env = (config.get("VERCEL_ENV") or "").strip().lower()
     if vercel_env in {"preview", "development"}:
         return True
-    if vercel_env == "production" or os.getenv("VERCEL") == "1":
+    if vercel_env == "production" or config.get("VERCEL") == "1":
         return False
     return not deployment_mode_enabled()
 

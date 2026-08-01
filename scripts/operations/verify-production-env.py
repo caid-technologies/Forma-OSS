@@ -25,7 +25,7 @@ PROVIDER_KEYS = {
     "baseten": ("BASETEN_API_KEY", "LLM_API_KEY"),
     "gmi": ("GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY", "LLM_API_KEY"),
     "huggingface": ("HUGGINGFACE_API_KEY", "HUGGINGFACE_HUB_TOKEN", "HF_TOKEN", "HF_API_TOKEN", "LLM_API_KEY"),
-    "nebius": ("NEBIUS_API_KEY", "LLM_API_KEY"),
+    "cloudflare": ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY", "LLM_API_KEY"),
     "nvidia": ("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY", "LLM_API_KEY"),
     "runpod": ("RUNPOD_API_KEY", "LLM_API_KEY"),
     "runpod-serverless": ("RUNPOD_API_KEY",),

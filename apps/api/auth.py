@@ -1,7 +1,7 @@
 import base64
 from collections import defaultdict, deque
 import json
-import os
+from blueprint_core.config import config
 import threading
 import time
 from dataclasses import dataclass, field
@@ -46,7 +46,7 @@ class UserContext:
 def _csv_env(name: str) -> Set[str]:
     return {
         item.strip()
-        for item in (os.getenv(name) or "").replace("\n", ",").split(",")
+        for item in (config.get(name) or "").replace("\n", ",").split(",")
         if item.strip()
     }
 
@@ -78,10 +78,10 @@ def _issuer_from_publishable_key(value: Optional[str]) -> Optional[str]:
 
 def clerk_issuer() -> Optional[str]:
     issuer = (
-        os.getenv("CLERK_JWT_ISSUER")
-        or os.getenv("CLERK_ISSUER")
-        or os.getenv("CLERK_FRONTEND_API_URL")
-        or _issuer_from_publishable_key(os.getenv("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY") or os.getenv("CLERK_PUBLISHABLE_KEY"))
+        config.get("CLERK_JWT_ISSUER")
+        or config.get("CLERK_ISSUER")
+        or config.get("CLERK_FRONTEND_API_URL")
+        or _issuer_from_publishable_key(config.get("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY") or config.get("CLERK_PUBLISHABLE_KEY"))
     )
     if not issuer:
         return None
@@ -116,7 +116,7 @@ def verify_clerk_bearer_token(token: str) -> Dict[str, Any]:
 
 
 def _clerk_secret_key() -> Optional[str]:
-    value = os.getenv("CLERK_SECRET_KEY")
+    value = config.get("CLERK_SECRET_KEY")
     return value.strip() if value and value.strip() else None
 
 
@@ -320,7 +320,7 @@ async def require_recent_user_context(request: Request) -> UserContext:
     issued_at = context.claims.get("auth_time") or context.claims.get("iat")
     try:
         age_seconds = time.time() - float(issued_at)
-        max_age_seconds = max(60, int(os.getenv("DESTRUCTIVE_AUTH_MAX_AGE_SECONDS", "600")))
+        max_age_seconds = max(60, int(config.get("DESTRUCTIVE_AUTH_MAX_AGE_SECONDS", "600")))
     except (TypeError, ValueError):
         age_seconds = float("inf")
         max_age_seconds = 600
@@ -338,8 +338,8 @@ async def require_destructive_user_context(request: Request) -> UserContext:
     user_id = context.owner_user_id or context.subject or "anonymous"
     now = time.time()
     try:
-        window_seconds = max(60, int(os.getenv("DESTRUCTIVE_RATE_LIMIT_WINDOW_SECONDS", "300")))
-        request_limit = max(1, int(os.getenv("DESTRUCTIVE_RATE_LIMIT_REQUESTS", "20")))
+        window_seconds = max(60, int(config.get("DESTRUCTIVE_RATE_LIMIT_WINDOW_SECONDS", "300")))
+        request_limit = max(1, int(config.get("DESTRUCTIVE_RATE_LIMIT_REQUESTS", "20")))
     except ValueError:
         window_seconds, request_limit = 300, 20
     with _DESTRUCTIVE_RATE_LOCK:

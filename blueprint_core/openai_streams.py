@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 import json
-import os
 import time
 import urllib.error
 import urllib.parse
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
 from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.config import config
 
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
@@ -24,14 +24,14 @@ DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_BASETEN_STREAM_MODEL = "zai-org/GLM-5.2"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_GMI_STREAM_MODEL = "anthropic/claude-fable-5"
-DEFAULT_NEBIUS_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
-DEFAULT_NEBIUS_STREAM_MODEL = "Qwen/Qwen3.5-397B-A17B"
+DEFAULT_CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
+DEFAULT_CLOUDFLARE_STREAM_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 DEFAULT_OPENAI_COMPATIBLE_CHAT_TEMPERATURE = 0.2
 DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
 
 def http_user_agent() -> str:
-    return os.getenv("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT)
+    return config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT)
 
 
 class OpenAIStreamConfigError(RuntimeError):
@@ -168,7 +168,7 @@ class OpenAICompatibleChatConfig:
     ) -> "OpenAICompatibleChatConfig":
         env = merged_env(env_file)
         provider = normalize_stream_provider_name(provider_name)
-        if provider not in {"baseten", "gmi", "nebius"}:
+        if provider not in {"baseten", "gmi", "cloudflare"}:
             raise OpenAIStreamConfigError(f"Unsupported OpenAI-compatible stream provider {provider_name!r}.")
 
         if provider == "baseten":
@@ -194,20 +194,24 @@ class OpenAICompatibleChatConfig:
             default_temperature = None
             missing_key_message = "Missing GMI_API_KEY or GMI_CLOUD_API_KEY in .env or process environment."
         else:
-            api_key_names = ("NEBIUS_API_KEY", "LLM_API_KEY")
-            base_url_names = ("NEBIUS_BASE_URL",)
-            model_names = ("NEBIUS_STREAM_MODEL", "NEBIUS_MODEL", "LLM_MODEL")
-            timeout_names = ("NEBIUS_STREAM_TIMEOUT_SECONDS", "NEBIUS_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS")
-            max_output_names = ("NEBIUS_STREAM_MAX_OUTPUT_TOKENS", "NEBIUS_MAX_TOKENS", "LLM_MAX_TOKENS")
-            temperature_names = ("NEBIUS_STREAM_TEMPERATURE", "NEBIUS_TEMPERATURE", "LLM_TEMPERATURE")
-            default_model = DEFAULT_NEBIUS_STREAM_MODEL
-            default_base_url = DEFAULT_NEBIUS_BASE_URL
+            api_key_names = ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY", "LLM_API_KEY")
+            base_url_names = ("CLOUDFLARE_BASE_URL",)
+            model_names = ("CLOUDFLARE_STREAM_MODEL", "CLOUDFLARE_MODEL", "LLM_MODEL")
+            timeout_names = ("CLOUDFLARE_STREAM_TIMEOUT_SECONDS", "CLOUDFLARE_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS")
+            max_output_names = ("CLOUDFLARE_STREAM_MAX_OUTPUT_TOKENS", "CLOUDFLARE_MAX_TOKENS", "LLM_MAX_TOKENS")
+            temperature_names = ("CLOUDFLARE_STREAM_TEMPERATURE", "CLOUDFLARE_TEMPERATURE", "LLM_TEMPERATURE")
+            default_model = DEFAULT_CLOUDFLARE_STREAM_MODEL
+            default_base_url = cloudflare_base_url(env)
             default_temperature = DEFAULT_OPENAI_COMPATIBLE_CHAT_TEMPERATURE
-            missing_key_message = "Missing NEBIUS_API_KEY in .env or process environment."
+            missing_key_message = "Missing CLOUDFLARE_API_TOKEN in .env or process environment."
 
         api_key = first_env(env, *api_key_names)
         if not api_key:
             raise OpenAIStreamConfigError(missing_key_message)
+        if provider == "cloudflare" and not (base_url or first_env(env, *base_url_names) or default_base_url):
+            raise OpenAIStreamConfigError(
+                "Missing CLOUDFLARE_ACCOUNT_ID; set it or provide CLOUDFLARE_BASE_URL explicitly."
+            )
 
         resolved_model = model_name_for_provider(
             provider,
@@ -585,7 +589,7 @@ def compact_openai_error(body: str) -> str:
 
 
 def merged_env(env_file: Path) -> Mapping[str, str]:
-    env = dict(os.environ)
+    env = config.snapshot()
     if env_file.exists():
         env.update(load_env_file(env_file))
     return env
@@ -646,6 +650,17 @@ def first_env(env: Mapping[str, str], *names: str) -> str | None:
     return None
 
 
+def cloudflare_base_url(env: Mapping[str, str]) -> str:
+    configured = first_env(env, "CLOUDFLARE_BASE_URL")
+    if configured:
+        return configured.rstrip("/")
+    account_id = first_env(env, "CLOUDFLARE_ACCOUNT_ID")
+    if not account_id:
+        return ""
+    encoded_account_id = urllib.parse.quote(account_id, safe="")
+    return f"https://api.cloudflare.com/client/v4/accounts/{encoded_account_id}/ai/v1"
+
+
 def float_env(env: Mapping[str, str], default: float, *names: str) -> float:
     value = first_env(env, *names)
     if not value:
@@ -697,10 +712,10 @@ def normalize_stream_provider_name(value: str | None) -> str:
         "gmicloud": "gmi",
         "gemicloud": "gmi",
         "gmi-serving": "gmi",
-        "nebius-ai": "nebius",
-        "nebius-token-factory": "nebius",
-        "token-factory": "nebius",
-        "tokenfactory": "nebius",
+        "cloudflare-ai": "cloudflare",
+        "cloudflare-workers-ai": "cloudflare",
+        "workers-ai": "cloudflare",
+        "workers_ai": "cloudflare",
     }
     return aliases.get(provider, provider or "openai")
 
@@ -735,8 +750,8 @@ __all__ = [
     "DEFAULT_BASETEN_STREAM_MODEL",
     "DEFAULT_GMI_BASE_URL",
     "DEFAULT_GMI_STREAM_MODEL",
-    "DEFAULT_NEBIUS_BASE_URL",
-    "DEFAULT_NEBIUS_STREAM_MODEL",
+    "DEFAULT_CLOUDFLARE_BASE_URL",
+    "DEFAULT_CLOUDFLARE_STREAM_MODEL",
     "DEFAULT_OPENAI_BASE_URL",
     "DEFAULT_OPENAI_STREAM_MODEL",
     "DEFAULT_OPENAI_STREAM_PROMPT",
@@ -751,6 +766,7 @@ __all__ = [
     "ServerSentEvent",
     "chat_completion_chunks",
     "chat_completion_text",
+    "cloudflare_base_url",
     "iter_sse_events",
     "model_name_for_provider",
     "normalize_stream_provider_name",

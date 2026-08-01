@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import base64
 import json
-import os
 import sys
 import time
 import urllib.request
@@ -19,6 +18,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config
 from blueprint_core.image_providers import GeneratedImage, build_image_provider
 from blueprint_core.workspaces.projects.models import HardwareIR
 from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
@@ -93,22 +93,22 @@ def image_bytes_from_data_url_or_url(value: str) -> tuple[bytes, str]:
 
 def configure_image_env(args: argparse.Namespace) -> None:
     if args.provider:
-        os.environ["IMAGE_PROVIDER"] = args.provider
+        config.set("IMAGE_PROVIDER", args.provider)
     if args.model:
-        os.environ["OPENAI_IMAGE_MODEL"] = args.model
-        os.environ["IMAGE_MODEL"] = args.model
+        config.set("OPENAI_IMAGE_MODEL", args.model)
+        config.set("IMAGE_MODEL", args.model)
     if args.size:
-        os.environ["OPENAI_IMAGE_SIZE"] = args.size
-        os.environ["IMAGE_SIZE"] = args.size
+        config.set("OPENAI_IMAGE_SIZE", args.size)
+        config.set("IMAGE_SIZE", args.size)
     if args.output_format:
-        os.environ["OPENAI_IMAGE_OUTPUT_FORMAT"] = args.output_format
-        os.environ["IMAGE_OUTPUT_FORMAT"] = args.output_format
+        config.set("OPENAI_IMAGE_OUTPUT_FORMAT", args.output_format)
+        config.set("IMAGE_OUTPUT_FORMAT", args.output_format)
     if args.quality:
-        os.environ["OPENAI_IMAGE_QUALITY"] = args.quality
-        os.environ["IMAGE_QUALITY"] = args.quality
+        config.set("OPENAI_IMAGE_QUALITY", args.quality)
+        config.set("IMAGE_QUALITY", args.quality)
     if args.timeout_seconds:
-        os.environ["OPENAI_IMAGE_TIMEOUT_SECONDS"] = str(args.timeout_seconds)
-        os.environ["IMAGE_TIMEOUT_SECONDS"] = str(args.timeout_seconds)
+        config.set("OPENAI_IMAGE_TIMEOUT_SECONDS", str(args.timeout_seconds))
+        config.set("IMAGE_TIMEOUT_SECONDS", str(args.timeout_seconds))
 
 
 def generate_images(prompt: str, ir: HardwareIR, *, sequence: bool) -> list[tuple[GeneratedImage, float]]:

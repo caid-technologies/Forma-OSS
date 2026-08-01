@@ -9,7 +9,6 @@ results show how the model itself behaves.
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 import time
@@ -24,6 +23,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config  # noqa: E402
 
 MODEL = "caid-technologies/parti-base"
 ENV_FILE = ".env"
@@ -214,23 +214,27 @@ def classify_seed(seed: Optional[dict[str, Any]]) -> dict[str, Any]:
 
 
 def configure_runpod_env() -> None:
-    os.environ["LLM_PROVIDER"] = "runpod"
-    os.environ["LLM_ALLOWED_PROVIDERS"] = "runpod"
-    os.environ["RUNPOD_MODEL"] = MODEL
-    os.environ["RUNPOD_OPENAI_MODEL"] = MODEL
-    os.environ["RUNPOD_ALLOWED_MODELS"] = MODEL
-    os.environ["RUNPOD_TIMEOUT_SECONDS"] = str(TIMEOUT_SECONDS)
-    os.environ["LLM_TIMEOUT_SECONDS"] = str(TIMEOUT_SECONDS)
-    os.environ["RUNPOD_MAX_TOKENS"] = str(MAX_TOKENS)
-    os.environ["RUNPOD_TEMPERATURE"] = str(TEMPERATURE)
-    os.environ["STRICT_RUNPOD"] = "true"
-    os.environ["STRICT_LLM"] = "true"
-    os.environ["RUNPOD_FALLBACK_MODEL"] = ""
-    os.environ["RUNPOD_OPENAI_FALLBACK_MODEL"] = ""
-    os.environ["LLM_FALLBACK_MODEL"] = ""
-    os.environ["BLUEPRINT_DISABLE_GENERATION_FALLBACK"] = "true"
-    os.environ["BLUEPRINT_STRICT_GENERATION"] = "true"
-    os.environ["LLM_DISABLE_FALLBACK"] = "true"
+    config.update(
+        {
+            "LLM_PROVIDER": "runpod",
+            "LLM_ALLOWED_PROVIDERS": "runpod",
+            "RUNPOD_MODEL": MODEL,
+            "RUNPOD_OPENAI_MODEL": MODEL,
+            "RUNPOD_ALLOWED_MODELS": MODEL,
+            "RUNPOD_TIMEOUT_SECONDS": str(TIMEOUT_SECONDS),
+            "LLM_TIMEOUT_SECONDS": str(TIMEOUT_SECONDS),
+            "RUNPOD_MAX_TOKENS": str(MAX_TOKENS),
+            "RUNPOD_TEMPERATURE": str(TEMPERATURE),
+            "STRICT_RUNPOD": "true",
+            "STRICT_LLM": "true",
+            "RUNPOD_FALLBACK_MODEL": "",
+            "RUNPOD_OPENAI_FALLBACK_MODEL": "",
+            "LLM_FALLBACK_MODEL": "",
+            "BLUEPRINT_DISABLE_GENERATION_FALLBACK": "true",
+            "BLUEPRINT_STRICT_GENERATION": "true",
+            "LLM_DISABLE_FALLBACK": "true",
+        }
+    )
 
 
 def build_probes() -> list[Probe]:

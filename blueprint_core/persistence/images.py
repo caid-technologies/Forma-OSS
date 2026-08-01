@@ -2,7 +2,7 @@
 
 import base64
 import mimetypes
-import os
+from blueprint_core.config import config
 import re
 import uuid
 import urllib.request
@@ -48,7 +48,7 @@ class StoredImage:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     value = value.strip()

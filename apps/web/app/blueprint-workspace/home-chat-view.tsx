@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEventHandler, FormEventHandler, ReactNode, RefObject } from "react";
+import type { ChangeEventHandler, ClipboardEventHandler, FormEventHandler, ReactNode, RefObject } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -65,6 +65,7 @@ type HomeChatViewProps = {
   inputValid: boolean;
   imageInputRef: RefObject<HTMLInputElement>;
   onImageChange: ChangeEventHandler<HTMLInputElement>;
+  onImagePaste: ClipboardEventHandler<HTMLTextAreaElement>;
 };
 
 function formatTimestamp(value: string) {
@@ -99,6 +100,7 @@ export default function HomeChatView({
   inputValid,
   imageInputRef,
   onImageChange,
+  onImagePaste,
 }: HomeChatViewProps) {
   return (
     <section
@@ -320,6 +322,7 @@ export default function HomeChatView({
             <textarea
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
+              onPaste={onImagePaste}
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
@@ -336,7 +339,7 @@ export default function HomeChatView({
               onClick={() => imageInputRef.current?.click()}
               className="absolute bottom-3 left-3 inline-flex h-9 w-9 items-center justify-center border border-[#2c2f37] text-slate-400 transition hover:bg-white hover:text-black sm:bottom-4 sm:left-4 sm:h-10 sm:w-10"
               aria-label="Attach image"
-              title="Attach image"
+              title="Attach an image or paste one from your clipboard"
             >
               <Paperclip className="h-4 w-4" />
             </button>

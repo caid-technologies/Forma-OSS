@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import os
+
+from blueprint_core.config import config
 import queue
 import shlex
 import subprocess
@@ -15,14 +17,14 @@ DEFAULT_FIRECRAWL_MCP_COMMAND = "npx -y firecrawl-mcp"
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name)
+    raw = config.get(name)
     if raw is None:
         return default
     try:
@@ -44,8 +46,8 @@ class FirecrawlMCPConfig:
         if _env_bool("FIRECRAWL_MCP_DISABLED", False):
             return cls(enabled=False, reason="FIRECRAWL_MCP_DISABLED is true.")
 
-        configured_command = os.getenv("FIRECRAWL_MCP_COMMAND")
-        api_key = os.getenv("FIRECRAWL_API_KEY")
+        configured_command = config.get("FIRECRAWL_MCP_COMMAND")
+        api_key = config.get("FIRECRAWL_API_KEY")
         if configured_command:
             command = shlex.split(configured_command)
         elif api_key:
@@ -121,7 +123,7 @@ class _MCPStdioSession:
         self.process: Optional[subprocess.Popen[bytes]] = None
 
     def __enter__(self) -> "_MCPStdioSession":
-        env = os.environ.copy()
+        env = config.snapshot()
         self.process = subprocess.Popen(
             self.command,
             stdin=subprocess.PIPE,

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 import sys
 from contextlib import contextmanager
 from typing import Any, Dict, Iterator, List, Optional
 
 from dotenv import load_dotenv
+
+from blueprint_core.config import config
 
 load_dotenv()
 
@@ -32,18 +33,11 @@ class NoopObservation:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    stripped = value.strip()
-    return stripped if stripped else default
+    return config.first((name,), default)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return config.boolean(name, default)
 
 
 def _max_field_chars() -> int:
@@ -62,7 +56,7 @@ def _keys_configured() -> bool:
 
 
 def langfuse_enabled() -> bool:
-    if os.getenv("LANGFUSE_ENABLED") is not None:
+    if config.get("LANGFUSE_ENABLED") is not None:
         return _env_bool("LANGFUSE_ENABLED")
     return _keys_configured()
 
@@ -70,7 +64,7 @@ def langfuse_enabled() -> bool:
 def get_langfuse_debug_config() -> Dict[str, Any]:
     enabled = langfuse_enabled()
     reason = None
-    if os.getenv("LANGFUSE_ENABLED") is not None and not enabled:
+    if config.get("LANGFUSE_ENABLED") is not None and not enabled:
         reason = "LANGFUSE_ENABLED is false."
     elif not enabled:
         reason = "Set LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY to enable tracing."

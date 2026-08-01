@@ -105,16 +105,19 @@ LLM_ENV_KEYS = {
     "OLLAMA_NATIVE_CHAT",
     "OLLAMA_NUM_CTX",
     "OLLAMA_THINK",
-    "NEBIUS_ALLOWED_MODELS",
-    "NEBIUS_API_KEY",
-    "NEBIUS_BASE_URL",
-    "NEBIUS_FALLBACK_MODEL",
-    "NEBIUS_MAX_TOKENS",
-    "NEBIUS_MODEL",
-    "NEBIUS_RESPONSE_FORMAT",
-    "NEBIUS_TEMPERATURE",
-    "NEBIUS_TIMEOUT_SECONDS",
-    "NEBIUS_VALIDATE_MODELS",
+    "CLOUDFLARE_ALLOWED_MODELS",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_AI_API_KEY",
+    "CLOUDFLARE_API_KEY",
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_BASE_URL",
+    "CLOUDFLARE_FALLBACK_MODEL",
+    "CLOUDFLARE_MAX_TOKENS",
+    "CLOUDFLARE_MODEL",
+    "CLOUDFLARE_RESPONSE_FORMAT",
+    "CLOUDFLARE_TEMPERATURE",
+    "CLOUDFLARE_TIMEOUT_SECONDS",
+    "CLOUDFLARE_VALIDATE_MODELS",
     "NIM_API_KEY",
     "NVIDIA_ALLOWED_MODELS",
     "NVIDIA_API_KEY",
@@ -151,7 +154,7 @@ LLM_ENV_KEYS = {
     "STRICT_GMI_CLOUD",
     "STRICT_GMICLOUD",
     "STRICT_LLM",
-    "STRICT_NEBIUS",
+    "STRICT_CLOUDFLARE",
 }
 
 
@@ -219,10 +222,10 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIsInstance(captured["payload"]["format"], dict)
 
     def test_image_input_capability_identifies_known_model_types(self) -> None:
-        self.assertFalse(model_image_input_support("nebius", "nvidia/nemotron-3-super-120b-a12b"))
-        self.assertTrue(model_image_input_support("nebius", "Qwen/Qwen2-VL-72B-Instruct"))
+        self.assertFalse(model_image_input_support("cloudflare", "nvidia/nemotron-3-super-120b-a12b"))
+        self.assertTrue(model_image_input_support("cloudflare", "@cf/google/gemma-4-26b-a4b-it"))
         self.assertTrue(model_image_input_support("openai", "gpt-5.5"))
-        self.assertIsNone(model_image_input_support("nebius", "some-new-model"))
+        self.assertIsNone(model_image_input_support("cloudflare", "some-new-model"))
 
     def test_parse_provider_model_selector(self) -> None:
         selector = parse_llm_selector("runpod/caid-technologies/parti-base")
@@ -400,41 +403,43 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
         self.assertTrue(provider.is_configured)
 
-    def test_nebius_runtime_uses_token_factory_defaults(self) -> None:
+    def test_cloudflare_runtime_uses_workers_ai_defaults(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="token-factory",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
+            LLM_PROVIDER="workers-ai",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
         ):
             runtime = resolve_llm_runtime_config()
             provider = build_llm_provider(runtime_config=runtime)
 
-        self.assertEqual("nebius", runtime.provider)
-        self.assertEqual("Qwen/Qwen3.5-397B-A17B", runtime.model)
-        self.assertIn("Qwen/Qwen3.5-397B-A17B", runtime.allowed_models or [])
-        self.assertEqual("nebius", provider.provider_name)
-        self.assertEqual("Qwen/Qwen3.5-397B-A17B", provider.requested_model)
-        self.assertEqual("https://api.tokenfactory.nebius.com/v1", provider.base_url)
+        self.assertEqual("cloudflare", runtime.provider)
+        self.assertEqual("@cf/google/gemma-4-26b-a4b-it", runtime.model)
+        self.assertIn("@cf/google/gemma-4-26b-a4b-it", runtime.allowed_models or [])
+        self.assertEqual("cloudflare", provider.provider_name)
+        self.assertEqual("@cf/google/gemma-4-26b-a4b-it", provider.requested_model)
+        self.assertEqual("https://api.cloudflare.com/client/v4/accounts/test-account/ai/v1", provider.base_url)
         self.assertEqual("json_schema", provider.response_format)
         self.assertTrue(provider.is_configured)
 
-    def test_nebius_api_key_autodetects_provider(self) -> None:
-        with isolated_llm_env(NEBIUS_API_KEY="nebius_test"):
+    def test_cloudflare_api_token_autodetects_provider(self) -> None:
+        with isolated_llm_env(CLOUDFLARE_API_TOKEN="cloudflare_test", CLOUDFLARE_ACCOUNT_ID="test-account"):
             runtime = resolve_llm_runtime_config()
 
-        self.assertEqual("nebius", runtime.provider)
-        self.assertIn("nebius", runtime.configured_providers or [])
+        self.assertEqual("cloudflare", runtime.provider)
+        self.assertIn("cloudflare", runtime.configured_providers or [])
 
-    def test_nebius_structured_request_uses_json_schema_and_max_tokens(self) -> None:
+    def test_cloudflare_structured_request_uses_json_schema_and_max_tokens(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="nebius",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
-            NEBIUS_MODEL="openai/gpt-oss-120b",
-            NEBIUS_MAX_TOKENS="321",
-            NEBIUS_VALIDATE_MODELS="false",
+            LLM_PROVIDER="cloudflare",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
+            CLOUDFLARE_MODEL="@cf/google/gemma-4-26b-a4b-it",
+            CLOUDFLARE_MAX_TOKENS="321",
+            CLOUDFLARE_VALIDATE_MODELS="false",
         ):
-            runtime = resolve_llm_runtime_config("nebius", "openai/gpt-oss-120b")
+            runtime = resolve_llm_runtime_config("cloudflare", "@cf/google/gemma-4-26b-a4b-it")
             provider = build_llm_provider(runtime_config=runtime)
 
         payloads = []
@@ -469,12 +474,13 @@ class LLMRuntimeTests(unittest.TestCase):
 
     def test_known_text_only_model_rejects_image_before_request(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="nebius",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
-            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
+            LLM_PROVIDER="cloudflare",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
+            CLOUDFLARE_MODEL="nvidia/nemotron-3-super-120b-a12b",
         ):
-            runtime = resolve_llm_runtime_config("nebius", "nvidia/nemotron-3-super-120b-a12b")
+            runtime = resolve_llm_runtime_config("cloudflare", "nvidia/nemotron-3-super-120b-a12b")
             provider = build_llm_provider(runtime_config=runtime)
 
         with self.assertRaisesRegex(LLMProviderInputError, "vision-capable model"):
@@ -482,14 +488,15 @@ class LLMRuntimeTests(unittest.TestCase):
 
     def test_web_research_rejects_text_only_image_input_before_research(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="nebius",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
-            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
-            NEBIUS_VALIDATE_MODELS="false",
+            LLM_PROVIDER="cloudflare",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
+            CLOUDFLARE_MODEL="nvidia/nemotron-3-super-120b-a12b",
+            CLOUDFLARE_VALIDATE_MODELS="false",
         ):
             pipeline = WebResearchHardwarePipeline(
-                provider_name="nebius",
+                provider_name="cloudflare",
                 model_name="nvidia/nemotron-3-super-120b-a12b",
             )
             with patch.object(pipeline, "_research") as research:
@@ -504,17 +511,18 @@ class LLMRuntimeTests(unittest.TestCase):
 
     def test_provider_normalizes_unknown_image_modality_error(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="nebius",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
-            NEBIUS_MODEL="some-new-model",
-            NEBIUS_VALIDATE_MODELS="false",
+            LLM_PROVIDER="cloudflare",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
+            CLOUDFLARE_MODEL="some-new-model",
+            CLOUDFLARE_VALIDATE_MODELS="false",
         ):
-            runtime = resolve_llm_runtime_config("nebius", "some-new-model")
+            runtime = resolve_llm_runtime_config("cloudflare", "some-new-model")
             provider = build_llm_provider(runtime_config=runtime)
 
         def reject_image(*_args, **_kwargs):
-            raise RuntimeError('nebius request failed with HTTP 400: {"detail":"Unknown modality: image"}')
+            raise RuntimeError('cloudflare request failed with HTTP 400: {"detail":"Unknown modality: image"}')
 
         provider._request_json = reject_image
         with self.assertRaisesRegex(LLMProviderInputError, "cannot read reference images"):
@@ -525,16 +533,17 @@ class LLMRuntimeTests(unittest.TestCase):
                 image_mime_type="image/png",
             )
 
-    def test_nebius_retries_when_reasoning_uses_budget_before_visible_content(self) -> None:
+    def test_cloudflare_retries_when_reasoning_uses_budget_before_visible_content(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="nebius",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
-            NEBIUS_MODEL="nvidia/nemotron-3-super-120b-a12b",
-            NEBIUS_MAX_TOKENS="7000",
-            NEBIUS_VALIDATE_MODELS="false",
+            LLM_PROVIDER="cloudflare",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
+            CLOUDFLARE_MODEL="@cf/google/gemma-4-26b-a4b-it",
+            CLOUDFLARE_MAX_TOKENS="7000",
+            CLOUDFLARE_VALIDATE_MODELS="false",
         ):
-            runtime = resolve_llm_runtime_config("nebius", "nvidia/nemotron-3-super-120b-a12b")
+            runtime = resolve_llm_runtime_config("cloudflare", "@cf/google/gemma-4-26b-a4b-it")
             provider = build_llm_provider(runtime_config=runtime)
 
         payloads = []
@@ -580,18 +589,21 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("Recovered Project", result.title)
         self.assertEqual(7000, payloads[0]["max_tokens"])
         self.assertEqual(14000, payloads[1]["max_tokens"])
+        self.assertEqual({"enable_thinking": False}, payloads[0]["chat_template_kwargs"])
+        self.assertEqual({"enable_thinking": False}, payloads[1]["chat_template_kwargs"])
         self.assertNotIn("reasoning_effort", payloads[0])
         self.assertEqual("low", payloads[1]["reasoning_effort"])
 
-    def test_nebius_empty_retry_reports_safe_response_metadata(self) -> None:
+    def test_cloudflare_empty_retry_reports_safe_response_metadata(self) -> None:
         with isolated_llm_env(
-            LLM_PROVIDER="nebius",
-            LLM_ALLOWED_PROVIDERS="nebius,simulation",
-            NEBIUS_API_KEY="nebius_test",
-            NEBIUS_MODEL="some-new-model",
-            NEBIUS_VALIDATE_MODELS="false",
+            LLM_PROVIDER="cloudflare",
+            LLM_ALLOWED_PROVIDERS="cloudflare,simulation",
+            CLOUDFLARE_API_TOKEN="cloudflare_test",
+            CLOUDFLARE_ACCOUNT_ID="test-account",
+            CLOUDFLARE_MODEL="some-new-model",
+            CLOUDFLARE_VALIDATE_MODELS="false",
         ):
-            runtime = resolve_llm_runtime_config("nebius", "some-new-model")
+            runtime = resolve_llm_runtime_config("cloudflare", "some-new-model")
             provider = build_llm_provider(runtime_config=runtime)
 
         provider._request_json = lambda *_args, **_kwargs: {

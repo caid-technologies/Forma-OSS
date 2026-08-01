@@ -7,7 +7,6 @@ import argparse
 import asyncio
 import base64
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -21,6 +20,8 @@ from pydantic import BaseModel, Field
 ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
+
+from blueprint_core.config import config
 
 DEFAULT_PROMPT = (
     "Design a buildable ESP32 indoor air-quality monitor with CO2, particulate, temperature, "
@@ -344,9 +345,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     from dotenv import load_dotenv
 
     load_dotenv(ROOT_DIR / ".env", override=False)
-    os.environ["IMAGE_PROVIDER"] = "gmi"
-    os.environ["GMI_IMAGE_MODEL"] = "gpt-image-2"
-    os.environ["IMAGE_OUTPUT_ENABLED"] = "true"
+    config.update(
+        {
+            "IMAGE_PROVIDER": "gmi",
+            "GMI_IMAGE_MODEL": "gpt-image-2",
+            "IMAGE_OUTPUT_ENABLED": "true",
+        }
+    )
 
     started = utc_now()
     run_id = started.strftime("%Y%m%dT%H%M%SZ")

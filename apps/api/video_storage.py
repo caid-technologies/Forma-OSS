@@ -1,6 +1,6 @@
 import logging
 import mimetypes
-import os
+from blueprint_core.config import config
 import re
 import urllib.request
 from dataclasses import dataclass
@@ -53,7 +53,7 @@ class StoredVideo:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     stripped = value.strip()

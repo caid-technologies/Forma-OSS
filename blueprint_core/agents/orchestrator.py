@@ -1,6 +1,6 @@
 import json
 import logging
-import os
+from blueprint_core.config import config
 import re
 import uuid
 from datetime import datetime, timezone
@@ -153,7 +153,7 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw_value = os.getenv(name)
+    raw_value = config.get(name)
     if raw_value is None or not raw_value.strip():
         return default
     try:
@@ -164,7 +164,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    raw_value = os.getenv(name)
+    raw_value = config.get(name)
     if raw_value is None:
         return default
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}

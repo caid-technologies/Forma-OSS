@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import argparse
 import base64
-from contextlib import contextmanager
 import json
 import mimetypes
-import os
 from pathlib import Path
 import sys
 import tempfile
 from typing import Any
 
 from blueprint_core import __version__
+from blueprint_core.config import config
 from blueprint_core.selectors import split_llm_selector
 
 
@@ -29,7 +28,7 @@ CLI_LIVE_GENERATION_ENVIRONMENT = {
     "STRICT_GMICLOUD": "true",
     "STRICT_HUGGINGFACE": "true",
     "STRICT_HF": "true",
-    "STRICT_NEBIUS": "true",
+    "STRICT_CLOUDFLARE": "true",
     "STRICT_NVIDIA": "true",
     "STRICT_NVIDIA_NIM": "true",
     "STRICT_NIM": "true",
@@ -91,22 +90,6 @@ def _image_payload(path_value: str | None) -> tuple[bytes | None, str | None]:
     path = Path(path_value)
     mime_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return path.read_bytes(), mime_type
-
-
-@contextmanager
-def _environment_overrides(values: dict[str, str | None]):
-    previous = {name: os.environ.get(name) for name in values}
-    try:
-        for name, value in values.items():
-            if value is not None:
-                os.environ[name] = value
-        yield
-    finally:
-        for name, value in previous.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
 
 
 def _write_data_url(data_url: str, output: Path) -> Path:
@@ -175,7 +158,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     if args.simulation:
         provider, model = "simulation", None
     image_bytes, image_mime_type = _image_payload(args.image_file)
-    with _environment_overrides({
+    with config.override({
         **_cli_generation_environment(simulation=args.simulation),
         "IMAGE_PROVIDER": args.image_provider,
         "IMAGE_MODEL": args.image_model,
@@ -246,7 +229,7 @@ def cmd_iterate(args: argparse.Namespace) -> int:
 
     provider, model = _provider_and_model(args)
     current_project = HardwareIR.model_validate(_hardware_ir_payload(_read_json(args.project)))
-    with _environment_overrides(_cli_generation_environment(simulation=args.simulation)):
+    with config.override(_cli_generation_environment(simulation=args.simulation)):
         revised_project = iterate_project(
             current_project,
             args.instruction,

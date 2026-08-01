@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import mimetypes
 import os
+
+from blueprint_core.config import config
 import subprocess
 import threading
 import time
@@ -531,5 +533,5 @@ class ContinuousAgentCoordinator:
 
 
 def paths_from_env(name: str) -> tuple[Path, ...]:
-    value = os.getenv(name, "")
+    value = config.get(name, "")
     return tuple(Path(item).expanduser() for item in value.split(os.pathsep) if item.strip())

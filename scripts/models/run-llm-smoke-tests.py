@@ -3,13 +3,17 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
+from blueprint_core.config import config  # noqa: E402
+
 VERIFY_SCRIPT = Path(__file__).with_name("verify-llm-providers.py")
 DEFAULT_TIMEOUT_SECONDS = "1200"
 
@@ -30,22 +34,22 @@ def main(argv: list[str] | None = None) -> int:
     args = list(argv if argv is not None else sys.argv[1:])
     cmd = [str(VERIFY_SCRIPT), "--save"]
 
-    llm_selectors = os.getenv("LLM_SMOKE_LLM")
+    llm_selectors = config.get("LLM_SMOKE_LLM")
     if llm_selectors and not has_option(args, "--llm", "--provider"):
         for selector in llm_selectors.split(","):
             selector = selector.strip()
             if selector:
                 cmd.extend(["--llm", selector])
 
-    output_dir = os.getenv("LLM_SMOKE_OUTPUT_DIR")
+    output_dir = config.get("LLM_SMOKE_OUTPUT_DIR")
     if output_dir and not has_option(args, "--output-dir", "--output-file"):
         cmd.extend(["--output-dir", output_dir])
 
-    if truthy(os.getenv("LLM_SMOKE_CONFIG_ONLY")) and not has_option(args, "--config-only"):
+    if truthy(config.get("LLM_SMOKE_CONFIG_ONLY")) and not has_option(args, "--config-only"):
         cmd.append("--config-only")
 
     if not has_option(args, "--timeout-seconds"):
-        cmd.extend(["--timeout-seconds", os.getenv("LLM_SMOKE_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)])
+        cmd.extend(["--timeout-seconds", config.get("LLM_SMOKE_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS)])
 
     cmd.extend(args)
     return subprocess.call(cmd, cwd=ROOT_DIR)

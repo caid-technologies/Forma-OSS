@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -12,6 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config
 from blueprint_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
 from blueprint_core.jobs.continuous import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobSpec, FirecrawlJobSourceUsage
 from blueprint_core.openai_streams import load_env_file
@@ -55,7 +55,7 @@ def load_env_into_process(path: Path) -> None:
     if not path.exists():
         return
     for key, value in load_env_file(path.expanduser()).items():
-        os.environ[key] = value
+        config.set(key, value)
 
 
 def reset_stream(store: JsonlStreamStore) -> None:
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     baseten_job = None
     if args.include_baseten_job:
-        baseten_model = args.baseten_model or os.getenv("BASETEN_BLUEPRINT_MODEL") or os.getenv("BASETEN_MODEL") or DEFAULT_BASETEN_BATCH_MODEL
+        baseten_model = args.baseten_model or config.get("BASETEN_BLUEPRINT_MODEL") or config.get("BASETEN_MODEL") or DEFAULT_BASETEN_BATCH_MODEL
         total_prompts = len(selected_seeds) + 1
         source_context = source_context_from_firecrawl(report.firecrawl)
         metadata = ContinuousOpenAIJobMetadata(

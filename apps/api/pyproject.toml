@@ -15,4 +15,5 @@ dependencies = [
     "supabase==2.31.0",
     "huggingface-hub>=0.34.0",
     "Pillow>=10.0.0",
+    "redis>=5.0.0",
 ]

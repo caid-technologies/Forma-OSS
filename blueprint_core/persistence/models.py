@@ -42,6 +42,24 @@ class DBGeneratedProject(Base):
     deletion_error = Column(Text, nullable=True)
 
 
+class DBDesignBrief(Base):
+    __tablename__ = "design_briefs"
+    __table_args__ = (
+        UniqueConstraint("project_id", "brief_version", name="uq_design_briefs_project_version"),
+    )
+
+    id = Column(String, primary_key=True)
+    design_brief_id = Column(String, index=True, nullable=False)
+    project_id = Column(String, index=True, nullable=False)
+    conversation_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    brief_version = Column(Integer, nullable=False)
+    schema_version = Column(String, nullable=False)
+    previous_version = Column(Integer, nullable=True)
+    payload_json = Column(JSON, nullable=False)
+    created_at = Column(String, index=True, nullable=False)
+
+
 class DBProjectContributionConsent(Base):
     __tablename__ = "project_contribution_consents"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_contribution_consent_project_user"),)

@@ -24,6 +24,19 @@ class ApplicationRepository(Protocol):
 
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]: ...
 
+    def insert_design_brief_version(self, record: Dict[str, Any]) -> Any: ...
+
+    def list_design_brief_versions(self, project_id: str, owner_user_id: str) -> List[Any]: ...
+
+    def get_design_brief_version(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        brief_version: int,
+    ) -> Optional[Any]: ...
+
+    def get_latest_design_brief(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]: ...
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]: ...
 
     def update_project_deletion_state(

@@ -63,6 +63,49 @@ class SupabaseRepository:
         rows = query.limit(1).execute().data or []
         return _record(rows[0]) if rows else None
 
+    def insert_design_brief_version(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("design_briefs").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def list_design_brief_versions(self, project_id: str, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("design_briefs")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .order("brief_version")
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def get_design_brief_version(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        brief_version: int,
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("design_briefs")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .eq("brief_version", brief_version)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def get_latest_design_brief(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]:
+        query = self._client.table("design_briefs").select("*").eq("project_id", project_id)
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        rows = query.order("brief_version", desc=True).limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         rows = (
             self._client.table("generated_projects")
@@ -106,6 +149,8 @@ class SupabaseRepository:
         if owner_user_id:
             query = query.eq("owner_user_id", owner_user_id)
         deleted = bool(query.execute().data)
+        if deleted:
+            self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
         if not deleted or not getattr(project, "chat_id", None) or not getattr(project, "owner_user_id", None):
             return deleted
         remaining = (
@@ -171,7 +216,10 @@ class SupabaseRepository:
             .eq("status", "active")
             .execute()
         )
-        return bool(response.data)
+        deleted = bool(response.data)
+        if deleted:
+            self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
+        return deleted
 
     def delete_generated_project(self, project_id: str, owner_user_id: str) -> bool:
         response = (

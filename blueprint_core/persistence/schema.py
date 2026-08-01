@@ -23,6 +23,13 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ),
     ),
     TableContract(
+        "design_briefs",
+        (
+            "id", "design_brief_id", "project_id", "conversation_id", "owner_user_id", "brief_version",
+            "schema_version", "previous_version", "payload_json", "created_at",
+        ),
+    ),
+    TableContract(
         "project_contribution_consents",
         (
             "id", "project_id", "user_id", "workspace_id", "consent_version", "permitted_purposes", "granted_at",

@@ -36,7 +36,15 @@ class FakeSupabaseQuery:
         self.eq_value = value
         return self
 
+    def order(self, _field: str, desc: bool = False) -> "FakeSupabaseQuery":
+        return self
+
+    def limit(self, _value: int) -> "FakeSupabaseQuery":
+        return self
+
     def execute(self) -> FakeSupabaseResponse:
+        if self.operation == "select":
+            return FakeSupabaseResponse()
         self.client.mutations.append(
             {
                 "operation": self.operation,
@@ -61,6 +69,9 @@ class FakeSupabaseTable:
 
     def insert(self, payload: dict[str, Any]) -> FakeSupabaseQuery:
         return FakeSupabaseQuery(self.client, self.name, "insert", payload)
+
+    def select(self, _projection: str) -> FakeSupabaseQuery:
+        return FakeSupabaseQuery(self.client, self.name, "select")
 
     def update(self, payload: dict[str, Any]) -> FakeSupabaseQuery:
         return FakeSupabaseQuery(self.client, self.name, "update", payload)

@@ -2,6 +2,7 @@ import logging
 from blueprint_core.config import config
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -9,6 +10,7 @@ from dotenv import load_dotenv
 from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_list_cache import invalidate_project_lists
 from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
+from blueprint_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
 from blueprint_core.persistence.base import DatabaseProvider
 from blueprint_core.persistence.models import (
     Base,
@@ -44,6 +46,14 @@ class DatabaseConfig:
     backend: str
     source: str
     url: str
+
+
+class DesignBriefNotFoundError(LookupError):
+    """The requested project brief or version is not visible to the caller."""
+
+
+class DesignBriefAccessError(PermissionError):
+    """The project id is already owned by a different user."""
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
@@ -345,6 +355,9 @@ def save_generated_project(
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
     normalized_chat_id = _normalize_chat_id(chat_id) or _normalize_chat_id(metadata.get("chat_id"))
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    linked_brief = _DATABASE_REPOSITORY.get_latest_design_brief(project_id, None)
+    if linked_brief is not None and getattr(linked_brief, "owner_user_id", None) != normalized_owner_user_id:
+        raise DesignBriefAccessError("DesignBrief is not owned by the project owner.")
     normalized_visibility = _normalize_visibility(visibility)
     record = {
         "project_id": project_id,
@@ -378,6 +391,105 @@ def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
 
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
     return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
+
+
+def _design_brief_from_record(record: Any) -> DesignBrief:
+    payload = getattr(record, "payload_json", None)
+    if not isinstance(payload, dict):
+        raise ValueError("Persisted DesignBrief payload_json must be an object.")
+    return DesignBrief.model_validate(payload)
+
+
+def create_design_brief_version(
+    project_id: str,
+    owner_user_id: str,
+    brief: DesignBriefCreate,
+) -> DesignBrief:
+    canonical_project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+
+    project = _DATABASE_REPOSITORY.get_generated_project(canonical_project_id, include_deleted=True)
+    if project is not None:
+        if getattr(project, "owner_user_id", None) != normalized_owner_user_id:
+            raise DesignBriefAccessError("Project is not owned by the current user.")
+        if getattr(project, "status", "active") != "active":
+            raise DesignBriefAccessError("Cannot append a DesignBrief to a deleted project.")
+
+    previous = _DATABASE_REPOSITORY.get_latest_design_brief(canonical_project_id, None)
+    if previous is not None and getattr(previous, "owner_user_id", None) != normalized_owner_user_id:
+        raise DesignBriefAccessError("Project is not owned by the current user.")
+
+    previous_brief = _design_brief_from_record(previous) if previous is not None else None
+    next_version = previous_brief.brief_version + 1 if previous_brief else 1
+    now = datetime.now(timezone.utc)
+    design_brief = DesignBrief(
+        **brief.model_dump(),
+        design_brief_id=previous_brief.design_brief_id if previous_brief else uuid.uuid4(),
+        project_id=canonical_project_id,
+        brief_version=next_version,
+        previous_version=previous_brief.brief_version if previous_brief else None,
+        created_at=now,
+    )
+    record = {
+        "id": str(uuid.uuid4()),
+        "design_brief_id": str(design_brief.design_brief_id),
+        "project_id": canonical_project_id,
+        "conversation_id": design_brief.conversation_id,
+        "owner_user_id": normalized_owner_user_id,
+        "brief_version": design_brief.brief_version,
+        "schema_version": design_brief.schema_version,
+        "previous_version": design_brief.previous_version,
+        "payload_json": design_brief.model_dump(mode="json"),
+        "created_at": now.isoformat().replace("+00:00", "Z"),
+    }
+    return _design_brief_from_record(_DATABASE_REPOSITORY.insert_design_brief_version(record))
+
+
+def list_design_brief_versions(project_id: str, owner_user_id: str) -> List[DesignBrief]:
+    canonical_project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        return []
+    records = _DATABASE_REPOSITORY.list_design_brief_versions(
+        canonical_project_id,
+        normalized_owner_user_id,
+    )
+    return [_design_brief_from_record(record) for record in records]
+
+
+def get_design_brief_version(
+    project_id: str,
+    owner_user_id: str,
+    brief_version: int,
+) -> DesignBrief:
+    canonical_project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    record = None
+    if normalized_owner_user_id and brief_version >= 1:
+        record = _DATABASE_REPOSITORY.get_design_brief_version(
+            canonical_project_id,
+            normalized_owner_user_id,
+            brief_version,
+        )
+    if record is None:
+        raise DesignBriefNotFoundError("DesignBrief version not found.")
+    return _design_brief_from_record(record)
+
+
+def get_latest_design_brief(project_id: str, owner_user_id: str) -> DesignBrief:
+    canonical_project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    record = None
+    if normalized_owner_user_id:
+        record = _DATABASE_REPOSITORY.get_latest_design_brief(
+            canonical_project_id,
+            normalized_owner_user_id,
+        )
+    if record is None:
+        raise DesignBriefNotFoundError("DesignBrief not found.")
+    return _design_brief_from_record(record)
 
 
 def list_due_project_purges(before: str, limit: int = 25) -> List[Any]:

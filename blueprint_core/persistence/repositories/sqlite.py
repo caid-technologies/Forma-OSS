@@ -7,6 +7,7 @@ from sqlalchemy.orm import sessionmaker
 from blueprint_core.persistence.models import (
     DBAlphaSignup,
     DBComponentTemplate,
+    DBDesignBrief,
     DBGeneratedProject,
     DBProjectContributionConsent,
     DBProjectContributionSnapshot,
@@ -78,6 +79,51 @@ class SqlAlchemyRepository:
                 query = query.filter(DBGeneratedProject.status == "active")
             return query.first()
 
+    def insert_design_brief_version(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            design_brief = DBDesignBrief(**record)
+            session.add(design_brief)
+            session.flush()
+            session.refresh(design_brief)
+            session.expunge(design_brief)
+            return design_brief
+
+    def list_design_brief_versions(self, project_id: str, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBDesignBrief)
+                .filter(
+                    DBDesignBrief.project_id == project_id,
+                    DBDesignBrief.owner_user_id == owner_user_id,
+                )
+                .order_by(DBDesignBrief.brief_version.asc())
+                .all()
+            )
+
+    def get_design_brief_version(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        brief_version: int,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBDesignBrief)
+                .filter(
+                    DBDesignBrief.project_id == project_id,
+                    DBDesignBrief.owner_user_id == owner_user_id,
+                    DBDesignBrief.brief_version == brief_version,
+                )
+                .first()
+            )
+
+    def get_latest_design_brief(self, project_id: str, owner_user_id: Optional[str]) -> Optional[Any]:
+        with self._session() as session:
+            query = session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id)
+            if owner_user_id:
+                query = query.filter(DBDesignBrief.owner_user_id == owner_user_id)
+            return query.order_by(DBDesignBrief.brief_version.desc()).first()
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
             return (
@@ -129,6 +175,9 @@ class SqlAlchemyRepository:
                 return False
             chat_id = project.chat_id
             project_owner_user_id = project.owner_user_id
+            session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id).delete(
+                synchronize_session=False
+            )
             session.delete(project)
             session.flush()
             if chat_id and project_owner_user_id:
@@ -198,6 +247,9 @@ class SqlAlchemyRepository:
             ).first()
             if not project:
                 return False
+            session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id).delete(
+                synchronize_session=False
+            )
             session.delete(project)
             return True
 

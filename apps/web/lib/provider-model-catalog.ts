@@ -54,11 +54,8 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("meta-llama/Llama-3.3-70B-Instruct", "Llama 3.3 70B Instruct", "Inference Providers"),
     model("Qwen/Qwen2.5-Coder-3B-Instruct:nscale", "Qwen 2.5 Coder 3B", "Forma legacy default via Nscale"),
   ],
-  nebius: [
-    model("Qwen/Qwen3.5-397B-A17B", "Qwen 3.5 397B A17B", "Nebius Token Factory playground default"),
-    model("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro", "Long-context reasoning"),
-    model("openai/gpt-oss-120b", "GPT-OSS 120B", "Open-weight general-purpose model"),
-    model("zai-org/GLM-5.2", "GLM 5.2", "Long-context general-purpose model"),
+  cloudflare: [
+    model("@cf/google/gemma-4-26b-a4b-it", "Gemma 4 26B A4B", "Cloudflare Workers AI free tier; reasoning and vision"),
   ],
   nvidia: [
     model("nvidia/z-ai/glm-5.2", "GLM 5.2"),
@@ -276,7 +273,7 @@ function providerLabel(provider: string) {
     gemini: "Google Gemini",
     gmi: "GMI Cloud",
     huggingface: "Hugging Face",
-    nebius: "Nebius Token Factory",
+    cloudflare: "Cloudflare AI",
     nvidia: "NVIDIA",
     ollama: "Ollama",
     openai: "OpenAI",

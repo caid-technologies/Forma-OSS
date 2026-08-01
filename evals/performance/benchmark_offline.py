@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import platform
 import sys
 import threading
@@ -23,6 +22,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config
 
 DEFAULT_ITERATIONS = 1000
 DEFAULT_CONCURRENCY = 4
@@ -72,9 +72,9 @@ def path_from_repo(value: str | Path) -> Path:
 
 @contextmanager
 def isolated_environment(overrides: dict[str, str]) -> Iterator[None]:
-    old_environ = os.environ.copy()
+    old_environ = config.snapshot()
     try:
-        for key in list(os.environ):
+        for key in config.snapshot():
             if key.startswith(
                 (
                     "ALLOWED_",
@@ -89,12 +89,11 @@ def isolated_environment(overrides: dict[str, str]) -> Iterator[None]:
                     "STRICT_",
                 )
             ):
-                os.environ.pop(key, None)
-        os.environ.update(overrides)
+                config.unset(key)
+        config.update(overrides)
         yield
     finally:
-        os.environ.clear()
-        os.environ.update(old_environ)
+        config.replace(old_environ)
 
 
 def measure_operation(

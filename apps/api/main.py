@@ -115,6 +115,7 @@ from apps.api.a2a import (
     submit_a2a_message,
 )
 from blueprint_core.images import get_image_output_debug_config
+from blueprint_core.config.contract import resolve_runtime_contract
 from blueprint_core.workspaces.projects.iteration import ProjectIterator
 from blueprint_core.llm import LLMProviderConfigError
 from blueprint_core.llm import LLMProviderOutputError
@@ -154,7 +155,7 @@ from blueprint_core.runtime import (
     deployment_runtime_config,
     generation_unavailable_detail,
 )
-from blueprint_core.runtime_config import blueprint_dev_mode_enabled
+from blueprint_core.config.runtime import blueprint_dev_mode_enabled
 from apps.api.storage import get_image_storage_config, hydrate_image_storage_metadata
 from blueprint_core.validation import validate_circuit
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
@@ -281,6 +282,22 @@ app.include_router(user_settings_router)
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
     return deployment_runtime_config(llm_config, signup_storage=get_database_config()["client"])
+
+
+def _resolved_client_runtime_config() -> tuple[Dict[str, Any], Dict[str, Any]]:
+    llm_config = HardwarePipelineOrchestrator().get_debug_config()
+    image_config = get_image_output_debug_config()
+    contract = resolve_runtime_contract(
+        llm_config=llm_config,
+        image_config=image_config,
+        workflows=list_workflows(),
+        signup_storage=get_database_config()["client"],
+    )
+    contract["video"] = {
+        "generation": GMICloudProvider().get_debug_config(),
+        "self_correction": FireworksVideoReviewClient().get_debug_config(),
+    }
+    return llm_config, contract
 
 
 def _apply_user_integrations(user: UserContext) -> None:
@@ -445,6 +462,26 @@ def debug_config_endpoint(
         raise HTTPException(
             status_code=500,
             detail=api_error_detail(code="debug_config_failed", message=f"Debug config failed: {str(e)}", exc=e),
+        ) from e
+
+
+@app.get("/runtime/config")
+def runtime_config_endpoint(user: UserContext = Depends(optional_user_context)):
+    """Return the canonical, credential-safe runtime contract for this user."""
+    _apply_user_integrations(user)
+    try:
+        _, contract = _resolved_client_runtime_config()
+        return contract
+    except LLMProviderConfigError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e),
+        ) from e
+    except Exception as e:
+        logger.exception("Runtime config resolution failed.")
+        raise HTTPException(
+            status_code=500,
+            detail=api_error_detail(code="runtime_config_failed", message=f"Runtime config failed: {str(e)}", exc=e),
         ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])

@@ -1,6 +1,6 @@
 import json
 import logging
-import os
+from blueprint_core.config import config
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -102,7 +102,7 @@ class VideoGenerationResult:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     stripped = value.strip()

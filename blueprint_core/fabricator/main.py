@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
+from blueprint_core.config import config
 import sys
 import urllib.error
 import urllib.request
@@ -44,7 +44,7 @@ DEFAULT_EQUIPMENT = (
     "3D printer",
     "optical microscope",
 )
-DEFAULT_MCP_URL = os.getenv("BLUEPRINT_MCP_URL", "http://127.0.0.1:8000/mcp")
+DEFAULT_MCP_URL = config.get("BLUEPRINT_MCP_URL", "http://127.0.0.1:8000/mcp")
 FABRICATOR_AGENT_ID = "fabricator"
 FABRICATOR_PLANNING_CONTRACT_ID = "fabricator.plan.v0"
 

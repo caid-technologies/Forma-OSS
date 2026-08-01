@@ -40,10 +40,13 @@ TEST_ENV_KEYS = (
     "BASETEN_ALLOWED_MODELS",
     "NVIDIA_API_KEY",
     "NVIDIA_MODEL",
-    "NEBIUS_ALLOWED_MODELS",
-    "NEBIUS_API_KEY",
-    "NEBIUS_BASE_URL",
-    "NEBIUS_MODEL",
+    "CLOUDFLARE_ALLOWED_MODELS",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_AI_API_KEY",
+    "CLOUDFLARE_API_KEY",
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_BASE_URL",
+    "CLOUDFLARE_MODEL",
     "LLM_PROVIDER",
     "LLM_MODEL",
     "LLM_ALLOWED_PROVIDERS",
@@ -395,13 +398,13 @@ class UserIntegrationTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "does not accept user-supplied NVIDIA Build/API Catalog keys"):
                 store.update_integration("nvidia", field_values={"api_key": "nvapi-user-owned"})
 
-    def test_deployed_user_store_rejects_nebius_api_key(self) -> None:
-        store = SupabaseUserIntegrationStore("user_nebius_policy_test")
+    def test_deployed_user_store_rejects_cloudflare_api_key(self) -> None:
+        store = SupabaseUserIntegrationStore("user_cloudflare_policy_test")
 
         with isolated_integration_env():
             os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
-            with self.assertRaisesRegex(ValueError, "does not accept user-supplied Nebius Token Factory API keys"):
-                store.update_integration("nebius", field_values={"api_key": "nebius-user-owned"})
+            with self.assertRaisesRegex(ValueError, "does not accept user-supplied Cloudflare API tokens"):
+                store.update_integration("cloudflare", field_values={"api_key": "cloudflare-user-owned"})
 
     def test_deployed_user_store_requires_gmi_key_delegation_confirmation(self) -> None:
         class FakeHostedGmiStore(SupabaseUserIntegrationStore):
@@ -553,27 +556,27 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("nvapi-local-dev", os.environ["NVIDIA_API_KEY"])
             self.assertEqual("nvidia/z-ai/glm-5.2", os.environ["NVIDIA_MODEL"])
 
-    def test_local_file_store_applies_nebius_provider_settings(self) -> None:
+    def test_local_file_store_applies_cloudflare_provider_settings(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
             store.update_integration(
-                "nebius",
+                "cloudflare",
                 field_values={
-                    "api_key": "nebius-local-key",
-                    "base_url": "https://api.tokenfactory.nebius.com/v1",
-                    "model": "Qwen/Qwen3.5-397B-A17B",
+                    "api_key": "cloudflare-local-key",
+                    "account_id": "test-account",
+                    "model": "@cf/google/gemma-4-26b-a4b-it",
                 },
             )
 
             apply_user_integrations_to_environment(store)
-            runtime = resolve_llm_runtime_config("nebius", "Qwen/Qwen3.5-397B-A17B")
+            runtime = resolve_llm_runtime_config("cloudflare", "@cf/google/gemma-4-26b-a4b-it")
 
-            self.assertEqual("nebius-local-key", os.environ["NEBIUS_API_KEY"])
-            self.assertEqual("https://api.tokenfactory.nebius.com/v1", os.environ["NEBIUS_BASE_URL"])
-            self.assertEqual("Qwen/Qwen3.5-397B-A17B", os.environ["NEBIUS_MODEL"])
-            self.assertEqual("Qwen/Qwen3.5-397B-A17B", os.environ["NEBIUS_ALLOWED_MODELS"])
-            self.assertEqual("nebius", runtime.provider)
-            self.assertEqual("Qwen/Qwen3.5-397B-A17B", runtime.model)
+            self.assertEqual("cloudflare-local-key", os.environ["CLOUDFLARE_API_TOKEN"])
+            self.assertEqual("test-account", os.environ["CLOUDFLARE_ACCOUNT_ID"])
+            self.assertEqual("@cf/google/gemma-4-26b-a4b-it", os.environ["CLOUDFLARE_MODEL"])
+            self.assertEqual("@cf/google/gemma-4-26b-a4b-it", os.environ["CLOUDFLARE_ALLOWED_MODELS"])
+            self.assertEqual("cloudflare", runtime.provider)
+            self.assertEqual("@cf/google/gemma-4-26b-a4b-it", runtime.model)
 
     def test_local_image_integration_can_apply_openai_compatible_settings(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -867,20 +870,20 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertIsNone(sanitized_nvidia.field_value("api_key"))
             self.assertEqual("nvidia/z-ai/glm-5.2", sanitized_nvidia.field_value("model"))
 
-    def test_hosted_user_policy_sanitizes_saved_nebius_api_key(self) -> None:
+    def test_hosted_user_policy_sanitizes_saved_cloudflare_api_key(self) -> None:
         with isolated_integration_env():
             os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
             config = user_integrations.UserIntegrationConfig()
-            integration = config.ensure_integration("nebius")
-            integration.set_field("api_key", "nebius-legacy-user-owned")
-            integration.set_field("model", "Qwen/Qwen3.5-397B-A17B")
+            integration = config.ensure_integration("cloudflare")
+            integration.set_field("api_key", "cloudflare-legacy-user-owned")
+            integration.set_field("model", "@cf/google/gemma-4-26b-a4b-it")
 
             sanitized = user_integrations._sanitize_hosted_user_config(config)
-            sanitized_nebius = sanitized.integration_by_id("nebius")
+            sanitized_cloudflare = sanitized.integration_by_id("cloudflare")
 
-            self.assertIsNotNone(sanitized_nebius)
-            self.assertIsNone(sanitized_nebius.field_value("api_key"))
-            self.assertEqual("Qwen/Qwen3.5-397B-A17B", sanitized_nebius.field_value("model"))
+            self.assertIsNotNone(sanitized_cloudflare)
+            self.assertIsNone(sanitized_cloudflare.field_value("api_key"))
+            self.assertEqual("@cf/google/gemma-4-26b-a4b-it", sanitized_cloudflare.field_value("model"))
 
     def test_hosted_nvidia_status_marks_api_key_blocked(self) -> None:
         class FakeHostedNvidiaStore(SupabaseUserIntegrationStore):
@@ -913,11 +916,11 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertTrue(api_key_payload["policy_blocked"])
             self.assertFalse(api_key_payload["configured"])
 
-    def test_hosted_nebius_status_marks_api_key_blocked(self) -> None:
-        class FakeHostedNebiusStore(SupabaseUserIntegrationStore):
+    def test_hosted_cloudflare_status_marks_api_key_blocked(self) -> None:
+        class FakeHostedCloudflareStore(SupabaseUserIntegrationStore):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
-                self.user_id = "user_nebius_status_policy_test"
+                self.user_id = "user_cloudflare_status_policy_test"
                 self.path = Path(".blueprint/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
@@ -929,17 +932,17 @@ class UserIntegrationTests(unittest.TestCase):
 
         with isolated_integration_env():
             os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
-            store = FakeHostedNebiusStore()
-            nebius = store.config.ensure_integration("nebius")
-            nebius.set_field("api_key", "nebius-legacy-user-owned")
-            nebius.set_field("model", "Qwen/Qwen3.5-397B-A17B")
+            store = FakeHostedCloudflareStore()
+            cloudflare = store.config.ensure_integration("cloudflare")
+            cloudflare.set_field("api_key", "cloudflare-legacy-user-owned")
+            cloudflare.set_field("model", "@cf/google/gemma-4-26b-a4b-it")
 
             payload = integration_status_payload(store)
-            nebius_payload = integration_by_id(payload, "nebius")
-            api_key_payload = field_by_id(nebius_payload, "api_key")
+            cloudflare_payload = integration_by_id(payload, "cloudflare")
+            api_key_payload = field_by_id(cloudflare_payload, "api_key")
 
-            self.assertEqual("disabled", nebius_payload["policy_status"])
-            self.assertIn("does not accept user-supplied Nebius Token Factory API keys", nebius_payload["policy_notice"])
+            self.assertEqual("disabled", cloudflare_payload["policy_status"])
+            self.assertIn("does not accept user-supplied Cloudflare API tokens", cloudflare_payload["policy_notice"])
             self.assertFalse(api_key_payload["editable"])
             self.assertTrue(api_key_payload["policy_blocked"])
             self.assertFalse(api_key_payload["configured"])

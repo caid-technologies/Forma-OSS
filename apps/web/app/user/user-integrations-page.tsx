@@ -28,9 +28,9 @@ import {
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
+import { webConfig } from "../../lib/config";
 
-const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
-const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
+const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 
 type IntegrationFieldStatus = {
   id: string;
@@ -222,7 +222,7 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
       { integrationId: "baseten", view: "llm" },
       { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
       { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },
-      { integrationId: "nebius", view: "llm", label: "Nebius Token Factory" },
+      { integrationId: "cloudflare", view: "llm", label: "Cloudflare AI" },
       { integrationId: "nvidia", view: "llm" },
       { integrationId: "runpod", view: "llm" },
       { integrationId: "ollama", view: "llm" },

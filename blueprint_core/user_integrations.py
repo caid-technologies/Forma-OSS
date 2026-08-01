@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+
+from blueprint_core.config import config as env_config
 import re
 import hashlib
 import base64
@@ -283,16 +285,17 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         ),
     ),
     IntegrationDefinition(
-        id="nebius",
-        label="Nebius Token Factory",
-        description="OpenAI-compatible text generation through Nebius Token Factory.",
+        id="cloudflare",
+        label="Cloudflare AI",
+        description="OpenAI-compatible text generation through Cloudflare AI.",
         fields=(
-            IntegrationFieldDefinition("api_key", "API key", ("NEBIUS_API_KEY",), secret=True, placeholder="Nebius API key"),
-            IntegrationFieldDefinition("base_url", "Base URL", ("NEBIUS_BASE_URL",), placeholder="https://api.tokenfactory.nebius.com/v1"),
-            IntegrationFieldDefinition("model", "Default model", ("NEBIUS_MODEL", "NEBIUS_STREAM_MODEL"), placeholder="Qwen/Qwen3.5-397B-A17B"),
-            IntegrationFieldDefinition("fallback_model", "Fallback model", ("NEBIUS_FALLBACK_MODEL",), placeholder="openai/gpt-oss-120b"),
-            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NEBIUS_TIMEOUT_SECONDS", "NEBIUS_STREAM_TIMEOUT_SECONDS"), placeholder="300"),
-            IntegrationFieldDefinition("max_tokens", "Max tokens", ("NEBIUS_MAX_TOKENS", "NEBIUS_STREAM_MAX_OUTPUT_TOKENS"), placeholder="8192"),
+            IntegrationFieldDefinition("api_key", "API token", ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"), secret=True, placeholder="Cloudflare API token"),
+            IntegrationFieldDefinition("account_id", "Account ID", ("CLOUDFLARE_ACCOUNT_ID",), placeholder="Cloudflare account ID"),
+            IntegrationFieldDefinition("base_url", "Base URL override", ("CLOUDFLARE_BASE_URL",), placeholder="Derived from the account ID"),
+            IntegrationFieldDefinition("model", "Default model", ("CLOUDFLARE_MODEL", "CLOUDFLARE_STREAM_MODEL"), placeholder="@cf/google/gemma-4-26b-a4b-it"),
+            IntegrationFieldDefinition("fallback_model", "Fallback model", ("CLOUDFLARE_FALLBACK_MODEL",), placeholder="@cf/google/gemma-4-26b-a4b-it"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("CLOUDFLARE_TIMEOUT_SECONDS", "CLOUDFLARE_STREAM_TIMEOUT_SECONDS"), placeholder="300"),
+            IntegrationFieldDefinition("max_tokens", "Max tokens", ("CLOUDFLARE_MAX_TOKENS", "CLOUDFLARE_STREAM_MAX_OUTPUT_TOKENS"), placeholder="8192"),
         ),
     ),
     IntegrationDefinition(
@@ -526,7 +529,7 @@ EXTRA_MANAGED_ENV_NAMES = {
     "BASETEN_ALLOWED_MODELS",
     "GMI_ALLOWED_MODELS",
     "HUGGINGFACE_ALLOWED_MODELS",
-    "NEBIUS_ALLOWED_MODELS",
+    "CLOUDFLARE_ALLOWED_MODELS",
     "NVIDIA_ALLOWED_MODELS",
     "OPENAI_ALLOWED_MODELS",
     "RUNPOD_ALLOWED_MODELS",
@@ -537,7 +540,7 @@ LLM_PROVIDER_INTEGRATION_IDS = {
     "gemini",
     "gmi",
     "huggingface",
-    "nebius",
+    "cloudflare",
     "nvidia",
     "openai",
     "runpod",
@@ -547,10 +550,10 @@ PROVIDER_ALIASES = {
     "anthropic-claude": "anthropic",
     "hf": "huggingface",
     "hugging-face": "huggingface",
-    "nebius-ai": "nebius",
-    "nebius-token-factory": "nebius",
-    "token-factory": "nebius",
-    "tokenfactory": "nebius",
+    "cloudflare-ai": "cloudflare",
+    "cloudflare-workers-ai": "cloudflare",
+    "workers-ai": "cloudflare",
+    "workers_ai": "cloudflare",
     "nvidia-build": "nvidia",
     "nvidia-nim": "nvidia",
     "nim": "nvidia",
@@ -572,7 +575,7 @@ PROVIDER_ALLOWED_MODEL_ENV = {
     "gemini": "GEMINI_ALLOWED_MODELS",
     "gmi": "GMI_ALLOWED_MODELS",
     "huggingface": "HUGGINGFACE_ALLOWED_MODELS",
-    "nebius": "NEBIUS_ALLOWED_MODELS",
+    "cloudflare": "CLOUDFLARE_ALLOWED_MODELS",
     "nvidia": "NVIDIA_ALLOWED_MODELS",
     "openai": "OPENAI_ALLOWED_MODELS",
     "runpod": "RUNPOD_ALLOWED_MODELS",
@@ -634,14 +637,14 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
             "deployment, or unrestricted account tokens are not accepted."
         ),
     ),
-    "nebius": HostedByokPolicy(
+    "cloudflare": HostedByokPolicy(
         hosted_byok="disabled",
         local_byok="enabled",
         self_hosted_byok="enabled",
         blocked_secret_fields=("api_key",),
         note=(
-            "Forma Cloud does not accept user-supplied Nebius Token Factory API keys until provider terms and "
-            "credential scopes have been reviewed. Use local or self-hosted Forma for Nebius BYOK."
+            "Forma Cloud does not accept user-supplied Cloudflare API tokens until provider terms and "
+            "credential scopes have been reviewed. Use local or self-hosted Forma for Cloudflare BYOK."
         ),
     ),
     "together": HostedByokPolicy(
@@ -679,11 +682,11 @@ def _repo_root() -> Path:
 
 def _configured_path() -> Optional[Path]:
     for env_name in CONFIG_PATH_ENV_NAMES:
-        raw_value = os.getenv(env_name)
+        raw_value = env_config.get(env_name)
         if raw_value and raw_value.strip():
             return Path(raw_value.strip()).expanduser()
     for env_name in CONFIG_DIR_ENV_NAMES:
-        raw_value = os.getenv(env_name)
+        raw_value = env_config.get(env_name)
         if raw_value and raw_value.strip():
             return Path(raw_value.strip()).expanduser() / DEFAULT_CONFIG_FILENAME
     return None
@@ -701,7 +704,7 @@ def user_integrations_path_for_user(user_id: str) -> Path:
 
 
 def encrypted_workspace_integrations_path() -> Path:
-    configured = os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_PATH")
+    configured = env_config.get("BLUEPRINT_WORKSPACE_INTEGRATIONS_PATH")
     if configured and configured.strip():
         return Path(configured.strip()).expanduser()
     return _repo_root() / DEFAULT_CONFIG_DIR / DEFAULT_ENCRYPTED_CONFIG_FILENAME
@@ -814,35 +817,35 @@ class UserIntegrationStore:
 
 def _workspace_integration_backend() -> str:
     return (
-        os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND")
-        or os.getenv("BLUEPRINT_INTEGRATIONS_BACKEND")
+        env_config.get("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND")
+        or env_config.get("BLUEPRINT_INTEGRATIONS_BACKEND")
         or ""
     ).strip().lower()
 
 
 def _user_integration_backend() -> str:
     return (
-        os.getenv("BLUEPRINT_USER_INTEGRATIONS_BACKEND")
-        or os.getenv("BLUEPRINT_INTEGRATIONS_BACKEND")
+        env_config.get("BLUEPRINT_USER_INTEGRATIONS_BACKEND")
+        or env_config.get("BLUEPRINT_INTEGRATIONS_BACKEND")
         or ""
     ).strip().lower()
 
 
 def _supabase_url() -> Optional[str]:
-    value = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    value = env_config.get("SUPABASE_URL") or env_config.get("NEXT_PUBLIC_SUPABASE_URL")
     return value.strip() if value and value.strip() else None
 
 
 def _supabase_service_key() -> Optional[str]:
     for name in ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"):
-        value = os.getenv(name)
+        value = env_config.get(name)
         if value and value.strip():
             return value.strip()
     return None
 
 
 def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
+    value = env_config.get(name)
     if not value or not value.strip():
         return default
     try:
@@ -949,7 +952,7 @@ def _requires_hosted_together_confirmation(integration_id: str, field_values: Op
 
 
 def require_user_secrets_key() -> str:
-    value = os.getenv("BLUEPRINT_USER_SECRETS_KEY")
+    value = env_config.get("BLUEPRINT_USER_SECRETS_KEY")
     if not value or not value.strip():
         message = (
             "BLUEPRINT_USER_SECRETS_KEY is required at runtime for encrypted integration settings. "
@@ -978,9 +981,9 @@ def _fernet_for_secret(secret: str) -> Fernet:
 
 def _workspace_encryption_secret() -> str:
     value = (
-        os.getenv("BLUEPRINT_WORKSPACE_SECRETS_KEY")
-        or os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
-        or os.getenv("WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
+        env_config.get("BLUEPRINT_WORKSPACE_SECRETS_KEY")
+        or env_config.get("BLUEPRINT_WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
+        or env_config.get("WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
     )
     if value and value.strip():
         return value.strip()
@@ -1353,7 +1356,7 @@ def mask_secret(value: Optional[str]) -> Optional[str]:
 
 def _first_env(env_names: Iterable[str]) -> Optional[str]:
     for env_name in env_names:
-        value = os.getenv(env_name)
+        value = env_config.get(env_name)
         if value and value.strip():
             return value.strip()
     return None
@@ -1372,7 +1375,7 @@ def _capture_original_environment(env_names: Iterable[str]) -> None:
     """Remember deployment/local env values before applying a saved BYOK overlay."""
     for env_name in env_names:
         if env_name not in _ORIGINAL_ENV_VALUES:
-            _ORIGINAL_ENV_VALUES[env_name] = os.environ.get(env_name)
+            _ORIGINAL_ENV_VALUES[env_name] = env_config.get(env_name)
 
 
 def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
@@ -1585,13 +1588,13 @@ def apply_user_integrations_to_environment(
             continue
         original_value = _ORIGINAL_ENV_VALUES.get(env_name)
         if original_value is None:
-            os.environ.pop(env_name, None)
+            env_config.unset(env_name)
         else:
-            os.environ[env_name] = original_value
+            env_config.set(env_name, original_value)
         _APPLIED_ENV_VALUES.pop(env_name, None)
 
     for env_name, desired_value in desired.items():
-        os.environ[env_name] = desired_value
+        env_config.set(env_name, desired_value)
         _APPLIED_ENV_VALUES[env_name] = desired_value
 
     return config

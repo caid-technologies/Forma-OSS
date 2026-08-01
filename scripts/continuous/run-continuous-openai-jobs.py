@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 from pathlib import Path
 
@@ -12,6 +11,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config
 from blueprint_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
 from blueprint_core.jobs.continuous import ContinuousOpenAIJobReport, ContinuousOpenAIJobRunner, ContinuousOpenAIJobSpec
 from blueprint_core.openai_streams import (
@@ -73,7 +73,7 @@ def load_env_into_process(path: Path) -> None:
     if not path.exists():
         return
     for key, value in load_env_file(path.expanduser()).items():
-        os.environ[key] = value
+        config.set(key, value)
 
 
 def print_job_report(report: ContinuousOpenAIJobReport) -> None:

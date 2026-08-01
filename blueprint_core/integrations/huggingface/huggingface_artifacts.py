@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-import os
+from blueprint_core.config import config
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,7 +22,7 @@ def utc_now() -> str:
 
 def first_env(names: Iterable[str]) -> Optional[str]:
     for name in names:
-        value = os.getenv(name)
+        value = config.get(name)
         if value and value.strip():
             return value.strip()
     return None
@@ -131,10 +131,10 @@ class HuggingFaceUploadConfig:
         return cls(
             repo_id=resolved_repo_id,
             token=resolved_token,
-            repo_type=repo_type or os.getenv("HF_ARTIFACT_REPO_TYPE", DEFAULT_HF_REPO_TYPE),
+            repo_type=repo_type or config.get("HF_ARTIFACT_REPO_TYPE", DEFAULT_HF_REPO_TYPE),
             private=private,
             create_repo=create_repo,
-            path_prefix=path_prefix or os.getenv("HF_ARTIFACT_PATH_PREFIX", DEFAULT_HF_ARTIFACT_PREFIX),
+            path_prefix=path_prefix or config.get("HF_ARTIFACT_PATH_PREFIX", DEFAULT_HF_ARTIFACT_PREFIX),
             commit_message=commit_message or "Upload Forma artifacts",
         )
 

@@ -66,7 +66,7 @@ class ProviderRegistryTests(unittest.TestCase):
     def test_provider_aliases_and_model_prefixes_are_normalized(self) -> None:
         self.assertEqual("baseten", normalize_provider_name("base10"))
         self.assertEqual("gmi", normalize_provider_name("gemicloud"))
-        self.assertEqual("nebius", normalize_provider_name("token-factory"))
+        self.assertEqual("cloudflare", normalize_provider_name("workers-ai"))
         self.assertEqual("zai-org/GLM-5.2", model_name_for_provider("baseten", "baseten/zai-org/GLM-5.2"))
         self.assertEqual("anthropic/claude-fable-5", model_name_for_provider("gmi", "gemicloud/fable"))
         self.assertEqual("gpt-5.5", model_name_for_provider("openai", "openai/gpt-5.5"))
@@ -163,12 +163,12 @@ class ProviderRegistryTests(unittest.TestCase):
             self.assertIsNone(FakeCompatibleStreamer.configs[0].temperature)
             self.assertEqual("gmi:anthropic/claude-fable-5:review prompt metadata", events[0].content)
 
-    def test_registry_streams_nebius_as_chat_completion_provider(self) -> None:
+    def test_registry_streams_cloudflare_as_chat_completion_provider(self) -> None:
         FakeCompatibleStreamer.configs = []
         with tempfile.TemporaryDirectory() as temp_dir:
             env_file = Path(temp_dir) / ".env"
             env_file.write_text(
-                "NEBIUS_API_KEY=test-nebius-key\n",
+                "CLOUDFLARE_API_TOKEN=test-cloudflare-key\nCLOUDFLARE_ACCOUNT_ID=test-account\n",
                 encoding="utf-8",
             )
             registry = ProviderRegistry.default(
@@ -180,20 +180,20 @@ class ProviderRegistryTests(unittest.TestCase):
 
             prepared = registry.prepare(
                 ProviderRequest(
-                    provider="token-factory",
-                    model="nebius/Qwen/Qwen3.5-397B-A17B",
+                    provider="workers-ai",
+                    model="cloudflare/@cf/google/gemma-4-26b-a4b-it",
                     prompt="review prompt metadata",
                     max_output_tokens=654,
                 )
             )
             events = tuple(registry.stream_text(prepared))
 
-            self.assertEqual("nebius", prepared.provider)
-            self.assertEqual("Qwen/Qwen3.5-397B-A17B", prepared.model_name)
-            self.assertEqual("https://api.tokenfactory.nebius.com/v1", prepared.base_url)
+            self.assertEqual("cloudflare", prepared.provider)
+            self.assertEqual("@cf/google/gemma-4-26b-a4b-it", prepared.model_name)
+            self.assertEqual("https://api.cloudflare.com/client/v4/accounts/test-account/ai/v1", prepared.base_url)
             self.assertEqual("chat/completions", prepared.endpoint_path)
             self.assertEqual(654, FakeCompatibleStreamer.configs[0].max_output_tokens)
-            self.assertEqual("nebius:Qwen/Qwen3.5-397B-A17B:review prompt metadata", events[0].content)
+            self.assertEqual("cloudflare:@cf/google/gemma-4-26b-a4b-it:review prompt metadata", events[0].content)
 
     def test_registry_does_not_fallback_for_unsupported_provider(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

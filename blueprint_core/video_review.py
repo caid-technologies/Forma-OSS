@@ -4,7 +4,7 @@ import base64
 from dataclasses import dataclass
 import json
 import logging
-import os
+from blueprint_core.config import config
 import re
 import shutil
 import subprocess
@@ -119,7 +119,7 @@ class FireworksPreparedVideo:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     stripped = value.strip()

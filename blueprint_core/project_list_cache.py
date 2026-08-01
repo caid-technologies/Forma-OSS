@@ -9,12 +9,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
+from blueprint_core.config import config
 import threading
 import time
 from typing import Any, Optional
 
-from blueprint_core.runtime_config import blueprint_dev_mode_enabled
+from blueprint_core.config.runtime import blueprint_dev_mode_enabled
 
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ def require_project_list_cache_config() -> None:
     missing = [
         name
         for name in ("REDIS_URL", "REDIS_CACHE_PREFIX")
-        if not os.getenv(name, "").strip()
+        if not config.get(name, "").strip()
     ]
     if not missing:
         return
@@ -54,7 +54,7 @@ def require_project_list_cache_config() -> None:
 
 def _bounded_float(name: str, default: float, minimum: float, maximum: float) -> float:
     try:
-        value = float(os.getenv(name, str(default)))
+        value = float(config.get(name, str(default)))
     except (TypeError, ValueError):
         return default
     return max(minimum, min(value, maximum))
@@ -65,7 +65,7 @@ def _cache_ttl_seconds() -> int:
 
 
 def _cache_prefix() -> str:
-    configured = os.getenv("REDIS_CACHE_PREFIX", "blueprint").strip().strip(":")
+    configured = config.get("REDIS_CACHE_PREFIX", "blueprint").strip().strip(":")
     return configured or "blueprint"
 
 
@@ -77,7 +77,7 @@ def _get_redis_client() -> Any:
     """Return a lazy Redis client without importing redis for uncached installs."""
     global _client, _client_url
 
-    redis_url = os.getenv("REDIS_URL", "").strip()
+    redis_url = config.get("REDIS_URL", "").strip()
     if not redis_url:
         return None
     if _client is not None and _client_url == redis_url:

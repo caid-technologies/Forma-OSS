@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import os
+from blueprint_core.config import config
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional
@@ -15,14 +15,14 @@ SUPPORTED_EXTERNAL_SOURCE_PROVIDERS = {"auto", "none", "disabled", "off", "tavil
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
-    raw = os.getenv(name)
+    raw = config.get(name)
     if raw is None:
         return default
     try:
@@ -32,7 +32,7 @@ def _env_int(name: str, default: int, minimum: int, maximum: int) -> int:
 
 
 def _env_float(name: str, default: float, minimum: float, maximum: float) -> float:
-    raw = os.getenv(name)
+    raw = config.get(name)
     if raw is None:
         return default
     try:
@@ -43,7 +43,7 @@ def _env_float(name: str, default: float, minimum: float, maximum: float) -> flo
 
 def _first_env(names: Iterable[str]) -> Optional[str]:
     for name in names:
-        value = os.getenv(name)
+        value = config.get(name)
         if value and value.strip():
             return value.strip()
     return None
@@ -141,8 +141,8 @@ class ExternalSourceProviderConfig:
 
         requested = (
             provider_override
-            or os.getenv("EXTERNAL_SOURCE_PROVIDER")
-            or os.getenv("WEB_RESEARCH_PROVIDER")
+            or config.get("EXTERNAL_SOURCE_PROVIDER")
+            or config.get("WEB_RESEARCH_PROVIDER")
             or DEFAULT_EXTERNAL_SOURCE_PROVIDER
         ).strip().lower().replace("_", "-")
         if requested not in SUPPORTED_EXTERNAL_SOURCE_PROVIDERS:

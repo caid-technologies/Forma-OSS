@@ -1,5 +1,5 @@
 import logging
-import os
+from blueprint_core.config import config
 import uuid
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -47,7 +47,7 @@ class DatabaseConfig:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     value = value.strip()

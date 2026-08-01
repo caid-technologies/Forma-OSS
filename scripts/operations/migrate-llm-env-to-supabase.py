@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import os
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,6 +10,8 @@ from dotenv import load_dotenv
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+from blueprint_core.config import config  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.production.local", override=False)
@@ -32,7 +33,7 @@ MIGRATED_INTEGRATION_IDS = {
     "runpod",
     "gmi",
     "huggingface",
-    "nebius",
+    "cloudflare",
     "nvidia",
     "gemini",
     "ollama",
@@ -41,7 +42,7 @@ MIGRATED_INTEGRATION_IDS = {
 
 def first_env(env_names: tuple[str, ...]) -> str | None:
     for env_name in env_names:
-        value = os.getenv(env_name)
+        value = config.get(env_name)
         if value and value.strip():
             return value.strip()
     return None

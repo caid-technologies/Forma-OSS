@@ -3,7 +3,7 @@ import base64
 import contextlib
 import json
 import logging
-import os
+from blueprint_core.config import config
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -63,7 +63,7 @@ def _utc_now() -> str:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -1132,8 +1132,8 @@ async def start_a2a_tcp_server() -> Optional[asyncio.AbstractServer]:
     if _tcp_server is not None or not _env_bool("A2A_SOCKET_ENABLED", default=False):
         return _tcp_server
 
-    host = os.getenv("A2A_SOCKET_HOST", "127.0.0.1")
-    port = int(os.getenv("A2A_SOCKET_PORT", "8766"))
+    host = config.get("A2A_SOCKET_HOST", "127.0.0.1")
+    port = int(config.get("A2A_SOCKET_PORT", "8766"))
     _tcp_server = await asyncio.start_server(_handle_tcp_client, host, port)
     logger.info("A2A TCP JSONL socket listening on %s:%s", host, port)
     return _tcp_server
@@ -1343,7 +1343,7 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Dict[str, Any]:
 
     try:
         if method == "initialize":
-            requested_version = params.get("protocolVersion") or os.getenv("MCP_PROTOCOL_VERSION", "2024-11-05")
+            requested_version = params.get("protocolVersion") or config.get("MCP_PROTOCOL_VERSION", "2024-11-05")
             return _jsonrpc_result(
                 request_id,
                 {

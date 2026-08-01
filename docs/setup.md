@@ -172,10 +172,11 @@ Notes:
 - Docker Compose uses `COMPOSE_DATABASE_BACKEND` instead and defaults it to `sqlite`; this prevents host-only loopback Supabase URLs from breaking the container quickstart. `COMPOSE_SQLITE_DATABASE_URL` optionally overrides the container SQLite URL.
 - Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
 - Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
+- After those inputs are applied, `GET /api/runtime/config` is authoritative for the frontend. Resolution precedence is request override, saved integration, environment, then provider default; the browser does not repeat this merge.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
-- `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
-- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `NEBIUS_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
+- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `CLOUDFLARE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
 - `OPENAI_RESPONSE_FORMAT` defaults to `json_schema` for OpenAI. You can set it to `json_object` for older JSON mode or `none` to omit `response_format`.
 - `OPENAI_TIMEOUT_SECONDS` controls the per-request OpenAI read timeout and defaults to `300`.
@@ -187,15 +188,17 @@ Notes:
 - `HF_TOKEN`, `HUGGINGFACE_API_KEY`, or `HUGGINGFACE_HUB_TOKEN` enables Hugging Face Inference Providers when `LLM_PROVIDER=huggingface`; `HUGGINGFACE_BASE_URL` defaults to `https://router.huggingface.co/v1`.
 - `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY` enables Claude when `LLM_PROVIDER=anthropic`; `ANTHROPIC_BASE_URL` defaults to `https://api.anthropic.com/v1`.
 - `HUGGINGFACE_MODEL` selects the Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
-- `NEBIUS_API_KEY` enables Nebius Token Factory when `LLM_PROVIDER=nebius`; `NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`.
-- `NEBIUS_MODEL` selects the Nebius model ID, for example `Qwen/Qwen3.5-397B-A17B`; structured generation defaults to `NEBIUS_RESPONSE_FORMAT=json_schema`.
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` enable Cloudflare AI when `LLM_PROVIDER=cloudflare`; `CLOUDFLARE_BASE_URL` can override the derived OpenAI-compatible endpoint.
+- `CLOUDFLARE_MODEL` selects the Cloudflare Workers AI model ID and defaults to the Free-plan-compatible `@cf/google/gemma-4-26b-a4b-it`; structured generation defaults to `CLOUDFLARE_RESPONSE_FORMAT=json_schema`.
+- `CLOUDFLARE_ENABLE_THINKING=false` is the structured-generation default. Set it to `true` only when hidden reasoning is worth reducing the token budget available for the JSON answer.
 - `NVIDIA_API_KEY` enables NVIDIA Build/NIM APIs when `LLM_PROVIDER=nvidia`; `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL` selects the NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`.
 - `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
+- `BLUEPRINT_DEFAULT_GENERATION_WORKFLOW` selects the initial workflow shown by the frontend: `web_research` (default) or `default` (Catalog). Explicit workflow selections in generation requests take precedence.
 - `FIRECRAWL_API_KEY` or `FIRECRAWL_MCP_COMMAND` enables Firecrawl research. `FIRECRAWL_SEARCH_LIMIT` and `FIRECRAWL_MCP_TIMEOUT_SECONDS` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
-- `IMAGE_OUTPUT_ENABLED=true` makes generated product concept images the default. Leave it `false` and use the UI checkbox or `generate_image=true` API flag to opt in per job.
-- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, `huggingface`, or `none`.
+- A configured image provider makes generated product concept images the frontend default. API clients can still opt out with `generate_image=false`; `IMAGE_OUTPUT_ENABLED` remains the environment-level default for non-frontend callers.
+- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
 - For `IMAGE_PROVIDER=openai`, image generation uses `OPENAI_IMAGE_API_KEY` or `OPENAI_API_KEY` and `OPENAI_IMAGE_BASE_URL` or `OPENAI_BASE_URL`. It does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; those belong to text-model routing and OpenAI-compatible providers.

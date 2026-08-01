@@ -24,9 +24,14 @@ Forma OSS turns prompts into structured hardware projects using a sequential, va
 - Live structured JSON output is routed through the reusable `blueprint_core.llm` package API.
 - Shared generation, provider, validation, model, and runtime utilities live under `blueprint_core` so the backend, CLI, smoke tests, and future workers use the same implementation.
 - External service adapters live under `blueprint_core/integrations/`; Hugging Face artifact packaging and uploads are grouped under `integrations/huggingface/`.
-- Supported providers are `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, and `simulation`.
+- Supported providers are `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, and `simulation`.
 - Generic configuration uses `LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`, `STRICT_LLM`, and `LLM_FALLBACK_MODEL`.
+- `blueprint_core.config` is the dedicated configuration package. Its exported `config` singleton is the sole Python process-environment boundary; runtime resolution and the credential-safe client contract live in `blueprint_core.config.runtime` and `blueprint_core.config.contract`. Legacy runtime-config module paths are compatibility shims only.
+- Backend, core, CLI, example, evaluation, and maintenance modules use the config object's read, parse, snapshot, mutation, replacement, and temporary-override APIs instead of accessing `os.getenv` or `os.environ` directly.
+- `apps/web/lib/config/` is the corresponding web configuration package: `environment.ts` is the sole Next.js build/server environment boundary, while `runtime.ts` defines the backend-owned runtime contract consumed by the UI.
 - `/api/generate` can override the provider and model at runtime with optional `provider` and `model` fields. Overrides are checked against `LLM_ALLOWED_PROVIDERS` and provider-specific model allowlists before generation starts.
+- `blueprint_core.config.contract.resolve_runtime_contract()` is the single client-facing configuration authority. It resolves request/saved/environment/default precedence and publishes LLM options, image defaults, workflow defaults, generation readiness, and BYOK requirements through `GET /api/runtime/config`.
+- Environment variables and encrypted integration records are input adapters. The web application does not merge them or derive provider readiness independently.
 - Gemini-specific variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_MODEL`, `STRICT_GEMINI`, `GEMINI_FALLBACK_MODEL`) remain supported as compatibility aliases.
 - If no API key is configured (or generation errors), the backend uses a deterministic simulation fallback backed by curated example projects.
 

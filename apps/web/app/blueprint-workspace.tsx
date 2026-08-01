@@ -4,14 +4,12 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useSta
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 import {
-  activeLlmsFromIntegrations,
   generationLlmImageSupport,
   generationLlmKey,
   type GenerationLlmOption,
-  type IntegrationsPayload,
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
-import { deploymentComposerDefaults } from "../lib/deployment-composer-defaults";
+import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
   humanContextDefaultsChatSummary,
@@ -104,12 +102,8 @@ const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), 
   ),
 });
 
-const DEFAULT_API_URL = process.env.NODE_ENV === "development" ? "http://localhost:8000" : "";
-const API_URL = normalizeApiUrl(process.env.NEXT_PUBLIC_API_URL || process.env.NEXT_PUBLIC_BACKEND_URL || DEFAULT_API_URL);
-const DEFAULT_SHOW_DEVELOPER_TOOLS =
-  process.env.NODE_ENV === "development" ||
-  isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEBUG) ||
-  isTruthyEnv(process.env.NEXT_PUBLIC_BLUEPRINT_DEV_MODE);
+const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
+const DEFAULT_SHOW_DEVELOPER_TOOLS = webConfig.publicDeveloperTools;
 const DEFAULT_WORKFLOW_ID = "default";
 const WEB_RESEARCH_WORKFLOW_ID = "web_research";
 const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
@@ -220,32 +214,10 @@ const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
 const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
 const ANTHROPIC_SONNET_MODEL = "claude-sonnet-5";
-const NEBIUS_QWEN_MODEL = "Qwen/Qwen3.5-397B-A17B";
-const NEBIUS_QWEN_VISION_MODEL = "Qwen/Qwen2-VL-72B-Instruct";
+const CLOUDFLARE_GEMMA_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const NVIDIA_GLM_MODEL = "nvidia/z-ai/glm-5.2";
 const NVIDIA_QWEN_CODER_32B_MODEL = "qwen/qwen2.5-coder-32b-instruct";
 const NVIDIA_LLAMA_8B_MODEL = "meta/llama-3.1-8b-instruct";
-
-const localOnlyGenerationLlms: GenerationLlmOption[] =
-  process.env.NODE_ENV === "development"
-    ? [{ provider: "baseten", model: BASETEN_DEEPSEEK_MODEL, label: "Baseten DeepSeek V4 Pro" }]
-    : [];
-
-const defaultGenerationLlms: GenerationLlmOption[] = [
-  { provider: "openai", model: "gpt-5.5", label: "OpenAI GPT-5.5" },
-  { provider: "anthropic", model: ANTHROPIC_SONNET_MODEL, label: "Claude Sonnet 5" },
-  { provider: "huggingface", model: "Qwen/Qwen2.5-Coder-3B-Instruct:nscale", label: "Hugging Face Qwen2.5 Coder" },
-  { provider: "runpod", model: RUNPOD_PARTI_BASE_MODEL, label: "Runpod Parti Base" },
-  { provider: "runpod-serverless", model: RUNPOD_PARTI_BASE_MODEL, label: RUNPOD_PARTI_BASE_MODEL },
-  { provider: "baseten", model: BASETEN_GLM_MODEL, label: "GLM 5.2" },
-  ...localOnlyGenerationLlms,
-  { provider: "gmi", model: "anthropic/claude-fable-5", label: "GMI Claude Fable 5" },
-  { provider: "nebius", model: NEBIUS_QWEN_MODEL, label: "Nebius Qwen 3.5 397B A17B" },
-  { provider: "nebius", model: NEBIUS_QWEN_VISION_MODEL, label: "Nebius Qwen2 VL 72B (Vision)" },
-  { provider: "nvidia", model: NVIDIA_GLM_MODEL, label: "NVIDIA GLM 5.2" },
-  { provider: "nvidia", model: NVIDIA_QWEN_CODER_32B_MODEL, label: "NVIDIA Qwen2.5 Coder 32B" },
-  { provider: "nvidia", model: NVIDIA_LLAMA_8B_MODEL, label: "NVIDIA Llama 3.1 8B" },
-];
 
 const defaultAgentPipelineSteps: AgentPipelineStep[] = [
   {
@@ -339,7 +311,7 @@ function generationLlmLabel(provider: string, model: string) {
   if (provider === "anthropic" && model === ANTHROPIC_SONNET_MODEL) return "Claude Sonnet 5";
   if (provider === "huggingface") return `Hugging Face ${model}`;
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
-  if (provider === "nebius") return `Nebius ${model}`;
+  if (provider === "cloudflare" && model === CLOUDFLARE_GEMMA_MODEL) return "Cloudflare Gemma 4 26B A4B";
   if (provider === "nvidia" && model === NVIDIA_GLM_MODEL) return "NVIDIA GLM 5.2";
   if (provider === "nvidia" && model === NVIDIA_QWEN_CODER_32B_MODEL) return "NVIDIA Qwen2.5 Coder 32B";
   if (provider === "nvidia" && model === NVIDIA_LLAMA_8B_MODEL) return "NVIDIA Llama 3.1 8B";
@@ -351,10 +323,6 @@ function normalizeApiUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) return "/api";
   return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
-}
-
-function isTruthyEnv(value: string | undefined) {
-  return ["1", "true", "yes", "on"].includes((value || "").trim().toLowerCase());
 }
 
 function downloadBrowserFile(contents: string, filename: string, mimeType: string) {
@@ -1365,6 +1333,11 @@ type ImageGenerationConfig = {
   reason: string | null;
 };
 
+type ProviderSetupState = {
+  llmRequired: boolean;
+  imageRequired: boolean;
+};
+
 const workspaceTabs = [
   { id: "overview", label: "INFO", icon: Info },
   { id: "bom", label: "BOM", icon: ShoppingBag },
@@ -1590,14 +1563,18 @@ export function FormaWorkspace({
     reason: null,
   });
   const [imageGenerationConfigLoaded, setImageGenerationConfigLoaded] = useState(false);
+  const [providerSetup, setProviderSetup] = useState<ProviderSetupState>({
+    llmRequired: false,
+    imageRequired: false,
+  });
   const [blueprintDevMode, setBlueprintDevMode] = useState(false);
   const [generateProductImage, setGenerateProductImage] = useState(false);
   const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
   const [agentPipelineSteps, setAgentPipelineSteps] = useState<AgentPipelineStep[]>(defaultAgentPipelineSteps);
-  const [generationLlms, setGenerationLlms] = useState<GenerationLlmOption[]>(() => authRequired ? [] : defaultGenerationLlms);
-  const [generationLlmKeyValue, setGenerationLlmKeyValue] = useState(() => authRequired ? "" : generationLlmKey(defaultGenerationLlms[0]));
-  const [generationLlmsLoaded, setGenerationLlmsLoaded] = useState(!authRequired);
+  const [generationLlms, setGenerationLlms] = useState<GenerationLlmOption[]>([]);
+  const [generationLlmKeyValue, setGenerationLlmKeyValue] = useState("");
+  const [generationLlmsLoaded, setGenerationLlmsLoaded] = useState(false);
   const [mechElectricalActive, setMechElectricalActive] = useState(true);
   const [mechToggles, setMechToggles] = useState({
     structural: true,
@@ -1707,8 +1684,8 @@ export function FormaWorkspace({
     [generationLlmKeyValue, generationLlms]
   );
   const generationLlmsReady = Boolean(selectedGenerationLlm);
-  const needsGenerationProvider = generationLlmsLoaded && !generationLlmsReady && (!authRequired || authLoaded);
-  const needsImageProvider = imageGenerationConfigLoaded && imageGenerationConfig.configured !== true && (!authRequired || authLoaded);
+  const needsGenerationProvider = generationLlmsLoaded && providerSetup.llmRequired && (!authRequired || authLoaded);
+  const needsImageProvider = imageGenerationConfigLoaded && providerSetup.imageRequired && (!authRequired || authLoaded);
   const visibleGenerationInputNotice =
     generationInputNotice ||
     (needsGenerationProvider
@@ -2269,10 +2246,6 @@ export function FormaWorkspace({
   }, { delayMs: 150, timeoutMs: 700 });
 
   useDeferredTask(() => {
-    void fetchGenerationWorkflows();
-  }, { delayMs: 300, timeoutMs: 900 });
-
-  useDeferredTask(() => {
     if (!authRequired) void fetchRuntimeConfig();
   }, { delayMs: 500, enabled: !authRequired, timeoutMs: 1100 });
 
@@ -2284,6 +2257,7 @@ export function FormaWorkspace({
     setGenerationLlmKeyValue("");
     setImageGenerationConfig({ configured: null, provider: null, reason: null });
     setImageGenerationConfigLoaded(false);
+    setProviderSetup({ llmRequired: false, imageRequired: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authIdentityKey, authLoaded, authRequired, isSignedIn]);
 
@@ -2371,107 +2345,58 @@ export function FormaWorkspace({
     const requestId = ++generationLlmRequestIdRef.current;
     const requestIsCurrent = () => generationLlmRequestIdRef.current === requestId;
     try {
-      const applyActiveUserLlms = async () => {
-        try {
-          const integrationsResponse = await fetch(`${API_URL}/user/integrations`, {
-            cache: "no-store",
-            headers: await optionalAuthHeaders(),
-          });
-          if (!integrationsResponse.ok) return false;
-          const integrationsPayload = (await integrationsResponse.json()) as IntegrationsPayload;
-          if (!requestIsCurrent()) return false;
-          const activeLlms = activeLlmsFromIntegrations(integrationsPayload, defaultGenerationLlms, generationLlmLabel);
-          if (activeLlms.length > 0) {
-            setGenerationLlms(activeLlms);
-            setGenerationLlmKeyValue((current) => (activeLlms.some((option) => generationLlmKey(option) === current) ? current : generationLlmKey(activeLlms[0])));
-          } else {
-            setGenerationLlms([]);
-            setGenerationLlmKeyValue("");
-          }
-          return true;
-        } catch (error) {
-          console.warn("Unable to load active user LLM settings", error);
-          return false;
-        }
-      };
-      const appliedActiveUserLlms = await applyActiveUserLlms();
-      if (!requestIsCurrent()) return;
-      const res = await fetch(`${API_URL}/debug/config`, {
+      const res = await fetch(`${API_URL}/runtime/config`, {
+        cache: "no-store",
         headers: await optionalAuthHeaders(),
       });
       if (!res.ok) return;
 
-      const config = await res.json();
+      const config = (await res.json()) as RuntimeConfigContract;
       if (!requestIsCurrent()) return;
       setBlueprintDevMode(config.blueprint_dev_mode === true);
-      const workflows = Array.isArray(config.workflows) ? config.workflows : [];
-      const imageOutput = config.image_output || {};
-      const imageProviderConfigured = Boolean(imageOutput.request_capable ?? imageOutput.configured);
-      const composerDefaults = deploymentComposerDefaults({
-        blueprintDevMode: config.blueprint_dev_mode,
-        imageProviderConfigured,
-        workflows,
+      const activeLlms = usableRuntimeLlmOptions(config);
+      const selectedLlm = config.generation.selected_llm;
+      const selectedLlmKey = selectedLlm ? generationLlmKey(selectedLlm) : "";
+      setGenerationLlms(activeLlms);
+      setGenerationLlmKeyValue(
+        activeLlms.some((option) => generationLlmKey(option) === selectedLlmKey)
+          ? selectedLlmKey
+          : activeLlms[0]
+            ? generationLlmKey(activeLlms[0])
+            : "",
+      );
+      setProviderSetup({
+        llmRequired: config.provider_setup.llm_required,
+        imageRequired: config.provider_setup.image_required,
       });
-      if (config.video_generation) {
+
+      if (config.video?.generation) {
         setVideoGenerationConfig({
-          configured: Boolean(config.video_generation.configured),
-          reason: typeof config.video_generation.reason === "string" ? config.video_generation.reason : null,
+          configured: Boolean(config.video.generation.configured),
+          reason: typeof config.video.generation.reason === "string" ? config.video.generation.reason : null,
         });
       }
-      if (config.video_self_correction) {
+      if (config.video?.self_correction) {
         setVideoSelfCorrectionConfig({
-          configured: Boolean(config.video_self_correction.configured),
-          reason: typeof config.video_self_correction.reason === "string" ? config.video_self_correction.reason : null,
+          configured: Boolean(config.video.self_correction.configured),
+          reason: typeof config.video.self_correction.reason === "string" ? config.video.self_correction.reason : null,
         });
       }
-      if (config.image_output) {
-        setImageGenerationConfig({
-          configured: imageProviderConfigured,
-          provider: typeof imageOutput.request_provider === "string"
-            ? imageOutput.request_provider
-            : typeof imageOutput.provider === "string"
-              ? imageOutput.provider
-              : null,
-          reason: typeof imageOutput.reason === "string" ? imageOutput.reason : null,
-        });
-        setGenerateProductImage(composerDefaults.generateImages);
-      }
+      setImageGenerationConfig({
+        configured: config.images.configured,
+        provider: config.images.provider,
+        reason: config.images.reason,
+      });
+      setGenerateProductImage(config.images.generate_by_default);
+
+      const workflows = Array.isArray(config.workflow.options) ? config.workflow.options : [];
       if (workflows.length > 0) {
         setGenerationWorkflows(workflows);
-        setGenerationWorkflow((current) =>
-          composerDefaults.workflowId ||
-          (workflows.some((workflow: GenerationWorkflowOption) => workflow.id === current) ? current : workflows[0].id),
+        setGenerationWorkflow(
+          workflows.some((workflow) => workflow.id === config.workflow.default_id)
+            ? config.workflow.default_id
+            : workflows[0].id,
         );
-      }
-      if (appliedActiveUserLlms) return;
-      const runtime = config.runtime || {};
-      const allowedProviders = Array.isArray(runtime.allowed_providers) ? runtime.allowed_providers.map((item: any) => String(item)) : null;
-      const configuredProviders = Array.isArray(runtime.configured_providers) ? runtime.configured_providers.map((item: any) => String(item)) : null;
-      const runtimeProvider = typeof runtime.runtime_provider === "string" ? runtime.runtime_provider : null;
-      const runtimeModel = typeof runtime.runtime_model === "string" ? runtime.runtime_model : null;
-      const providerCanAppear = (provider: string) =>
-        (!allowedProviders || allowedProviders.includes(provider)) &&
-        (!configuredProviders || configuredProviders.includes(provider));
-      const filteredLlms = defaultGenerationLlms.filter((option) => providerCanAppear(option.provider));
-      const nextLlms = [...filteredLlms];
-      if (
-        runtimeProvider &&
-        runtimeModel &&
-        providerCanAppear(runtimeProvider) &&
-        !nextLlms.some((option) => option.provider === runtimeProvider && option.model === runtimeModel)
-      ) {
-        nextLlms.unshift({
-          provider: runtimeProvider,
-          model: runtimeModel,
-          label: generationLlmLabel(runtimeProvider, runtimeModel),
-        });
-      }
-      if (nextLlms.length > 0) {
-        setGenerationLlms(nextLlms);
-        setGenerationLlmKeyValue((current) => (nextLlms.some((option) => generationLlmKey(option) === current) ? current : generationLlmKey(nextLlms[0])));
-      } else {
-        setGenerationLlms([]);
-        setGenerationLlmKeyValue("");
       }
     } catch (e) {
       if (requestIsCurrent()) console.error("Error fetching runtime config", e);
@@ -2480,20 +2405,6 @@ export function FormaWorkspace({
         setGenerationLlmsLoaded(true);
         setImageGenerationConfigLoaded(true);
       }
-    }
-  };
-
-  const fetchGenerationWorkflows = async () => {
-    try {
-      const res = await fetch(`${API_URL}/workflows`);
-      if (!res.ok) return;
-      const workflows = await res.json();
-      if (Array.isArray(workflows) && workflows.length > 0) {
-        setGenerationWorkflows(workflows);
-        setGenerationWorkflow((current) => workflows.some((workflow: GenerationWorkflowOption) => workflow.id === current) ? current : workflows[0].id);
-      }
-    } catch (e) {
-      console.error("Error fetching generation workflows", e);
     }
   };
 
@@ -2807,16 +2718,37 @@ export function FormaWorkspace({
     };
   }, [blueprintDevMode, chatListItems, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
 
-  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const attachImageFile = (file: File) => {
+    if (!file.type.startsWith("image/")) {
+      setGenerationInputNotice("Only image files can be attached as hardware references.");
+      return;
+    }
     const reader = new FileReader();
-    reader.onloadend = () => {
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        setGenerationInputNotice("Forma could not read that image. Try another image format.");
+        return;
+      }
       setGenerationInputNotice(null);
-      setSelectedImage(reader.result as string);
+      setSelectedImage(reader.result);
+    };
+    reader.onerror = () => {
+      setGenerationInputNotice("Forma could not read that image. Try copying or uploading it again.");
     };
     reader.readAsDataURL(file);
+  };
+
+  const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) attachImageFile(file);
+  };
+
+  const handleImagePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const imageFile = Array.from(event.clipboardData.files).find((file) => file.type.startsWith("image/"))
+      || Array.from(event.clipboardData.items)
+        .find((item) => item.type.startsWith("image/"))
+        ?.getAsFile();
+    if (imageFile) attachImageFile(imageFile);
   };
 
   const removeSelectedImage = () => {
@@ -2901,7 +2833,10 @@ export function FormaWorkspace({
       setGenerationInputNotice("Turn on at least one model provider in Settings before building.");
       return;
     }
-    if (selectedImage && generationLlmImageSupport(selectedGenerationLlm) === false) {
+    if (
+      selectedImage &&
+      (selectedGenerationLlm.supports_image_input ?? generationLlmImageSupport(selectedGenerationLlm)) === false
+    ) {
       const message = `${selectedGenerationLlm.label} cannot read reference images. Choose a vision-capable model or remove the image.`;
       setGenerationInputNotice(message);
       appendChatMessage({
@@ -4345,6 +4280,7 @@ export function FormaWorkspace({
               inputValid={generationInputValidation.isValid}
               imageInputRef={fileInputRefCenter}
               onImageChange={handleImageChange}
+              onImagePaste={handleImagePaste}
             />
           )}
         </main>

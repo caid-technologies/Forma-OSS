@@ -3,7 +3,7 @@ import html
 import io
 import json
 import logging
-import os
+from blueprint_core.config import config
 import time
 import uuid
 import urllib.error
@@ -68,7 +68,7 @@ class GeneratedImage:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     stripped = value.strip()
@@ -84,7 +84,7 @@ def _first_env(names: List[str], default: Optional[str] = None) -> Optional[str]
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -92,7 +92,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 def _first_env_bool(names: List[str], default: bool = False) -> bool:
     for name in names:
-        if os.getenv(name) is not None:
+        if config.get(name) is not None:
             return _env_bool(name, default)
     return default
 

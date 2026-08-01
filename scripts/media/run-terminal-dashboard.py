@@ -24,6 +24,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+from blueprint_core.config import config
 from blueprint_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
 from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
 
@@ -174,7 +175,7 @@ def start_backend(backend_url: str, output_dir: Path, processes: ManagedProcessG
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     command = [python_bin, "-m", "uvicorn", "apps.api.main:app", "--host", host, "--port", str(port)]
     log_handle = open_log(output_dir / "backend.log")
-    env = dict(os.environ)
+    env = config.snapshot()
     env["PYTHONPATH"] = f"{ROOT_DIR}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
     env["BLUEPRINT_DEV_MODE"] = "true"
     env["DATABASE_BACKEND"] = "sqlite"
@@ -192,7 +193,7 @@ def start_frontend(frontend_url: str, backend_url: str, output_dir: Path, proces
     host, port = parse_host_port(frontend_url, default_port=3000)
     command = ["npm", "run", "dev", "--", "--hostname", host, "--port", str(port)]
     log_handle = open_log(output_dir / "frontend.log")
-    env = dict(os.environ)
+    env = config.snapshot()
     env["NEXT_PUBLIC_API_URL"] = backend_url
     print(f"[terminal-dashboard] starting frontend: {' '.join(command)}", flush=True)
     process = subprocess.Popen(command, cwd=ROOT_DIR / "apps" / "web", env=env, stdout=log_handle, stderr=subprocess.STDOUT, text=True)

@@ -18,6 +18,7 @@ if VENV_PYTHON.exists() and Path(sys.prefix).resolve() != (REPO_ROOT / ".venv").
 
 sys.path.insert(0, str(REPO_ROOT))
 
+from blueprint_core.config import config
 from blueprint_core.image_providers import build_image_provider
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
 
@@ -131,7 +132,7 @@ def _load_saved_config(user_id: Optional[str]) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Make one direct image-provider request without running the hardware pipeline.")
-    parser.add_argument("--user-id", default=os.getenv("BLUEPRINT_TEST_USER_ID") or os.getenv("BLUEPRINT_USER_ID"), help="Clerk user id whose saved BYOK settings should be loaded.")
+    parser.add_argument("--user-id", default=config.get("BLUEPRINT_TEST_USER_ID") or config.get("BLUEPRINT_USER_ID"), help="Clerk user id whose saved BYOK settings should be loaded.")
     parser.add_argument("--prompt", default="A compact handheld electronics prototype with display, one button, USB-C power, and a simple matte enclosure on a white background.")
     parser.add_argument("--output", default=".tmp/image-provider-smoke", help="Where to save the generated image. Extension is inferred when omitted.")
     parser.add_argument("--config-only", action="store_true", help="Only load config and print provider debug; do not call the provider.")

@@ -194,6 +194,18 @@ button:disabled {
   mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
 }
 
+.caid-logo-on-light {
+  display: none;
+}
+
+html[data-theme="light"] .caid-logo-on-dark {
+  display: none;
+}
+
+html[data-theme="light"] .caid-logo-on-light {
+  display: block;
+}
+
 .partner-logo-track {
   width: max-content;
   animation: partner-logo-scroll 32s linear infinite;

@@ -18,6 +18,7 @@ from blueprint_core.workspaces.workflow import (
     ProjectWorkflowTransition,
     WorkflowActorType,
     WorkflowTransitionOutcome,
+    ensure_action_allowed,
 )
 from blueprint_core.persistence.base import DatabaseProvider
 from blueprint_core.persistence.models import (
@@ -554,6 +555,24 @@ def transition_project_workflow(
         reason=reason,
         idempotency_key=idempotency_key,
     )
+
+
+def ensure_project_action_allowed(
+    project_id: str,
+    owner_user_id: str,
+    action: str,
+    *,
+    require_workflow: bool = False,
+) -> None:
+    """Apply project workflow execution policy without coupling callers to persistence."""
+
+    try:
+        workflow = ProjectWorkflowService(_DATABASE_REPOSITORY).get(project_id, owner_user_id)
+    except WorkflowStateError:
+        if not require_workflow:
+            return
+        raise
+    ensure_action_allowed(workflow, action)
 
 
 def list_due_project_purges(before: str, limit: int = 25) -> List[Any]:

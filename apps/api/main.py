@@ -71,6 +71,7 @@ from blueprint_core.database import (
     count_component_templates,
     delete_generated_project,
     delete_project_chat,
+    ensure_project_action_allowed,
     get_database_config,
     get_generated_project,
     get_latest_project_deletion_audit,
@@ -100,6 +101,7 @@ from blueprint_core.workspaces.projects.models import (
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
+from blueprint_core.workspaces.workflow import WorkflowStateError
 from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from apps.api.a2a import (
@@ -127,6 +129,7 @@ from blueprint_core.video_review import FireworksVideoReviewClient
 from apps.api.logs_api import router as logs_router
 from apps.api.streams_api import router as streams_router
 from apps.api.design_briefs_api import router as design_briefs_router
+from apps.api.context_gathering_api import router as context_gathering_router
 from apps.api.project_workflow_api import router as project_workflow_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
@@ -279,6 +282,7 @@ app.add_middleware(
 app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(streams_router, dependencies=[Depends(require_admin_user_context)])
 app.include_router(design_briefs_router)
+app.include_router(context_gathering_router)
 app.include_router(project_workflow_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
@@ -494,6 +498,18 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
     """
+    owner_user_id = _require_authenticated_user(user)
+    if request.project_id:
+        try:
+            ensure_project_action_allowed(
+                request.project_id,
+                owner_user_id,
+                "blueprint.generate_project",
+                require_workflow=True,
+            )
+        except WorkflowStateError as exc:
+            status_code = status.HTTP_404_NOT_FOUND if exc.code == "workflow_not_found" else status.HTTP_409_CONFLICT
+            raise HTTPException(status_code=status_code, detail=exc.as_dict()) from exc
     _apply_user_integrations(user)
     try:
         llm_config = get_workflow_debug_config(
@@ -553,7 +569,6 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
 
     job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
-    owner_user_id = _require_authenticated_user(user)
     if request.source_project_id:
         source_project = get_generated_project(request.source_project_id)
         if not source_project:
@@ -561,6 +576,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         _require_project_chat_owner(source_project, user)
     payload = {
         "prompt": request.prompt,
+        "project_id": request.project_id,
         "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
@@ -615,6 +631,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 owner_user_id=owner_user_id,
                 data_sources=request.data_sources,
                 past_job_context=past_job_context,
+                project_id=request.project_id,
             )
         if JOB_STORE.is_cancelled(job_id):
             raise JobCancelledError(f"Job {job_id} was cancelled.")
@@ -2010,6 +2027,11 @@ def iterate_project_endpoint(
         raise HTTPException(status_code=404, detail="Project not found.")
     _require_project_reader(project, user)
     save_owner_user_id = _require_project_owner(project, user) if request.save else None
+    if save_owner_user_id:
+        try:
+            ensure_project_action_allowed(project.project_id, save_owner_user_id, "blueprint.iterate_project")
+        except WorkflowStateError as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
 
     try:
         current_ir = HardwareIR(**project.hardware_ir)

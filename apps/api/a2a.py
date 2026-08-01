@@ -18,7 +18,12 @@ from blueprint_core.agents.workflows import (
     normalize_workflow_id,
 )
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.database import get_generated_project, save_generated_project, update_generated_project_hardware_ir
+from blueprint_core.database import (
+    ensure_project_action_allowed,
+    get_generated_project,
+    save_generated_project,
+    update_generated_project_hardware_ir,
+)
 from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from apps.api.auth_mode import clerk_auth_required
 from blueprint_core.jobs.store import JOB_STORE
@@ -754,6 +759,7 @@ def build_generation_response(
     owner_user_id: Optional[str] = None,
     data_sources: Optional[List[str]] = None,
     past_job_context: Optional[PastJobContext] = None,
+    project_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     _apply_owner_user_integrations(owner_user_id)
 
@@ -792,6 +798,7 @@ def build_generation_response(
         "workflow": workflow_id,
         "chat_id": chat_id,
         "source_project_id": source_project_id,
+        "project_id": project_id,
         "owner_user_id": owner_user_id,
         "requested_provider": provider,
         "requested_model": model,
@@ -833,6 +840,7 @@ def build_generation_response(
                 model_name=model,
                 external_source_provider=external_source_provider,
                 generation_metadata={
+                    "project_id": project_id,
                     "chat_id": chat_id,
                     "source_project_id": source_project_id,
                     "frontend_job_id": frontend_job_id,
@@ -846,6 +854,7 @@ def build_generation_response(
             ensure_agent_pipeline_active()
             ir.assembly_metadata = {
                 **(ir.assembly_metadata or {}),
+                "project_id": project_id or (ir.assembly_metadata or {}).get("project_id"),
                 "chat_id": chat_id or (ir.assembly_metadata or {}).get("chat_id"),
                 "source_project_id": source_project_id or (ir.assembly_metadata or {}).get("source_project_id"),
                 "frontend_job_id": frontend_job_id or (ir.assembly_metadata or {}).get("frontend_job_id"),
@@ -938,6 +947,15 @@ def build_generation_response(
 async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
     normalized = action.removeprefix("blueprint.")
     owner_user_id = payload.get("owner_user_id")
+    project_id = payload.get("project_id")
+
+    if project_id and owner_user_id:
+        ensure_project_action_allowed(
+            str(project_id),
+            str(owner_user_id),
+            action,
+            require_workflow=normalized == "generate_project",
+        )
 
     _apply_owner_user_integrations(owner_user_id if isinstance(owner_user_id, str) else None)
 
@@ -966,6 +984,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             payload.get("owner_user_id"),
             data_sources,
             past_job_context,
+            payload.get("project_id"),
         )
 
     if normalized == "debug_config":
@@ -1007,6 +1026,15 @@ def _is_server_message(message: A2AMessage) -> bool:
 async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
     await A2A_HUB.register(message.sender)
     server_owned = _is_server_message(message)
+    project_id = message.payload.get("project_id")
+    owner_user_id = message.payload.get("owner_user_id")
+    if server_owned and project_id and owner_user_id:
+        ensure_project_action_allowed(
+            str(project_id),
+            str(owner_user_id),
+            message.action,
+            require_workflow=message.action.removeprefix("blueprint.") == "generate_project",
+        )
     job = JOB_STORE.create_job(
         job_id=message.job_id,
         message_id=message.message_id,

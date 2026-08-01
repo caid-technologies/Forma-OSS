@@ -6,6 +6,7 @@ import unittest
 
 import blueprint_core.agents as agents
 from blueprint_core.agents.clarification import ContextClarifierAgent
+from blueprint_core.agents.context_gathering import ContextGatheringAgent
 from blueprint_core.agents.continuous import ContinuousAgentCoordinator
 from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
 from blueprint_core.agents.prompt_compaction import PromptCompactionAgent
@@ -15,6 +16,7 @@ from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionA
 class AgentPackageTests(unittest.TestCase):
     def test_common_agents_are_discoverable_from_the_package(self) -> None:
         self.assertIs(agents.ContextClarifierAgent, ContextClarifierAgent)
+        self.assertIs(agents.ContextGatheringAgent, ContextGatheringAgent)
         self.assertIs(agents.ContinuousAgentCoordinator, ContinuousAgentCoordinator)
         self.assertIs(agents.ProjectSelfCorrectionAgent, ProjectSelfCorrectionAgent)
         self.assertIs(agents.PromptCompactionAgent, PromptCompactionAgent)

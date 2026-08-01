@@ -12,6 +12,7 @@ from blueprint_core.workspaces.workflow.service import (
     ProjectWorkflowService,
     WorkflowStateError,
 )
+from blueprint_core.workspaces.workflow.guard import ensure_action_allowed
 
 __all__ = [
     "ALLOWED_WORKFLOW_TRANSITIONS",
@@ -24,4 +25,5 @@ __all__ = [
     "WorkflowStateError",
     "WorkflowTransitionCommand",
     "WorkflowTransitionOutcome",
+    "ensure_action_allowed",
 ]

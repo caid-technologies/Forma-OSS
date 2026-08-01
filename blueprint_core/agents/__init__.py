@@ -2,6 +2,7 @@
 
 __all__ = [
     "ContextClarifierAgent",
+    "ContextGatheringAgent",
     "ContinuousAgentCoordinator",
     "FireworksVideoSelfCorrectionAgent",
     "HardwarePipelineOrchestrator",
@@ -18,6 +19,10 @@ def __getattr__(name: str):
         from blueprint_core.agents.clarification import ContextClarifierAgent
 
         return ContextClarifierAgent
+    if name == "ContextGatheringAgent":
+        from blueprint_core.agents.context_gathering import ContextGatheringAgent
+
+        return ContextGatheringAgent
     if name == "ContinuousAgentCoordinator":
         from blueprint_core.agents.continuous import ContinuousAgentCoordinator
 

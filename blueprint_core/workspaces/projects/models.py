@@ -190,6 +190,10 @@ class Project(BaseModel):
 
 class GenerateProjectRequest(BaseModel):
     prompt: str = Field(..., description="User's natural language project description")
+    project_id: Optional[str] = Field(
+        None,
+        description="Optional context project id whose workflow authorizes this generation.",
+    )
     workflow: str = Field(
         "default",
         description="Generation workflow id: default or web_research"
@@ -237,7 +241,7 @@ class GenerateProjectRequest(BaseModel):
         description="Maximum number of relevant completed jobs to include when data_sources contains past_jobs.",
     )
 
-    @field_validator("provider", "model", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
+    @field_validator("provider", "model", "project_id", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod
     def strip_optional_generation_selector(cls, value: Any) -> Any:
         if isinstance(value, str):

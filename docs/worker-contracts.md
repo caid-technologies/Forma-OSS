@@ -1,12 +1,12 @@
 # Worker contracts and capability registry
 
-Specialized workers exchange versioned envelopes through `blueprint_core.workers`. These contracts define the boundary between orchestration and worker implementations; they do not schedule work, retry jobs, or implement any production worker.
+Specialized workers exchange versioned envelopes through `blueprint_core.workers`. These contracts define the boundary between orchestration and worker implementations; the dependency-aware execution lifecycle is documented in [worker orchestration](worker-orchestration.md).
 
 The worker registry is intentionally separate from the Lattice agent registry:
 
 - Lattice cards describe discoverable domain agents, tools, and handoffs.
 - Worker definitions declare executable capabilities and compatible payload versions.
-- A future orchestrator may connect the two, but it must validate a `WorkerRequest` through `WorkerRegistry` before invoking worker code.
+- `WorkerOrchestrator` validates every `WorkerRequest` through `WorkerRegistry` before invoking worker code.
 
 ## Envelope version
 

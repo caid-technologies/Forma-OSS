@@ -360,6 +360,7 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [Architecture](docs/architecture.md)
 - [DesignBrief contract](docs/design-brief.md)
 - [Worker contracts and capability registry](docs/worker-contracts.md)
+- [Dependency-aware worker orchestration](docs/worker-orchestration.md)
 - [Project workflow state machine](docs/project-workflow.md)
 - [Conversational context gathering](docs/context-gathering.md)
 - [Project readiness and build initiation](docs/project-readiness.md)

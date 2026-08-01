@@ -17,6 +17,7 @@ from blueprint_core.persistence.models import (
     DBProjectDeletionAudit,
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
+    DBWorkerExecutionPlan,
     DBUserSettings,
 )
 
@@ -266,6 +267,42 @@ class SqlAlchemyRepository:
         except IntegrityError:
             return None
 
+    def insert_worker_execution_plan(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            plan = DBWorkerExecutionPlan(**record)
+            session.add(plan)
+            session.flush()
+            session.refresh(plan)
+            session.expunge(plan)
+            return plan
+
+    def get_worker_execution_plan(self, plan_id: str, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBWorkerExecutionPlan).filter(
+                DBWorkerExecutionPlan.id == plan_id,
+                DBWorkerExecutionPlan.owner_user_id == owner_user_id,
+            ).first()
+
+    def update_worker_execution_plan(
+        self,
+        plan_id: str,
+        owner_user_id: str,
+        updates: Dict[str, Any],
+    ) -> Optional[Any]:
+        with self._session() as session, session.begin():
+            plan = session.query(DBWorkerExecutionPlan).filter(
+                DBWorkerExecutionPlan.id == plan_id,
+                DBWorkerExecutionPlan.owner_user_id == owner_user_id,
+            ).first()
+            if plan is None:
+                return None
+            for key, value in updates.items():
+                setattr(plan, key, value)
+            session.flush()
+            session.refresh(plan)
+            session.expunge(plan)
+            return plan
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
             return (
@@ -317,6 +354,9 @@ class SqlAlchemyRepository:
                 return False
             chat_id = project.chat_id
             project_owner_user_id = project.owner_user_id
+            session.query(DBWorkerExecutionPlan).filter(
+                DBWorkerExecutionPlan.project_id == project_id
+            ).delete(synchronize_session=False)
             session.query(DBProjectBuild).filter(DBProjectBuild.project_id == project_id).delete(
                 synchronize_session=False
             )
@@ -398,6 +438,9 @@ class SqlAlchemyRepository:
             ).first()
             if not project:
                 return False
+            session.query(DBWorkerExecutionPlan).filter(
+                DBWorkerExecutionPlan.project_id == project_id
+            ).delete(synchronize_session=False)
             session.query(DBProjectBuild).filter(DBProjectBuild.project_id == project_id).delete(
                 synchronize_session=False
             )

@@ -226,6 +226,40 @@ class SupabaseRepository:
             return None
         return _record(payload["workflow"]), _record(payload["transition"]), _record(payload["build"])
 
+    def insert_worker_execution_plan(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("worker_execution_plans").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def get_worker_execution_plan(self, plan_id: str, owner_user_id: str) -> Optional[Any]:
+        rows = (
+            self._client.table("worker_execution_plans")
+            .select("*")
+            .eq("id", plan_id)
+            .eq("owner_user_id", owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def update_worker_execution_plan(
+        self,
+        plan_id: str,
+        owner_user_id: str,
+        updates: Dict[str, Any],
+    ) -> Optional[Any]:
+        rows = (
+            self._client.table("worker_execution_plans")
+            .update(updates)
+            .eq("id", plan_id)
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         rows = (
             self._client.table("generated_projects")
@@ -270,6 +304,7 @@ class SupabaseRepository:
             query = query.eq("owner_user_id", owner_user_id)
         deleted = bool(query.execute().data)
         if deleted:
+            self._client.table("worker_execution_plans").delete().eq("project_id", project_id).execute()
             self._client.table("project_builds").delete().eq("project_id", project_id).execute()
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
@@ -351,6 +386,7 @@ class SupabaseRepository:
         )
         deleted = bool(response.data)
         if deleted:
+            self._client.table("worker_execution_plans").delete().eq("project_id", project_id).execute()
             self._client.table("project_builds").delete().eq("project_id", project_id).execute()
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()

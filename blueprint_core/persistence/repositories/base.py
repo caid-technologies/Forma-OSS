@@ -74,6 +74,17 @@ class ApplicationRepository(Protocol):
         expected_revision: int,
     ) -> Optional[tuple[Any, Any, Any]]: ...
 
+    def insert_worker_execution_plan(self, record: Dict[str, Any]) -> Any: ...
+
+    def get_worker_execution_plan(self, plan_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def update_worker_execution_plan(
+        self,
+        plan_id: str,
+        owner_user_id: str,
+        updates: Dict[str, Any],
+    ) -> Optional[Any]: ...
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]: ...
 
     def update_project_deletion_state(

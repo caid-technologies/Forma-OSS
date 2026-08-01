@@ -71,3 +71,4 @@ flowchart LR
 - The pipeline is designed to swap models or add agents without rewriting the core IR schema.
 - External agents can call or listen to Forma through the A2A layer documented in `docs/a2a.md`.
 - Specialized worker execution boundaries use the versioned contracts and capability registry documented in `docs/worker-contracts.md`.
+- Dependency-aware concurrent execution and restart recovery are documented in `docs/worker-orchestration.md`.

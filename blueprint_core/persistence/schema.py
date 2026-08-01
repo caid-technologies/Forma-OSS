@@ -49,6 +49,13 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ),
     ),
     TableContract(
+        "worker_execution_plans",
+        (
+            "id", "project_id", "owner_user_id", "correlation_id", "status", "max_concurrency",
+            "state_json", "created_at", "updated_at", "completed_at",
+        ),
+    ),
+    TableContract(
         "project_contribution_consents",
         (
             "id", "project_id", "user_id", "workspace_id", "consent_version", "permitted_purposes", "granted_at",

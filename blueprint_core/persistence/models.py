@@ -114,6 +114,21 @@ class DBProjectBuild(Base):
     created_at = Column(String, index=True, nullable=False)
 
 
+class DBWorkerExecutionPlan(Base):
+    __tablename__ = "worker_execution_plans"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    correlation_id = Column(String, index=True, nullable=False)
+    status = Column(String, index=True, nullable=False)
+    max_concurrency = Column(Integer, nullable=False)
+    state_json = Column(JSON, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, index=True, nullable=False)
+    completed_at = Column(String, nullable=True)
+
+
 class DBProjectContributionConsent(Base):
     __tablename__ = "project_contribution_consents"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_contribution_consent_project_user"),)

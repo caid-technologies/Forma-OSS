@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import Image from "next/image";
 import Link from "next/link";
 import { ArrowLeft, ArrowUpRight, Cpu, Handshake, ShieldCheck } from "lucide-react";
 import LegalFooter from "../../components/legal-footer";
+import CaidLogo from "../../components/caid-logo";
 import PartnerLogoMarquee from "../../components/partner-logo-marquee";
 import { legalContactEmail, legalEntityName } from "../../lib/legal-docs";
 import { aboutMarqueePartners } from "../../lib/partners";
@@ -25,15 +25,7 @@ export default function AboutPage() {
             Forma
           </Link>
           <div className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400">
-            <Image
-              src="/brand/caid-dark-logo-cropped.png"
-              alt=""
-              width={44}
-              height={24}
-              className="h-6 w-11 object-contain"
-              unoptimized
-              aria-hidden="true"
-            />
+            <CaidLogo className="h-6 w-11" sizes="44px" />
             About us
           </div>
         </div>

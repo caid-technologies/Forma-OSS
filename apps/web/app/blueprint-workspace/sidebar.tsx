@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
 import {
   Database,
   Handshake,
@@ -19,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 
+import CaidLogo from "../../components/caid-logo";
 import { FormaUserButton, useFormaAuth } from "../../lib/forma-auth";
 import { connectionStatusPresentation, type ServerConnectionStatus } from "../../lib/connection-status";
 
@@ -252,15 +252,7 @@ export function ChatSidebar({
             aria-label="Home"
             title="Home"
           >
-            <Image
-              src="/brand/caid-dark-logo-cropped.png"
-              alt=""
-              width={36}
-              height={20}
-              className="h-5 w-9 object-contain"
-              unoptimized
-              aria-hidden="true"
-            />
+            <CaidLogo className="h-5 w-9" sizes="36px" />
           </button>
           {!compact && (
             <div className="min-w-0 flex items-center gap-2">

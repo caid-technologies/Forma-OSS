@@ -25,6 +25,7 @@ type HomeChatMessage = {
   timestamp: string;
   projectId?: string | null;
   pipelineProgress?: unknown;
+  imagePreview?: string | null;
 };
 
 type PendingContext = {
@@ -158,6 +159,13 @@ export default function HomeChatView({
                       <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
                     </div>
                     <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                    {message.imagePreview && (
+                      <img
+                        src={message.imagePreview}
+                        alt="Hardware reference thumbnail"
+                        className="mt-3 h-24 w-36 border border-cyan-300/25 object-cover"
+                      />
+                    )}
                     {!message.projectId && renderPipelineProgress(message)}
                   </div>
                 </div>
@@ -329,7 +337,7 @@ export default function HomeChatView({
                   if (!isLoading) event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder={pendingContext ? "Optional: add final context notes before building..." : "Ask Forma to build a lab-on-chip reader, self-assembling tent, sensor node, robot fixture..."}
+              placeholder={pendingContext ? "Add more context…" : "Describe the product, constraints, references, and outputs you need…"}
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
               className={`${pendingContext ? "min-h-[72px] sm:min-h-[96px]" : "min-h-[98px] sm:min-h-[104px]"} w-full resize-none border border-[#2c2f37] bg-[#0f1014] py-3 pl-14 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:py-4 sm:pl-16 sm:pr-16 sm:leading-7`}
@@ -348,8 +356,8 @@ export default function HomeChatView({
               onClick={generationActive ? onStop : undefined}
               disabled={!generationActive && (isLoading || !hasGenerationInput || !generationReady)}
               className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
-              aria-label={generationActive ? "Stop generation" : inputValid ? "Send build request" : "Check hardware idea"}
-              title={generationActive ? "Stop generation" : inputValid ? "Send build request" : "Check hardware idea"}
+              aria-label={generationActive ? "Stop generation" : inputValid ? "Send context" : "Check hardware idea"}
+              title={generationActive ? "Stop generation" : inputValid ? "Send context" : "Check hardware idea"}
             >
               {generationActive ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
             </button>

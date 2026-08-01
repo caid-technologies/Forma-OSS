@@ -30,6 +30,17 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ),
     ),
     TableContract(
+        "project_workflows",
+        ("project_id", "owner_user_id", "state", "revision", "created_at", "updated_at"),
+    ),
+    TableContract(
+        "project_workflow_transitions",
+        (
+            "id", "project_id", "owner_user_id", "from_state", "to_state", "actor_type", "actor_id", "reason",
+            "idempotency_key", "revision", "created_at",
+        ),
+    ),
+    TableContract(
         "project_contribution_consents",
         (
             "id", "project_id", "user_id", "workspace_id", "consent_version", "permitted_purposes", "granted_at",

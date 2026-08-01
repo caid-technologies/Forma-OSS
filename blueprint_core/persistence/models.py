@@ -60,6 +60,37 @@ class DBDesignBrief(Base):
     created_at = Column(String, index=True, nullable=False)
 
 
+class DBProjectWorkflow(Base):
+    __tablename__ = "project_workflows"
+
+    project_id = Column(String, primary_key=True)
+    owner_user_id = Column(String, index=True, nullable=False)
+    state = Column(String, index=True, nullable=False)
+    revision = Column(Integer, nullable=False)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, index=True, nullable=False)
+
+
+class DBProjectWorkflowTransition(Base):
+    __tablename__ = "project_workflow_transitions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "revision", name="uq_project_workflow_transition_revision"),
+        UniqueConstraint("project_id", "idempotency_key", name="uq_project_workflow_transition_idempotency"),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    from_state = Column(String, nullable=True)
+    to_state = Column(String, index=True, nullable=False)
+    actor_type = Column(String, nullable=False)
+    actor_id = Column(String, index=True, nullable=True)
+    reason = Column(Text, nullable=False)
+    idempotency_key = Column(String, nullable=True)
+    revision = Column(Integer, nullable=False)
+    created_at = Column(String, index=True, nullable=False)
+
+
 class DBProjectContributionConsent(Base):
     __tablename__ = "project_contribution_consents"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_contribution_consent_project_user"),)

@@ -87,6 +87,13 @@ class ApplicationRepository(Protocol):
 
     def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
 
+    def get_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision: int,
+    ) -> Optional[Any]: ...
+
     def get_project_revision_by_source_job(
         self,
         project_id: str,
@@ -95,6 +102,17 @@ class ApplicationRepository(Protocol):
     ) -> Optional[Any]: ...
 
     def insert_initial_project_revision(self, record: Dict[str, Any]) -> Optional[Any]: ...
+
+    def get_validation_report(self, report_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def get_validation_report_by_source_job(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        source_job_id: str,
+    ) -> Optional[Any]: ...
+
+    def insert_project_validation_report(self, record: Dict[str, Any]) -> Optional[Any]: ...
 
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]: ...
 

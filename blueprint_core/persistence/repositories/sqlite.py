@@ -18,6 +18,7 @@ from blueprint_core.persistence.models import (
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
     DBProjectRevision,
+    DBProjectValidationReport,
     DBWorkerExecutionPlan,
     DBUserSettings,
 )
@@ -316,6 +317,19 @@ class SqlAlchemyRepository:
                 .first()
             )
 
+    def get_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision: int,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id,
+                DBProjectRevision.owner_user_id == owner_user_id,
+                DBProjectRevision.revision == revision,
+            ).first()
+
     def get_project_revision_by_source_job(
         self,
         project_id: str,
@@ -343,6 +357,57 @@ class SqlAlchemyRepository:
                 session.refresh(revision)
                 session.expunge(revision)
                 return revision
+        except IntegrityError:
+            return None
+
+    def get_validation_report(self, report_id: str, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectValidationReport).filter(
+                DBProjectValidationReport.id == report_id,
+                DBProjectValidationReport.owner_user_id == owner_user_id,
+            ).first()
+
+    def get_validation_report_by_source_job(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        source_job_id: str,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectValidationReport).filter(
+                DBProjectValidationReport.project_id == project_id,
+                DBProjectValidationReport.owner_user_id == owner_user_id,
+                DBProjectValidationReport.source_job_id == source_job_id,
+            ).first()
+
+    def insert_project_validation_report(self, record: Dict[str, Any]) -> Optional[Any]:
+        try:
+            with self._session() as session, session.begin():
+                revision = session.query(DBProjectRevision).filter(
+                    DBProjectRevision.project_id == record["project_id"],
+                    DBProjectRevision.owner_user_id == record["owner_user_id"],
+                    DBProjectRevision.revision == record["project_revision"],
+                    DBProjectRevision.design_brief_id == record["design_brief_id"],
+                    DBProjectRevision.design_brief_version == record["design_brief_version"],
+                ).first()
+                if revision is None:
+                    return None
+                parent_id = record.get("revalidation_of_report_id")
+                if parent_id:
+                    parent = session.query(DBProjectValidationReport).filter(
+                        DBProjectValidationReport.id == parent_id,
+                        DBProjectValidationReport.project_id == record["project_id"],
+                        DBProjectValidationReport.owner_user_id == record["owner_user_id"],
+                        DBProjectValidationReport.project_revision < record["project_revision"],
+                    ).first()
+                    if parent is None:
+                        return None
+                report = DBProjectValidationReport(**record)
+                session.add(report)
+                session.flush()
+                session.refresh(report)
+                session.expunge(report)
+                return report
         except IntegrityError:
             return None
 
@@ -397,6 +462,9 @@ class SqlAlchemyRepository:
                 return False
             chat_id = project.chat_id
             project_owner_user_id = project.owner_user_id
+            session.query(DBProjectValidationReport).filter(
+                DBProjectValidationReport.project_id == project_id
+            ).delete(synchronize_session=False)
             session.query(DBProjectRevision).filter(
                 DBProjectRevision.project_id == project_id
             ).delete(synchronize_session=False)
@@ -484,6 +552,9 @@ class SqlAlchemyRepository:
             ).first()
             if not project:
                 return False
+            session.query(DBProjectValidationReport).filter(
+                DBProjectValidationReport.project_id == project_id
+            ).delete(synchronize_session=False)
             session.query(DBProjectRevision).filter(
                 DBProjectRevision.project_id == project_id
             ).delete(synchronize_session=False)

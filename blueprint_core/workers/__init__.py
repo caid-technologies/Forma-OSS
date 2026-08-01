@@ -40,6 +40,17 @@ from blueprint_core.workers.generation import (
     HardwareIRGenerationEngine,
     build_generation_draft,
 )
+from blueprint_core.workers.validation import (
+    VALIDATION_CAPABILITY_ID,
+    VALIDATION_INPUT_VERSION,
+    VALIDATION_OUTPUT_VERSION,
+    VALIDATION_WORKER_ID,
+    RuleBasedValidationEngine,
+    ValidationEngine,
+    ValidationWorker,
+    ValidationWorkerPayload,
+    build_validation_request,
+)
 
 __all__ = [
     "WORKER_CONTRACT_VERSION",
@@ -52,6 +63,14 @@ __all__ = [
     "GenerationWorker",
     "GenerationWorkerPayload",
     "HardwareIRGenerationEngine",
+    "RuleBasedValidationEngine",
+    "VALIDATION_CAPABILITY_ID",
+    "VALIDATION_INPUT_VERSION",
+    "VALIDATION_OUTPUT_VERSION",
+    "VALIDATION_WORKER_ID",
+    "ValidationEngine",
+    "ValidationWorker",
+    "ValidationWorkerPayload",
     "OrchestrationTaskState",
     "OrchestrationTaskStatus",
     "ProgressReporter",
@@ -76,4 +95,5 @@ __all__ = [
     "WorkerResult",
     "WorkerResultStatus",
     "build_generation_draft",
+    "build_validation_request",
 ]

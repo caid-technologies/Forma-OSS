@@ -148,6 +148,26 @@ class DBProjectRevision(Base):
     created_at = Column(String, index=True, nullable=False)
 
 
+class DBProjectValidationReport(Base):
+    __tablename__ = "project_validation_reports"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "source_job_id", name="uq_project_validation_reports_project_source_job"
+        ),
+    )
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    project_revision = Column(Integer, index=True, nullable=False)
+    design_brief_id = Column(String, index=True, nullable=False)
+    design_brief_version = Column(Integer, nullable=False)
+    source_job_id = Column(String, index=True, nullable=False)
+    revalidation_of_report_id = Column(String, index=True, nullable=True)
+    payload_json = Column(JSON, nullable=False)
+    created_at = Column(String, index=True, nullable=False)
+
+
 class DBProjectContributionConsent(Base):
     __tablename__ = "project_contribution_consents"
     __table_args__ = (UniqueConstraint("project_id", "user_id", name="uq_project_contribution_consent_project_user"),)

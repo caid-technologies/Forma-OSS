@@ -135,6 +135,13 @@ class ProjectStateRepository(Protocol):
 
     def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Any | None: ...
 
+    def get_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision: int,
+    ) -> Any | None: ...
+
     def get_project_revision_by_source_job(
         self,
         project_id: str,
@@ -174,6 +181,23 @@ class ProjectStateService:
         record = self._repository.get_latest_project_revision(project, owner)
         if record is None:
             raise ProjectStateError("project_revision_not_found", "Project revision not found.")
+        return _revision_from_record(record)
+
+    def get_revision(
+        self,
+        project_id: str | UUID,
+        owner_user_id: str,
+        revision: int,
+    ) -> ProjectRevision:
+        project = str(_canonical_uuid(project_id, "project_id"))
+        owner = str(owner_user_id or "").strip()
+        record = self._repository.get_project_revision(project, owner, revision)
+        if record is None:
+            raise ProjectStateError(
+                "project_revision_not_found",
+                "The exact project revision is not available to the project owner.",
+                context={"project_id": project, "revision": revision},
+            )
         return _revision_from_record(record)
 
     def get_by_source_job(
@@ -217,6 +241,31 @@ class ProjectStateService:
                 },
             )
         return persisted
+
+    def get_frozen_design_brief(
+        self,
+        project_id: str | UUID,
+        owner_user_id: str,
+        design_brief_id: str | UUID,
+        design_brief_version: int,
+    ) -> DesignBrief:
+        project = str(_canonical_uuid(project_id, "project_id"))
+        brief_id = _canonical_uuid(design_brief_id, "design_brief_id")
+        owner = str(owner_user_id or "").strip()
+        record = self._repository.get_design_brief_version(project, owner, design_brief_version)
+        payload = getattr(record, "payload_json", None) if record is not None else None
+        if not isinstance(payload, dict):
+            raise ProjectStateError(
+                "frozen_design_brief_not_found",
+                "The exact frozen DesignBrief is not available to the project owner.",
+            )
+        brief = DesignBrief.model_validate(payload)
+        if brief.design_brief_id != brief_id or brief.project_id != UUID(project):
+            raise ProjectStateError(
+                "frozen_design_brief_not_found",
+                "The exact frozen DesignBrief is not available to the project owner.",
+            )
+        return brief
 
     def create_initial_revision(
         self,

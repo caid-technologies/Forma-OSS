@@ -13,6 +13,7 @@ from blueprint_core.persistence.models import (
     DBProjectContributionConsent,
     DBProjectContributionSnapshot,
     DBProjectChat,
+    DBProjectBuild,
     DBProjectDeletionAudit,
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
@@ -202,6 +203,69 @@ class SqlAlchemyRepository:
         except IntegrityError:
             return None
 
+    def get_project_build_by_idempotency(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        idempotency_key: str,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectBuild).filter(
+                DBProjectBuild.project_id == project_id,
+                DBProjectBuild.owner_user_id == owner_user_id,
+                DBProjectBuild.idempotency_key == idempotency_key,
+            ).first()
+
+    def get_latest_project_build(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBProjectBuild)
+                .filter(
+                    DBProjectBuild.project_id == project_id,
+                    DBProjectBuild.owner_user_id == owner_user_id,
+                )
+                .order_by(DBProjectBuild.created_at.desc())
+                .first()
+            )
+
+    def apply_project_build_initiation(
+        self,
+        state_record: Dict[str, Any],
+        transition_record: Dict[str, Any],
+        build_record: Dict[str, Any],
+        expected_state: str,
+        expected_revision: int,
+    ) -> Optional[tuple[Any, Any, Any]]:
+        try:
+            with self._session() as session, session.begin():
+                workflow = session.query(DBProjectWorkflow).filter(
+                    DBProjectWorkflow.project_id == state_record["project_id"]
+                ).first()
+                if (
+                    workflow is None
+                    or workflow.owner_user_id != state_record["owner_user_id"]
+                    or workflow.state != expected_state
+                    or workflow.revision != expected_revision
+                ):
+                    return None
+                workflow.state = state_record["state"]
+                workflow.revision = state_record["revision"]
+                workflow.updated_at = state_record["updated_at"]
+                transition = DBProjectWorkflowTransition(**transition_record)
+                build = DBProjectBuild(**build_record)
+                session.add(transition)
+                session.add(build)
+                session.flush()
+                session.refresh(workflow)
+                session.refresh(transition)
+                session.refresh(build)
+                session.expunge(workflow)
+                session.expunge(transition)
+                session.expunge(build)
+                return workflow, transition, build
+        except IntegrityError:
+            return None
+
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
             return (
@@ -253,6 +317,9 @@ class SqlAlchemyRepository:
                 return False
             chat_id = project.chat_id
             project_owner_user_id = project.owner_user_id
+            session.query(DBProjectBuild).filter(DBProjectBuild.project_id == project_id).delete(
+                synchronize_session=False
+            )
             session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id).delete(
                 synchronize_session=False
             )
@@ -331,6 +398,9 @@ class SqlAlchemyRepository:
             ).first()
             if not project:
                 return False
+            session.query(DBProjectBuild).filter(DBProjectBuild.project_id == project_id).delete(
+                synchronize_session=False
+            )
             session.query(DBDesignBrief).filter(DBDesignBrief.project_id == project_id).delete(
                 synchronize_session=False
             )

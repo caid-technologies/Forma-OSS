@@ -81,6 +81,25 @@ def _reference(attachment: ContextAttachment) -> DesignBriefReference:
     )
 
 
+def _question_answered(question: str, context: str) -> bool:
+    question_lower = question.casefold()
+    context_lower = context.casefold()
+    answer_patterns: tuple[tuple[tuple[str, ...], str], ...] = (
+        (("controller", "major modules"), r"\b(esp32|arduino|raspberry|stm32|rp2040|controller|module)\b"),
+        (("power", "battery", "adapter", "rail"), r"(?:\b\d+(?:\.\d+)?\s*v\b|\busb(?:-c)?\b|\bbattery\b|\badapter\b|\bno mains\b)"),
+        (("control or display", "system control", "outputs"), r"\b(display|oled|screen|relay|motor|pump|fan|led|buzzer|actuator|log|control)\b"),
+        (("weather", "environment", "where will"), r"\b(indoor|outdoor|field|bench|lab|rain|wind|weather|temperature)\b"),
+        (("successful", "success", "validated"), r"\b(success|validate|validation|test|verify|within|under\s+\d+)\b"),
+        (("hard constraints", "constraints should"), r"\b(must|only|under|within|budget|voltage|usb|battery|waterproof|weatherproof|no\s+)\b"),
+        (("optimize", "artifacts"), r"\b(wiring|schematic|bom|bill of materials|firmware|cad|enclosure|image|render|validation|assembly)\b"),
+        (("who uses", "where does", "use case"), r"\b(user|operator|student|engineer|indoor|outdoor|field|bench|lab|classroom|consumer)\b"),
+    )
+    for question_markers, answer_pattern in answer_patterns:
+        if any(marker in question_lower for marker in question_markers):
+            return bool(re.search(answer_pattern, context_lower, re.IGNORECASE))
+    return False
+
+
 class ContextBriefUpdater:
     """Updates a DesignBrief without invoking a model, tool, or worker job."""
 
@@ -129,10 +148,17 @@ class ContextBriefUpdater:
             force=False,
             max_questions=3,
         ))
-        questions = _unique([
-            *(list(previous.unresolved_questions) if previous else []),
-            *(question.question for question in clarification.questions),
-        ])
+        prior_questions = [
+            question
+            for question in (list(previous.unresolved_questions) if previous else [])
+            if not _question_answered(question, combined_update)
+        ]
+        new_questions = [
+            question.question
+            for question in clarification.questions
+            if not _question_answered(question.question, full_context)
+        ]
+        questions = _unique([*prior_questions, *new_questions])
 
         if previous and previous.summary:
             summary = previous.summary

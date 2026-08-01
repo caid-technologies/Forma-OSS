@@ -11,6 +11,16 @@ from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_list_cache import invalidate_project_lists
 from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from blueprint_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
+from blueprint_core.workspaces.readiness import (
+    BuildInitiationOutcome,
+    BuildMode,
+    ProjectBuild,
+    ProjectBuildService,
+    ReadinessError,
+    ReadinessResult,
+    ReadinessStatus,
+    evaluate_readiness,
+)
 from blueprint_core.workspaces.workflow import (
     ProjectWorkflow,
     ProjectWorkflowService,
@@ -506,6 +516,137 @@ def get_latest_design_brief(project_id: str, owner_user_id: str) -> DesignBrief:
     if record is None:
         raise DesignBriefNotFoundError("DesignBrief not found.")
     return _design_brief_from_record(record)
+
+
+def evaluate_project_readiness(project_id: str, owner_user_id: str) -> ReadinessResult:
+    try:
+        brief = get_latest_design_brief(project_id, owner_user_id)
+    except DesignBriefNotFoundError as exc:
+        raise ReadinessError("design_brief_not_found", "DesignBrief not found.") from exc
+    return evaluate_readiness(brief)
+
+
+def _project_build_from_record(record: Any) -> ProjectBuild:
+    return ProjectBuild.model_validate({
+        "build_id": record.id,
+        "project_id": record.project_id,
+        "owner_user_id": record.owner_user_id,
+        "design_brief_id": record.design_brief_id,
+        "brief_version": record.brief_version,
+        "brief_snapshot": record.brief_snapshot_json,
+        "mode": record.mode,
+        "readiness": record.readiness_result_json,
+        "introduced_assumptions": record.introduced_assumptions_json,
+        "warnings": record.warnings_json,
+        "transition_id": record.transition_id,
+        "idempotency_key": record.idempotency_key,
+        "initiated_by": record.initiated_by,
+        "created_at": record.created_at,
+    })
+
+
+def get_latest_project_build(project_id: str, owner_user_id: str) -> ProjectBuild:
+    canonical_project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    record = None
+    if normalized_owner_user_id:
+        record = _DATABASE_REPOSITORY.get_latest_project_build(canonical_project_id, normalized_owner_user_id)
+    if record is None:
+        raise ReadinessError("project_build_not_found", "Project build not found.")
+    return _project_build_from_record(record)
+
+
+def initiate_project_build(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    mode: BuildMode,
+    actor_id: str,
+    assumptions: Optional[List[str]] = None,
+    idempotency_key: Optional[str] = None,
+) -> BuildInitiationOutcome:
+    canonical_project_id = _canonical_project_id(project_id)
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    try:
+        latest = get_latest_design_brief(canonical_project_id, normalized_owner_user_id)
+    except DesignBriefNotFoundError as exc:
+        raise ReadinessError("design_brief_not_found", "DesignBrief not found.") from exc
+    readiness = evaluate_readiness(latest)
+    service = ProjectBuildService(_DATABASE_REPOSITORY)
+    normalized_key = str(idempotency_key or "").strip() or None
+    normalized_assumptions = list(dict.fromkeys(
+        normalized
+        for item in assumptions or []
+        if (normalized := str(item or "").strip())
+    ))
+
+    if normalized_key and _DATABASE_REPOSITORY.get_project_build_by_idempotency(
+        canonical_project_id, normalized_owner_user_id, normalized_key
+    ) is not None:
+        return service.initiate(
+            latest,
+            readiness,
+            normalized_owner_user_id,
+            mode=mode,
+            actor_id=actor_id,
+            introduced_assumptions=normalized_assumptions,
+            warnings=[],
+            idempotency_key=normalized_key,
+        )
+
+    # Validate workflow ownership/state before appending an assumption-bearing brief.
+    workflow = get_project_workflow(canonical_project_id, normalized_owner_user_id)
+    if workflow.state not in {ProjectWorkflowState.GATHERING_CONTEXT, ProjectWorkflowState.READY_TO_BUILD}:
+        raise ReadinessError(
+            "build_transition_not_allowed",
+            f"Build cannot start while the project workflow is {workflow.state.value}.",
+            context={"project_id": canonical_project_id, "workflow_state": workflow.state.value},
+        )
+
+    frozen_brief = latest
+    warnings: List[str] = []
+    if mode == BuildMode.BUILD_ANYWAY:
+        if readiness.status == ReadinessStatus.BLOCKED:
+            raise ReadinessError(
+                "critical_readiness_blockers",
+                "Build Anyway cannot bypass critical project unknowns.",
+                context=readiness.model_dump(mode="json"),
+            )
+        if readiness.status == ReadinessStatus.NOT_READY and not normalized_assumptions:
+            raise ReadinessError(
+                "build_anyway_assumptions_required",
+                "Build Anyway requires explicit assumptions for incomplete context.",
+            )
+        if normalized_assumptions:
+            payload = latest.model_dump(exclude={
+                "design_brief_id", "project_id", "brief_version", "previous_version", "created_at"
+            })
+            payload["assumptions"] = list(dict.fromkeys([*latest.assumptions, *normalized_assumptions]))
+            frozen_brief = create_design_brief_version(
+                canonical_project_id,
+                normalized_owner_user_id,
+                DesignBriefCreate.model_validate(payload),
+            )
+            readiness = evaluate_readiness(frozen_brief)
+        warnings = [
+            f"Build Anyway bypassed non-critical blocker {blocker.code}: {blocker.message}"
+            for blocker in readiness.unresolved_blockers
+            if not blocker.critical
+        ]
+        warnings.extend(f"Execution relies on user assumption: {assumption}" for assumption in normalized_assumptions)
+
+    return service.initiate(
+        frozen_brief,
+        readiness,
+        normalized_owner_user_id,
+        mode=mode,
+        actor_id=actor_id,
+        introduced_assumptions=normalized_assumptions,
+        warnings=warnings,
+        idempotency_key=normalized_key,
+    )
 
 
 def initialize_project_workflow(

@@ -133,6 +133,31 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual("tool_execution_blocked_while_gathering_context", raised.exception.detail["code"])
         create_job.assert_not_called()
 
+    def test_explicit_follow_up_answers_clear_matching_questions(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-chat-answers"
+        with sqlite_repository():
+            first = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a compact environmental sensor."},
+            )
+            second = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={
+                    "conversation_id": conversation_id,
+                    "text": (
+                        "Use an ESP32-S3 powered from USB-C 5 V. Show readings on an OLED. "
+                        "It is a bench tool for engineers, must fit within 100 mm, and should include wiring and a BOM. "
+                        "Validate that readings remain within the sensor tolerance."
+                    ),
+                },
+            )
+
+        self.assertEqual(201, first.status_code)
+        self.assertTrue(first.json()["questions"])
+        self.assertEqual(201, second.status_code)
+        self.assertEqual([], second.json()["questions"])
+
     def test_a2a_generation_rejects_before_worker_job_is_created(self) -> None:
         project_id = str(uuid.uuid4())
         message = A2AMessage(

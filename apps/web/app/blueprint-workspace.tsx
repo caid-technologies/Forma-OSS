@@ -15,6 +15,7 @@ import {
   humanContextDefaultsChatSummary,
   humanContextDefaultsPromptSection,
 } from "../lib/human-context-defaults";
+import CopyButton from "../components/copy-button";
 import {
   useAdminSession,
   useBackendLogs,
@@ -5849,6 +5850,11 @@ function ChatWorkspace({
                             <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
                             {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
                             {message.status === "cancelled" && <Square className="h-3 w-3 fill-current text-amber-300" />}
+                            <CopyButton
+                              value={message.content}
+                              label={isUser ? "Copy your message" : isSystem ? "Copy context message" : "Copy Forma's message"}
+                              className="ml-auto"
+                            />
                           </div>
                           <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                           {!message.projectId && (

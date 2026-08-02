@@ -136,6 +136,19 @@ class FakeProvider:
         return self.result
 
 
+class SequencedFakeProvider(FakeProvider):
+    def __init__(self, results: list[object]) -> None:
+        super().__init__(results[0])
+        self.results = list(results)
+        self.prompts: list[str] = []
+
+    def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
+        self.prompt = prompt
+        self.prompts.append(prompt)
+        self.schema_class = schema_class
+        return self.results.pop(0)
+
+
 class UnconfiguredProvider:
     provider_name = "openai"
     requested_model = "missing-model"
@@ -373,6 +386,43 @@ class ProjectIterationTests(unittest.TestCase):
         self.assertEqual([], revised.constraints)
         self.assertEqual("A low-voltage soil moisture monitor.", current.overview.description)
         self.assertEqual(["U1"], [component.ref_des for component in current.components])
+
+    def test_live_iteration_repairs_patch_operation_that_does_not_match_target_type(self) -> None:
+        invalid_patch = ProjectIterationPatch(
+            summary="Added motor power requirements.",
+            operations=[
+                ProjectPatchOperation(
+                    action="append",
+                    path="/requirements/power_needs",
+                    value_json=json.dumps("Motor supply sized for the wheel drive load."),
+                )
+            ],
+        )
+        repaired_patch = ProjectIterationPatch(
+            summary="Added motor power requirements.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/requirements/power_needs",
+                    value_json=json.dumps(
+                        "USB 5V to 3.3V regulator plus a motor supply sized for the wheel drive load."
+                    ),
+                )
+            ],
+        )
+        fake_provider = SequencedFakeProvider([invalid_patch, repaired_patch])
+        iterator = ProjectIterator(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=fake_provider,
+        )
+
+        revised = iterator.iterate_project(build_sample_ir(), "Add wheels so it can drive around.")
+
+        self.assertIn("motor supply", revised.requirements.power_needs)
+        self.assertEqual(2, len(fake_provider.prompts))
+        self.assertIn("does not target a list", fake_provider.prompts[1])
+        self.assertIn('"action": "append"', fake_provider.prompts[1])
+        self.assertIn("append only to an existing list", fake_provider.prompts[1])
 
     def test_iteration_patch_rejects_backend_owned_metadata(self) -> None:
         patch = ProjectIterationPatch(

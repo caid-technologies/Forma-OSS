@@ -342,6 +342,30 @@ def build_iteration_prompt(
     )
 
 
+def build_iteration_patch_repair_prompt(
+    original_prompt: str,
+    invalid_patch: ProjectIterationPatch | Dict[str, Any],
+    validation_error: Exception,
+) -> str:
+    """Ask the provider to correct a patch that does not fit the current IR."""
+    normalized_patch = (
+        invalid_patch
+        if isinstance(invalid_patch, ProjectIterationPatch)
+        else ProjectIterationPatch.model_validate(invalid_patch)
+    )
+    return (
+        f"{original_prompt}\n\n"
+        "Your previous patch was valid JSON but could not be applied to the current HardwareIR.\n"
+        f"Patch validation error: {validation_error}\n"
+        "Previous invalid patch:\n"
+        f"{json.dumps(normalized_patch.model_dump(mode='json'), indent=2, sort_keys=True)}\n\n"
+        "Return one corrected ProjectIterationPatch JSON document. Do not return commentary. "
+        "Match each operation to the current value type: append only to an existing list; "
+        "use set to replace an existing scalar, object, or list item. Preserve the requested change "
+        "and all coordinated updates from the original instruction."
+    )
+
+
 def _append_history_entry(
     ir: HardwareIR,
     *,
@@ -751,7 +775,21 @@ class ProjectIterator:
                 image_bytes,
                 image_mime_type,
             )
-            revised = apply_project_iteration_patch(base, patch)
+            try:
+                revised = apply_project_iteration_patch(base, patch)
+            except LLMProviderOutputError as patch_error:
+                logger.warning(
+                    "Project iteration patch was not applicable; requesting one semantic repair: %s",
+                    patch_error,
+                )
+                repair_prompt = build_iteration_patch_repair_prompt(prompt, patch, patch_error)
+                repaired_patch = self.llm_provider.generate_structured(
+                    repair_prompt,
+                    ProjectIterationPatch,
+                    image_bytes,
+                    image_mime_type,
+                )
+                revised = apply_project_iteration_patch(base, repaired_patch)
         except Exception as exc:
             raise LLMProviderOutputError(
                 f"Project iteration failed for provider={validation.provider} model={validation.actual_model or validation.requested_model}: {exc}"
@@ -804,6 +842,7 @@ __all__ = [
     "ProjectIterator",
     "ProjectSelfCorrectionPlan",
     "build_iteration_prompt",
+    "build_iteration_patch_repair_prompt",
     "build_metadata_only_iteration",
     "compact_hardware_ir_for_iteration",
     "coerce_hardware_ir",

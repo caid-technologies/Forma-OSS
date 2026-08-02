@@ -14,6 +14,9 @@ FRONTEND_LOG_FILE="${FRONTEND_LOG_FILE:-$ROOT_DIR/.logs/frontend-dev.log}"
 UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-warning}"
 UVICORN_ACCESS_LOG="${UVICORN_ACCESS_LOG:-false}"
 
+# shellcheck source=scripts/development/dev-processes.sh
+source "$ROOT_DIR/scripts/development/dev-processes.sh"
+
 backend_pid=""
 frontend_pid=""
 cleaned_up="false"
@@ -80,20 +83,22 @@ cleanup() {
   cleaned_up="true"
 
   log "Stopping services..."
-  if [ -n "$frontend_pid" ] && kill -0 "$frontend_pid" >/dev/null 2>&1; then
-    kill "$frontend_pid" >/dev/null 2>&1 || true
+  if [ -n "$frontend_pid" ]; then
+    dev_stop_process_group "$frontend_pid" "frontend" "$DEV_FRONTEND_PID_FILE" || true
   fi
-  if [ -n "$backend_pid" ] && kill -0 "$backend_pid" >/dev/null 2>&1; then
-    kill "$backend_pid" >/dev/null 2>&1 || true
+  if [ -n "$backend_pid" ]; then
+    dev_stop_process_group "$backend_pid" "backend" "$DEV_BACKEND_PID_FILE" || true
   fi
   if [ -n "$frontend_pid" ] || [ -n "$backend_pid" ]; then
     wait ${frontend_pid:+"$frontend_pid"} ${backend_pid:+"$backend_pid"} >/dev/null 2>&1 || true
   fi
 }
 
-trap cleanup EXIT INT TERM
+trap cleanup EXIT INT TERM HUP
 
 cd "$ROOT_DIR"
+
+dev_cleanup_previous_session
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
   log "Creating Python virtualenv at $VENV_DIR"
@@ -133,8 +138,8 @@ else
   if ! is_truthy "$UVICORN_ACCESS_LOG"; then
     uvicorn_args+=(--no-access-log)
   fi
-  "$VENV_DIR/bin/python" -m uvicorn "${uvicorn_args[@]}" &
-  backend_pid="$!"
+  dev_start_process_group backend_pid "$DEV_BACKEND_PID_FILE" "" \
+    "$VENV_DIR/bin/python" -m uvicorn "${uvicorn_args[@]}"
   wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend" 60 "$backend_pid" "$BACKEND_LOG_FILE"
 fi
 
@@ -142,8 +147,9 @@ FRONTEND_PORT="$(first_free_port "$FRONTEND_PORT")"
 mkdir -p "$(dirname "$FRONTEND_LOG_FILE")"
 log "Starting frontend at http://$FRONTEND_HOST:$FRONTEND_PORT"
 log "Frontend log file: $FRONTEND_LOG_FILE"
-(cd "$ROOT_DIR/apps/web" && npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT" >"$FRONTEND_LOG_FILE" 2>&1) &
-frontend_pid="$!"
+dev_start_process_group frontend_pid "$DEV_FRONTEND_PID_FILE" "$FRONTEND_LOG_FILE" \
+  bash -c 'cd "$1" && shift && exec "$@"' bash "$ROOT_DIR/apps/web" \
+  npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 
 wait_for_url "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Frontend"
 

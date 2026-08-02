@@ -2834,6 +2834,10 @@ export function FormaWorkspace({
     event.preventDefault();
     if (isLoading || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
+    if (!selectedGenerationLlm) {
+      setGenerationInputNotice("Turn on at least one model provider in Settings before chatting.");
+      return;
+    }
 
     const validation = validateGenerationInput(prompt, Boolean(selectedImage));
     if (!validation.isValid) {
@@ -2865,8 +2869,8 @@ export function FormaWorkspace({
     syncChatRoute(requestChatId);
     appendChatMessage({ id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
     appendThreadMessage(requestChatId, { id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
-    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
-    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
+    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Forma is thinking…", status: "loading" });
+    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Forma is thinking…", status: "loading" });
     setPrompt("");
     setSelectedImage(null);
     setSelectedImageSource("upload");
@@ -2880,6 +2884,8 @@ export function FormaWorkspace({
         body: JSON.stringify({
           conversation_id: requestChatId,
           text,
+          provider: selectedGenerationLlm.provider,
+          model: selectedGenerationLlm.model,
           attachments: imageData ? [{
             attachment_id: `context-image-${userMessageId}`,
             kind: "image",
@@ -2896,12 +2902,13 @@ export function FormaWorkspace({
         ? data.design_brief.project_id
         : requestProjectId;
       contextProjectIdsRef.current[requestChatId] = persistedProjectId;
-      const assistantContent = typeof data?.assistant_message === "string"
-        ? data.assistant_message
-        : "I saved that project context. What else should the design account for?";
+      if (typeof data?.assistant_message !== "string" || !data.assistant_message.trim()) {
+        throw new Error("The context model returned an empty response.");
+      }
+      const assistantContent = data.assistant_message;
       updateChatMessage(assistantMessageId, { content: assistantContent, status: "success" });
       updateThreadMessage(requestChatId, assistantMessageId, { content: assistantContent, status: "success" });
-      setGenerationInputNotice("Context saved. Continue the conversation to refine the design brief.");
+      setGenerationInputNotice(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save project context.";
       updateChatMessage(assistantMessageId, { content: message, status: "error" });
@@ -4350,8 +4357,8 @@ export function FormaWorkspace({
               onContextAnswer={updateHumanContextAnswer}
               onClearContext={clearHumanContextCheckpoint}
               isLoading={isLoading}
-              generationReady
-              needsGenerationProvider={false}
+              generationReady={Boolean(selectedGenerationLlm) && !needsGenerationProvider}
+              needsGenerationProvider={needsGenerationProvider}
               needsImageProvider={false}
               selectedImage={selectedImage}
               onRemoveImage={removeSelectedImage}

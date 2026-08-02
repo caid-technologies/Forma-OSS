@@ -38,6 +38,8 @@ class ContextGatheringRequest(BaseModel):
     conversation_id: NonEmptyString
     text: str = ""
     attachments: list[ContextAttachment] = Field(default_factory=list)
+    provider: NonEmptyString | None = None
+    model: NonEmptyString | None = None
 
     @model_validator(mode="after")
     def require_context_input(self) -> "ContextGatheringRequest":
@@ -51,6 +53,6 @@ class ContextGatheringResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     workflow: ProjectWorkflow
-    design_brief: DesignBrief
+    design_brief: DesignBrief | None = None
     assistant_message: NonEmptyString
     questions: list[NonEmptyString] = Field(default_factory=list)

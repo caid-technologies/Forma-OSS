@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+import base64
 import hashlib
-import re
+import json
+from typing import Any, Literal
 
-from blueprint_core.agents.clarification import ask_clarifying_questions
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from blueprint_core.llm_providers import (
+    LLMProviderConfigError,
+    StructuredLLMProvider,
+    build_llm_provider,
+)
 from blueprint_core.workspaces.context.models import ContextAttachment, ContextGatheringRequest
 from blueprint_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
@@ -12,52 +20,18 @@ from blueprint_core.workspaces.design_briefs import (
     DesignBriefReadiness,
     DesignBriefReference,
 )
-from blueprint_core.workspaces.projects.models import ClarifyingQuestionsRequest
 
 
 def _unique(values: list[str]) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
     for value in values:
-        normalized = re.sub(r"\s+", " ", str(value or "")).strip()
+        normalized = " ".join(str(value or "").split()).strip()
         key = normalized.casefold()
         if normalized and key not in seen:
             seen.add(key)
             result.append(normalized)
     return result
-
-
-def _sentences(text: str) -> list[str]:
-    return _unique(re.split(r"(?:[\r\n]+|(?<=[.!?])\s+)", text.strip()))
-
-
-def _intent(text: str, previous: DesignBrief | None) -> str:
-    lowered = text.casefold()
-    if any(word in lowered for word in ("modify", "revise", "change", "iterate", "update")):
-        return "modify a hardware design"
-    if any(word in lowered for word in ("reverse engineer", "identify this", "recreate this")):
-        return "reverse engineer a hardware reference"
-    if any(word in lowered for word in ("validate", "review", "check this design")):
-        return "validate a hardware design"
-    if previous:
-        return previous.intent
-    return "design a buildable hardware product"
-
-
-def _requested_outputs(text: str) -> list[str]:
-    mappings = {
-        "wiring": ("wire", "wiring", "pinout"),
-        "schematic": ("schematic", "circuit diagram"),
-        "bom": ("bom", "bill of materials", "parts list"),
-        "firmware": ("firmware", "code", "software"),
-        "enclosure": ("enclosure", "case", "housing"),
-        "cad": ("cad", "step file", "stl", "3d model"),
-        "product images": ("product image", "render", "concept image"),
-        "validation": ("validation", "test plan", "verify"),
-        "assembly instructions": ("assembly", "build guide", "instructions"),
-    }
-    lowered = text.casefold()
-    return [output for output, markers in mappings.items() if any(marker in lowered for marker in markers)]
 
 
 def _reference(attachment: ContextAttachment) -> DesignBriefReference:
@@ -81,111 +55,185 @@ def _reference(attachment: ContextAttachment) -> DesignBriefReference:
     )
 
 
-def _question_answered(question: str, context: str) -> bool:
-    question_lower = question.casefold()
-    context_lower = context.casefold()
-    answer_patterns: tuple[tuple[tuple[str, ...], str], ...] = (
-        (("controller", "major modules"), r"\b(esp32|arduino|raspberry|stm32|rp2040|controller|module)\b"),
-        (("power", "battery", "adapter", "rail"), r"(?:\b\d+(?:\.\d+)?\s*v\b|\busb(?:-c)?\b|\bbattery\b|\badapter\b|\bno mains\b)"),
-        (("control or display", "system control", "outputs"), r"\b(display|oled|screen|relay|motor|pump|fan|led|buzzer|actuator|log|control)\b"),
-        (("weather", "environment", "where will"), r"\b(indoor|outdoor|field|bench|lab|rain|wind|weather|temperature)\b"),
-        (("successful", "success", "validated"), r"\b(success|validate|validation|test|verify|within|under\s+\d+)\b"),
-        (("hard constraints", "constraints should"), r"\b(must|only|under|within|budget|voltage|usb|battery|waterproof|weatherproof|no\s+)\b"),
-        (("optimize", "artifacts"), r"\b(wiring|schematic|bom|bill of materials|firmware|cad|enclosure|image|render|validation|assembly)\b"),
-        (("who uses", "where does", "use case"), r"\b(user|operator|student|engineer|indoor|outdoor|field|bench|lab|classroom|consumer)\b"),
-    )
-    for question_markers, answer_pattern in answer_patterns:
-        if any(marker in question_lower for marker in question_markers):
-            return bool(re.search(answer_pattern, context_lower, re.IGNORECASE))
-    return False
+class ContextBriefState(BaseModel):
+    """The complete brief state supplied to the update_design_brief tool."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: str = Field(min_length=1)
+    summary: str = Field(min_length=1)
+    requirements: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    requested_outputs: list[str] = Field(default_factory=list)
+    validation_criteria: list[str] = Field(default_factory=list)
+    unresolved_questions: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    readiness: DesignBriefReadiness = DesignBriefReadiness.DRAFT
+
+
+class ContextAgentTurn(BaseModel):
+    """A conversational response plus the persistence tool the model chose."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assistant_message: str = Field(min_length=1)
+    tool: Literal["respond", "update_design_brief"]
+    brief: ContextBriefState | None
+
+    @model_validator(mode="after")
+    def require_brief_for_update(self) -> "ContextAgentTurn":
+        if self.tool == "update_design_brief" and self.brief is None:
+            raise ValueError("update_design_brief requires a complete brief state.")
+        if self.tool == "respond" and self.brief is not None:
+            raise ValueError("respond must not include a brief update.")
+        return self
+
+
+def _history_for_prompt(messages: list[dict[str, Any]] | None) -> list[dict[str, str]]:
+    history: list[dict[str, str]] = []
+    for message in (messages or [])[-12:]:
+        role = str(message.get("role") or "").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            history.append({"role": role, "content": content[:2000]})
+    return history
+
+
+def _attachment_context(attachments: list[ContextAttachment]) -> list[dict[str, Any]]:
+    return [
+        {
+            "kind": item.kind,
+            "name": item.name,
+            "media_type": item.media_type,
+            "uri": item.uri,
+            "source": item.source,
+            "has_inline_data": bool(item.data_url),
+            "extracted_text": item.extracted_text,
+        }
+        for item in attachments
+    ]
+
+
+def _first_inline_image(attachments: list[ContextAttachment]) -> tuple[bytes | None, str | None]:
+    for item in attachments:
+        if item.kind != "image" or not item.data_url:
+            continue
+        header, separator, payload = item.data_url.partition(",")
+        if not separator or ";base64" not in header.lower():
+            continue
+        try:
+            image_bytes = base64.b64decode(payload, validate=True)
+        except (ValueError, TypeError):
+            continue
+        if image_bytes:
+            media_type = item.media_type or header.removeprefix("data:").split(";", 1)[0] or "image/png"
+            return image_bytes, media_type
+    return None, None
 
 
 class ContextBriefUpdater:
-    """Updates a DesignBrief without invoking a model, tool, or worker job."""
+    """Runs a conversational model turn and executes its structured brief tool call."""
 
-    def update(self, request: ContextGatheringRequest, previous: DesignBrief | None = None) -> tuple[DesignBriefCreate, str, list[str]]:
-        text = request.text.strip()
-        attachment_text = [item.extracted_text for item in request.attachments if item.extracted_text]
-        combined_update = "\n".join([text, *attachment_text]).strip()
-        update_sentences = _sentences(combined_update)
+    def __init__(
+        self,
+        provider_name: str | None = None,
+        model_name: str | None = None,
+        *,
+        llm_provider: StructuredLLMProvider | None = None,
+    ) -> None:
+        self.llm_provider = llm_provider or build_llm_provider(provider_name=provider_name, model_name=model_name)
+        if not self.llm_provider.is_configured:
+            validation = self.llm_provider.validate_configured_model(raise_on_strict=False)
+            raise LLMProviderConfigError(
+                validation.validation_error or "A live language model provider is required for context conversation."
+            )
 
-        prior_requirements = list(previous.requirements) if previous else []
-        requirements = _unique([*prior_requirements, *update_sentences])
-        constraint_markers = re.compile(
-            r"\b(must|only|under|maximum|max\b|minimum|min\b|budget|fit|within|voltage|battery|usb|no\s+|without|weatherproof|waterproof|material)\b",
-            re.IGNORECASE,
+    def _prompt(
+        self,
+        request: ContextGatheringRequest,
+        previous: DesignBrief | None,
+        messages: list[dict[str, Any]] | None,
+    ) -> str:
+        previous_state = None
+        if previous is not None:
+            previous_state = {
+                "intent": previous.intent,
+                "summary": previous.summary,
+                "requirements": previous.requirements,
+                "constraints": previous.constraints,
+                "requested_outputs": previous.requested_outputs,
+                "validation_criteria": previous.validation_criteria,
+                "unresolved_questions": previous.unresolved_questions,
+                "assumptions": previous.assumptions,
+                "readiness": previous.readiness.value,
+            }
+
+        turn_input = {
+            "conversation_history": _history_for_prompt(messages),
+            "current_user_message": request.text,
+            "attachments": _attachment_context(request.attachments),
+            "current_design_brief": previous_state,
+        }
+        return (
+            "You are Forma, a conversational hardware-design collaborator. Respond naturally to the user's actual "
+            "message and use one of the two tools represented by the output schema.\n\n"
+            "Tool policy:\n"
+            "- Choose `respond` for greetings, thanks, meta-conversation, capability questions, or any turn that does "
+            "not add or change project facts. Set brief to null for this tool. Never save pleasantries such as 'hi' "
+            "as requirements.\n"
+            "- Choose `update_design_brief` when the user supplies, changes, or answers something about a project, or "
+            "provides a project attachment. Return the complete updated brief state, merging useful prior facts and "
+            "removing questions the user has answered.\n"
+            "- The assistant_message must sound like a direct continuation of the conversation. Do not mention JSON, "
+            "schemas, tools, persistence, or internal workflow.\n"
+            "- If clarification is genuinely useful, ask only the single most important contextual follow-up in the "
+            "assistant_message and include that question in unresolved_questions. Do not present a generic questionnaire.\n"
+            "- Do not invent requirements. Keep facts concise and user-authored. Preserve prior facts unless the user "
+            "revises them. Every explicit project fact from the user must appear in the appropriate requirements, "
+            "constraints, requested_outputs, validation_criteria, or assumptions list; the summary alone is not enough.\n"
+            "- Set readiness to needs_clarification only when a blocking question remains, ready when the user explicitly "
+            "indicates the brief is complete enough to build, otherwise draft.\n\n"
+            f"Turn input:\n{json.dumps(turn_input, ensure_ascii=False, indent=2)}"
         )
-        constraints = _unique([
-            *(list(previous.constraints) if previous else []),
-            *(sentence for sentence in update_sentences if constraint_markers.search(sentence)),
-        ])
-        assumption_markers = re.compile(r"\b(assume|assuming|probably|for now)\b", re.IGNORECASE)
-        assumptions = _unique([
-            *(list(previous.assumptions) if previous else []),
-            *(sentence for sentence in update_sentences if assumption_markers.search(sentence)),
-        ])
-        validation_markers = re.compile(r"\b(success|validate|validation|test|verify|passes|works when)\b", re.IGNORECASE)
-        validation = _unique([
-            *(list(previous.validation_criteria) if previous else []),
-            *(sentence for sentence in update_sentences if validation_markers.search(sentence)),
-        ])
 
+    def update(
+        self,
+        request: ContextGatheringRequest,
+        previous: DesignBrief | None = None,
+        *,
+        messages: list[dict[str, Any]] | None = None,
+    ) -> tuple[DesignBriefCreate | None, str, list[str]]:
+        image_bytes, image_mime_type = _first_inline_image(request.attachments)
+        turn = self.llm_provider.generate_structured(
+            self._prompt(request, previous, messages),
+            ContextAgentTurn,
+            image_bytes,
+            image_mime_type,
+        )
+        if turn.tool == "respond":
+            return None, turn.assistant_message, list(previous.unresolved_questions) if previous else []
+
+        assert turn.brief is not None
         references = list(previous.references) if previous else []
         references_by_id = {item.reference_id: item for item in references}
         for attachment in request.attachments:
             item = _reference(attachment)
             references_by_id[item.reference_id] = item
 
-        prior_outputs = list(previous.requested_outputs) if previous else []
-        requested_outputs = _unique([*prior_outputs, *_requested_outputs(combined_update)])
-        full_context = "\n".join(_unique([*requirements, *constraints]))
-        clarification = ask_clarifying_questions(ClarifyingQuestionsRequest(
-            prompt=full_context,
-            has_image=any(item.kind == "image" for item in request.attachments) or any(
-                reference.kind == "uploaded_image" for reference in references_by_id.values()
-            ),
-            workflow="default",
-            force=False,
-            max_questions=3,
-        ))
-        prior_questions = [
-            question
-            for question in (list(previous.unresolved_questions) if previous else [])
-            if not _question_answered(question, combined_update)
-        ]
-        new_questions = [
-            question.question
-            for question in clarification.questions
-            if not _question_answered(question.question, full_context)
-        ]
-        questions = _unique([*prior_questions, *new_questions])
-
-        if previous and previous.summary:
-            summary = previous.summary
-        elif text:
-            summary = text[:500]
-        elif request.attachments:
-            kinds = ", ".join(sorted({item.kind for item in request.attachments}))
-            summary = f"Hardware design based on the supplied {kinds} reference."
-        else:  # model validation makes this unreachable
-            summary = "Hardware design context"
-
+        state = turn.brief
+        questions = _unique(state.unresolved_questions)
         brief = DesignBriefCreate(
             schema_version=DESIGN_BRIEF_SCHEMA_VERSION,
             conversation_id=request.conversation_id,
-            intent=_intent(combined_update, previous),
-            summary=summary,
-            requirements=requirements,
-            constraints=constraints,
+            intent=state.intent.strip(),
+            summary=state.summary.strip(),
+            requirements=_unique(state.requirements),
+            constraints=_unique(state.constraints),
             references=list(references_by_id.values()),
-            requested_outputs=requested_outputs,
-            validation_criteria=validation,
+            requested_outputs=_unique(state.requested_outputs),
+            validation_criteria=_unique(state.validation_criteria),
             unresolved_questions=questions,
-            assumptions=assumptions,
-            readiness=DesignBriefReadiness.NEEDS_CLARIFICATION if questions else DesignBriefReadiness.DRAFT,
+            assumptions=_unique(state.assumptions),
+            readiness=state.readiness,
         )
-        if questions:
-            assistant_message = "I’ve saved that context. " + " ".join(questions)
-        else:
-            assistant_message = "I’ve saved that context. Add any remaining constraints, references, or expected outputs when you’re ready."
-        return brief, assistant_message, questions
+        return brief, turn.assistant_message.strip(), questions

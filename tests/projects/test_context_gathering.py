@@ -19,6 +19,8 @@ from apps.api.context_gathering_api import router
 from blueprint_core import database
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workspaces.context.agent import ContextAgentTurn, ContextBriefState
+from blueprint_core.workspaces.design_briefs import DesignBriefReadiness
 from blueprint_core.workspaces.projects.models import GenerateProjectRequest
 from blueprint_core.workspaces.workflow import WorkflowStateError
 
@@ -31,6 +33,54 @@ USER = UserContext(
     is_authenticated=True,
     is_admin=False,
 )
+
+
+class StubContextProvider:
+    provider_name = "test"
+    model_name = "test-context-model"
+    is_configured = True
+
+    def __init__(self, turns: list[ContextAgentTurn]) -> None:
+        self.turns = list(turns)
+        self.prompts: list[str] = []
+
+    def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
+        self.prompts.append(prompt)
+        if not self.turns:
+            raise AssertionError("Unexpected context model call.")
+        return schema_class.model_validate(self.turns.pop(0).model_dump())
+
+
+def brief_turn(
+    assistant_message: str,
+    *,
+    summary: str,
+    requirements: list[str],
+    constraints: list[str] | None = None,
+    requested_outputs: list[str] | None = None,
+    validation_criteria: list[str] | None = None,
+    questions: list[str] | None = None,
+) -> ContextAgentTurn:
+    unresolved = questions or []
+    return ContextAgentTurn(
+        assistant_message=assistant_message,
+        tool="update_design_brief",
+        brief=ContextBriefState(
+            intent="design a buildable hardware product",
+            summary=summary,
+            requirements=requirements,
+            constraints=constraints or [],
+            requested_outputs=requested_outputs or [],
+            validation_criteria=validation_criteria or [],
+            unresolved_questions=unresolved,
+            assumptions=[],
+            readiness=(
+                DesignBriefReadiness.NEEDS_CLARIFICATION
+                if unresolved
+                else DesignBriefReadiness.DRAFT
+            ),
+        ),
+    )
 
 
 @contextmanager
@@ -61,8 +111,32 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())
         conversation_id = "context-chat-1"
+        provider = StubContextProvider([
+            brief_turn(
+                "An ESP32 environmental monitor is a good start. Where will it operate?",
+                summary="ESP32 environmental monitor",
+                requirements=["Build an ESP32 environmental monitor with USB-C power and wiring."],
+                requested_outputs=["wiring"],
+                questions=["Where will the monitor operate?"],
+            ),
+            brief_turn(
+                "Got it. What environmental range should the enclosure tolerate?",
+                summary="ESP32 environmental monitor",
+                requirements=[
+                    "Build an ESP32 environmental monitor with USB-C power and wiring.",
+                    "It must fit within 100 mm and include product images.",
+                    "The display must remain readable outdoors.",
+                ],
+                constraints=["It must fit within 100 mm.", "The display must remain readable outdoors."],
+                requested_outputs=["wiring", "product images"],
+                questions=["What environmental range should the enclosure tolerate?"],
+            ),
+        ])
 
-        with sqlite_repository(), patch.object(a2a.JOB_STORE, "create_job") as create_job:
+        with sqlite_repository(), patch.object(a2a.JOB_STORE, "create_job") as create_job, patch(
+            "blueprint_core.workspaces.context.agent.build_llm_provider",
+            return_value=provider,
+        ):
             first = self.client.post(
                 f"/projects/{project_id}/context/messages",
                 json={
@@ -136,7 +210,31 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
     def test_explicit_follow_up_answers_clear_matching_questions(self) -> None:
         project_id = str(uuid.uuid4())
         conversation_id = "context-chat-answers"
-        with sqlite_repository():
+        provider = StubContextProvider([
+            brief_turn(
+                "Who will use the sensor, and where?",
+                summary="Compact environmental sensor",
+                requirements=["Build a compact environmental sensor."],
+                questions=["Who will use the sensor, and where?"],
+            ),
+            brief_turn(
+                "That gives me a solid first-version brief.",
+                summary="Compact ESP32-S3 bench environmental sensor",
+                requirements=[
+                    "Build a compact environmental sensor.",
+                    "Use an ESP32-S3 powered from USB-C 5 V.",
+                    "Show readings on an OLED.",
+                    "It is a bench tool for engineers.",
+                ],
+                constraints=["It must fit within 100 mm."],
+                requested_outputs=["wiring", "BOM"],
+                validation_criteria=["Readings remain within the sensor tolerance."],
+            ),
+        ])
+        with sqlite_repository(), patch(
+            "blueprint_core.workspaces.context.agent.build_llm_provider",
+            return_value=provider,
+        ):
             first = self.client.post(
                 f"/projects/{project_id}/context/messages",
                 json={"conversation_id": conversation_id, "text": "Build a compact environmental sensor."},
@@ -157,6 +255,31 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertTrue(first.json()["questions"])
         self.assertEqual(201, second.status_code)
         self.assertEqual([], second.json()["questions"])
+
+    def test_greeting_is_conversational_and_does_not_create_a_design_brief(self) -> None:
+        project_id = str(uuid.uuid4())
+        provider = StubContextProvider([
+            ContextAgentTurn(
+                assistant_message="Hey! What are you thinking about building?",
+                tool="respond",
+                brief=None,
+            ),
+        ])
+        with sqlite_repository(), patch(
+            "blueprint_core.workspaces.context.agent.build_llm_provider",
+            return_value=provider,
+        ):
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": "greeting-chat", "text": "hi"},
+            )
+            versions = database.list_design_brief_versions(project_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertEqual("Hey! What are you thinking about building?", response.json()["assistant_message"])
+        self.assertIsNone(response.json()["design_brief"])
+        self.assertEqual([], versions)
+        self.assertIn("Never save pleasantries", provider.prompts[0])
 
     def test_a2a_generation_rejects_before_worker_job_is_created(self) -> None:
         project_id = str(uuid.uuid4())

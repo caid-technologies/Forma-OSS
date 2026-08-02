@@ -17,6 +17,7 @@ from blueprint_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
     HardwareIR,
+    IterateProjectRequest,
     MechanicalNotes,
     MechanicalSource,
     ProjectOverview,
@@ -370,6 +371,52 @@ class ProjectChatAccessTests(unittest.TestCase):
 
 
 class ProjectGenerationAccessTests(unittest.TestCase):
+    def test_project_iteration_uses_server_owned_claude_selection(self) -> None:
+        with patch.dict(os.environ, {
+            "PROJECT_ITERATION_LLM_PROVIDER": "anthropic",
+            "PROJECT_ITERATION_LLM_MODEL": "claude-sonnet-5",
+        }):
+            provider, model = main._project_iteration_llm_selection()
+
+        self.assertEqual("anthropic", provider)
+        self.assertEqual("claude-sonnet-5", model)
+
+    def test_project_iteration_ignores_frontend_cloudflare_override(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        project = _project(project_id, owner_user_id="user-a", visibility="private")
+        revised_ir = HardwareIR(**project.hardware_ir)
+        iterator = MagicMock()
+        iterator.iterate_project.return_value = revised_ir
+        project_object = MagicMock()
+        project_object.model_dump.return_value = {"object_id": project_id}
+
+        with (
+            patch.object(main, "_apply_user_integrations"),
+            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "_require_project_reader"),
+            patch.object(main, "_require_project_owner", return_value="user-a"),
+            patch.object(main, "ensure_project_action_allowed"),
+            patch.object(main, "_project_iteration_llm_selection", return_value=("anthropic", "claude-sonnet-5")),
+            patch.object(main, "ProjectIterator", return_value=iterator) as iterator_factory,
+            patch.object(main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata),
+            patch.object(main, "update_generated_project_hardware_ir", return_value=True),
+            patch.object(main, "build_project_object", return_value=project_object),
+            patch.object(main, "generate_mermaid_chart", return_value=""),
+            patch.object(main, "generate_svg_schematic", return_value=""),
+        ):
+            response = main.iterate_project_endpoint(
+                project_id,
+                IterateProjectRequest(
+                    instruction="Make the enclosure smaller.",
+                    provider="cloudflare",
+                    model="@cf/google/gemma-4-26b-a4b-it",
+                ),
+                _user_context("user-a"),
+            )
+
+        iterator_factory.assert_called_once_with(provider_name="anthropic", model_name="claude-sonnet-5")
+        self.assertEqual(project_id, response["project_id"])
+
     def test_generation_response_marks_new_project_as_owner_chat_capable(self) -> None:
         job_store = MagicMock()
         job_store.is_cancelled.return_value = False

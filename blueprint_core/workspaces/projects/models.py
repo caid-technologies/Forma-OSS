@@ -357,11 +357,11 @@ class IterateProjectRequest(BaseModel):
     )
     provider: Optional[str] = Field(
         None,
-        description="Optional runtime LLM provider override for the iteration.",
+        description="Deprecated. Conversational iteration uses the server-owned LLM provider.",
     )
     model: Optional[str] = Field(
         None,
-        description="Optional runtime model override for the iteration.",
+        description="Deprecated. Conversational iteration uses the server-owned LLM model.",
     )
     save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
 

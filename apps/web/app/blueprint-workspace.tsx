@@ -3455,10 +3455,6 @@ export function FormaWorkspace({
       setGenerationInputNotice("You can only chat with projects you own.");
       return;
     }
-    if (!selectedGenerationLlm) {
-      setGenerationInputNotice("Turn on at least one model provider in Settings before changing this project.");
-      return;
-    }
     if (!currentProjectId || !projectIR) return;
 
     const userMessage = prompt.trim();
@@ -3519,8 +3515,6 @@ export function FormaWorkspace({
         body: JSON.stringify({
           instruction: userMessage,
           namespace: null,
-          provider: selectedGenerationLlm.provider,
-          model: selectedGenerationLlm.model,
           save: true,
         }),
       });

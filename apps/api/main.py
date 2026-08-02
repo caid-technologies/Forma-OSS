@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import sys
 import types
 import urllib.parse
@@ -96,6 +97,7 @@ from blueprint_core.project_list_cache import (
 from apps.api.seed_db import seed_database
 from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
 from blueprint_core.agents.clarification import ask_clarifying_questions
+from blueprint_core.workspaces.context.agent import DEFAULT_CONTEXT_LLM_MODEL, DEFAULT_CONTEXT_LLM_PROVIDER
 from blueprint_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
 from blueprint_core.workspaces.projects.models import (
     ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
@@ -317,6 +319,22 @@ def _apply_user_integrations(user: UserContext) -> None:
         apply_user_integrations_to_environment()
     elif user.owner_user_id:
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(user.owner_user_id))
+
+
+def _project_iteration_llm_selection() -> tuple[str, str]:
+    """Resolve the server-owned Claude model used for conversational iteration."""
+
+    provider = (
+        os.getenv("PROJECT_ITERATION_LLM_PROVIDER")
+        or os.getenv("CONTEXT_LLM_PROVIDER")
+        or DEFAULT_CONTEXT_LLM_PROVIDER
+    )
+    model = (
+        os.getenv("PROJECT_ITERATION_LLM_MODEL")
+        or os.getenv("CONTEXT_LLM_MODEL")
+        or DEFAULT_CONTEXT_LLM_MODEL
+    )
+    return provider.strip(), model.strip()
 
 
 def _transition_context_generation_workflow(
@@ -2166,9 +2184,10 @@ def iterate_project_endpoint(
         except WorkflowStateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
 
+    iteration_provider, iteration_model = _project_iteration_llm_selection()
     try:
         current_ir = HardwareIR(**project.hardware_ir)
-        iterator = ProjectIterator(provider_name=request.provider, model_name=request.model)
+        iterator = ProjectIterator(provider_name=iteration_provider, model_name=iteration_model)
         revised_ir = iterator.iterate_project(
             current_ir,
             request.instruction,
@@ -2207,7 +2226,7 @@ def iterate_project_endpoint(
     except ValueError as e:
         raise HTTPException(
             status_code=400,
-            detail=runtime_safe_error_message(str(e), provider=request.provider, model=request.model),
+            detail=runtime_safe_error_message(str(e), provider=iteration_provider, model=iteration_model),
         ) from e
     except LLMProviderConfigError as e:
         raise HTTPException(
@@ -2216,8 +2235,8 @@ def iterate_project_endpoint(
                 code="llm_config_invalid",
                 message=str(e),
                 exc=e,
-                provider=request.provider,
-                model=request.model,
+                provider=iteration_provider,
+                model=iteration_model,
                 context={"project_id": project_id, "instruction": request.instruction},
             ),
         ) from e
@@ -2228,19 +2247,24 @@ def iterate_project_endpoint(
                 code="llm_output_invalid",
                 message=str(e),
                 exc=e,
-                provider=request.provider,
-                model=request.model,
+                provider=iteration_provider,
+                model=iteration_model,
                 context={"project_id": project_id, "instruction": request.instruction},
             ),
         ) from e
     except Exception as e:
-        logger.exception("Project iteration failed for project_id=%s provider=%s model=%s", project_id, request.provider, request.model)
+        logger.exception(
+            "Project iteration failed for project_id=%s provider=%s model=%s",
+            project_id,
+            iteration_provider,
+            iteration_model,
+        )
         raise HTTPException(
             status_code=500,
             detail=runtime_safe_error_message(
                 f"Project iteration failed: {str(e)}",
-                provider=request.provider,
-                model=request.model,
+                provider=iteration_provider,
+                model=iteration_model,
             ),
         ) from e
 

@@ -1411,7 +1411,28 @@ class AnthropicProvider(StructuredLLMProvider):
             stop_reason = response.get("stop_reason") if isinstance(response.get("stop_reason"), str) else None
             content = self._extract_text(response)
             if not content:
-                raise RuntimeError("anthropic response did not include text content.")
+                raw_blocks = response.get("content") if isinstance(response.get("content"), list) else []
+                block_types = sorted({
+                    str(block.get("type") or "unknown")
+                    for block in raw_blocks
+                    if isinstance(block, dict)
+                })
+                last_error = LLMProviderOutputError(
+                    "anthropic response did not include text content "
+                    f"(stop_reason={stop_reason or 'unknown'}, block_types={block_types or ['none']})."
+                )
+                attempt += 1
+                if attempt < 2:
+                    budget = min(max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR), STRUCTURED_MAX_TOKENS_CEILING)
+                    logger.warning(
+                        "anthropic returned no visible %s content (stop_reason=%s, block_types=%s); "
+                        "retrying once with max_tokens=%d.",
+                        _schema_name(schema_class),
+                        stop_reason,
+                        block_types or ["none"],
+                        budget,
+                    )
+                continue
             try:
                 return _validate_structured_json(content, schema_class)
             except Exception as validation_error:

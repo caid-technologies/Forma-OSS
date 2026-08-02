@@ -17,7 +17,7 @@ from blueprint_core.llm import (
     model_image_input_support,
     resolve_llm_runtime_config,
 )
-from blueprint_core.llm_providers import OpenAICompatibleProvider
+from blueprint_core.llm_providers import STRUCTURED_MAX_TOKENS_FLOOR, OpenAICompatibleProvider
 from blueprint_core.workspaces.projects.models import ProjectOverview
 from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 
@@ -867,6 +867,51 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("Test Project", result.title)
         self.assertIn("output_config", payloads[0])
         self.assertNotIn("output_config", payloads[1])
+
+    def test_anthropic_empty_text_response_retries_with_larger_budget(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-test",
+            ANTHROPIC_MAX_TOKENS="123",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-test")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            if len(payloads) == 1:
+                return {
+                    "content": [{"type": "thinking", "thinking": "Working through the schema."}],
+                    "stop_reason": "max_tokens",
+                }
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "title": "Retried Project",
+                                "description": "A valid response after the retry.",
+                                "difficulty": "Beginner",
+                                "estimated_cost": 2.0,
+                                "category": "IoT",
+                            }
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Retried Project", result.title)
+        self.assertEqual(123, payloads[0]["max_tokens"])
+        self.assertEqual(STRUCTURED_MAX_TOKENS_FLOOR, payloads[1]["max_tokens"])
 
 
 if __name__ == "__main__":

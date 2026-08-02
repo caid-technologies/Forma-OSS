@@ -286,6 +286,8 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(201, response.status_code, response.text)
         self.assertEqual("Hey! What are you thinking about building?", response.json()["assistant_message"])
         self.assertIsNone(response.json()["design_brief"])
+        self.assertEqual("test", response.json()["provider"])
+        self.assertEqual("test-context-model", response.json()["model"])
         self.assertEqual([], versions)
         self.assertIn("Never save pleasantries", provider.prompts[0])
 

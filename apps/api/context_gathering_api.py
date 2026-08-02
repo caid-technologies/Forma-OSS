@@ -103,7 +103,8 @@ def gather_project_context_endpoint(
     else:
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner))
     try:
-        brief_create, assistant_message, questions, action, generation_prompt = ContextGatheringAgent().update(
+        agent = ContextGatheringAgent()
+        brief_create, assistant_message, questions, action, generation_prompt = agent.update(
             request,
             previous,
             messages=existing_messages,
@@ -211,4 +212,6 @@ def gather_project_context_endpoint(
         questions=questions,
         action=action,
         generation_prompt=generation_prompt,
+        provider=agent.llm_provider.provider_name,
+        model=agent.llm_provider.model_name,
     )

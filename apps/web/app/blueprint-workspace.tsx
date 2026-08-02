@@ -1687,14 +1687,7 @@ export function FormaWorkspace({
     () => generationLlms.find((option) => generationLlmKey(option) === generationLlmKeyValue) || generationLlms[0] || null,
     [generationLlmKeyValue, generationLlms]
   );
-  const agenticChatLlm = useMemo(
-    () => generationLlms.find(
-      (option) => option.provider === "anthropic" && option.model === ANTHROPIC_SONNET_MODEL
-    ) || generationLlms.find((option) => option.provider === "anthropic") || null,
-    [generationLlms]
-  );
   const needsGenerationProvider = generationLlmsLoaded && providerSetup.llmRequired && (!authRequired || authLoaded);
-  const needsAgenticChatProvider = generationLlmsLoaded && !agenticChatLlm && (!authRequired || authLoaded);
   const needsImageProvider = imageGenerationConfigLoaded && providerSetup.imageRequired && (!authRequired || authLoaded);
   const visibleContextInputNotice =
     generationInputNotice || ((prompt.trim() || selectedImage) && !generationInputValidation.isValid
@@ -2841,19 +2834,21 @@ export function FormaWorkspace({
     assistantMessage,
     assistantMessageId,
     generationPrompt,
+    model,
     projectId: contextProjectId,
+    provider,
     requestChatId,
     userMessageId,
   }: {
     assistantMessage: string;
     assistantMessageId: string;
     generationPrompt: string;
+    model: string;
     projectId: string;
+    provider: string;
     requestChatId: string;
     userMessageId: string;
   }) => {
-    if (!agenticChatLlm) throw new Error("Claude is not configured for agentic chat generation.");
-
     const generationRun = beginGenerationRun("chat", requestChatId);
     const frontendJobId = newFrontendJobId();
     const pipelineProgress = createAgentPipelineProgress(
@@ -2897,8 +2892,8 @@ export function FormaWorkspace({
           project_id: contextProjectId,
           workflow: generationWorkflow,
           external_source_provider: externalSourceProviderForRequest,
-          provider: agenticChatLlm.provider,
-          model: agenticChatLlm.model,
+          provider,
+          model,
           chat_id: requestChatId,
           client_job_id: frontendJobId,
           generate_image: generateProductImage,
@@ -2978,11 +2973,6 @@ export function FormaWorkspace({
     event.preventDefault();
     if (isLoading || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
-    if (!agenticChatLlm) {
-      setGenerationInputNotice("Configure Claude in Settings before chatting.");
-      return;
-    }
-
     const validation = validateGenerationInput(prompt, Boolean(selectedImage));
     if (!validation.isValid) {
       setGenerationInputNotice(validation.message);
@@ -3055,11 +3045,16 @@ export function FormaWorkspace({
         if (typeof data?.generation_prompt !== "string" || !data.generation_prompt.trim()) {
           throw new Error("The build tool did not return a generation prompt.");
         }
+        if (typeof data?.provider !== "string" || typeof data?.model !== "string") {
+          throw new Error("The build tool did not return its resolved Claude model.");
+        }
         await executeAgentBuild({
           assistantMessage: assistantContent,
           assistantMessageId,
           generationPrompt: data.generation_prompt,
+          model: data.model,
           projectId: persistedProjectId,
+          provider: data.provider,
           requestChatId,
           userMessageId,
         });
@@ -4512,8 +4507,8 @@ export function FormaWorkspace({
               onContextAnswer={updateHumanContextAnswer}
               onClearContext={clearHumanContextCheckpoint}
               isLoading={isLoading}
-              generationReady={Boolean(agenticChatLlm) && !needsAgenticChatProvider}
-              needsGenerationProvider={needsAgenticChatProvider}
+              generationReady
+              needsGenerationProvider={false}
               needsImageProvider={false}
               selectedImage={selectedImage}
               onRemoveImage={removeSelectedImage}

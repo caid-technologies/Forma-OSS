@@ -88,8 +88,6 @@ import {
   Terminal,
   MessageSquare,
   Square,
-  Maximize2,
-  Minimize2,
   Trash2,
 } from "lucide-react";
 
@@ -3477,7 +3475,6 @@ export function FormaWorkspace({
 
     const sourceProjectId = currentProjectId;
     const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
-    const targetNamespace = activeTab === "overview" ? null : workspaceNamespaceForTab(activeTab);
     const generationRun = beginGenerationRun("project-chat", sourceChatId);
     setActiveChatId(sourceChatId);
     rememberChatItem({
@@ -3512,7 +3509,7 @@ export function FormaWorkspace({
         signal: generationRun.controller.signal,
         body: JSON.stringify({
           instruction: userMessage,
-          namespace: targetNamespace,
+          namespace: null,
           provider: selectedGenerationLlm.provider,
           model: selectedGenerationLlm.model,
           save: true,
@@ -4632,8 +4629,6 @@ export function FormaWorkspace({
                 endRef={projectChatEndRef}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
-                activeNamespaceLabel={activeWorkspaceTab.label}
-                activeNamespaceName={activeWorkspaceNamespace}
                 onNamespaceChange={setActiveTab}
                 projectContent={projectNamespaceContent}
               />
@@ -5933,8 +5928,6 @@ function ChatWorkspace({
   endRef,
   namespaceTabs,
   activeNamespace,
-  activeNamespaceLabel,
-  activeNamespaceName,
   onNamespaceChange,
   projectContent,
 }: {
@@ -5953,8 +5946,6 @@ function ChatWorkspace({
   endRef: React.RefObject<HTMLDivElement>;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
-  activeNamespaceLabel: string;
-  activeNamespaceName: string;
   onNamespaceChange: (value: string) => void;
   projectContent: React.ReactNode;
 }) {
@@ -5970,8 +5961,6 @@ function ChatWorkspace({
           <h2 className="mt-1 truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</h2>
           <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-slate-600">
             <span className="truncate">{chatId || projectId || "No project id"}</span>
-            <span className="text-slate-800">/</span>
-            <span className="truncate text-cyan-300/70">{activeNamespaceName}</span>
           </div>
         </div>
       </header>
@@ -6022,15 +6011,6 @@ function ChatWorkspace({
                 )}
 
                 <div ref={endRef} />
-                <ChatProjectArtifact
-                  projectId={projectId}
-                  projectTitle={projectTitle}
-                  namespaceTabs={namespaceTabs}
-                  activeNamespace={activeNamespace}
-                  activeNamespaceName={activeNamespaceName}
-                  onNamespaceChange={onNamespaceChange}
-                  projectContent={projectContent}
-                />
               </div>
             </div>
 
@@ -6047,7 +6027,7 @@ function ChatWorkspace({
                         event.currentTarget.form?.requestSubmit();
                       }
                     }}
-                    placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
+                    placeholder="Describe a change to the project..."
                     className="min-h-[92px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-4 pr-16 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300"
                   />
                   <button
@@ -6056,7 +6036,7 @@ function ChatWorkspace({
                     disabled={!canStop && (isLoading || !projectId || !input.trim())}
                     className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
                     aria-label={canStop ? "Stop project update" : "Apply change to project"}
-                    title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName}`}
+                    title={canStop ? "Stop project update" : "Apply change to project"}
                   >
                     {canStop ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                   </button>
@@ -6079,156 +6059,6 @@ function ChatWorkspace({
         )}
       </div>
     </div>
-  );
-}
-
-function scrollableVerticalParent(node: HTMLElement | null) {
-  let current = node?.parentElement || null;
-  while (current) {
-    const overflowY = window.getComputedStyle(current).overflowY;
-    if (/(auto|scroll)/.test(overflowY) && current.scrollHeight > current.clientHeight) return current;
-    current = current.parentElement;
-  }
-  return null;
-}
-
-function ChatProjectArtifact({
-  projectId,
-  projectTitle,
-  namespaceTabs,
-  activeNamespace,
-  activeNamespaceName,
-  onNamespaceChange,
-  projectContent,
-}: {
-  projectId: string | null;
-  projectTitle: string;
-  namespaceTabs: typeof workspaceTabs;
-  activeNamespace: string;
-  activeNamespaceName: string;
-  onNamespaceChange: (namespaceId: string) => void;
-  projectContent: React.ReactNode;
-}) {
-  const [fullScreen, setFullScreen] = useState(false);
-  const artifactRef = useRef<HTMLElement>(null);
-  const chatScrollSnapshotRef = useRef<{
-    element: HTMLElement | null;
-    top: number;
-    left: number;
-    windowX: number;
-    windowY: number;
-  } | null>(null);
-  const restoreChatScrollRef = useRef(false);
-
-  const enterFullScreen = () => {
-    const element = scrollableVerticalParent(artifactRef.current);
-    chatScrollSnapshotRef.current = {
-      element,
-      top: element?.scrollTop || 0,
-      left: element?.scrollLeft || 0,
-      windowX: window.scrollX,
-      windowY: window.scrollY,
-    };
-    setFullScreen(true);
-  };
-
-  const exitFullScreen = () => {
-    restoreChatScrollRef.current = true;
-    setFullScreen(false);
-  };
-
-  useLayoutEffect(() => {
-    if (fullScreen || !restoreChatScrollRef.current) return;
-    restoreChatScrollRef.current = false;
-    const snapshot = chatScrollSnapshotRef.current;
-    if (!snapshot) return;
-
-    const restoreScroll = () => {
-      if (snapshot.element?.isConnected) {
-        snapshot.element.scrollTo({ top: snapshot.top, left: snapshot.left, behavior: "auto" });
-      } else {
-        window.scrollTo({ top: snapshot.windowY, left: snapshot.windowX, behavior: "auto" });
-      }
-    };
-
-    restoreScroll();
-    const frameId = window.requestAnimationFrame(restoreScroll);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [fullScreen]);
-
-  useEffect(() => {
-    if (!fullScreen) return;
-    const previousOverflow = document.body.style.overflow;
-    const exitOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        restoreChatScrollRef.current = true;
-        setFullScreen(false);
-      }
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", exitOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", exitOnEscape);
-    };
-  }, [fullScreen]);
-
-  return (
-    <section
-      ref={artifactRef}
-      className={`min-w-0 overflow-hidden bg-[#141519] ${
-        fullScreen
-          ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
-          : "mx-auto mt-3 w-full max-w-6xl border border-cyan-300/20"
-      }`}
-      aria-labelledby="chat-project-title"
-    >
-      <header className="flex min-h-[64px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-            <h3 id="chat-project-title" className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
-              Project
-            </h3>
-          </div>
-          <div className="mt-1 truncate text-xs font-bold text-white">{projectTitle}</div>
-        </div>
-        <div className="flex min-w-0 items-center justify-end gap-3">
-          <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-slate-600 sm:flex">
-            {projectId && (
-              <span className="max-w-56 truncate" title={projectId}>
-                {projectId}
-              </span>
-            )}
-            {projectId && <span className="text-slate-800">/</span>}
-            <span className="max-w-48 truncate text-cyan-300/70">
-              {activeNamespaceName}
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={fullScreen ? exitFullScreen : enterFullScreen}
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-2.5 text-[10px] font-black uppercase text-slate-300 transition hover:border-white hover:bg-white hover:text-black sm:px-3"
-            aria-pressed={fullScreen}
-            aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}
-            title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
-          >
-            {fullScreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
-            <span className="hidden md:inline">{fullScreen ? "Exit full screen" : "Full screen"}</span>
-          </button>
-        </div>
-      </header>
-
-      <div className={fullScreen ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden"}>
-        <ProjectWorkspacePanel
-          namespaceTabs={namespaceTabs}
-          activeNamespace={activeNamespace}
-          onNamespaceChange={onNamespaceChange}
-        >
-          {projectContent}
-        </ProjectWorkspacePanel>
-      </div>
-    </section>
   );
 }
 

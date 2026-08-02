@@ -103,10 +103,11 @@ def gather_project_context_endpoint(
     else:
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner))
     try:
-        brief_create, assistant_message, questions, action, generation_prompt = ContextGatheringAgent(
-            provider_name=request.provider,
-            model_name=request.model,
-        ).update(request, previous, messages=existing_messages)
+        brief_create, assistant_message, questions, action, generation_prompt = ContextGatheringAgent().update(
+            request,
+            previous,
+            messages=existing_messages,
+        )
     except (LLMProviderConfigError, LLMProviderInputError) as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -118,11 +119,7 @@ def gather_project_context_endpoint(
             detail={"code": "context_model_output_invalid", "message": str(exc)},
         ) from exc
     except Exception as exc:
-        logger.exception(
-            "Context conversation failed for provider=%s model=%s.",
-            request.provider,
-            request.model,
-        )
+        logger.exception("Context conversation failed.")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"code": "context_model_failed", "message": str(exc)},

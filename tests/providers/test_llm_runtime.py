@@ -824,6 +824,50 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIn("Return only valid JSON", prompt_text)
         self.assertIn('"title"', prompt_text)
 
+    def test_anthropic_unsupported_output_schema_falls_back_to_prompt_schema(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-test",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-test")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            if len(payloads) == 1:
+                raise RuntimeError(
+                    "anthropic request failed with HTTP 400: "
+                    "output_config.format.schema: Schema type 'oneOf' is not supported"
+                )
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "title": "Test Project",
+                                "description": "A test project.",
+                                "difficulty": "Beginner",
+                                "estimated_cost": 1.0,
+                                "category": "IoT",
+                            }
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Test Project", result.title)
+        self.assertIn("output_config", payloads[0])
+        self.assertNotIn("output_config", payloads[1])
+
 
 if __name__ == "__main__":
     unittest.main()

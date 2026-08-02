@@ -38,8 +38,6 @@ class ContextGatheringRequest(BaseModel):
     conversation_id: NonEmptyString
     text: str = ""
     attachments: list[ContextAttachment] = Field(default_factory=list)
-    provider: NonEmptyString | None = None
-    model: NonEmptyString | None = None
 
     @model_validator(mode="after")
     def require_context_input(self) -> "ContextGatheringRequest":

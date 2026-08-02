@@ -3,12 +3,14 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from blueprint_core.llm_providers import (
     LLMProviderConfigError,
+    LLMProviderOutputError,
     StructuredLLMProvider,
     build_llm_provider,
 )
@@ -20,6 +22,10 @@ from blueprint_core.workspaces.design_briefs import (
     DesignBriefReadiness,
     DesignBriefReference,
 )
+
+
+DEFAULT_CONTEXT_LLM_PROVIDER = "anthropic"
+DEFAULT_CONTEXT_LLM_MODEL = "claude-sonnet-5"
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -73,8 +79,6 @@ class ContextBriefState(BaseModel):
 
 class BuildContextBriefState(ContextBriefState):
     """Execution-ready brief arguments required by the build_project tool."""
-
-    unresolved_questions: list[str] = Field(default_factory=list, max_length=0)
 
 
 class RespondToolCall(BaseModel):
@@ -167,7 +171,12 @@ class ContextBriefUpdater:
         *,
         llm_provider: StructuredLLMProvider | None = None,
     ) -> None:
-        self.llm_provider = llm_provider or build_llm_provider(provider_name=provider_name, model_name=model_name)
+        resolved_provider = provider_name or os.getenv("CONTEXT_LLM_PROVIDER") or DEFAULT_CONTEXT_LLM_PROVIDER
+        resolved_model = model_name or os.getenv("CONTEXT_LLM_MODEL") or DEFAULT_CONTEXT_LLM_MODEL
+        self.llm_provider = llm_provider or build_llm_provider(
+            provider_name=resolved_provider,
+            model_name=resolved_model,
+        )
         if not self.llm_provider.is_configured:
             validation = self.llm_provider.validate_configured_model(raise_on_strict=False)
             raise LLMProviderConfigError(
@@ -263,6 +272,8 @@ class ContextBriefUpdater:
         requested_outputs = _unique(state.requested_outputs)
         validation_criteria = _unique(state.validation_criteria)
         if call.tool == "build_project":
+            if _unique(state.unresolved_questions):
+                raise LLMProviderOutputError("build_project cannot run with unresolved context questions.")
             build_instruction = call.generation_prompt.strip()
             requirements = requirements or [build_instruction]
             requested_outputs = requested_outputs or [build_instruction]

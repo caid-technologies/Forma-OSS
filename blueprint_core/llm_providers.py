@@ -723,6 +723,13 @@ def _is_anthropic_grammar_timeout(exc: Exception) -> bool:
     return "Grammar compilation timed out" in str(exc)
 
 
+def _is_anthropic_output_schema_unsupported(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "output_config.format.schema" in message and (
+        "is not supported" in message or "not supported" in message
+    )
+
+
 def _strip_json_markdown(text: str) -> str:
     stripped = text.strip()
     if not stripped.startswith("```"):
@@ -1378,7 +1385,9 @@ class AnthropicProvider(StructuredLLMProvider):
             try:
                 response = self._request_json("messages", method="POST", payload=payload)
             except RuntimeError as exc:
-                if using_output_config and _is_anthropic_grammar_timeout(exc):
+                if using_output_config and (
+                    _is_anthropic_grammar_timeout(exc) or _is_anthropic_output_schema_unsupported(exc)
+                ):
                     using_output_config = False
                     payload.pop("output_config", None)
                     payload["messages"] = [
@@ -1394,7 +1403,7 @@ class AnthropicProvider(StructuredLLMProvider):
                         }
                     ]
                     logger.warning(
-                        "anthropic output_config grammar compilation timed out for %s; retrying with prompt-embedded schema.",
+                        "anthropic output_config could not compile %s; retrying with prompt-embedded schema.",
                         _schema_name(schema_class),
                     )
                     continue

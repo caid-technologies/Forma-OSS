@@ -374,6 +374,14 @@ class ProjectGenerationAccessTests(unittest.TestCase):
         job_store = MagicMock()
         job_store.is_cancelled.return_value = False
         job_store.get_job.return_value = {"status": "succeeded"}
+        project_object = MagicMock()
+        project_object.model_dump.return_value = {
+            "object_type": "forma.project",
+            "object_id": "generated-project",
+            "version": 1,
+            "namespaces": [],
+            "metadata": {},
+        }
         generated_response = {
             "project_ir": {
                 "assembly_metadata": {
@@ -391,6 +399,7 @@ class ProjectGenerationAccessTests(unittest.TestCase):
             patch.object(main, "observe_agent_pipeline", return_value=nullcontext()),
             patch.object(main, "build_generation_response", return_value=generated_response),
             patch.object(main, "_attach_generation_timing_metadata", side_effect=lambda response, _job: response),
+            patch.object(main, "build_project_object", return_value=project_object),
             patch.object(main, "update_generated_project_hardware_ir"),
         ):
             response = asyncio.run(
@@ -403,6 +412,7 @@ class ProjectGenerationAccessTests(unittest.TestCase):
         self.assertTrue(response["can_chat"])
         self.assertEqual("generated-project", response["project_id"])
         self.assertEqual("generated-chat", response["chat_id"])
+        self.assertEqual("generated-project", response["project_object"]["object_id"])
 
 
 if __name__ == "__main__":

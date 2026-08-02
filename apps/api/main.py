@@ -720,6 +720,16 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 update_generated_project_hardware_ir(project_id, response["project_ir"])
             except Exception:
                 logger.warning("Failed to persist generation timing metadata for project_id=%s", project_id, exc_info=debug_mode_enabled())
+        project_object = None
+        if isinstance(response.get("project_ir"), dict):
+            try:
+                project_object = build_project_object(response["project_ir"]).model_dump(mode="json")
+            except Exception:
+                logger.warning(
+                    "Failed to build project object response for project_id=%s",
+                    project_id,
+                    exc_info=debug_mode_enabled(),
+                )
         _transition_context_generation_workflow(
             request.project_id,
             owner_user_id,
@@ -730,6 +740,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         return {
             **response,
             "project_id": project_id,
+            "project_object": project_object,
             "chat_id": metadata.get("chat_id"),
             "can_chat": True,
             "job_id": job_id,

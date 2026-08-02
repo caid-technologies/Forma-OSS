@@ -17,6 +17,8 @@ import {
   X,
 } from "lucide-react";
 
+import CopyButton from "../../components/copy-button";
+
 type HomeChatMessage = {
   id: string;
   role: "assistant" | "user" | "system";
@@ -157,6 +159,11 @@ export default function HomeChatView({
                       <span>{isUser ? "You" : "Forma"}</span>
                       <span className="text-slate-700">/</span>
                       <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
+                      <CopyButton
+                        value={message.content}
+                        label={isUser ? "Copy your message" : "Copy Forma's message"}
+                        className="ml-auto"
+                      />
                     </div>
                     <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
                     {message.imagePreview && (

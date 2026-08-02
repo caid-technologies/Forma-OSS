@@ -15,7 +15,6 @@ import {
   Eye,
   Monitor,
   Printer,
-  RefreshCw,
   ShieldCheck,
   Sliders,
   Volume2,
@@ -30,7 +29,7 @@ const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const MechanicalScene = dynamic(() => import("../../components/mechanical-scene"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full min-h-[420px] items-center justify-center bg-[#0f1014] text-xs font-black uppercase tracking-[0.16em] text-slate-600">
+    <div className="flex h-full min-h-[420px] items-center justify-center bg-[#0a0b0e] text-xs font-black uppercase tracking-[0.16em] text-slate-600">
       Loading mechanical preview...
     </div>
   ),
@@ -390,57 +389,20 @@ export function MechanicalPanel({
   const dimensions = mechanical.render_dimensions || visualSpec.external_dimensions_mm || metadata.render_dimensions || { x_mm: 100, y_mm: 60, z_mm: 36 };
   const placements = mechanical.component_placements || metadata.component_placements || [];
   const relationships = mechanical.spatial_relationships || metadata.spatial_relationships || [];
-  const cadSources = Array.isArray(mechanical.cad_sources) ? mechanical.cad_sources : [];
-  const fabricationCost = Number(mechanical.fabrication_cost_estimate_usd || 0);
 
   return (
-    <div className="relative h-full overflow-hidden bg-[#141519]">
-      <div className="absolute left-6 top-1/2 z-20 w-36 -translate-y-1/2 border border-[#4b4d56] bg-[#17181d]/80 p-4">
-        <h2 className="border-b border-slate-400 pb-3 text-sm font-black uppercase tracking-widest text-white">3D CAD</h2>
-        <button
-          type="button"
-          onClick={() => setElectricalActive(!electricalActive)}
-          className={`mt-3 flex w-full items-center gap-2 border-b border-slate-500 pb-3 text-left text-xs font-black uppercase ${
-            electricalActive ? "text-cyan-400" : "text-slate-700"
-          }`}
-        >
-          <Cpu className="h-3 w-3" />
-          Electrical
-        </button>
-        <div className="mt-3 text-[10px] font-black uppercase tracking-widest text-slate-500">Mechanical</div>
-        <div className="mt-2 space-y-2">
-          {Object.entries(toggles).map(([key, value]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setToggles({ ...toggles, [key]: !value })}
-              aria-pressed={value}
-              className={`flex items-center gap-2 text-xs font-black uppercase ${
-                value ? layerColor(key) : "text-slate-700"
-              }`}
-            >
-              {key === "bodyRotation" ? <RefreshCw className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-              {mechanicalToggleLabel(key)}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      
-
-      <div className="relative z-10 flex h-full items-center justify-center px-8">
-        <div className="relative h-[610px] w-[900px] max-w-full">
-          <MechanicalScene
-            dimensions={dimensions}
-            components={components}
-            placements={placements}
-            relationships={relationships}
-            features={features}
-            toggles={toggles}
-            electricalActive={electricalActive}
-          />
-        </div>
-      </div>
+    <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[#0a0b0e]">
+      <MechanicalScene
+        dimensions={dimensions}
+        components={components}
+        placements={placements}
+        relationships={relationships}
+        features={features}
+        toggles={toggles}
+        setToggles={setToggles}
+        electricalActive={electricalActive}
+        setElectricalActive={setElectricalActive}
+      />
     </div>
   );
 }
@@ -782,44 +744,6 @@ function iconForCategory(category = "") {
   if (cat === "mechanical") return Wrench;
   if (cat === "3d print") return Printer;
   return Box;
-}
-
-export function MechanicalLabel({ label, index }: { label: string; index: number }) {
-  const positions = [
-    "left-[36%] top-[19%]",
-    "left-[56%] top-[27%]",
-    "left-[51%] top-[31%]",
-    "left-[42%] top-[48%]",
-    "left-[34%] top-[52%]",
-    "left-[46%] top-[58%]",
-    "left-[48%] top-[63%]",
-    "left-[45%] top-[74%]",
-    "left-[27%] top-[82%]",
-    "left-[24%] top-[86%]",
-  ];
-  const sizes = index === 4 ? "text-lg" : index > 7 ? "text-sm" : "text-xs";
-  return (
-    <div className={`absolute ${positions[index]} ${sizes} bg-black/88 px-3 py-1 font-black uppercase tracking-[0.12em] text-violet-300 shadow-lg`}>
-      <span className="absolute -left-1 top-0 h-full w-px bg-violet-300" />
-      <span>{label}</span>
-      <span className="absolute left-1/2 top-full h-40 w-px bg-violet-200/25" />
-    </div>
-  );
-}
-
-function layerColor(key: string) {
-  if (key === "structural") return "text-cyan-400";
-  if (key === "enclosure") return "text-emerald-400";
-  if (key === "mechanism") return "text-amber-400";
-  if (key === "print") return "text-violet-300";
-  if (key === "bodyRotation") return "text-rose-300";
-  return "text-slate-400";
-}
-
-function mechanicalToggleLabel(key: string) {
-  if (key === "print") return "3D Print";
-  if (key === "bodyRotation") return "Body Rotate";
-  return key;
 }
 
 function emptyMetrics() {

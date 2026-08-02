@@ -16,6 +16,7 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Snowflake,
   Sun,
   Trash2,
 } from "lucide-react";
@@ -28,7 +29,7 @@ import {
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
-import { solarizedLight } from "../../lib/theme";
+import { arcticLight, solarizedLight } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
@@ -1195,6 +1196,17 @@ function ThemeSettingsPanel() {
       },
     },
     {
+      id: "arctic" as const,
+      label: "Arctic",
+      description: "Cool white panels on a slate page, for higher contrast than Solarized Light.",
+      icon: Snowflake,
+      previewStyle: {
+        backgroundColor: arcticLight.surface,
+        borderColor: arcticLight.border,
+        color: arcticLight.textBody,
+      },
+    },
+    {
       id: "dark" as const,
       label: "Dark",
       description: "Low-luminance surfaces with light text for focused or low-light use.",
@@ -1227,7 +1239,7 @@ function ThemeSettingsPanel() {
             </p>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Color theme">
+          <div className="mt-5 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
             {options.map((option) => {
               const Icon = option.icon;
               const selected = theme === option.id;

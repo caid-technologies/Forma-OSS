@@ -12,7 +12,16 @@
 }
 
 /*
- * Light theme: Solarized Light by Ethan Schoonover.
+ * Two light themes share every override rule below and differ only in the
+ * variables declared here, so neither can drift away from the other. Both are
+ * mirrored in lib/theme.ts and asserted by test/theme.test.ts.
+ *
+ * The `*-rgb` variables hold bare channel triplets so one value can serve both
+ * a solid fill and its translucent washes.
+ */
+
+/*
+ * Light: Solarized Light by Ethan Schoonover.
  * https://ethanschoonover.com/solarized/
  *
  *   base3  #fdf6e3  primary background     base01 #586e75  emphasized content
@@ -24,7 +33,6 @@
  * at low alpha rather than fixed hexes, so a well always reads one step deeper
  * than whichever tone is behind it, and a 1px border stays as quiet against
  * base2 and base3 as #2c2f37 is against #141519 in the dark theme.
- * Values are mirrored in lib/theme.ts and asserted by test/theme.test.ts.
  */
 :root[data-theme="light"] {
   color-scheme: light;
@@ -33,6 +41,72 @@
   --forma-surface-muted: rgb(147 161 161 / 0.18);
   --forma-border: rgb(147 161 161 / 0.45);
   --forma-text: #586e75;
+
+  --forma-text-strong: #073642;
+  --forma-text-body: #586e75;
+  --forma-text-secondary: #586e75;
+  --forma-text-muted: #657b83;
+
+  --forma-cyan-rgb: 31 126 119;
+  --forma-green-rgb: 104 121 0;
+  --forma-yellow-rgb: 143 108 0;
+  --forma-red-rgb: 214 48 46;
+  --forma-violet-rgb: 101 106 185;
+
+  /*
+   * The 50 and 100 steps of each accent ramp are near-white in the dark theme:
+   * body copy that happens to sit inside a tinted panel, not accent text. In
+   * Solarized they take the emphasized content tone so a tinted message stays
+   * as readable as an untinted one.
+   */
+  --forma-cyan-soft: #586e75;
+  --forma-green-soft: #586e75;
+  --forma-yellow-soft: #586e75;
+  --forma-red-soft: #586e75;
+  --forma-violet-soft: #586e75;
+
+  --forma-neutral-rgb: 147 161 161;
+  --forma-chrome-rgb: 253 246 227;
+  --forma-scrim-rgb: 238 232 213;
+  --forma-scroll-thumb: #93a1a1;
+  --forma-card-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
+}
+
+/*
+ * Arctic: the cool slate light theme Forma shipped before Solarized, kept as a
+ * separate choice. Panels are white on a slate page with fixed slate rules.
+ */
+:root[data-theme="arctic"] {
+  color-scheme: light;
+  --forma-page: #eef2f7;
+  --forma-surface: #ffffff;
+  --forma-surface-muted: #f8fafc;
+  --forma-border: #cbd5e1;
+  --forma-text: #0f172a;
+
+  --forma-text-strong: #0f172a;
+  --forma-text-body: #334155;
+  --forma-text-secondary: #475569;
+  --forma-text-muted: #64748b;
+
+  --forma-cyan-rgb: 14 116 144;
+  --forma-green-rgb: 4 120 87;
+  --forma-yellow-rgb: 161 98 7;
+  --forma-red-rgb: 190 18 60;
+  --forma-violet-rgb: 126 34 206;
+
+  /* Arctic keeps its original behaviour of tinting the quiet steps too. */
+  --forma-cyan-soft: #0e7490;
+  --forma-green-soft: #047857;
+  --forma-yellow-soft: #a16207;
+  --forma-red-soft: #be123c;
+  --forma-violet-soft: #7e22ce;
+
+  --forma-neutral-rgb: 100 116 139;
+  --forma-chrome-rgb: 238 242 247;
+  --forma-scrim-rgb: 238 242 247;
+  --forma-scroll-thumb: #94a3b8;
+  --forma-card-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
 }
 
 * {
@@ -213,11 +287,11 @@ button:disabled {
   display: none;
 }
 
-html[data-theme="light"] .caid-logo-on-dark {
+html:is([data-theme="light"], [data-theme="arctic"]) .caid-logo-on-dark {
   display: none;
 }
 
-html[data-theme="light"] .caid-logo-on-light {
+html:is([data-theme="light"], [data-theme="arctic"]) .caid-logo-on-light {
   display: block;
 }
 
@@ -295,100 +369,105 @@ html[data-theme="light"] .caid-logo-on-light {
 }
 
 /*
- * The original interface uses a compact set of Tailwind color utilities.
- * These overrides translate that existing palette to light surfaces while
- * keeping semantic status colors and media overlays intact.
+ * The interface uses a compact set of Tailwind color utilities. These overrides
+ * translate that palette onto light surfaces. Both light themes share the rules
+ * and supply their own values, so a fix here lands in both at once.
+ *
+ * `:is()` takes the specificity of its most specific argument, so
+ * `html:is([data-theme="light"], [data-theme="arctic"])` is an exact
+ * specificity match for the `html[data-theme="light"]` these rules replaced.
  */
-html[data-theme="light"] [class~='bg-[#141519]'] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'] {
   background-color: var(--forma-page);
 }
 
 /*
- * Sticky and floating chrome keeps its translucency, but over base3 rather
- * than the page tone, so the wells nested inside it still read as recessed.
+ * Sticky and floating chrome keeps its translucency over the theme's chrome
+ * tone, so the wells nested inside it still read as recessed.
  */
-html[data-theme="light"] [class~='bg-[#141519]/95'],
-html[data-theme="light"] [class~='bg-[#111216]/95'] {
-  background-color: rgb(253 246 227 / 0.95);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]/95'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]/95'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.95);
 }
 
-html[data-theme="light"] [class~='bg-[#15161b]/90'] {
-  background-color: rgb(253 246 227 / 0.9);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]/90'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.9);
 }
 
-html[data-theme="light"] [class~='bg-[#17181d]/80'] {
-  background-color: rgb(253 246 227 / 0.8);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]/80'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.8);
 }
 
-html[data-theme="light"] [class~='bg-[#050609]/85'] {
-  background-color: rgb(238 232 213 / 0.85);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]/85'] {
+  background-color: rgb(var(--forma-scrim-rgb) / 0.85);
 }
 
-html[data-theme="light"] [class~='bg-[#17181d]'],
-html[data-theme="light"] [class~='bg-[#15161b]'],
-html[data-theme="light"] [class~='bg-[#111216]'],
-html[data-theme="light"] [class~='bg-[#101116]'],
-html[data-theme="light"] [class~='bg-[#101115]'],
-html[data-theme="light"] [class~='bg-[#0f1014]'],
-html[data-theme="light"] [class~='bg-[#0f1013]'],
-html[data-theme="light"] [class~='bg-[#0f1720]'],
-html[data-theme="light"] [class~='bg-[#111820]'],
-html[data-theme="light"] [class~='bg-[#1d1f26]'],
-html[data-theme="light"] [class~='bg-[#1d2027]'],
-html[data-theme="light"] [class~='bg-[#20242d]'],
-html[data-theme="light"] [class~='bg-[#242832]'],
-html[data-theme="light"] [class~='bg-[#252832]'],
-html[data-theme="light"] [class~='bg-[#0c0d10]'],
-html[data-theme="light"] [class~='bg-[#050609]'],
-html[data-theme="light"] [class~="bg-black"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101116]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1013]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1720]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111820]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#1d1f26]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#1d2027]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#20242d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#242832]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#252832]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0c0d10]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-slate-900"] {
   background-color: var(--forma-surface);
 }
 
-html[data-theme="light"] [class~='bg-[#101115]'],
-html[data-theme="light"] [class~='bg-[#0f1014]'] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
   background-color: var(--forma-surface-muted);
 }
 
 /*
  * Status washes. The interface tints panels with dark 950 shades, which land as
- * muddy olive and maroon blocks once the surface below them is base3. Matching
- * on the class prefix covers every alpha step in one rule.
+ * muddy blocks once the surface below them is light. Matching on the class
+ * prefix covers every alpha step in one rule.
  */
-html[data-theme="light"] [class*="bg-rose-950/"],
-html[data-theme="light"] [class*="bg-red-950/"] {
-  background-color: rgb(214 48 46 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-rose-950/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-red-950/"] {
+  background-color: rgb(var(--forma-red-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class*="bg-emerald-950/"],
-html[data-theme="light"] [class*="bg-green-950/"] {
-  background-color: rgb(104 121 0 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-emerald-950/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-green-950/"] {
+  background-color: rgb(var(--forma-green-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class*="bg-amber-950/"],
-html[data-theme="light"] [class*="bg-yellow-950/"] {
-  background-color: rgb(143 108 0 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-amber-950/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-yellow-950/"] {
+  background-color: rgb(var(--forma-yellow-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class*="bg-cyan-950/"] {
-  background-color: rgb(31 126 119 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-cyan-950/"] {
+  background-color: rgb(var(--forma-cyan-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class*="bg-violet-950/"] {
-  background-color: rgb(101 106 185 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-violet-950/"] {
+  background-color: rgb(var(--forma-violet-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class*="bg-slate-950/"] {
-  background-color: rgb(147 161 161 / 0.14);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-slate-950/"] {
+  background-color: rgb(var(--forma-neutral-rgb) / 0.14);
 }
 
 /*
  * Low-alpha black is used for quiet wells. Heavier black is a modal scrim and
  * still needs to dim the page, so it is deliberately left alone.
  */
-html[data-theme="light"] [class~="bg-black/20"],
-html[data-theme="light"] [class~="bg-black/25"],
-html[data-theme="light"] [class~="bg-black/30"] {
-  background-color: rgb(147 161 161 / 0.16);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/20"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/25"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/30"] {
+  background-color: rgb(var(--forma-neutral-rgb) / 0.16);
 }
 
 /*
@@ -396,187 +475,198 @@ html[data-theme="light"] [class~="bg-black/30"] {
  * low-alpha wash variants are remapped; the solid /60 and /70 fills stay put so
  * that filled controls keep their weight.
  */
-html[data-theme="light"] [class~="bg-cyan-300/5"],
-html[data-theme="light"] [class~="bg-cyan-300/10"] {
-  background-color: rgb(31 126 119 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/5"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/10"] {
+  background-color: rgb(var(--forma-cyan-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class~="bg-emerald-400/10"] {
-  background-color: rgb(104 121 0 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"] {
+  background-color: rgb(var(--forma-green-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class~="bg-amber-300/10"],
-html[data-theme="light"] [class~="bg-amber-400/10"] {
-  background-color: rgb(143 108 0 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-amber-300/10"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-amber-400/10"] {
+  background-color: rgb(var(--forma-yellow-rgb) / 0.1);
 }
 
-html[data-theme="light"] [class~="bg-violet-300/10"],
-html[data-theme="light"] [class~="bg-violet-200/25"],
-html[data-theme="light"] [class~="bg-fuchsia-400/10"] {
-  background-color: rgb(101 106 185 / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-violet-300/10"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-violet-200/25"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-fuchsia-400/10"] {
+  background-color: rgb(var(--forma-violet-rgb) / 0.1);
 }
 
 /*
  * Accent borders. The dark theme draws these from the 300-400 range at low
- * alpha; the Solarized hues stand in at the same weight.
+ * alpha; each theme's accent stands in at the same weight.
  */
-html[data-theme="light"] [class*="border-rose-400/"],
-html[data-theme="light"] [class*="border-rose-300/"],
-html[data-theme="light"] [class*="border-red-400/"] {
-  border-color: rgb(214 48 46 / 0.45);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-rose-400/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-rose-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-red-400/"] {
+  border-color: rgb(var(--forma-red-rgb) / 0.45);
 }
 
-html[data-theme="light"] [class*="border-emerald-400/"],
-html[data-theme="light"] [class*="border-emerald-300/"] {
-  border-color: rgb(104 121 0 / 0.45);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-400/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-300/"] {
+  border-color: rgb(var(--forma-green-rgb) / 0.45);
 }
 
-html[data-theme="light"] [class*="border-amber-300/"],
-html[data-theme="light"] [class*="border-amber-400/"] {
-  border-color: rgb(143 108 0 / 0.45);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-amber-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-amber-400/"] {
+  border-color: rgb(var(--forma-yellow-rgb) / 0.45);
 }
 
-html[data-theme="light"] [class*="border-cyan-300/"],
-html[data-theme="light"] [class*="border-cyan-400/"] {
-  border-color: rgb(31 126 119 / 0.45);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-cyan-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-cyan-400/"] {
+  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
 }
 
-html[data-theme="light"] [class*="border-violet-300/"],
-html[data-theme="light"] [class*="border-violet-400/"] {
-  border-color: rgb(101 106 185 / 0.45);
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-400/"] {
+  border-color: rgb(var(--forma-violet-rgb) / 0.45);
 }
 
-/* Solarized defines three content tiers; the slate ramp collapses onto them. */
-html[data-theme="light"] [class~="text-white"],
-html[data-theme="light"] [class~="text-slate-100"] {
-  color: #073642;
+/* The slate text ramp collapses onto each theme's content tiers. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-white"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-100"] {
+  color: var(--forma-text-strong);
 }
 
-html[data-theme="light"] [class~="text-slate-200"],
-html[data-theme="light"] [class~="text-slate-300"],
-html[data-theme="light"] [class~="text-slate-400"] {
-  color: #586e75;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-300"] {
+  color: var(--forma-text-body);
 }
 
-html[data-theme="light"] [class~="text-slate-500"],
-html[data-theme="light"] [class~="text-slate-600"],
-html[data-theme="light"] [class~="text-slate-700"] {
-  color: #657b83;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-400"] {
+  color: var(--forma-text-secondary);
 }
 
-/*
- * The 50 and 100 steps are near-white in the dark theme: body copy that happens
- * to sit inside a tinted panel, not accent text. They take the emphasized
- * content tone so a tinted message stays as readable as an untinted one.
- */
-html[data-theme="light"] [class~="text-cyan-50"],
-html[data-theme="light"] [class~="text-cyan-100"],
-html[data-theme="light"] [class~="text-emerald-50"],
-html[data-theme="light"] [class~="text-emerald-100"],
-html[data-theme="light"] [class~="text-amber-50"],
-html[data-theme="light"] [class~="text-amber-100"],
-html[data-theme="light"] [class~="text-red-100"],
-html[data-theme="light"] [class~="text-rose-100"],
-html[data-theme="light"] [class~="text-violet-100"] {
-  color: #586e75;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-500"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-600"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-700"] {
+  color: var(--forma-text-muted);
+}
+
+/* The quiet 50 and 100 steps of each accent ramp. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-50"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-100"] {
+  color: var(--forma-cyan-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-50"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-100"] {
+  color: var(--forma-green-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-50"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-100"] {
+  color: var(--forma-yellow-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-100"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-100"] {
+  color: var(--forma-red-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-100"] {
+  color: var(--forma-violet-soft);
 }
 
 /* The 200 and 300 steps are the visible accent: icons, labels, and emphasis. */
-html[data-theme="light"] [class~="text-cyan-200"],
-html[data-theme="light"] [class~="text-cyan-300"] {
-  color: #1f7e77;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-300"] {
+  color: rgb(var(--forma-cyan-rgb));
 }
 
-html[data-theme="light"] [class~="text-emerald-200"],
-html[data-theme="light"] [class~="text-emerald-300"] {
-  color: #687900;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-300"] {
+  color: rgb(var(--forma-green-rgb));
 }
 
-html[data-theme="light"] [class~="text-amber-200"],
-html[data-theme="light"] [class~="text-amber-300"] {
-  color: #8f6c00;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-300"] {
+  color: rgb(var(--forma-yellow-rgb));
 }
 
-html[data-theme="light"] [class~="text-red-200"],
-html[data-theme="light"] [class~="text-red-300"],
-html[data-theme="light"] [class~="text-rose-200"],
-html[data-theme="light"] [class~="text-rose-300"] {
-  color: #d6302e;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-300"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-300"] {
+  color: rgb(var(--forma-red-rgb));
 }
 
-html[data-theme="light"] [class~="text-violet-200"],
-html[data-theme="light"] [class~="text-violet-300"],
-html[data-theme="light"] [class~="text-fuchsia-200"],
-html[data-theme="light"] [class~="text-fuchsia-300"] {
-  color: #656ab9;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-300"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-fuchsia-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-fuchsia-300"] {
+  color: rgb(var(--forma-violet-rgb));
 }
 
-html[data-theme="light"] [class~='border-[#24262c]'],
-html[data-theme="light"] [class~='border-[#242832]'],
-html[data-theme="light"] [class~='border-[#25272e]'],
-html[data-theme="light"] [class~='border-[#282a30]'],
-html[data-theme="light"] [class~='border-[#292b31]'],
-html[data-theme="light"] [class~='border-[#2a2c33]'],
-html[data-theme="light"] [class~='border-[#2b3038]'],
-html[data-theme="light"] [class~='border-[#2c2f37]'],
-html[data-theme="light"] [class~='border-[#2f333c]'],
-html[data-theme="light"] [class~='border-[#30323a]'],
-html[data-theme="light"] [class~='border-[#30333b]'],
-html[data-theme="light"] [class~='border-[#30333d]'],
-html[data-theme="light"] [class~='border-[#30343d]'],
-html[data-theme="light"] [class~='border-[#333640]'],
-html[data-theme="light"] [class~='border-[#333844]'],
-html[data-theme="light"] [class~='border-[#34363f]'],
-html[data-theme="light"] [class~='border-[#343740]'],
-html[data-theme="light"] [class~='border-[#3a3d46]'],
-html[data-theme="light"] [class~='border-[#4b4d56]'] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#24262c]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#242832]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#25272e]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#282a30]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#292b31]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2a2c33]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2b3038]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2c2f37]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2f333c]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30323a]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30333b]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30333d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30343d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333640]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333844]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#34363f]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#343740]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#3a3d46]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#4b4d56]'] {
   border-color: var(--forma-border);
 }
 
-/* Inverted fills become base02 on base3 rather than near-black on white. */
-html[data-theme="light"] [class~="bg-white"][class~="text-black"] {
-  background-color: #073642;
-  color: #fdf6e3;
+/* Inverted fills darken to the strongest text tone rather than staying white. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-white"][class~="text-black"] {
+  background-color: var(--forma-text-strong);
+  color: var(--forma-surface);
 }
 
-html[data-theme="light"] [class~="hover:bg-white"]:hover {
-  background-color: #073642;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:bg-white"]:hover {
+  background-color: var(--forma-text-strong);
 }
 
-html[data-theme="light"] [class~="hover:text-black"]:hover,
-html[data-theme="light"] [class~="group-hover:text-black"]:where(.group:hover *) {
-  color: #fdf6e3;
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-black"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="group-hover:text-black"]:where(.group:hover *) {
+  color: var(--forma-surface);
 }
 
-html[data-theme="light"] .schematic-card,
-html[data-theme="light"] .schematic-controller-card {
-  background: #fdf6e3;
-  color: #586e75;
-  box-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
+html:is([data-theme="light"], [data-theme="arctic"]) .schematic-card,
+html:is([data-theme="light"], [data-theme="arctic"]) .schematic-controller-card {
+  background: var(--forma-surface);
+  color: var(--forma-text);
+  box-shadow: var(--forma-card-shadow);
 }
 
-html[data-theme="light"] .schematic-pin-row {
-  border-color: rgb(147 161 161 / 0.45);
-  background: rgb(147 161 161 / 0.18);
+html:is([data-theme="light"], [data-theme="arctic"]) .schematic-pin-row {
+  border-color: var(--forma-border);
+  background: var(--forma-surface-muted);
 }
 
-/* The dark theme selects edges with white, which disappears on base3. */
-html[data-theme="light"] .react-flow__edge.selected .react-flow__edge-path {
-  stroke: #073642 !important;
+/* The dark theme selects edges with white, which disappears on a light canvas. */
+html:is([data-theme="light"], [data-theme="arctic"]) .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--forma-text-strong) !important;
 }
 
-html[data-theme="light"] .react-flow__controls-button {
-  background: #fdf6e3 !important;
-  border-bottom-color: rgb(147 161 161 / 0.45) !important;
-  color: #586e75 !important;
-  fill: #586e75 !important;
+html:is([data-theme="light"], [data-theme="arctic"]) .react-flow__controls-button {
+  background: var(--forma-surface) !important;
+  border-bottom-color: var(--forma-border) !important;
+  color: var(--forma-text-body) !important;
+  fill: var(--forma-text-body) !important;
 }
 
-html[data-theme="light"] ::-webkit-scrollbar-track {
-  background: #eee8d5;
+html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-track {
+  background: var(--forma-page);
 }
 
-html[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: #93a1a1;
-  border-color: #eee8d5;
+html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-thumb {
+  background: var(--forma-scroll-thumb);
+  border-color: var(--forma-page);
 }

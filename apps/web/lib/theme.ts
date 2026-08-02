@@ -1,6 +1,13 @@
 export const THEME_STORAGE_KEY = "forma-theme";
 
-export type FormaTheme = "dark" | "light";
+export const FORMA_THEMES = ["dark", "light", "arctic"] as const;
+
+export type FormaTheme = (typeof FORMA_THEMES)[number];
+
+/** `color-scheme` only understands the two native schemes, not the theme id. */
+export function themeColorScheme(theme: FormaTheme): "dark" | "light" {
+  return theme === "dark" ? "dark" : "light";
+}
 
 /**
  * Solarized Light tones by Ethan Schoonover (https://ethanschoonover.com/solarized/).
@@ -43,16 +50,36 @@ export const solarizedPublishedAccents = {
   violet: "#6c71c4",
 } as const;
 
+/**
+ * The cool slate light theme Forma shipped before Solarized, kept as a separate
+ * choice. Mirrors the `:root[data-theme="arctic"]` block in app/globals.css.
+ */
+export const arcticLight = {
+  page: "#eef2f7",
+  surface: "#ffffff",
+  surfaceMuted: "#f8fafc",
+  border: "#cbd5e1",
+  textStrong: "#0f172a",
+  textBody: "#334155",
+  textSecondary: "#475569",
+  textMuted: "#64748b",
+  cyan: "#0e7490",
+  green: "#047857",
+  yellow: "#a16207",
+  red: "#be123c",
+  violet: "#7e22ce",
+} as const;
+
 export function normalizeTheme(value: unknown): FormaTheme {
-  return value === "light" ? "light" : "dark";
+  return FORMA_THEMES.includes(value as FormaTheme) ? (value as FormaTheme) : "dark";
 }
 
 export const themeBootstrapScript = `
   try {
     var savedTheme = window.localStorage.getItem("${THEME_STORAGE_KEY}");
-    var theme = savedTheme === "light" ? "light" : "dark";
+    var theme = ${JSON.stringify(FORMA_THEMES)}.indexOf(savedTheme) === -1 ? "dark" : savedTheme;
     document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme;
+    document.documentElement.style.colorScheme = theme === "dark" ? "dark" : "light";
   } catch (error) {
     document.documentElement.dataset.theme = "dark";
     document.documentElement.style.colorScheme = "dark";

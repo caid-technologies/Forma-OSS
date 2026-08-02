@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { normalizeTheme, THEME_STORAGE_KEY, type FormaTheme } from "./theme";
+import { normalizeTheme, themeColorScheme, THEME_STORAGE_KEY, type FormaTheme } from "./theme";
 
 type ThemeContextValue = {
   theme: FormaTheme;
@@ -12,7 +12,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 function applyTheme(theme: FormaTheme) {
   document.documentElement.dataset.theme = theme;
-  document.documentElement.style.colorScheme = theme;
+  document.documentElement.style.colorScheme = themeColorScheme(theme);
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {

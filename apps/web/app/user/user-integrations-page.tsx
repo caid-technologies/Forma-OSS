@@ -16,6 +16,7 @@ import {
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Snowflake,
   Sun,
   Trash2,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
+import { arcticLight, solarizedLight } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
@@ -1185,9 +1187,24 @@ function ThemeSettingsPanel() {
     {
       id: "light" as const,
       label: "Light",
-      description: "Bright surfaces with dark text for daytime and high-ambient-light use.",
+      description: "Solarized Light: warm low-glare surfaces for daytime and high-ambient-light use.",
       icon: Sun,
-      previewStyle: { backgroundColor: "#f8fafc", borderColor: "#cbd5e1", color: "#1e293b" },
+      previewStyle: {
+        backgroundColor: solarizedLight.base3,
+        borderColor: solarizedLight.base1,
+        color: solarizedLight.base01,
+      },
+    },
+    {
+      id: "arctic" as const,
+      label: "Arctic",
+      description: "Cool white panels on a slate page, for higher contrast than Solarized Light.",
+      icon: Snowflake,
+      previewStyle: {
+        backgroundColor: arcticLight.surface,
+        borderColor: arcticLight.border,
+        color: arcticLight.textBody,
+      },
     },
     {
       id: "dark" as const,
@@ -1222,7 +1239,7 @@ function ThemeSettingsPanel() {
             </p>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-2" role="radiogroup" aria-label="Color theme">
+          <div className="mt-5 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
             {options.map((option) => {
               const Icon = option.icon;
               const selected = theme === option.id;

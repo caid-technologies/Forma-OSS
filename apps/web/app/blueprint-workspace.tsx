@@ -88,6 +88,8 @@ import {
   Terminal,
   MessageSquare,
   Square,
+  Maximize2,
+  Minimize2,
   Trash2,
 } from "lucide-react";
 
@@ -1517,7 +1519,6 @@ export function FormaWorkspace({
   const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [projectIR, setProjectIR] = useState<any>(null);
-  const [projectObject, setProjectObject] = useState<any>(null);
   const [projectHistory, setProjectHistory] = useState<any[]>([]);
   const [myProjectHistory, setMyProjectHistory] = useState<any[]>([]);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
@@ -2124,7 +2125,6 @@ export function FormaWorkspace({
     setSelectedImageSource("upload");
     setChatRouteTransition(null);
     setProjectIR(null);
-    setProjectObject(null);
     setActiveTab("overview");
   };
 
@@ -2134,7 +2134,6 @@ export function FormaWorkspace({
     } else {
       setChatRouteTransition(null);
       setProjectIR(null);
-      setProjectObject(null);
       setActiveTab("overview");
     }
     router.push("/");
@@ -2170,7 +2169,6 @@ export function FormaWorkspace({
     );
     if (!item.projectId) {
       setProjectIR(null);
-      setProjectObject(null);
     }
     syncChatRoute(item.chatId);
   };
@@ -2902,7 +2900,6 @@ export function FormaWorkspace({
       }
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
-      setProjectObject(data.project_object || null);
       const generatedProjectId = projectIdFromIR(ir) || contextProjectId;
       const responseChatId = chatIdFromIR(ir) || data.chat_id || requestChatId;
       const projectTitle = ir?.overview?.title || "Generated project";
@@ -3323,7 +3320,6 @@ export function FormaWorkspace({
       }
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
-      setProjectObject(data.project_object || null);
       const projectId = projectIdFromIR(ir);
       const responseChatId = chatIdFromIR(ir) || data.chat_id || requestChatId;
       generatedProjectId = projectId;
@@ -3387,7 +3383,6 @@ export function FormaWorkspace({
           can_chat: true,
         };
         setProjectIR(mockRes.project_ir);
-        setProjectObject(null);
         const fallbackProjectId = projectIdFromIR(mockRes.project_ir);
         generatedProjectId = fallbackProjectId;
         const fallbackMessage = `${mockRes.project_ir?.overview?.title || "Local example"} is loaded from local fallback because live generation failed.`;
@@ -3550,7 +3545,6 @@ export function FormaWorkspace({
         throw new Error("Project iteration returned a different project ID.");
       }
       setProjectIR(ir);
-      setProjectObject(data.project_object || null);
       setActiveChatId(sourceChatId);
       rememberProjectRecord({
         project_id: sourceProjectId,
@@ -3620,7 +3614,6 @@ export function FormaWorkspace({
 
       const ir = await res.json();
       setProjectIR(ir);
-      setProjectObject(null);
       setActiveTab("overview");
     } catch (error) {
       console.error("Error loading example", error);
@@ -3701,7 +3694,6 @@ export function FormaWorkspace({
 
       const ir = withProjectResponseMetadata(data.project_ir, data);
       setProjectIR(ir);
-      setProjectObject(data.project_object || null);
       if (options.hydrateChat && canChatWithProjectIR(ir)) {
         ensureChatThread(projectId, ir, data.prompt);
       }
@@ -3743,7 +3735,6 @@ export function FormaWorkspace({
         if (controller.signal.aborted) return;
         const ir = withProjectResponseMetadata(data.project_ir, data);
         setProjectIR(ir);
-        setProjectObject(data.project_object || null);
         if (canChatWithProjectIR(ir)) {
           ensureChatThread(inlineChatProjectId, ir, data.prompt);
         }
@@ -3783,7 +3774,6 @@ export function FormaWorkspace({
     setRouteProjectError(null);
 
     setProjectIR(null);
-    setProjectObject(null);
 
     loadOldProject(projectId, { syncRoute: false, signal: controller.signal, tab }).then((loaded) => {
       if (controller.signal.aborted) return;
@@ -3836,7 +3826,6 @@ export function FormaWorkspace({
 
     if (!routedChatFound && chatSourcesReady && authRequired) {
       setProjectIR(null);
-      setProjectObject(null);
       setChatRouteTransition({
         chatId,
         title: "Chat unavailable",
@@ -3861,7 +3850,6 @@ export function FormaWorkspace({
     if (!routedChatProjectId) {
       setChatRouteTransition(null);
       setProjectIR(null);
-      setProjectObject(null);
       return () => {
         controller.abort();
       };
@@ -3892,7 +3880,6 @@ export function FormaWorkspace({
         return;
       }
       setProjectIR(null);
-      setProjectObject(null);
       setActiveTab("overview");
       const nextMessages = messagesWithoutMissingProject(
         storedMessages.length ? storedMessages : initialChatMessages(),
@@ -4559,17 +4546,17 @@ export function FormaWorkspace({
               imageInputRef={fileInputRefCenter}
               onImageChange={handleImageChange}
               onImagePaste={handleImagePaste}
-              projectObject={projectIR && currentProjectId ? {
-                projectId: currentProjectId,
-                title: projectTitle,
-                description: projectDescription,
-                partsCount: Array.isArray(projectIR.components) ? projectIR.components.length : 0,
-                namespaceCount: Array.isArray(projectObject?.namespaces) ? projectObject.namespaces.length : null,
-                namespaces: Array.isArray(projectObject?.namespaces)
-                  ? projectObject.namespaces.map((namespace: any) => String(namespace?.label || namespace?.name || "")).filter(Boolean)
-                  : [],
-                revision: projectObject?.version ?? projectIR.assembly_metadata?.revision,
-              } : null}
+              projectArtifact={projectIR && currentProjectId ? (
+                <ChatProjectArtifact
+                  projectId={currentProjectId}
+                  projectTitle={projectTitle}
+                  namespaceTabs={visibleWorkspaceTabs}
+                  activeNamespace={activeWorkspaceTab.id}
+                  activeNamespaceName={activeWorkspaceNamespace}
+                  onNamespaceChange={setActiveTab}
+                  projectContent={projectNamespaceContent}
+                />
+              ) : null}
             />
           )}
         </main>
@@ -5935,6 +5922,154 @@ function ProjectDetailWorkspace({
         </ProjectWorkspacePanel>
       </section>
     </div>
+  );
+}
+
+function scrollableVerticalParent(node: HTMLElement | null) {
+  let current = node?.parentElement || null;
+  while (current) {
+    const overflowY = window.getComputedStyle(current).overflowY;
+    if (/(auto|scroll)/.test(overflowY) && current.scrollHeight > current.clientHeight) return current;
+    current = current.parentElement;
+  }
+  return null;
+}
+
+function ChatProjectArtifact({
+  projectId,
+  projectTitle,
+  namespaceTabs,
+  activeNamespace,
+  activeNamespaceName,
+  onNamespaceChange,
+  projectContent,
+}: {
+  projectId: string | null;
+  projectTitle: string;
+  namespaceTabs: typeof workspaceTabs;
+  activeNamespace: string;
+  activeNamespaceName: string;
+  onNamespaceChange: (namespaceId: string) => void;
+  projectContent: React.ReactNode;
+}) {
+  const [fullScreen, setFullScreen] = useState(false);
+  const artifactRef = useRef<HTMLElement>(null);
+  const chatScrollSnapshotRef = useRef<{
+    element: HTMLElement | null;
+    top: number;
+    left: number;
+    windowX: number;
+    windowY: number;
+  } | null>(null);
+  const restoreChatScrollRef = useRef(false);
+
+  const enterFullScreen = () => {
+    const element = scrollableVerticalParent(artifactRef.current);
+    chatScrollSnapshotRef.current = {
+      element,
+      top: element?.scrollTop || 0,
+      left: element?.scrollLeft || 0,
+      windowX: window.scrollX,
+      windowY: window.scrollY,
+    };
+    setFullScreen(true);
+  };
+
+  const exitFullScreen = () => {
+    restoreChatScrollRef.current = true;
+    setFullScreen(false);
+  };
+
+  useLayoutEffect(() => {
+    if (fullScreen || !restoreChatScrollRef.current) return;
+    restoreChatScrollRef.current = false;
+    const snapshot = chatScrollSnapshotRef.current;
+    if (!snapshot) return;
+
+    const restoreScroll = () => {
+      if (snapshot.element?.isConnected) {
+        snapshot.element.scrollTo({ top: snapshot.top, left: snapshot.left, behavior: "auto" });
+      } else {
+        window.scrollTo({ top: snapshot.windowY, left: snapshot.windowX, behavior: "auto" });
+      }
+    };
+
+    restoreScroll();
+    const frameId = window.requestAnimationFrame(restoreScroll);
+    return () => window.cancelAnimationFrame(frameId);
+  }, [fullScreen]);
+
+  useEffect(() => {
+    if (!fullScreen) return;
+    const previousOverflow = document.body.style.overflow;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        restoreChatScrollRef.current = true;
+        setFullScreen(false);
+      }
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", exitOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", exitOnEscape);
+    };
+  }, [fullScreen]);
+
+  return (
+    <section
+      ref={artifactRef}
+      className={`min-w-0 overflow-hidden bg-[#141519] ${
+        fullScreen
+          ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
+          : "mx-auto mt-3 w-full max-w-6xl border border-cyan-300/20"
+      }`}
+      aria-labelledby="chat-project-title"
+    >
+      <header className="flex min-h-[64px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
+            <h3 id="chat-project-title" className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+              Project
+            </h3>
+          </div>
+          <div className="mt-1 truncate text-xs font-bold text-white">{projectTitle}</div>
+        </div>
+        <div className="flex min-w-0 items-center justify-end gap-3">
+          <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-slate-600 sm:flex">
+            {projectId && (
+              <span className="max-w-56 truncate" title={projectId}>
+                {projectId}
+              </span>
+            )}
+            {projectId && <span className="text-slate-800">/</span>}
+            <span className="max-w-48 truncate text-cyan-300/70">{activeNamespaceName}</span>
+          </div>
+          <button
+            type="button"
+            onClick={fullScreen ? exitFullScreen : enterFullScreen}
+            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-2.5 text-[10px] font-black uppercase text-slate-300 transition hover:border-white hover:bg-white hover:text-black sm:px-3"
+            aria-pressed={fullScreen}
+            aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}
+            title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
+          >
+            {fullScreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            <span className="hidden md:inline">{fullScreen ? "Exit full screen" : "Full screen"}</span>
+          </button>
+        </div>
+      </header>
+
+      <div className={fullScreen ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden"}>
+        <ProjectWorkspacePanel
+          namespaceTabs={namespaceTabs}
+          activeNamespace={activeNamespace}
+          onNamespaceChange={onNamespaceChange}
+        >
+          {projectContent}
+        </ProjectWorkspacePanel>
+      </div>
+    </section>
   );
 }
 

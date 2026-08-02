@@ -40,16 +40,6 @@ type PendingContext = {
   answers: Record<string, string>;
 };
 
-type HomeChatProjectObject = {
-  projectId: string;
-  title: string;
-  description: string;
-  partsCount: number;
-  namespaceCount?: number | null;
-  namespaces?: string[];
-  revision?: number | string | null;
-};
-
 type HomeChatViewProps = {
   started: boolean;
   messages: HomeChatMessage[];
@@ -77,7 +67,7 @@ type HomeChatViewProps = {
   imageInputRef: RefObject<HTMLInputElement>;
   onImageChange: ChangeEventHandler<HTMLInputElement>;
   onImagePaste: ClipboardEventHandler<HTMLTextAreaElement>;
-  projectObject?: HomeChatProjectObject | null;
+  projectArtifact?: ReactNode;
 };
 
 function formatTimestamp(value: string) {
@@ -113,7 +103,7 @@ export default function HomeChatView({
   imageInputRef,
   onImageChange,
   onImagePaste,
-  projectObject = null,
+  projectArtifact = null,
 }: HomeChatViewProps) {
   return (
     <section
@@ -183,41 +173,7 @@ export default function HomeChatView({
                 </div>
               );
             })}
-            {projectObject && (
-              <article className="border border-cyan-300/25 bg-cyan-300/5 px-4 py-4" aria-label="Generated project object">
-                <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-200">
-                      <CheckCircle className="h-3.5 w-3.5" />
-                      Project object loaded
-                    </div>
-                    <h2 className="mt-2 break-anywhere text-sm font-semibold text-white">{projectObject.title}</h2>
-                    <p className="mt-2 max-w-3xl break-anywhere text-xs leading-5 text-slate-400">{projectObject.description}</p>
-                  </div>
-                  <div className="shrink-0 text-right font-mono text-[10px] leading-5 text-slate-500">
-                    <div>{projectObject.partsCount} parts</div>
-                    {projectObject.namespaceCount !== null && projectObject.namespaceCount !== undefined && (
-                      <div>{projectObject.namespaceCount} namespaces</div>
-                    )}
-                    {projectObject.revision !== null && projectObject.revision !== undefined && (
-                      <div>revision {projectObject.revision}</div>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-3 truncate border-t border-cyan-300/15 pt-3 font-mono text-[10px] text-slate-600" title={projectObject.projectId}>
-                  {projectObject.projectId}
-                </div>
-                {projectObject.namespaces?.length ? (
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {projectObject.namespaces.map((namespace) => (
-                      <span key={namespace} className="border border-cyan-300/15 px-2 py-1 text-[10px] text-slate-500">
-                        {namespace}
-                      </span>
-                    ))}
-                  </div>
-                ) : null}
-              </article>
-            )}
+            {projectArtifact}
             <div ref={endRef} />
           </div>
         )}

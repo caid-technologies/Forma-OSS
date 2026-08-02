@@ -417,6 +417,60 @@ class ProjectGenerationAccessTests(unittest.TestCase):
         iterator_factory.assert_called_once_with(provider_name="anthropic", model_name="claude-sonnet-5")
         self.assertEqual(project_id, response["project_id"])
 
+    def test_project_iteration_regenerates_previously_requested_visuals(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        project = _project(project_id, owner_user_id="user-a", visibility="private")
+        project.hardware_ir["assembly_metadata"].update({
+            "image_output_requested": True,
+            "image_output_status": "succeeded",
+            "product_image_data": "data:image/png;base64,b2xk",
+            "product_visual_sequence": [{"view_id": "case", "data": "old"}],
+        })
+        revised_ir = HardwareIR(**project.hardware_ir)
+        revised_ir.assembly_metadata["revision"] = 2
+        iterator = MagicMock()
+        iterator.iterate_project.return_value = revised_ir
+        project_object = MagicMock()
+        project_object.model_dump.return_value = {"object_id": project_id}
+
+        def regenerate_images(_prompt, ir, *, generate_image=False):
+            self.assertTrue(generate_image)
+            ir.assembly_metadata.update({
+                "image_output_requested": True,
+                "image_output_status": "succeeded",
+                "image_output_project_revision": 2,
+                "product_image_data": "data:image/png;base64,bmV3",
+                "product_visual_sequence": [{"view_id": "case", "data": "new"}],
+            })
+
+        with (
+            patch.object(main, "_apply_user_integrations"),
+            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "_require_project_reader"),
+            patch.object(main, "_require_project_owner", return_value="user-a"),
+            patch.object(main, "ensure_project_action_allowed"),
+            patch.object(main, "_project_iteration_llm_selection", return_value=("anthropic", "claude-sonnet-5")),
+            patch.object(main, "ProjectIterator", return_value=iterator),
+            patch.object(main, "attach_product_image", side_effect=regenerate_images) as attach_images,
+            patch.object(main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata),
+            patch.object(main, "update_generated_project_hardware_ir", return_value=True) as save_project,
+            patch.object(main, "build_project_object", return_value=project_object),
+            patch.object(main, "generate_mermaid_chart", return_value=""),
+            patch.object(main, "generate_svg_schematic", return_value=""),
+        ):
+            response = main.iterate_project_endpoint(
+                project_id,
+                IterateProjectRequest(instruction="Add a camera."),
+                _user_context("user-a"),
+            )
+
+        attach_images.assert_called_once()
+        saved_ir = save_project.call_args.args[1]
+        self.assertEqual("data:image/png;base64,bmV3", saved_ir["assembly_metadata"]["product_image_data"])
+        self.assertTrue(response["images_refreshed"])
+        self.assertEqual("succeeded", response["image_output_status"])
+        self.assertEqual(2, response["project_ir"]["assembly_metadata"]["image_output_project_revision"])
+
     def test_generation_response_marks_new_project_as_owner_chat_capable(self) -> None:
         job_store = MagicMock()
         job_store.is_cancelled.return_value = False

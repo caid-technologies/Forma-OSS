@@ -125,6 +125,7 @@ from blueprint_core.workspaces.projects.iteration import ProjectIterator
 from blueprint_core.llm import LLMProviderConfigError
 from blueprint_core.llm import LLMProviderOutputError
 from blueprint_core.workspaces.projects.objects import build_project_object, list_project_namespaces
+from blueprint_core.workspaces.projects.output import attach_product_image, project_has_generated_visuals
 from blueprint_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
 from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
@@ -2195,6 +2196,13 @@ def iterate_project_endpoint(
             project_id=project.project_id,
             target_namespace=request.namespace,
         )
+        refresh_images = project_has_generated_visuals(current_ir)
+        if refresh_images:
+            attach_product_image(
+                f"{project.prompt}\n\nLatest project revision: {request.instruction}",
+                revised_ir,
+                generate_image=True,
+            )
         revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
         if request.save:
             saved = update_generated_project_hardware_ir(
@@ -2215,6 +2223,9 @@ def iterate_project_endpoint(
             "created_at": project.created_at,
             "can_chat": _user_owns_project(project, user),
             "saved": request.save,
+            "images_refreshed": refresh_images,
+            "image_output_status": (revised_ir.assembly_metadata or {}).get("image_output_status"),
+            "image_output_error": (revised_ir.assembly_metadata or {}).get("image_output_error"),
             "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
             "project_ir": revised_ir.model_dump(mode="json"),
             "project_object": build_project_object(revised_ir, target_namespace=request.namespace).model_dump(mode="json"),

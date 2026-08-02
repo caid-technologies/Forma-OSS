@@ -18,6 +18,16 @@ ImageProviderFactory = Callable[..., Any]
 ImageStorageHandler = Callable[..., Dict[str, Any]]
 
 
+def project_has_generated_visuals(ir: Any) -> bool:
+    metadata = dict(getattr(ir, "assembly_metadata", None) or {})
+    return bool(
+        metadata.get("image_output_requested")
+        or metadata.get("product_visual_sequence")
+        or metadata.get("product_image_url")
+        or metadata.get("product_image_data")
+    )
+
+
 def _safe_image_config(config: Dict[str, Any]) -> Dict[str, Any]:
     return {
         str(key): "<redacted>"
@@ -54,6 +64,34 @@ def _set_operation(ir: Any, operation_id: str, **record: Any) -> None:
     metadata["operation_statuses"] = operations
     metadata["operation_summary"] = _operation_summary(operations)
     ir.assembly_metadata = metadata
+
+
+def _clear_generated_visual_metadata(ir: Any) -> None:
+    metadata = dict(ir.assembly_metadata or {})
+    cleaned: Dict[str, Any] = {}
+    for key, value in metadata.items():
+        is_generated_view = key.startswith("product_") and "_image_" in key
+        if (
+            key.startswith("image_output_")
+            or key.startswith("product_image_")
+            or key.startswith("product_visual_")
+            or is_generated_view
+        ):
+            continue
+        cleaned[key] = value
+
+    operations = [
+        item
+        for item in cleaned.get("operation_statuses", [])
+        if isinstance(item, dict) and item.get("id") not in {"image_generation", "image_storage"}
+    ]
+    if operations:
+        cleaned["operation_statuses"] = operations
+        cleaned["operation_summary"] = _operation_summary(operations)
+    else:
+        cleaned.pop("operation_statuses", None)
+        cleaned.pop("operation_summary", None)
+    ir.assembly_metadata = cleaned
 
 
 def store_project_image(
@@ -101,6 +139,8 @@ def attach_product_image(
     storage_handler: ImageStorageHandler = store_project_image,
 ) -> None:
     """Generate product visuals and attach UI-compatible metadata to a HardwareIR."""
+    if generate_image:
+        _clear_generated_visual_metadata(ir)
     image_provider = provider_factory(force_enabled=generate_image)
     image_config = _safe_image_config(image_provider.get_debug_config())
     status = "pending" if generate_image else "not_requested"
@@ -114,6 +154,7 @@ def attach_product_image(
         "image_output_status": status,
         "image_output_reason": image_config.get("reason"),
         "image_output_debug": image_config,
+        "image_output_project_revision": (ir.assembly_metadata or {}).get("revision"),
         "product_visual_spec": build_project_visual_spec(prompt_text, ir),
     }
     _set_operation(
@@ -326,5 +367,6 @@ __all__ = [
     "attach_product_image",
     "persist_project_output",
     "primary_product_image_data",
+    "project_has_generated_visuals",
     "store_project_image",
 ]

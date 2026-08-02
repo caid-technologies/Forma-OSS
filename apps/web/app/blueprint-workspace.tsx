@@ -3571,7 +3571,13 @@ export function FormaWorkspace({
         star_count: 0,
       });
       const revision = data?.iteration?.revision || ir?.assembly_metadata?.revision;
-      const successMessage = `${ir?.overview?.title || "Project"} was updated${revision ? ` to revision ${revision}` : ""}.`;
+      const imageRefreshStatus = data?.images_refreshed ? data?.image_output_status : null;
+      const imageRefreshMessage = imageRefreshStatus === "succeeded"
+        ? " Product visuals were regenerated."
+        : imageRefreshStatus === "failed"
+          ? " The project was saved, but its visual refresh failed."
+          : "";
+      const successMessage = `${ir?.overview?.title || "Project"} was updated${revision ? ` to revision ${revision}` : ""}.${imageRefreshMessage}`;
       rememberChatItem({
         chatId: sourceChatId,
         title: ir?.overview?.title || projectTitle || userMessage,

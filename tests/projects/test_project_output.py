@@ -16,7 +16,20 @@ class ProjectOutputTests(unittest.TestCase):
                 difficulty="Beginner",
                 category="IoT",
             ),
-            assembly_metadata={"project_id": "29f2853c-ba3e-425a-b4c2-60f91cd2398b"},
+            assembly_metadata={
+                "project_id": "29f2853c-ba3e-425a-b4c2-60f91cd2398b",
+                "revision": 2,
+                "image_output_requested": True,
+                "image_output_status": "succeeded",
+                "product_image_data": "data:image/png;base64,b2xk",
+                "product_inside_image_data": "data:image/png;base64,b2xkLWluc2lkZQ==",
+                "product_visual_sequence": [{"view_id": "inside", "data": "old"}],
+                "product_visual_sequence_count": 1,
+                "operation_statuses": [
+                    {"id": "image_generation", "status": "succeeded"},
+                    {"id": "image_storage", "status": "succeeded"},
+                ],
+            },
         )
         image = GeneratedImage(
             data_url="data:image/png;base64,ZmFrZQ==",
@@ -57,6 +70,52 @@ class ProjectOutputTests(unittest.TestCase):
         self.assertEqual(image.data_url, metadata["product_image_data"])
         self.assertEqual(image.data_url, metadata["product_visual_sequence"][0]["data"])
         self.assertEqual(1, metadata["product_visual_sequence_count"])
+        self.assertEqual(2, metadata["image_output_project_revision"])
+        self.assertNotIn("product_inside_image_data", metadata)
+        self.assertEqual(
+            ["image_generation", "image_storage"],
+            [operation["id"] for operation in metadata["operation_statuses"]],
+        )
+
+    def test_failed_visual_refresh_does_not_keep_stale_images(self) -> None:
+        ir = HardwareIR(
+            overview=ProjectOverview(
+                title="Test project",
+                description="A test",
+                difficulty="Beginner",
+                category="IoT",
+            ),
+            assembly_metadata={
+                "project_id": "29f2853c-ba3e-425a-b4c2-60f91cd2398b",
+                "revision": 3,
+                "image_output_requested": True,
+                "product_image_data": "data:image/png;base64,b2xk",
+                "product_visual_sequence": [{"view_id": "case", "data": "old"}],
+            },
+        )
+
+        class UnconfiguredProvider:
+            def get_debug_config(self):
+                return {
+                    "provider": "gmi",
+                    "model_name": "gpt-image-2",
+                    "enabled": True,
+                    "configured": False,
+                    "reason": "provider unavailable",
+                }
+
+        attach_product_image(
+            "test prompt",
+            ir,
+            generate_image=True,
+            provider_factory=lambda **_kwargs: UnconfiguredProvider(),
+        )
+
+        metadata = ir.assembly_metadata
+        self.assertEqual("failed", metadata["image_output_status"])
+        self.assertEqual(3, metadata["image_output_project_revision"])
+        self.assertNotIn("product_image_data", metadata)
+        self.assertNotIn("product_visual_sequence", metadata)
 
 
 if __name__ == "__main__":

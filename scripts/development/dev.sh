@@ -111,7 +111,7 @@ else
   export BACKEND_LOG_FILE
   log "Starting backend at http://$BACKEND_HOST:$BACKEND_PORT"
   log "Backend log file: $BACKEND_LOG_FILE"
-  "$VENV_DIR/bin/python" -m uvicorn apps.api.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" &
+  "$VENV_DIR/bin/python" -m uvicorn apps.api.main:app --host "$BACKEND_HOST" --port "$BACKEND_PORT" --reload &
   backend_pid="$!"
   wait_for_url "http://$BACKEND_HOST:$BACKEND_PORT/api" "Backend" 60 "$backend_pid"
 fi

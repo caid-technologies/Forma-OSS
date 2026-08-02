@@ -13,6 +13,7 @@ BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-blueprint_core,apps.api.main,a
 FRONTEND_LOG_FILE="${FRONTEND_LOG_FILE:-$ROOT_DIR/.logs/frontend-dev.log}"
 UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-warning}"
 UVICORN_ACCESS_LOG="${UVICORN_ACCESS_LOG:-false}"
+UVICORN_RELOAD="${UVICORN_RELOAD:-true}"
 
 backend_pid=""
 frontend_pid=""
@@ -132,6 +133,9 @@ else
   )
   if ! is_truthy "$UVICORN_ACCESS_LOG"; then
     uvicorn_args+=(--no-access-log)
+  fi
+  if is_truthy "$UVICORN_RELOAD"; then
+    uvicorn_args+=(--reload)
   fi
   "$VENV_DIR/bin/python" -m uvicorn "${uvicorn_args[@]}" &
   backend_pid="$!"

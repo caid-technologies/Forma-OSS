@@ -1,6 +1,6 @@
 "use client";
 
-import type { ChangeEventHandler, ClipboardEventHandler, FormEventHandler, ReactNode, RefObject } from "react";
+import { Fragment, type ChangeEventHandler, type ClipboardEventHandler, type FormEventHandler, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -105,6 +105,10 @@ export default function HomeChatView({
   onImagePaste,
   projectArtifact = null,
 }: HomeChatViewProps) {
+  const projectArtifactAnchorId = projectArtifact
+    ? messages.find((message) => message.role === "assistant" && Boolean(message.projectId))?.id || null
+    : null;
+
   return (
     <section
       className={`${
@@ -140,40 +144,43 @@ export default function HomeChatView({
                         ? "border-cyan-300/45 bg-cyan-300/10 text-white"
                         : "border-[#30333d] bg-[#17181d] text-slate-100";
               return (
-                <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
-                  <div className={`min-w-0 max-w-[92%] overflow-hidden border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
-                    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                      {message.status === "loading" ? (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-300" />
-                      ) : message.status === "success" ? (
-                        <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
-                      ) : message.status === "error" ? (
-                        <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
-                      ) : message.status === "cancelled" ? (
-                        <Square className="h-3.5 w-3.5 fill-current text-amber-300" />
-                      ) : isUser ? (
-                        <ArrowRight className="h-3.5 w-3.5 text-cyan-300" />
-                      ) : (
-                        <Cpu className="h-3.5 w-3.5 text-slate-400" />
+                <Fragment key={message.id}>
+                  <div className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
+                    <div className={`min-w-0 max-w-[92%] overflow-hidden border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
+                      <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                        {message.status === "loading" ? (
+                          <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-300" />
+                        ) : message.status === "success" ? (
+                          <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
+                        ) : message.status === "error" ? (
+                          <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
+                        ) : message.status === "cancelled" ? (
+                          <Square className="h-3.5 w-3.5 fill-current text-amber-300" />
+                        ) : isUser ? (
+                          <ArrowRight className="h-3.5 w-3.5 text-cyan-300" />
+                        ) : (
+                          <Cpu className="h-3.5 w-3.5 text-slate-400" />
+                        )}
+                        <span>{isUser ? "You" : "Forma"}</span>
+                        <span className="text-slate-700">/</span>
+                        <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
+                      </div>
+                      <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                      {message.imagePreview && (
+                        <img
+                          src={message.imagePreview}
+                          alt="Hardware reference thumbnail"
+                          className="mt-3 h-24 w-36 border border-cyan-300/25 object-cover"
+                        />
                       )}
-                      <span>{isUser ? "You" : "Forma"}</span>
-                      <span className="text-slate-700">/</span>
-                      <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
+                      {!message.projectId && renderPipelineProgress(message)}
                     </div>
-                    <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    {message.imagePreview && (
-                      <img
-                        src={message.imagePreview}
-                        alt="Hardware reference thumbnail"
-                        className="mt-3 h-24 w-36 border border-cyan-300/25 object-cover"
-                      />
-                    )}
-                    {!message.projectId && renderPipelineProgress(message)}
                   </div>
-                </div>
+                  {message.id === projectArtifactAnchorId && projectArtifact}
+                </Fragment>
               );
             })}
-            {projectArtifact}
+            {projectArtifact && !projectArtifactAnchorId && projectArtifact}
             <div ref={endRef} />
           </div>
         )}

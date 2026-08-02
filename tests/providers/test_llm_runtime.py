@@ -18,6 +18,7 @@ from blueprint_core.llm import (
     resolve_llm_runtime_config,
 )
 from blueprint_core.llm_providers import STRUCTURED_MAX_TOKENS_FLOOR, OpenAICompatibleProvider
+from blueprint_core.workspaces.projects.iteration import ProjectIterationPatch
 from blueprint_core.workspaces.projects.models import ProjectOverview
 from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 
@@ -996,6 +997,55 @@ class LLMRuntimeTests(unittest.TestCase):
 
         self.assertEqual("Direct Project", result.title)
         self.assertEqual({"type": "disabled"}, payloads[0]["thinking"])
+
+    def test_anthropic_validation_retry_includes_previous_response_and_error(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-sonnet-5",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-sonnet-5")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+        invalid_patch = {
+            "summary": "Added motor power requirements.",
+            "operations": [
+                {
+                    "action": "set",
+                    "path": "/requirements/power_needs",
+                    "value_json": '"Unterminated motor power requirement',
+                }
+            ],
+        }
+        valid_patch = {
+            "summary": "Added motor power requirements.",
+            "operations": [
+                {
+                    "action": "set",
+                    "path": "/requirements/power_needs",
+                    "value_json": json.dumps("5V motor power supply"),
+                }
+            ],
+        }
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            body = invalid_patch if len(payloads) == 1 else valid_patch
+            return {
+                "content": [{"type": "text", "text": json.dumps(body)}],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Update the motor power requirements.", ProjectIterationPatch)
+
+        self.assertEqual("5V motor power supply", json.loads(result.operations[0].value_json))
+        self.assertEqual(3, len(payloads[1]["messages"]))
+        self.assertEqual(json.dumps(invalid_patch), payloads[1]["messages"][1]["content"][0]["text"])
+        retry_feedback = payloads[1]["messages"][2]["content"][0]["text"]
+        self.assertIn("value_json must contain complete, valid JSON", retry_feedback)
 
 
 if __name__ == "__main__":

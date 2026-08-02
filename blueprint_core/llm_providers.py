@@ -1464,6 +1464,23 @@ class AnthropicProvider(StructuredLLMProvider):
                 last_error = validation_error
                 attempt += 1
                 if attempt < 2:
+                    payload["messages"] = [
+                        payload["messages"][0],
+                        {"role": "assistant", "content": [{"type": "text", "text": content}]},
+                        {
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Your previous JSON response failed application validation: "
+                                        f"{str(validation_error)[:1200]}\n"
+                                        "Return a corrected complete JSON response that satisfies the original schema."
+                                    ),
+                                }
+                            ],
+                        },
+                    ]
                     budget = min(max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR), STRUCTURED_MAX_TOKENS_CEILING)
                     logger.warning(
                         "anthropic produced unusable %s (stop_reason=%s, content=%d chars); retrying once with max_tokens=%d.",

@@ -347,6 +347,21 @@ class ProjectIterationTests(unittest.TestCase):
 
         self.assertLess(patch_schema_size, hardware_ir_schema_size // 4)
 
+    def test_iteration_patch_rejects_invalid_nested_value_json_during_model_validation(self) -> None:
+        with self.assertRaisesRegex(ValidationError, "value_json must contain complete, valid JSON"):
+            ProjectIterationPatch.model_validate(
+                {
+                    "summary": "Malformed patch.",
+                    "operations": [
+                        {
+                            "action": "set",
+                            "path": "/requirements/power_needs",
+                            "value_json": '"Unterminated motor power requirement',
+                        }
+                    ],
+                }
+            )
+
     def test_iteration_patch_applies_set_append_and_remove_operations(self) -> None:
         current = build_sample_ir()
         current.constraints = ["Indoor use only"]

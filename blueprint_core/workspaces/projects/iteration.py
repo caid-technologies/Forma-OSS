@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from blueprint_core.llm import (
     LLMProviderConfigError,
@@ -66,6 +66,18 @@ class ProjectPatchOperation(BaseModel):
         if not normalized.startswith("/") or normalized == "/":
             raise ValueError("patch path must be a non-root RFC 6901 JSON Pointer.")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_encoded_value(self) -> "ProjectPatchOperation":
+        if self.action == "remove":
+            if self.value_json:
+                raise ValueError("remove operations must use an empty value_json string.")
+            return self
+        try:
+            json.loads(self.value_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"value_json must contain complete, valid JSON: {exc.msg}.") from exc
+        return self
 
 
 class ProjectIterationPatch(BaseModel):

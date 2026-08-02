@@ -1592,6 +1592,8 @@ export function FormaWorkspace({
   const fileInputRefCenter = useRef<HTMLInputElement>(null);
   const projectsSectionRef = useRef<HTMLElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const chatProjectArtifactRef = useRef<HTMLElement>(null);
+  const displayedProjectRevisionRef = useRef<string | null>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
   const generationLlmRequestIdRef = useRef(0);
   const pipelineStepsRequestIdRef = useRef(0);
@@ -1648,6 +1650,9 @@ export function FormaWorkspace({
     () => `${activeChatId || ""}:${chatMessageIdentityKey(chatMessages)}`,
     [activeChatId, chatMessages]
   );
+  const projectArtifactRevisionKey = projectIR
+    ? `${projectIdFromIR(projectIR) || "project"}:${String(projectIR?.assembly_metadata?.revision || "unversioned")}`
+    : "";
   const inlineChatProjectId = useMemo(() => {
     const activeThread = activeChatId ? chatThreads[activeChatId] || [] : [];
     const messages = activeThread.length ? activeThread : chatMessages;
@@ -2318,8 +2323,21 @@ export function FormaWorkspace({
   }, [isLoading]);
 
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chatMessageScrollKey]);
+    if (!projectArtifactRevisionKey) displayedProjectRevisionRef.current = null;
+    const projectRevisionChanged = Boolean(
+      projectArtifactRevisionKey
+      && projectArtifactRevisionKey !== displayedProjectRevisionRef.current
+    );
+    if (projectRevisionChanged) displayedProjectRevisionRef.current = projectArtifactRevisionKey;
+    const frameId = window.requestAnimationFrame(() => {
+      if (projectRevisionChanged && chatProjectArtifactRef.current) {
+        chatProjectArtifactRef.current.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [chatMessageScrollKey, projectArtifactRevisionKey]);
 
   const checkServerStatus = async () => {
     try {
@@ -4542,9 +4560,9 @@ export function FormaWorkspace({
               onImagePaste={handleImagePaste}
               projectArtifact={projectIR && currentProjectId ? (
                 <ChatProjectArtifact
+                  artifactRef={chatProjectArtifactRef}
                   projectId={currentProjectId}
                   projectTitle={projectTitle}
-                  projectRevision={projectIR?.assembly_metadata?.revision || null}
                   namespaceTabs={visibleWorkspaceTabs}
                   activeNamespace={activeWorkspaceTab.id}
                   activeNamespaceName={activeWorkspaceNamespace}
@@ -5931,18 +5949,18 @@ function scrollableVerticalParent(node: HTMLElement | null) {
 }
 
 function ChatProjectArtifact({
+  artifactRef,
   projectId,
   projectTitle,
-  projectRevision,
   namespaceTabs,
   activeNamespace,
   activeNamespaceName,
   onNamespaceChange,
   projectContent,
 }: {
+  artifactRef: React.RefObject<HTMLElement>;
   projectId: string | null;
   projectTitle: string;
-  projectRevision: string | number | null;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceName: string;
@@ -5950,8 +5968,6 @@ function ChatProjectArtifact({
   projectContent: React.ReactNode;
 }) {
   const [fullScreen, setFullScreen] = useState(false);
-  const artifactRef = useRef<HTMLElement>(null);
-  const displayedRevisionRef = useRef<string | number | null>(null);
   const chatScrollSnapshotRef = useRef<{
     element: HTMLElement | null;
     top: number;
@@ -6013,15 +6029,6 @@ function ChatProjectArtifact({
       window.removeEventListener("keydown", exitOnEscape);
     };
   }, [fullScreen]);
-
-  useEffect(() => {
-    if (projectRevision === null || projectRevision === displayedRevisionRef.current) return;
-    displayedRevisionRef.current = projectRevision;
-    const frameId = window.requestAnimationFrame(() => {
-      artifactRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
-    return () => window.cancelAnimationFrame(frameId);
-  }, [projectRevision]);
 
   return (
     <section

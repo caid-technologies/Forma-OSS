@@ -11,13 +11,28 @@
   --forma-text: #f8fafc;
 }
 
+/*
+ * Light theme: Solarized Light by Ethan Schoonover.
+ * https://ethanschoonover.com/solarized/
+ *
+ *   base3  #fdf6e3  primary background     base01 #586e75  emphasized content
+ *   base2  #eee8d5  background highlights  base00 #657b83  primary content
+ *   base1  #93a1a1  secondary content      base02 #073642  darkest tone
+ *
+ * Panels are base3 on a base2 page, which keeps the dark theme's elevation
+ * direction (surfaces sit above the page). Rules and recessed wells are base1
+ * at low alpha rather than fixed hexes, so a well always reads one step deeper
+ * than whichever tone is behind it, and a 1px border stays as quiet against
+ * base2 and base3 as #2c2f37 is against #141519 in the dark theme.
+ * Values are mirrored in lib/theme.ts and asserted by test/theme.test.ts.
+ */
 :root[data-theme="light"] {
   color-scheme: light;
-  --forma-page: #eef2f7;
-  --forma-surface: #ffffff;
-  --forma-surface-muted: #f8fafc;
-  --forma-border: #cbd5e1;
-  --forma-text: #0f172a;
+  --forma-page: #eee8d5;
+  --forma-surface: #fdf6e3;
+  --forma-surface-muted: rgb(147 161 161 / 0.18);
+  --forma-border: rgb(147 161 161 / 0.45);
+  --forma-text: #586e75;
 }
 
 * {
@@ -288,8 +303,25 @@ html[data-theme="light"] [class~='bg-[#141519]'] {
   background-color: var(--forma-page);
 }
 
-html[data-theme="light"] [class~='bg-[#141519]/95'] {
-  background-color: rgb(238 242 247 / 0.95);
+/*
+ * Sticky and floating chrome keeps its translucency, but over base3 rather
+ * than the page tone, so the wells nested inside it still read as recessed.
+ */
+html[data-theme="light"] [class~='bg-[#141519]/95'],
+html[data-theme="light"] [class~='bg-[#111216]/95'] {
+  background-color: rgb(253 246 227 / 0.95);
+}
+
+html[data-theme="light"] [class~='bg-[#15161b]/90'] {
+  background-color: rgb(253 246 227 / 0.9);
+}
+
+html[data-theme="light"] [class~='bg-[#17181d]/80'] {
+  background-color: rgb(253 246 227 / 0.8);
+}
+
+html[data-theme="light"] [class~='bg-[#050609]/85'] {
+  background-color: rgb(238 232 213 / 0.85);
 }
 
 html[data-theme="light"] [class~='bg-[#17181d]'],
@@ -317,62 +349,166 @@ html[data-theme="light"] [class~='bg-[#0f1014]'] {
   background-color: var(--forma-surface-muted);
 }
 
+/*
+ * Status washes. The interface tints panels with dark 950 shades, which land as
+ * muddy olive and maroon blocks once the surface below them is base3. Matching
+ * on the class prefix covers every alpha step in one rule.
+ */
+html[data-theme="light"] [class*="bg-rose-950/"],
+html[data-theme="light"] [class*="bg-red-950/"] {
+  background-color: rgb(214 48 46 / 0.1);
+}
+
+html[data-theme="light"] [class*="bg-emerald-950/"],
+html[data-theme="light"] [class*="bg-green-950/"] {
+  background-color: rgb(104 121 0 / 0.1);
+}
+
+html[data-theme="light"] [class*="bg-amber-950/"],
+html[data-theme="light"] [class*="bg-yellow-950/"] {
+  background-color: rgb(143 108 0 / 0.1);
+}
+
+html[data-theme="light"] [class*="bg-cyan-950/"] {
+  background-color: rgb(31 126 119 / 0.1);
+}
+
+html[data-theme="light"] [class*="bg-violet-950/"] {
+  background-color: rgb(101 106 185 / 0.1);
+}
+
+html[data-theme="light"] [class*="bg-slate-950/"] {
+  background-color: rgb(147 161 161 / 0.14);
+}
+
+/*
+ * Low-alpha black is used for quiet wells. Heavier black is a modal scrim and
+ * still needs to dim the page, so it is deliberately left alone.
+ */
+html[data-theme="light"] [class~="bg-black/20"],
+html[data-theme="light"] [class~="bg-black/25"],
+html[data-theme="light"] [class~="bg-black/30"] {
+  background-color: rgb(147 161 161 / 0.16);
+}
+
+/*
+ * Selected and highlighted panels tint themselves with a light accent. Only the
+ * low-alpha wash variants are remapped; the solid /60 and /70 fills stay put so
+ * that filled controls keep their weight.
+ */
+html[data-theme="light"] [class~="bg-cyan-300/5"],
+html[data-theme="light"] [class~="bg-cyan-300/10"] {
+  background-color: rgb(31 126 119 / 0.1);
+}
+
+html[data-theme="light"] [class~="bg-emerald-400/10"] {
+  background-color: rgb(104 121 0 / 0.1);
+}
+
+html[data-theme="light"] [class~="bg-amber-300/10"],
+html[data-theme="light"] [class~="bg-amber-400/10"] {
+  background-color: rgb(143 108 0 / 0.1);
+}
+
+html[data-theme="light"] [class~="bg-violet-300/10"],
+html[data-theme="light"] [class~="bg-violet-200/25"],
+html[data-theme="light"] [class~="bg-fuchsia-400/10"] {
+  background-color: rgb(101 106 185 / 0.1);
+}
+
+/*
+ * Accent borders. The dark theme draws these from the 300-400 range at low
+ * alpha; the Solarized hues stand in at the same weight.
+ */
+html[data-theme="light"] [class*="border-rose-400/"],
+html[data-theme="light"] [class*="border-rose-300/"],
+html[data-theme="light"] [class*="border-red-400/"] {
+  border-color: rgb(214 48 46 / 0.45);
+}
+
+html[data-theme="light"] [class*="border-emerald-400/"],
+html[data-theme="light"] [class*="border-emerald-300/"] {
+  border-color: rgb(104 121 0 / 0.45);
+}
+
+html[data-theme="light"] [class*="border-amber-300/"],
+html[data-theme="light"] [class*="border-amber-400/"] {
+  border-color: rgb(143 108 0 / 0.45);
+}
+
+html[data-theme="light"] [class*="border-cyan-300/"],
+html[data-theme="light"] [class*="border-cyan-400/"] {
+  border-color: rgb(31 126 119 / 0.45);
+}
+
+html[data-theme="light"] [class*="border-violet-300/"],
+html[data-theme="light"] [class*="border-violet-400/"] {
+  border-color: rgb(101 106 185 / 0.45);
+}
+
+/* Solarized defines three content tiers; the slate ramp collapses onto them. */
 html[data-theme="light"] [class~="text-white"],
 html[data-theme="light"] [class~="text-slate-100"] {
-  color: #0f172a;
+  color: #073642;
 }
 
 html[data-theme="light"] [class~="text-slate-200"],
-html[data-theme="light"] [class~="text-slate-300"] {
-  color: #334155;
-}
-
+html[data-theme="light"] [class~="text-slate-300"],
 html[data-theme="light"] [class~="text-slate-400"] {
-  color: #475569;
+  color: #586e75;
 }
 
 html[data-theme="light"] [class~="text-slate-500"],
 html[data-theme="light"] [class~="text-slate-600"],
 html[data-theme="light"] [class~="text-slate-700"] {
-  color: #64748b;
+  color: #657b83;
 }
 
+/*
+ * The 50 and 100 steps are near-white in the dark theme: body copy that happens
+ * to sit inside a tinted panel, not accent text. They take the emphasized
+ * content tone so a tinted message stays as readable as an untinted one.
+ */
 html[data-theme="light"] [class~="text-cyan-50"],
 html[data-theme="light"] [class~="text-cyan-100"],
-html[data-theme="light"] [class~="text-cyan-200"],
-html[data-theme="light"] [class~="text-cyan-300"] {
-  color: #0e7490;
-}
-
 html[data-theme="light"] [class~="text-emerald-50"],
 html[data-theme="light"] [class~="text-emerald-100"],
-html[data-theme="light"] [class~="text-emerald-200"],
-html[data-theme="light"] [class~="text-emerald-300"] {
-  color: #047857;
-}
-
 html[data-theme="light"] [class~="text-amber-50"],
 html[data-theme="light"] [class~="text-amber-100"],
+html[data-theme="light"] [class~="text-red-100"],
+html[data-theme="light"] [class~="text-rose-100"],
+html[data-theme="light"] [class~="text-violet-100"] {
+  color: #586e75;
+}
+
+/* The 200 and 300 steps are the visible accent: icons, labels, and emphasis. */
+html[data-theme="light"] [class~="text-cyan-200"],
+html[data-theme="light"] [class~="text-cyan-300"] {
+  color: #1f7e77;
+}
+
+html[data-theme="light"] [class~="text-emerald-200"],
+html[data-theme="light"] [class~="text-emerald-300"] {
+  color: #687900;
+}
+
 html[data-theme="light"] [class~="text-amber-200"],
 html[data-theme="light"] [class~="text-amber-300"] {
-  color: #a16207;
+  color: #8f6c00;
 }
 
-html[data-theme="light"] [class~="text-red-100"],
 html[data-theme="light"] [class~="text-red-200"],
 html[data-theme="light"] [class~="text-red-300"],
-html[data-theme="light"] [class~="text-rose-100"],
 html[data-theme="light"] [class~="text-rose-200"],
 html[data-theme="light"] [class~="text-rose-300"] {
-  color: #be123c;
+  color: #d6302e;
 }
 
-html[data-theme="light"] [class~="text-violet-100"],
 html[data-theme="light"] [class~="text-violet-200"],
 html[data-theme="light"] [class~="text-violet-300"],
 html[data-theme="light"] [class~="text-fuchsia-200"],
 html[data-theme="light"] [class~="text-fuchsia-300"] {
-  color: #7e22ce;
+  color: #656ab9;
 }
 
 html[data-theme="light"] [class~='border-[#24262c]'],
@@ -397,44 +533,50 @@ html[data-theme="light"] [class~='border-[#4b4d56]'] {
   border-color: var(--forma-border);
 }
 
+/* Inverted fills become base02 on base3 rather than near-black on white. */
 html[data-theme="light"] [class~="bg-white"][class~="text-black"] {
-  background-color: #0f172a;
-  color: #ffffff;
+  background-color: #073642;
+  color: #fdf6e3;
 }
 
 html[data-theme="light"] [class~="hover:bg-white"]:hover {
-  background-color: #0f172a;
+  background-color: #073642;
 }
 
 html[data-theme="light"] [class~="hover:text-black"]:hover,
 html[data-theme="light"] [class~="group-hover:text-black"]:where(.group:hover *) {
-  color: #ffffff;
+  color: #fdf6e3;
 }
 
 html[data-theme="light"] .schematic-card,
 html[data-theme="light"] .schematic-controller-card {
-  background: #ffffff;
-  color: #0f172a;
-  box-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
+  background: #fdf6e3;
+  color: #586e75;
+  box-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
 }
 
 html[data-theme="light"] .schematic-pin-row {
-  border-color: #cbd5e1;
-  background: #f8fafc;
+  border-color: rgb(147 161 161 / 0.45);
+  background: rgb(147 161 161 / 0.18);
+}
+
+/* The dark theme selects edges with white, which disappears on base3. */
+html[data-theme="light"] .react-flow__edge.selected .react-flow__edge-path {
+  stroke: #073642 !important;
 }
 
 html[data-theme="light"] .react-flow__controls-button {
-  background: #ffffff !important;
-  border-bottom-color: #cbd5e1 !important;
-  color: #334155 !important;
-  fill: #334155 !important;
+  background: #fdf6e3 !important;
+  border-bottom-color: rgb(147 161 161 / 0.45) !important;
+  color: #586e75 !important;
+  fill: #586e75 !important;
 }
 
 html[data-theme="light"] ::-webkit-scrollbar-track {
-  background: #eef2f7;
+  background: #eee8d5;
 }
 
 html[data-theme="light"] ::-webkit-scrollbar-thumb {
-  background: #94a3b8;
-  border-color: #eef2f7;
+  background: #93a1a1;
+  border-color: #eee8d5;
 }

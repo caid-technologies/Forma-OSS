@@ -28,6 +28,7 @@ import {
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
+import { solarizedLight } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
@@ -1185,9 +1186,13 @@ function ThemeSettingsPanel() {
     {
       id: "light" as const,
       label: "Light",
-      description: "Bright surfaces with dark text for daytime and high-ambient-light use.",
+      description: "Solarized Light: warm low-glare surfaces for daytime and high-ambient-light use.",
       icon: Sun,
-      previewStyle: { backgroundColor: "#f8fafc", borderColor: "#cbd5e1", color: "#1e293b" },
+      previewStyle: {
+        backgroundColor: solarizedLight.base3,
+        borderColor: solarizedLight.base1,
+        color: solarizedLight.base01,
+      },
     },
     {
       id: "dark" as const,

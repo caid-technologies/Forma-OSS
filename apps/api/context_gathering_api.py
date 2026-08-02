@@ -21,13 +21,19 @@ from blueprint_core.database import (
     get_project_chat,
     initiate_project_build,
     initialize_project_workflow,
+    transition_project_workflow,
     upsert_project_chat,
 )
 from blueprint_core.workspaces.context import (
     ContextGatheringRequest,
     ContextGatheringResponse,
 )
-from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
+from blueprint_core.workspaces.workflow import (
+    ProjectWorkflow,
+    ProjectWorkflowState,
+    WorkflowActorType,
+    WorkflowStateError,
+)
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
 from blueprint_core.workspaces.readiness import BuildMode, ReadinessError
 
@@ -51,6 +57,36 @@ def _workflow_error(exc: WorkflowStateError) -> HTTPException:
     return HTTPException(status_code=status_code, detail=exc.as_dict())
 
 
+def _resume_retryable_context_workflow(
+    project_id: str,
+    owner: str,
+    workflow: ProjectWorkflow,
+) -> ProjectWorkflow:
+    """Return failed or interrupted context builds to a conversational state."""
+
+    if workflow.state == ProjectWorkflowState.BUILDING:
+        workflow = transition_project_workflow(
+            project_id,
+            owner,
+            ProjectWorkflowState.FAILED,
+            actor_type=WorkflowActorType.USER,
+            actor_id=owner,
+            reason="User resumed a build that stopped or failed before completion.",
+            idempotency_key=f"context-recover-build:{workflow.revision}",
+        ).workflow
+    if workflow.state == ProjectWorkflowState.FAILED:
+        workflow = transition_project_workflow(
+            project_id,
+            owner,
+            ProjectWorkflowState.GATHERING_CONTEXT,
+            actor_type=WorkflowActorType.USER,
+            actor_id=owner,
+            reason="User resumed the conversation after a failed build.",
+            idempotency_key=f"context-resume-failed:{workflow.revision}",
+        ).workflow
+    return workflow
+
+
 @router.post("/messages", response_model=ContextGatheringResponse, status_code=status.HTTP_201_CREATED)
 def gather_project_context_endpoint(
     project_id: UUID,
@@ -71,6 +107,10 @@ def gather_project_context_endpoint(
     except WorkflowStateError as exc:
         raise _workflow_error(exc) from exc
     workflow = initialized.workflow
+    try:
+        workflow = _resume_retryable_context_workflow(str(project_id), owner, workflow)
+    except WorkflowStateError as exc:
+        raise _workflow_error(exc) from exc
     if workflow.state != ProjectWorkflowState.GATHERING_CONTEXT:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

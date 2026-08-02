@@ -4,10 +4,10 @@ import asyncio
 import tempfile
 import unittest
 import uuid
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -22,7 +22,7 @@ from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workspaces.context.agent import ContextAgentTurn, ContextBriefState
 from blueprint_core.workspaces.design_briefs import DesignBriefReadiness
 from blueprint_core.workspaces.projects.models import GenerateProjectRequest
-from blueprint_core.workspaces.workflow import WorkflowStateError
+from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 
 
 OWNER = "context-user"
@@ -326,6 +326,87 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertTrue(response.json()["design_brief"]["requirements"])
         self.assertTrue(response.json()["design_brief"]["requested_outputs"])
         self.assertTrue(response.json()["design_brief"]["validation_criteria"])
+
+    def test_try_again_recovers_a_legacy_building_workflow_and_restarts_generation(self) -> None:
+        project_id = str(uuid.uuid4())
+        first_prompt = "Generate a standalone handheld game controller."
+        retry_prompt = "Retry generating the standalone handheld game controller."
+        provider = StubContextProvider([
+            brief_turn(
+                "I’m starting the handheld build now.",
+                summary="Standalone handheld game controller",
+                requirements=["Run games entirely on the handheld."],
+                requested_outputs=["wiring", "BOM"],
+                validation_criteria=["The controls register correctly."],
+                tool="build_project",
+                generation_prompt=first_prompt,
+            ),
+            brief_turn(
+                "I’m retrying the handheld build now.",
+                summary="Standalone handheld game controller",
+                requirements=["Run games entirely on the handheld."],
+                requested_outputs=["wiring", "BOM"],
+                validation_criteria=["The controls register correctly."],
+                tool="build_project",
+                generation_prompt=retry_prompt,
+            ),
+        ])
+        with sqlite_repository(), patch(
+            "blueprint_core.workspaces.context.agent.build_llm_provider",
+            return_value=provider,
+        ):
+            first = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": "retry-chat", "text": "Go."},
+            )
+            retry = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": "retry-chat", "text": "Try again."},
+            )
+            transitions = database.list_project_workflow_transitions(project_id, OWNER)
+
+        self.assertEqual(201, first.status_code, first.text)
+        self.assertEqual(201, retry.status_code, retry.text)
+        self.assertEqual("build_project", retry.json()["action"])
+        self.assertEqual(retry_prompt, retry.json()["generation_prompt"])
+        self.assertEqual("building", retry.json()["workflow"]["state"])
+        self.assertEqual(2, retry.json()["design_brief"]["brief_version"])
+        self.assertEqual(
+            ["gathering_context", "building", "failed", "gathering_context", "building"],
+            [transition.to_state.value for transition in transitions],
+        )
+
+    def test_generate_failure_marks_context_workflow_retryable(self) -> None:
+        project_id = str(uuid.uuid4())
+        job_store = MagicMock()
+        with sqlite_repository():
+            database.initialize_project_workflow(project_id, OWNER)
+            database.transition_project_workflow(
+                project_id,
+                OWNER,
+                ProjectWorkflowState.BUILDING,
+                actor_type=WorkflowActorType.USER,
+                actor_id=OWNER,
+                reason="Start test build.",
+            )
+            with (
+                patch.object(main, "_apply_user_integrations"),
+                patch.object(main, "get_workflow_debug_config", return_value={}),
+                patch.object(main, "_deployment_runtime_config", return_value={"alpha_generation_gate_active": False}),
+                patch.object(main, "JOB_STORE", job_store),
+                patch.object(main, "observe_agent_pipeline", return_value=nullcontext()),
+                patch.object(main, "build_generation_response", side_effect=RuntimeError("provider failed")),
+            ):
+                with self.assertRaises(HTTPException) as raised:
+                    asyncio.run(main.generate_project_endpoint(
+                        GenerateProjectRequest(prompt="Build it", project_id=project_id),
+                        USER,
+                    ))
+            workflow = database.get_project_workflow(project_id, OWNER)
+
+        self.assertEqual(500, raised.exception.status_code)
+        self.assertEqual("failed", workflow.state.value)
+        job_store.mark_failed.assert_called_once()
 
     def test_a2a_generation_rejects_before_worker_job_is_created(self) -> None:
         project_id = str(uuid.uuid4())

@@ -83,6 +83,7 @@ from blueprint_core.database import (
     list_generated_projects,
     list_project_deletion_audits,
     save_alpha_signup,
+    transition_project_workflow,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
     upsert_project_chat,
@@ -101,7 +102,7 @@ from blueprint_core.workspaces.projects.models import (
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
-from blueprint_core.workspaces.workflow import WorkflowStateError
+from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from apps.api.a2a import (
@@ -318,6 +319,38 @@ def _apply_user_integrations(user: UserContext) -> None:
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(user.owner_user_id))
 
 
+def _transition_context_generation_workflow(
+    project_id: Optional[str],
+    owner_user_id: str,
+    state: ProjectWorkflowState,
+    *,
+    job_id: str,
+    reason: str,
+) -> None:
+    """Keep context-started generation lifecycle in sync without masking its result."""
+
+    if not project_id:
+        return
+    try:
+        transition_project_workflow(
+            project_id,
+            owner_user_id,
+            state,
+            actor_type=WorkflowActorType.SYSTEM,
+            actor_id="blueprint.generate_project",
+            reason=reason,
+            idempotency_key=f"generation:{job_id}:{state.value}",
+        )
+    except Exception:
+        logger.warning(
+            "Could not transition context generation workflow project_id=%s job_id=%s state=%s",
+            project_id,
+            job_id,
+            state.value,
+            exc_info=debug_mode_enabled(),
+        )
+
+
 def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     payload = job.get("payload") if isinstance(job, dict) else None
     value = payload.get("owner_user_id") if isinstance(payload, dict) else None
@@ -512,6 +545,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         except WorkflowStateError as exc:
             status_code = status.HTTP_404_NOT_FOUND if exc.code == "workflow_not_found" else status.HTTP_409_CONFLICT
             raise HTTPException(status_code=status_code, detail=exc.as_dict()) from exc
+    job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     _apply_user_integrations(user)
     try:
         llm_config = get_workflow_debug_config(
@@ -521,6 +555,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
             external_source_provider=request.external_source_provider,
         )
     except LLMProviderConfigError as e:
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation could not configure its model and may be retried.",
+        )
         raise HTTPException(
             status_code=400,
             detail=api_error_detail(
@@ -539,6 +580,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     deployment_config = _deployment_runtime_config(llm_config)
     if deployment_config["alpha_generation_gate_active"]:
         detail = generation_unavailable_detail(llm_config)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation is unavailable and may be retried.",
+        )
         logger.warning(
             "Generation unavailable for provider=%s model=%s: %s",
             detail.get("provider"),
@@ -552,6 +600,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
 
     if not (request.prompt or "").strip() and not request.image_data:
         message = "Provide a prompt or reference image."
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation did not receive usable input and may be retried.",
+        )
         detail = (
             api_error_detail(
                 code="generation_input_invalid",
@@ -569,11 +624,17 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         )
         raise HTTPException(status_code=400, detail=detail)
 
-    job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
     if request.source_project_id:
         source_project = get_generated_project(request.source_project_id)
         if not source_project:
+            _transition_context_generation_workflow(
+                request.project_id,
+                owner_user_id,
+                ProjectWorkflowState.FAILED,
+                job_id=job_id,
+                reason="Project generation could not find its source project and may be retried.",
+            )
             raise HTTPException(status_code=404, detail="Source project not found.")
         _require_project_chat_owner(source_project, user)
     payload = {
@@ -592,18 +653,28 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         "data_sources": request.data_sources,
         "past_jobs_limit": request.past_jobs_limit,
     }
-    JOB_STORE.create_job(
-        job_id=job_id,
-        message_id=message_id,
-        correlation_id=None,
-        action="blueprint.generate_project",
-        sender="frontend",
-        recipient="blueprint",
-        payload=payload,
-        server_owned=True,
-        status="queued",
-    )
-    JOB_STORE.mark_running(job_id)
+    try:
+        JOB_STORE.create_job(
+            job_id=job_id,
+            message_id=message_id,
+            correlation_id=None,
+            action="blueprint.generate_project",
+            sender="frontend",
+            recipient="blueprint",
+            payload=payload,
+            server_owned=True,
+            status="queued",
+        )
+        JOB_STORE.mark_running(job_id)
+    except Exception:
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation could not start its job and may be retried.",
+        )
+        raise
 
     try:
         past_job_context = None
@@ -649,6 +720,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 update_generated_project_hardware_ir(project_id, response["project_ir"])
             except Exception:
                 logger.warning("Failed to persist generation timing metadata for project_id=%s", project_id, exc_info=debug_mode_enabled())
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.AWAITING_FEEDBACK,
+            job_id=job_id,
+            reason="Project generation completed and is ready for feedback.",
+        )
         return {
             **response,
             "project_id": project_id,
@@ -660,6 +738,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     except PipelineCancelledError as e:
         JOB_STORE.mark_cancelled(job_id)
         _delete_cancelled_generation_projects(job_id)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation was cancelled before completion and may be retried.",
+        )
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=api_error_detail(
@@ -674,6 +759,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     except ValueError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation rejected its input and may be retried.",
+        )
         logger.warning("Generation request rejected for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
         raise HTTPException(
             status_code=400,
@@ -690,6 +782,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     except LLMProviderConfigError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation could not configure its model and may be retried.",
+        )
         logger.warning("Generation LLM config failed for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
         raise HTTPException(
             status_code=400,
@@ -706,6 +805,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     except LLMProviderOutputError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation received an invalid model response and may be retried.",
+        )
         logger.warning(
             "LLM output rejected for job_id=%s provider=%s model=%s: %s",
             job_id,
@@ -729,6 +835,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     except AlphaGenerationUnavailableError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation became unavailable and may be retried.",
+        )
         code = "alpha_generation_unavailable" if str(e) == ALPHA_GENERATION_UNAVAILABLE_MESSAGE else "llm_generation_unavailable"
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -745,6 +858,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     except Exception as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
+        _transition_context_generation_workflow(
+            request.project_id,
+            owner_user_id,
+            ProjectWorkflowState.FAILED,
+            job_id=job_id,
+            reason="Project generation failed before completion and may be retried.",
+        )
         logger.exception("Generation failed for job_id=%s provider=%s model=%s", job_id, request.provider, request.model)
         raise HTTPException(
             status_code=500,

@@ -4544,6 +4544,7 @@ export function FormaWorkspace({
                 <ChatProjectArtifact
                   projectId={currentProjectId}
                   projectTitle={projectTitle}
+                  projectRevision={projectIR?.assembly_metadata?.revision || null}
                   namespaceTabs={visibleWorkspaceTabs}
                   activeNamespace={activeWorkspaceTab.id}
                   activeNamespaceName={activeWorkspaceNamespace}
@@ -5932,6 +5933,7 @@ function scrollableVerticalParent(node: HTMLElement | null) {
 function ChatProjectArtifact({
   projectId,
   projectTitle,
+  projectRevision,
   namespaceTabs,
   activeNamespace,
   activeNamespaceName,
@@ -5940,6 +5942,7 @@ function ChatProjectArtifact({
 }: {
   projectId: string | null;
   projectTitle: string;
+  projectRevision: string | number | null;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceName: string;
@@ -5948,6 +5951,7 @@ function ChatProjectArtifact({
 }) {
   const [fullScreen, setFullScreen] = useState(false);
   const artifactRef = useRef<HTMLElement>(null);
+  const displayedRevisionRef = useRef<string | number | null>(null);
   const chatScrollSnapshotRef = useRef<{
     element: HTMLElement | null;
     top: number;
@@ -6009,6 +6013,15 @@ function ChatProjectArtifact({
       window.removeEventListener("keydown", exitOnEscape);
     };
   }, [fullScreen]);
+
+  useEffect(() => {
+    if (projectRevision === null || projectRevision === displayedRevisionRef.current) return;
+    displayedRevisionRef.current = projectRevision;
+    const frameId = window.requestAnimationFrame(() => {
+      artifactRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [projectRevision]);
 
   return (
     <section

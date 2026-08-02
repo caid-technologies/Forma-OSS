@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -33,6 +33,7 @@ import { arcticLight, solarizedLight } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
+const NAV_COLLAPSE_STORAGE_KEY = "forma.settings.collapsed-nav";
 
 type IntegrationFieldStatus = {
   id: string;
@@ -1280,6 +1281,136 @@ function ThemeSettingsPanel() {
   );
 }
 
+function navBodyId(collapseKey: string) {
+  return `settings-nav-${collapseKey.replace(/[^a-z0-9]+/gi, "-")}`;
+}
+
+function SettingsNavSection({
+  collapseKey,
+  title,
+  description,
+  icon: Icon,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  collapseKey: string;
+  title: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const bodyId = navBodyId(collapseKey);
+
+  return (
+    <section className="border border-[#2c2f37] bg-[#101115]">
+      <h2>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          className="flex w-full items-center gap-2 bg-black/30 p-3 text-left transition hover:bg-black/50"
+        >
+          <Icon className="h-4 w-4 shrink-0 text-cyan-300" />
+          <span className="min-w-0 flex-1 truncate text-xs font-black uppercase tracking-[0.16em] text-white">{title}</span>
+          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        </button>
+      </h2>
+      <div id={bodyId} hidden={collapsed} className="border-t border-[#2c2f37] p-3">
+        <p className="mb-3 text-[11px] leading-5 text-slate-500">{description}</p>
+        <div className="space-y-2">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+function SettingsNavGroup({
+  collapseKey,
+  label,
+  count,
+  collapsed,
+  onToggle,
+  children,
+}: {
+  collapseKey: string;
+  label: string;
+  count: number;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
+}) {
+  const bodyId = navBodyId(collapseKey);
+
+  return (
+    <div className="border-l border-[#3a3d46] pl-3">
+      <h3>
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={!collapsed}
+          aria-controls={bodyId}
+          className="flex w-full items-center gap-2 py-1.5 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 transition hover:text-slate-200"
+        >
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+          <span className="shrink-0 tabular-nums text-slate-600">{count}</span>
+          <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+        </button>
+      </h3>
+      <div id={bodyId} hidden={collapsed} className="mt-1 space-y-0.5 pb-1">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SettingsNavBadge({ tone, children }: { tone: "ready" | "warn" | "muted"; children: React.ReactNode }) {
+  const toneClass =
+    tone === "ready"
+      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+      : tone === "warn"
+        ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
+        : "border-[#2c2f37] text-slate-500";
+
+  return <span className={`shrink-0 border px-1.5 py-0.5 text-[9px] font-black uppercase leading-none ${toneClass}`}>{children}</span>;
+}
+
+function SettingsNavRow({
+  label,
+  title,
+  selected,
+  onSelect,
+  badge,
+  icon: Icon,
+}: {
+  label: string;
+  title?: string;
+  selected: boolean;
+  onSelect: () => void;
+  badge?: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-current={selected ? "page" : undefined}
+      title={title || label}
+      className={`flex w-full items-center gap-2 border-l-2 py-2 pl-2.5 pr-2 text-left transition ${
+        selected ? "border-l-cyan-300 bg-cyan-300/10" : "border-l-transparent hover:bg-white/5"
+      }`}
+    >
+      {Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-cyan-300" : "text-slate-500"}`} />}
+      <span className={`min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-wide ${selected ? "text-white" : "text-slate-400"}`}>
+        {label}
+      </span>
+      {badge}
+    </button>
+  );
+}
+
 export default function UserIntegrationsPage() {
   const { authRequired, getToken, hasIdentity, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
@@ -1301,6 +1432,9 @@ export default function UserIntegrationsPage() {
   const [allowModelTraining, setAllowModelTraining] = useState(true);
   const [dataUsageLoading, setDataUsageLoading] = useState(true);
   const [dataUsageSaving, setDataUsageSaving] = useState(false);
+  const [collapsedNavKeys, setCollapsedNavKeys] = useState<string[]>([]);
+  const [navCollapseHydrated, setNavCollapseHydrated] = useState(false);
+  const previousNavKeyRef = useRef(selectedNavigationKey);
 
   const navigationGroups = useMemo(
     () => integrationNavigationGroups(payload?.integrations || []),
@@ -1311,6 +1445,51 @@ export default function UserIntegrationsPage() {
     () => navigationGroups.flatMap((group) => group.items).find((item) => item.key === selectedNavigationKey) || null,
     [navigationGroups, selectedNavigationKey]
   );
+
+  const collapsedNav = useMemo(() => new Set(collapsedNavKeys), [collapsedNavKeys]);
+
+  const toggleNavCollapse = useCallback((collapseKey: string) => {
+    setCollapsedNavKeys((current) =>
+      current.includes(collapseKey) ? current.filter((key) => key !== collapseKey) : [...current, collapseKey]
+    );
+  }, []);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(NAV_COLLAPSE_STORAGE_KEY) || "null");
+      if (Array.isArray(stored)) setCollapsedNavKeys(stored.filter((entry): entry is string => typeof entry === "string"));
+    } catch {
+      // A blocked or corrupt store just means the navigation starts fully expanded.
+    }
+    setNavCollapseHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!navCollapseHydrated) return;
+    try {
+      window.localStorage.setItem(NAV_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedNavKeys));
+    } catch {
+      // Persisting the layout is best effort.
+    }
+  }, [collapsedNavKeys, navCollapseHydrated]);
+
+  // Reveal a page that something other than a nav click selected, without fighting a manual collapse.
+  useEffect(() => {
+    if (previousNavKeyRef.current === selectedNavigationKey) return;
+    previousNavKeyRef.current = selectedNavigationKey;
+
+    const path =
+      selectedNavigationKey === "appearance:theme"
+        ? ["account", "account:personalization"]
+        : selectedNavigationKey === "privacy:data-usage"
+          ? ["account", "account:data-controls"]
+          : navigationGroups
+              .filter((group) => group.items.some((item) => item.key === selectedNavigationKey))
+              .map((group) => `integrations:${group.id}`)
+              .flatMap((groupKey) => ["integrations", groupKey]);
+
+    if (path.length) setCollapsedNavKeys((current) => current.filter((key) => !path.includes(key)));
+  }, [navigationGroups, selectedNavigationKey]);
 
   const isAppearanceView = selectedNavigationKey === "appearance:theme";
   const isDataPrivacyView = selectedNavigationKey === "privacy:data-usage";
@@ -1759,117 +1938,114 @@ export default function UserIntegrationsPage() {
             <p className="mt-3 text-xs leading-5 text-slate-500">Choose a settings area, then a category and its specific page.</p>
           </div>
 
-          <nav aria-label="Settings" className="max-h-[calc(100vh-220px)] overflow-y-auto p-3">
-            <section className="border border-[#2c2f37] bg-[#101115]">
-              <div className="border-b border-[#2c2f37] bg-black/30 p-3">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck className="h-4 w-4 text-cyan-300" />
-                  <h2 className="text-xs font-black uppercase tracking-[0.16em] text-white">Account</h2>
-                </div>
-                <p className="mt-2 text-[11px] leading-5 text-slate-500">Privacy and personal account preferences.</p>
-              </div>
-              <div className="p-3">
-                <div className="mb-2 border-l border-[#3a3d46] pl-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                  Personalization
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedNavigationKey("appearance:theme")}
-                  className={`mb-4 block w-full border p-3 text-left transition ${
-                    isAppearanceView
-                      ? "border-cyan-300 bg-cyan-300/10"
-                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-black uppercase tracking-wide text-white">Appearance</span>
-                    <Palette className="h-4 w-4 shrink-0 text-cyan-300" />
-                  </div>
-                  <p className="mt-2 line-clamp-1 text-xs text-slate-500">Choose and save your light or dark theme.</p>
-                </button>
-                <div className="mb-2 border-l border-[#3a3d46] pl-3 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
-                  Data controls
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedNavigationKey("privacy:data-usage")}
-                  className={`block w-full border p-3 text-left transition ${
-                    isDataPrivacyView
-                      ? "border-cyan-300 bg-cyan-300/10"
-                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-black uppercase tracking-wide text-white">Data & Privacy</span>
-                    <span className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
-                      allowModelTraining
-                        ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                        : "border-amber-400/40 bg-amber-500/10 text-amber-300"
-                    }`}>
-                      {dataUsageLoading ? "Loading" : allowModelTraining ? "Allowed" : "Opted out"}
-                    </span>
-                  </div>
-                  <p className="mt-2 line-clamp-1 text-xs text-slate-500">Control use of your outputs for model improvement.</p>
-                </button>
-              </div>
-            </section>
+          <nav aria-label="Settings" className="max-h-[calc(100vh-220px)] space-y-3 overflow-y-auto p-3">
+            <SettingsNavSection
+              collapseKey="account"
+              title="Account"
+              description="Privacy and personal account preferences."
+              icon={ShieldCheck}
+              collapsed={collapsedNav.has("account")}
+              onToggle={() => toggleNavCollapse("account")}
+            >
+              <SettingsNavGroup
+                collapseKey="account:personalization"
+                label="Personalization"
+                count={1}
+                collapsed={collapsedNav.has("account:personalization")}
+                onToggle={() => toggleNavCollapse("account:personalization")}
+              >
+                <SettingsNavRow
+                  label="Appearance"
+                  title="Choose and save your light or dark theme."
+                  icon={Palette}
+                  selected={isAppearanceView}
+                  onSelect={() => setSelectedNavigationKey("appearance:theme")}
+                />
+              </SettingsNavGroup>
 
-            <section className="mt-4 border border-[#2c2f37] bg-[#101115]">
-              <div className="border-b border-[#2c2f37] bg-black/30 p-3">
-                <div className="flex items-center gap-2">
-                  <KeyRound className="h-4 w-4 text-cyan-300" />
-                  <h2 className="text-xs font-black uppercase tracking-[0.16em] text-white">Integrations & Models</h2>
+              <SettingsNavGroup
+                collapseKey="account:data-controls"
+                label="Data controls"
+                count={1}
+                collapsed={collapsedNav.has("account:data-controls")}
+                onToggle={() => toggleNavCollapse("account:data-controls")}
+              >
+                <SettingsNavRow
+                  label="Data & Privacy"
+                  title="Control use of your outputs for model improvement."
+                  selected={isDataPrivacyView}
+                  onSelect={() => setSelectedNavigationKey("privacy:data-usage")}
+                  badge={
+                    <SettingsNavBadge tone={dataUsageLoading ? "muted" : allowModelTraining ? "ready" : "warn"}>
+                      {dataUsageLoading ? "Loading" : allowModelTraining ? "Allowed" : "Opted out"}
+                    </SettingsNavBadge>
+                  }
+                />
+              </SettingsNavGroup>
+            </SettingsNavSection>
+
+            <SettingsNavSection
+              collapseKey="integrations"
+              title="Integrations & Models"
+              description="Workspace defaults, provider credentials, models, and tools."
+              icon={KeyRound}
+              collapsed={collapsedNav.has("integrations")}
+              onToggle={() => toggleNavCollapse("integrations")}
+            >
+              {loading && !payload ? (
+                <div className="border border-[#2c2f37] p-3 text-xs leading-5 text-slate-500">Loading integrations...</div>
+              ) : !navigationGroups.length ? (
+                <div className="border border-[#2c2f37] bg-[#141519] p-3">
+                  <p className="text-xs leading-5 text-slate-400">
+                    {error ? "Could not load integrations." : "No integrations are available for this workspace."}
+                  </p>
+                  {error && <p className="mt-1 break-words text-[11px] leading-5 text-slate-600">{error}</p>}
+                  <button
+                    type="button"
+                    onClick={loadIntegrations}
+                    disabled={loading}
+                    className="mt-3 inline-flex items-center gap-1.5 border border-[#2c2f37] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+                    Retry
+                  </button>
                 </div>
-                <p className="mt-2 text-[11px] leading-5 text-slate-500">Workspace defaults, provider credentials, models, and tools.</p>
-              </div>
-              <div className="p-3">
-                {loading && !payload ? (
-                  <div className="border border-[#2c2f37] p-4 text-sm text-slate-500">Loading integrations...</div>
-                ) : (
-                  navigationGroups.map((group) => (
-                    <section key={group.id} className="mb-5 border-l border-[#3a3d46] pl-3 last:mb-0">
-                      <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">{group.label}</h3>
+              ) : (
+                navigationGroups.map((group) => {
+                  const groupKey = `integrations:${group.id}`;
+                  return (
+                    <SettingsNavGroup
+                      key={group.id}
+                      collapseKey={groupKey}
+                      label={group.label}
+                      count={group.items.length}
+                      collapsed={collapsedNav.has(groupKey)}
+                      onToggle={() => toggleNavCollapse(groupKey)}
+                    >
                       {group.items.map((item) => (
-                        <button
+                        <SettingsNavRow
                           key={item.key}
-                          type="button"
-                          onClick={() => {
+                          label={item.label}
+                          title={navigationDescription(item)}
+                          selected={selectedNavigationKey === item.key}
+                          onSelect={() => {
                             if (item.imageProviderId) updateImageProvider(item.imageProviderId);
                             else setSelectedNavigationKey(item.key);
                           }}
-                          className={`mb-2 block w-full border p-3 text-left transition last:mb-0 ${
-                            selectedNavigationKey === item.key
-                              ? "border-cyan-300 bg-cyan-300/10"
-                              : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="truncate text-sm font-black uppercase tracking-wide text-white">{item.label}</span>
-                            <span
-                              className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
-                                item.integration.configured
-                                  ? item.integration.enabled
-                                    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                                    : "border-amber-400/40 bg-amber-500/10 text-amber-300"
-                                  : "border-[#2c2f37] text-slate-500"
-                              }`}
+                          badge={
+                            <SettingsNavBadge
+                              tone={item.integration.configured ? (item.integration.enabled ? "ready" : "warn") : "muted"}
                             >
                               {item.integration.configured ? (item.integration.enabled ? "Ready" : "Off") : "Unset"}
-                            </span>
-                          </div>
-                          <div className="mt-2 flex items-center justify-between gap-3">
-                            <p className="line-clamp-1 min-w-0 text-xs text-slate-500">{navigationDescription(item)}</p>
-                            <span className="shrink-0 text-[9px] font-black uppercase tracking-wider text-cyan-300/70">
-                              {item.view === "llm" ? "LLM" : item.view === "image" ? "Image" : item.integration.id === "firecrawl" ? "Search" : "Defaults"}
-                            </span>
-                          </div>
-                        </button>
+                            </SettingsNavBadge>
+                          }
+                        />
                       ))}
-                    </section>
-                  ))
-                )}
-              </div>
-            </section>
+                    </SettingsNavGroup>
+                  );
+                })
+              )}
+            </SettingsNavSection>
           </nav>
         </aside>
 

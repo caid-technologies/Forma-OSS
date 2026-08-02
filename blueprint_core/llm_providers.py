@@ -719,8 +719,19 @@ def _schema_with_closed_objects(schema: Any) -> Any:
     return normalized
 
 
-def _is_anthropic_grammar_timeout(exc: Exception) -> bool:
-    return "Grammar compilation timed out" in str(exc)
+def _is_anthropic_grammar_compilation_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    if "grammar" not in message:
+        return False
+    return any(
+        marker in message
+        for marker in (
+            "compilation timed out",
+            "compiled grammar is too large",
+            "grammar is too large",
+            "could not compile",
+        )
+    )
 
 
 def _is_anthropic_output_schema_unsupported(exc: Exception) -> bool:
@@ -1386,7 +1397,7 @@ class AnthropicProvider(StructuredLLMProvider):
                 response = self._request_json("messages", method="POST", payload=payload)
             except RuntimeError as exc:
                 if using_output_config and (
-                    _is_anthropic_grammar_timeout(exc) or _is_anthropic_output_schema_unsupported(exc)
+                    _is_anthropic_grammar_compilation_error(exc) or _is_anthropic_output_schema_unsupported(exc)
                 ):
                     using_output_config = False
                     payload.pop("output_config", None)

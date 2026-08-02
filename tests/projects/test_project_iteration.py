@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import json
 import urllib.error
 import unittest
 from unittest.mock import patch
@@ -10,7 +11,13 @@ from pydantic import ValidationError
 from blueprint_core.database import _hardware_ir_with_project_id
 from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
 from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
-from blueprint_core.workspaces.projects.iteration import ProjectIterator, compact_hardware_ir_for_iteration
+from blueprint_core.workspaces.projects.iteration import (
+    ProjectIterationPatch,
+    ProjectIterator,
+    ProjectPatchOperation,
+    apply_project_iteration_patch,
+    compact_hardware_ir_for_iteration,
+)
 from blueprint_core.llm import (
     LLMProviderConfigError,
     LLMProviderOutputError,
@@ -107,9 +114,10 @@ class FakeProvider:
     model_name = "gpt-5.5"
     is_configured = True
 
-    def __init__(self, revised_ir: HardwareIR) -> None:
-        self.revised_ir = revised_ir
+    def __init__(self, result: object) -> None:
+        self.result = result
         self.prompt = ""
+        self.schema_class = None
 
     def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
         return LLMProviderValidation(
@@ -124,7 +132,8 @@ class FakeProvider:
 
     def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
         self.prompt = prompt
-        return self.revised_ir
+        self.schema_class = schema_class
+        return self.result
 
 
 class UnconfiguredProvider:
@@ -239,15 +248,15 @@ class ProjectIterationTests(unittest.TestCase):
     def test_live_iteration_uses_provider_and_normalizes_metadata(self) -> None:
         current = build_sample_ir()
         current.assembly_metadata["chat_id"] = "chat-soil-monitor"
-        model_output = current.model_copy(deep=True)
-        model_output.overview.description = "A revised monitor with a waterproof enclosure."
-        model_output.assembly_metadata = {"project_id": PROJECT_ID, "revision": 99}
-        model_output.project_version_history.append(
-            {
-                "version": "0.2",
-                "revision": 2,
-                "description": "Model-supplied duplicate history entry.",
-            }
+        model_output = ProjectIterationPatch(
+            summary="Made the enclosure waterproof.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/overview/description",
+                    value_json=json.dumps("A revised monitor with a waterproof enclosure."),
+                )
+            ],
         )
         fake_provider = FakeProvider(model_output)
         iterator = ProjectIterator(
@@ -264,6 +273,9 @@ class ProjectIterationTests(unittest.TestCase):
 
         self.assertIn("Make the enclosure waterproof.", fake_provider.prompt)
         self.assertIn("Target namespace: product.mech", fake_provider.prompt)
+        self.assertIs(ProjectIterationPatch, fake_provider.schema_class)
+        self.assertIn("Return one compact ProjectIterationPatch", fake_provider.prompt)
+        self.assertEqual("A revised monitor with a waterproof enclosure.", revised.overview.description)
         self.assertEqual(2, revised.assembly_metadata["revision"])
         self.assertEqual("llm", revised.assembly_metadata["iteration_mode"])
         self.assertEqual("product.mech", revised.assembly_metadata["iteration_target_namespace"])
@@ -293,9 +305,16 @@ class ProjectIterationTests(unittest.TestCase):
                 },
             }
         )
-        model_output = current.model_copy(deep=True)
-        model_output.overview.description = "A revised monitor with better docs."
-        model_output.assembly_metadata = {"project_id": PROJECT_ID}
+        model_output = ProjectIterationPatch(
+            summary="Improved the project documentation.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/overview/description",
+                    value_json=json.dumps("A revised monitor with better docs."),
+                )
+            ],
+        )
         fake_provider = FakeProvider(model_output)
         iterator = ProjectIterator(
             runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
@@ -308,6 +327,67 @@ class ProjectIterationTests(unittest.TestCase):
         self.assertEqual("https://example.test/product.png", revised.assembly_metadata["product_image_url"])
         self.assertEqual(1, revised.assembly_metadata["product_visual_sequence_count"])
         self.assertEqual("tavily", revised.assembly_metadata["external_research"]["provider"])
+
+    def test_iteration_patch_schema_is_much_smaller_than_hardware_ir(self) -> None:
+        patch_schema_size = len(json.dumps(ProjectIterationPatch.model_json_schema()))
+        hardware_ir_schema_size = len(json.dumps(HardwareIR.model_json_schema()))
+
+        self.assertLess(patch_schema_size, hardware_ir_schema_size // 4)
+
+    def test_iteration_patch_applies_set_append_and_remove_operations(self) -> None:
+        current = build_sample_ir()
+        current.constraints = ["Indoor use only"]
+        added_component = current.components[0].model_copy(
+            update={
+                "ref_des": "U2",
+                "name": "Camera Module",
+                "part_number": "CAM-TEST",
+                "rationale": "Adds image capture.",
+            }
+        )
+        patch = ProjectIterationPatch(
+            summary="Added a camera and updated the description.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/overview/description",
+                    value_json=json.dumps("A soil monitor with image capture."),
+                ),
+                ProjectPatchOperation(
+                    action="append",
+                    path="/components",
+                    value_json=json.dumps(added_component.model_dump(mode="json")),
+                ),
+                ProjectPatchOperation(
+                    action="remove",
+                    path="/constraints/0",
+                    value_json="",
+                ),
+            ],
+        )
+
+        revised = apply_project_iteration_patch(current, patch)
+
+        self.assertEqual("A soil monitor with image capture.", revised.overview.description)
+        self.assertEqual(["U1", "U2"], [component.ref_des for component in revised.components])
+        self.assertEqual([], revised.constraints)
+        self.assertEqual("A low-voltage soil moisture monitor.", current.overview.description)
+        self.assertEqual(["U1"], [component.ref_des for component in current.components])
+
+    def test_iteration_patch_rejects_backend_owned_metadata(self) -> None:
+        patch = ProjectIterationPatch(
+            summary="Tried to replace backend state.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/assembly_metadata/revision",
+                    value_json="999",
+                )
+            ],
+        )
+
+        with self.assertRaisesRegex(LLMProviderOutputError, "backend-owned field"):
+            apply_project_iteration_patch(build_sample_ir(), patch)
 
     def test_iteration_context_redacts_data_urls(self) -> None:
         current = build_sample_ir()

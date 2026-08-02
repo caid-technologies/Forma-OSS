@@ -5,7 +5,9 @@ import logging
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 from blueprint_core.llm import (
     LLMProviderConfigError,
@@ -30,6 +32,56 @@ logger = logging.getLogger(__name__)
 
 PLACEHOLDER_TEXT_VALUES = {"", "unknown", "n/a", "na", "none", "null", "new", "new__rewrite_1"}
 DEFAULT_CONTEXT_MAX_STRING_CHARS = 4000
+PROTECTED_PROJECT_PATCH_ROOTS = frozenset({
+    "assembly_metadata",
+    "is_valid",
+    "project_version_history",
+    "validation",
+})
+
+
+class ProjectPatchOperation(BaseModel):
+    """One deterministic mutation against the current HardwareIR document."""
+
+    action: Literal["set", "append", "remove"] = Field(
+        ...,
+        description=(
+            "Mutation type. set replaces an existing value, append adds one item to an existing list, "
+            "and remove deletes an existing value or list item."
+        ),
+    )
+    path: str = Field(
+        ...,
+        description="RFC 6901 JSON Pointer into the HardwareIR document, for example /overview/description.",
+    )
+    value_json: str = Field(
+        ...,
+        description="JSON-encoded mutation value. Use an empty string for remove operations.",
+    )
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized.startswith("/") or normalized == "/":
+            raise ValueError("patch path must be a non-root RFC 6901 JSON Pointer.")
+        return normalized
+
+
+class ProjectIterationPatch(BaseModel):
+    """Compact model output for revising selected parts of an existing project."""
+
+    summary: str = Field(
+        ...,
+        min_length=1,
+        description="Concise description of the project changes made by this patch.",
+    )
+    operations: list[ProjectPatchOperation] = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Ordered project mutations. Include every coordinated hardware and documentation change.",
+    )
 
 
 @dataclass(frozen=True)
@@ -147,6 +199,105 @@ def compact_hardware_ir_for_iteration(ir: HardwareIR, *, max_string_chars: int =
     return _redact_context_value(ir.model_dump(mode="json", exclude_none=True), max_string_chars=max_string_chars)
 
 
+def _decode_json_pointer(path: str) -> list[str]:
+    return [token.replace("~1", "/").replace("~0", "~") for token in path.split("/")[1:]]
+
+
+def _patch_list_index(token: str, *, length: int, path: str) -> int:
+    if not token.isdigit():
+        raise LLMProviderOutputError(f"Project patch path {path!r} requires a non-negative list index.")
+    index = int(token)
+    if index >= length:
+        raise LLMProviderOutputError(
+            f"Project patch path {path!r} references list index {index}, but the list has {length} items."
+        )
+    return index
+
+
+def _resolve_patch_value(document: Any, tokens: list[str], *, path: str) -> Any:
+    current = document
+    for token in tokens:
+        if isinstance(current, dict):
+            if token not in current:
+                raise LLMProviderOutputError(f"Project patch path {path!r} does not exist.")
+            current = current[token]
+            continue
+        if isinstance(current, list):
+            current = current[_patch_list_index(token, length=len(current), path=path)]
+            continue
+        raise LLMProviderOutputError(f"Project patch path {path!r} traverses a scalar value.")
+    return current
+
+
+def _validate_patch_root(path: str, tokens: list[str]) -> None:
+    root = tokens[0] if tokens else ""
+    if root in PROTECTED_PROJECT_PATCH_ROOTS:
+        raise LLMProviderOutputError(
+            f"Project patch path {path!r} targets backend-owned field {root!r}."
+        )
+    if root not in HardwareIR.model_fields:
+        raise LLMProviderOutputError(f"Project patch path {path!r} is not a HardwareIR field.")
+
+
+def apply_project_iteration_patch(
+    current_ir: HardwareIR | Dict[str, Any],
+    patch: ProjectIterationPatch | Dict[str, Any],
+) -> HardwareIR:
+    """Apply a compact model patch and validate the resulting complete HardwareIR."""
+    base = coerce_hardware_ir(current_ir)
+    normalized_patch = (
+        patch
+        if isinstance(patch, ProjectIterationPatch)
+        else ProjectIterationPatch.model_validate(patch)
+    )
+    base_document = base.model_dump(mode="json")
+    document = base.model_dump(mode="json")
+
+    for operation_index, operation in enumerate(normalized_patch.operations, start=1):
+        tokens = _decode_json_pointer(operation.path)
+        _validate_patch_root(operation.path, tokens)
+        try:
+            if operation.action == "append":
+                target = _resolve_patch_value(document, tokens, path=operation.path)
+                if not isinstance(target, list):
+                    raise LLMProviderOutputError(
+                        f"Project patch append path {operation.path!r} does not target a list."
+                    )
+                target.append(json.loads(operation.value_json))
+                continue
+
+            parent = _resolve_patch_value(document, tokens[:-1], path=operation.path)
+            leaf = tokens[-1]
+            if isinstance(parent, dict):
+                if leaf not in parent:
+                    raise LLMProviderOutputError(f"Project patch path {operation.path!r} does not exist.")
+                if operation.action == "remove":
+                    del parent[leaf]
+                else:
+                    parent[leaf] = json.loads(operation.value_json)
+                continue
+            if isinstance(parent, list):
+                index = _patch_list_index(leaf, length=len(parent), path=operation.path)
+                if operation.action == "remove":
+                    parent.pop(index)
+                else:
+                    parent[index] = json.loads(operation.value_json)
+                continue
+            raise LLMProviderOutputError(f"Project patch path {operation.path!r} has no mutable parent.")
+        except json.JSONDecodeError as exc:
+            raise LLMProviderOutputError(
+                f"Project patch operation {operation_index} has invalid value_json: {exc.msg}."
+            ) from exc
+
+    try:
+        revised = HardwareIR.model_validate(document)
+    except Exception as exc:
+        raise LLMProviderOutputError(f"Project patch produced an invalid HardwareIR: {exc}") from exc
+    if revised.model_dump(mode="json") == base_document:
+        raise LLMProviderOutputError("Project patch did not change the project.")
+    return revised
+
+
 def build_iteration_prompt(
     current_ir: HardwareIR,
     instruction: str,
@@ -159,6 +310,7 @@ def build_iteration_prompt(
     previous_revision = _metadata_revision(current_ir)
     next_revision = previous_revision + 1
     normalized_namespace = normalize_project_namespace(target_namespace)
+    allowed_roots = sorted(set(HardwareIR.model_fields) - PROTECTED_PROJECT_PATCH_ROOTS)
     namespace_block = ""
     if normalized_namespace:
         namespace_block = (
@@ -169,13 +321,18 @@ def build_iteration_prompt(
         )
     return (
         "You are Forma's project iteration engine. Revise an existing HardwareIR project.\n"
-        "Return one complete HardwareIR JSON document, not a patch and not markdown.\n"
+        "Return one compact ProjectIterationPatch JSON document, not the complete project and not markdown.\n"
+        "Each operation must use action set, append, or remove; an RFC 6901 JSON Pointer path; and value_json.\n"
+        "value_json is a string containing the JSON encoding of the new value. Use an empty string for remove.\n"
+        "Use set for an existing property or list item, append for one new item in an existing list, and remove for an existing property or list item.\n"
+        f"Allowed top-level path fields: {', '.join(allowed_roots)}.\n"
+        "Do not patch assembly_metadata, project_version_history, validation, or is_valid; the backend owns those fields.\n"
         "Preserve every part of the project that the instruction does not explicitly change.\n"
         "Keep the existing project_id, reference designators, and stable net IDs unless a requested change requires updates.\n"
         "If you add, remove, or replace components, update components, nets, buses, pin_mappings, power_rails, "
-        "requirements, assembly steps, mechanical placement, cost, validation-related fields, and fabrication notes together.\n"
+        "requirements, assembly steps, mechanical placement, cost inputs, and fabrication notes together.\n"
         "Never claim unsupported functionality without adding the required component and wiring changes.\n"
-        f"Set assembly_metadata.revision to {next_revision} and append a project_version_history entry for this iteration.\n\n"
+        f"The backend will set revision {next_revision}, append history, and recalculate validation after applying your patch.\n\n"
         f"Project id: {project_id or (current_ir.assembly_metadata or {}).get('project_id') or 'unknown'}\n"
         f"Original prompt: {original_prompt or 'unknown'}\n"
         f"Iteration instruction: {instruction}\n\n"
@@ -588,7 +745,13 @@ class ProjectIterator:
             target_namespace=normalized_namespace,
         )
         try:
-            revised = self.llm_provider.generate_structured(prompt, HardwareIR, image_bytes, image_mime_type)
+            patch = self.llm_provider.generate_structured(
+                prompt,
+                ProjectIterationPatch,
+                image_bytes,
+                image_mime_type,
+            )
+            revised = apply_project_iteration_patch(base, patch)
         except Exception as exc:
             raise LLMProviderOutputError(
                 f"Project iteration failed for provider={validation.provider} model={validation.actual_model or validation.requested_model}: {exc}"

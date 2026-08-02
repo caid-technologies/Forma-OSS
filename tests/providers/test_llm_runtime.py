@@ -959,6 +959,44 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual(123, payloads[0]["max_tokens"])
         self.assertEqual(STRUCTURED_MAX_TOKENS_FLOOR, payloads[1]["max_tokens"])
 
+    def test_anthropic_disables_default_thinking_for_structured_claude_5(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-sonnet-5",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-sonnet-5")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "title": "Direct Project",
+                                "description": "A structured response without adaptive thinking.",
+                                "difficulty": "Beginner",
+                                "estimated_cost": 2.0,
+                                "category": "IoT",
+                            }
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        result = provider.generate_structured("Return a project overview.", ProjectOverview)
+
+        self.assertEqual("Direct Project", result.title)
+        self.assertEqual({"type": "disabled"}, payloads[0]["thinking"])
+
 
 if __name__ == "__main__":
     unittest.main()

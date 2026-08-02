@@ -741,6 +741,18 @@ def _is_anthropic_output_schema_unsupported(exc: Exception) -> bool:
     )
 
 
+def _anthropic_structured_output_should_disable_thinking(model_name: str) -> bool:
+    """Return whether Anthropic enables thinking by default for this model.
+
+    Claude 5 models count adaptive-thinking tokens against ``max_tokens``. A
+    schema-constrained response can otherwise exhaust its entire output budget
+    before emitting any JSON. Sonnet 5 and Opus 5 support explicitly disabling
+    thinking for this deterministic transformation workload.
+    """
+    normalized = _normalize_model_name(model_name).lower()
+    return normalized.startswith(("claude-sonnet-5", "claude-opus-5"))
+
+
 def _strip_json_markdown(text: str) -> str:
     stripped = text.strip()
     if not stripped.startswith("```"):
@@ -1380,6 +1392,8 @@ class AnthropicProvider(StructuredLLMProvider):
         }
         if self.temperature is not None:
             payload["temperature"] = self.temperature
+        if _anthropic_structured_output_should_disable_thinking(self.model_name):
+            payload["thinking"] = {"type": "disabled"}
         if using_output_config:
             payload["output_config"] = {
                 "format": {

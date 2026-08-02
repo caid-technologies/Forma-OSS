@@ -12,6 +12,8 @@ from blueprint_core.database import _hardware_ir_with_project_id
 from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
 from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
 from blueprint_core.workspaces.projects.iteration import (
+    ProjectIterationDomainTask,
+    ProjectIterationPlan,
     ProjectIterationPatch,
     ProjectIterator,
     ProjectPatchOperation,
@@ -141,11 +143,13 @@ class SequencedFakeProvider(FakeProvider):
         super().__init__(results[0])
         self.results = list(results)
         self.prompts: list[str] = []
+        self.schema_classes: list[object] = []
 
     def generate_structured(self, prompt, schema_class, image_bytes=None, image_mime_type=None):
         self.prompt = prompt
         self.prompts.append(prompt)
         self.schema_class = schema_class
+        self.schema_classes.append(schema_class)
         return self.results.pop(0)
 
 
@@ -281,17 +285,17 @@ class ProjectIterationTests(unittest.TestCase):
             current,
             "Make the enclosure waterproof.",
             original_prompt="soil monitor",
-            target_namespace="product.mech",
+            target_namespace="product.overview",
         )
 
         self.assertIn("Make the enclosure waterproof.", fake_provider.prompt)
-        self.assertIn("Target namespace: product.mech", fake_provider.prompt)
+        self.assertIn("product.overview project iteration agent", fake_provider.prompt)
         self.assertIs(ProjectIterationPatch, fake_provider.schema_class)
         self.assertIn("Return one compact ProjectIterationPatch", fake_provider.prompt)
         self.assertEqual("A revised monitor with a waterproof enclosure.", revised.overview.description)
         self.assertEqual(2, revised.assembly_metadata["revision"])
         self.assertEqual("llm", revised.assembly_metadata["iteration_mode"])
-        self.assertEqual("product.mech", revised.assembly_metadata["iteration_target_namespace"])
+        self.assertEqual("product.overview", revised.assembly_metadata["iteration_target_namespace"])
         self.assertEqual("openai", revised.assembly_metadata["iteration_provider"])
         self.assertEqual("gpt-5.5", revised.assembly_metadata["iteration_model"])
         self.assertEqual(PROJECT_ID, revised.assembly_metadata["project_id"])
@@ -299,7 +303,7 @@ class ProjectIterationTests(unittest.TestCase):
         self.assertEqual(2, len(revised.project_version_history))
         self.assertEqual("Make the enclosure waterproof.", revised.project_version_history[-1]["description"])
         object_metadata = revised.assembly_metadata["project_object"]
-        self.assertEqual(2, object_metadata["namespace_versions"]["product.mech"])
+        self.assertEqual(2, object_metadata["namespace_versions"]["product.overview"])
         self.assertEqual(1, object_metadata["namespace_versions"]["product.electrical"])
         self.assertTrue(revised.is_valid)
 
@@ -334,7 +338,7 @@ class ProjectIterationTests(unittest.TestCase):
             llm_provider=fake_provider,
         )
 
-        revised = iterator.iterate_project(current, "Improve docs.", target_namespace="project.docs")
+        revised = iterator.iterate_project(current, "Improve docs.", target_namespace="product.overview")
 
         self.assertEqual("succeeded", revised.assembly_metadata["image_output_status"])
         self.assertEqual("https://example.test/product.png", revised.assembly_metadata["product_image_url"])
@@ -431,13 +435,152 @@ class ProjectIterationTests(unittest.TestCase):
             llm_provider=fake_provider,
         )
 
-        revised = iterator.iterate_project(build_sample_ir(), "Add wheels so it can drive around.")
+        revised = iterator.iterate_project(
+            build_sample_ir(),
+            "Add wheels so it can drive around.",
+            target_namespace="product.overview",
+        )
 
         self.assertIn("motor supply", revised.requirements.power_needs)
         self.assertEqual(2, len(fake_provider.prompts))
         self.assertIn("does not target a list", fake_provider.prompts[1])
         self.assertIn('"action": "append"', fake_provider.prompts[1])
         self.assertIn("append only to an existing list", fake_provider.prompts[1])
+
+    def test_unscoped_iteration_plans_and_applies_domain_agents_with_scoped_context(self) -> None:
+        current = build_sample_ir()
+        wheel_motor = current.components[0].model_copy(
+            update={
+                "ref_des": "M1",
+                "part_number": "N20-GEAR-MOTOR",
+                "name": "Wheel Gear Motor",
+                "category": "Actuator",
+                "rationale": "Drives the wheel axle.",
+            }
+        )
+        plan = ProjectIterationPlan(
+            summary="Convert the stationary monitor into a wheeled mobile device.",
+            tasks=[
+                ProjectIterationDomainTask(
+                    namespace="product.assembly",
+                    instruction="Add the wheel and drivetrain installation steps.",
+                ),
+                ProjectIterationDomainTask(
+                    namespace="product.mech",
+                    instruction="Add wheels, axles, and motor placement to the enclosure.",
+                ),
+                ProjectIterationDomainTask(
+                    namespace="product.electrical",
+                    instruction="Add the wheel motor and its electrical interfaces.",
+                ),
+                ProjectIterationDomainTask(
+                    namespace="product.overview",
+                    instruction="Update the product intent and mobility requirements.",
+                ),
+            ],
+        )
+        overview_patch = ProjectIterationPatch(
+            summary="Updated the product intent for mobility.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/overview/description",
+                    value_json=json.dumps("A mobile soil monitor with a wheeled drivetrain."),
+                )
+            ],
+        )
+        electrical_patch = ProjectIterationPatch(
+            summary="Added the wheel motor.",
+            operations=[
+                ProjectPatchOperation(
+                    action="append",
+                    path="/components",
+                    value_json=json.dumps(wheel_motor.model_dump(mode="json")),
+                )
+            ],
+        )
+        mechanical_patch = ProjectIterationPatch(
+            summary="Added a wheeled enclosure layout.",
+            operations=[
+                ProjectPatchOperation(
+                    action="set",
+                    path="/mechanical",
+                    value_json=json.dumps(
+                        {
+                            "enclosure_type": "Wheeled 3D printed chassis",
+                            "mounting_guidance": "Mount the motor beside the rear axle.",
+                            "fabrication_details": ["Provide axle bores and wheel clearance."],
+                            "manufacturability_rating": "Moderate",
+                            "component_placements": [
+                                {
+                                    "ref_des": "M1",
+                                    "label": "Wheel Gear Motor",
+                                    "layer": "mechanism",
+                                    "position": {"x_mm": 0, "y_mm": -20, "z_mm": 8},
+                                    "size": {"x_mm": 12, "y_mm": 26, "z_mm": 10},
+                                    "mounting_face": "floor",
+                                }
+                            ],
+                        }
+                    ),
+                )
+            ],
+        )
+        assembly_patch = ProjectIterationPatch(
+            summary="Added drivetrain assembly guidance.",
+            operations=[
+                ProjectPatchOperation(
+                    action="append",
+                    path="/assembly",
+                    value_json=json.dumps(
+                        {
+                            "step_num": 1,
+                            "title": "Install the drivetrain",
+                            "description": "Mount M1, the axle, and both wheels in the chassis.",
+                            "danger_flag": False,
+                            "affected_components": ["M1"],
+                        }
+                    ),
+                )
+            ],
+        )
+        provider = SequencedFakeProvider(
+            [plan, overview_patch, electrical_patch, mechanical_patch, assembly_patch]
+        )
+        iterator = ProjectIterator(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=provider,
+        )
+
+        revised = iterator.iterate_project(current, "Give it wheels so it can be driven around.")
+
+        self.assertEqual(
+            [ProjectIterationPlan, ProjectIterationPatch, ProjectIterationPatch, ProjectIterationPatch, ProjectIterationPatch],
+            provider.schema_classes,
+        )
+        self.assertEqual(["U1", "M1"], [component.ref_des for component in revised.components])
+        self.assertEqual("Wheeled 3D printed chassis", revised.mechanical.enclosure_type)
+        self.assertEqual("Install the drivetrain", revised.assembly[0].title)
+        flow = revised.assembly_metadata["iteration_agent_flow"]
+        self.assertEqual(
+            ["product.overview", "product.electrical", "product.mech", "product.assembly"],
+            [domain["namespace"] for domain in flow["domains"]],
+        )
+        self.assertNotIn("Current HardwareIR JSON", provider.prompts[0])
+        self.assertIn("Current product.electrical payload", provider.prompts[2])
+        self.assertIn("Exact schemas for your owned HardwareIR roots", provider.prompts[2])
+        self.assertIn('"mcu_pin"', provider.prompts[2])
+        self.assertNotIn("project_version_history", provider.prompts[2])
+        self.assertIn('"ref_des": "M1"', provider.prompts[3])
+        self.assertIn('"mounting_guidance"', provider.prompts[3])
+        self.assertIn('"step_num"', provider.prompts[4])
+        versions = revised.assembly_metadata["project_object"]["namespace_versions"]
+        self.assertEqual(2, versions["product.electrical"])
+        self.assertEqual(2, versions["product.bom"])
+        self.assertEqual(2, versions["product.mech"])
+        self.assertEqual(2, versions["product.visuals"])
+        self.assertEqual(2, versions["project.meta"])
+        self.assertEqual(2, versions["project.history"])
 
     def test_iteration_patch_rejects_backend_owned_metadata(self) -> None:
         patch = ProjectIterationPatch(

@@ -18,7 +18,7 @@ from blueprint_core.llm import (
     resolve_llm_runtime_config,
 )
 from blueprint_core.llm_providers import STRUCTURED_MAX_TOKENS_FLOOR, OpenAICompatibleProvider
-from blueprint_core.workspaces.projects.iteration import ProjectIterationPatch
+from blueprint_core.workspaces.projects.iteration import ProjectIterationPatch, ProjectIterationPlan
 from blueprint_core.workspaces.projects.models import ProjectOverview
 from blueprint_core.selectors import parse_llm_selector, split_llm_selector
 
@@ -778,6 +778,49 @@ class LLMRuntimeTests(unittest.TestCase):
 
         schema = payloads[0]["output_config"]["format"]["schema"]
         self.assertEqual(False, schema["additionalProperties"])
+
+    def test_anthropic_output_config_removes_unsupported_pydantic_constraints(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+            ANTHROPIC_MODEL="claude-sonnet-5",
+            ANTHROPIC_VALIDATE_MODELS="false",
+        ):
+            runtime = resolve_llm_runtime_config("anthropic", "claude-sonnet-5")
+            provider = build_llm_provider(runtime_config=runtime)
+
+        payloads = []
+
+        def fake_request(path, method="GET", payload=None):
+            payloads.append(copy.deepcopy(payload or {}))
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps(
+                            {
+                                "summary": "Update mobility.",
+                                "tasks": [
+                                    {
+                                        "namespace": "product.mech",
+                                        "instruction": "Add wheels and axle mounts.",
+                                    }
+                                ],
+                            }
+                        ),
+                    }
+                ],
+                "stop_reason": "end_turn",
+            }
+
+        provider._request_json = fake_request
+        provider.generate_structured("Plan a wheeled revision.", ProjectIterationPlan)
+
+        schema_text = json.dumps(payloads[0]["output_config"]["format"]["schema"])
+        self.assertNotIn("minItems", schema_text)
+        self.assertNotIn("maxItems", schema_text)
+        self.assertNotIn("minLength", schema_text)
+        self.assertIn('"additionalProperties": false', schema_text)
 
     def test_anthropic_grammar_timeout_falls_back_to_prompt_schema(self) -> None:
         with isolated_llm_env(

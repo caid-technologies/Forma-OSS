@@ -719,6 +719,45 @@ def _schema_with_closed_objects(schema: Any) -> Any:
     return normalized
 
 
+ANTHROPIC_UNSUPPORTED_SCHEMA_CONSTRAINTS = frozenset({
+    "exclusiveMaximum",
+    "exclusiveMinimum",
+    "maxItems",
+    "maxLength",
+    "maxProperties",
+    "maximum",
+    "minItems",
+    "minLength",
+    "minProperties",
+    "minimum",
+    "multipleOf",
+    "pattern",
+    "uniqueItems",
+})
+
+
+def _schema_for_anthropic_output(schema: Any) -> Any:
+    """Transform Pydantic JSON Schema to Anthropic's supported strict subset.
+
+    The official SDK removes unsupported validation keywords before grammar
+    compilation and validates the response against the original model locally.
+    This raw HTTP adapter mirrors that behavior.
+    """
+    if isinstance(schema, list):
+        return [_schema_for_anthropic_output(item) for item in schema]
+    if not isinstance(schema, dict):
+        return schema
+
+    normalized = {
+        key: _schema_for_anthropic_output(value)
+        for key, value in schema.items()
+        if key not in ANTHROPIC_UNSUPPORTED_SCHEMA_CONSTRAINTS
+    }
+    if normalized.get("type") == "object":
+        normalized["additionalProperties"] = False
+    return normalized
+
+
 def _is_anthropic_grammar_compilation_error(exc: Exception) -> bool:
     message = str(exc).lower()
     if "grammar" not in message:
@@ -1398,7 +1437,7 @@ class AnthropicProvider(StructuredLLMProvider):
             payload["output_config"] = {
                 "format": {
                     "type": "json_schema",
-                    "schema": _schema_with_closed_objects(schema_class.model_json_schema()),
+                    "schema": _schema_for_anthropic_output(schema_class.model_json_schema()),
                 }
             }
 

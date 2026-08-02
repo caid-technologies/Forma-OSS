@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, TypeAdapter, field_validator, model_validator
 
 from blueprint_core.llm import (
     LLMProviderConfigError,
@@ -94,6 +94,69 @@ class ProjectIterationPatch(BaseModel):
         max_length=64,
         description="Ordered project mutations. Include every coordinated hardware and documentation change.",
     )
+
+
+PROJECT_ITERATION_DOMAIN_ROOTS: dict[str, frozenset[str]] = {
+    "product.overview": frozenset({"overview", "requirements", "constraints"}),
+    "product.electrical": frozenset({
+        "components",
+        "nets",
+        "buses",
+        "pin_mappings",
+        "power_rails",
+        "estimated_current_draw_ma",
+    }),
+    "product.mech": frozenset({"mechanical", "fabrication_notes"}),
+    "product.assembly": frozenset({"assembly"}),
+}
+PROJECT_ITERATION_DOMAIN_ORDER = tuple(PROJECT_ITERATION_DOMAIN_ROOTS)
+PROJECT_ITERATION_DERIVED_NAMESPACES: dict[str, tuple[str, ...]] = {
+    "product.overview": (),
+    "product.electrical": ("product.bom", "product.firmware", "product.validation"),
+    "product.mech": ("product.visuals",),
+    "product.assembly": ("project.docs",),
+}
+ProjectIterationDomain = Literal[
+    "product.overview",
+    "product.electrical",
+    "product.mech",
+    "product.assembly",
+]
+
+
+class ProjectIterationDomainTask(BaseModel):
+    """One bounded change assigned by the planner to a domain specialist."""
+
+    namespace: ProjectIterationDomain
+    instruction: str = Field(
+        ...,
+        min_length=1,
+        description="Domain-specific change needed to fulfill the user's iteration request.",
+    )
+
+    @field_validator("instruction")
+    @classmethod
+    def normalize_instruction(cls, value: str) -> str:
+        return value.strip()
+
+
+class ProjectIterationPlan(BaseModel):
+    """Small routing plan; domain agents produce the actual project patches."""
+
+    summary: str = Field(..., min_length=1, description="Concise statement of the complete requested revision.")
+    tasks: list[ProjectIterationDomainTask] = Field(
+        ...,
+        min_length=1,
+        max_length=len(PROJECT_ITERATION_DOMAIN_ROOTS),
+        description="Only the domain specialists required for this revision, one task per namespace.",
+    )
+
+    @model_validator(mode="after")
+    def require_unique_domains(self) -> "ProjectIterationPlan":
+        namespaces = [task.namespace for task in self.tasks]
+        if len(namespaces) != len(set(namespaces)):
+            raise ValueError("iteration plan must contain at most one task per domain namespace.")
+        return self
 
 
 @dataclass(frozen=True)
@@ -211,6 +274,83 @@ def compact_hardware_ir_for_iteration(ir: HardwareIR, *, max_string_chars: int =
     return _redact_context_value(ir.model_dump(mode="json", exclude_none=True), max_string_chars=max_string_chars)
 
 
+def _domain_for_target_namespace(namespace: str) -> ProjectIterationDomain:
+    normalized = normalize_project_namespace(namespace)
+    aliases: dict[str, ProjectIterationDomain] = {
+        "product.overview": "product.overview",
+        "product.electrical": "product.electrical",
+        "product.bom": "product.electrical",
+        "product.firmware": "product.electrical",
+        "product.validation": "product.electrical",
+        "product.mech": "product.mech",
+        "product.visuals": "product.mech",
+        "product.assembly": "product.assembly",
+        "project.docs": "product.assembly",
+    }
+    domain = aliases.get(normalized or "")
+    if domain is None:
+        raise ValueError(f"Project namespace {namespace!r} is not mutable through project iteration.")
+    return domain
+
+
+def compact_project_interfaces_for_iteration(ir: HardwareIR) -> Dict[str, Any]:
+    """Return only the cross-domain contracts specialists need to coordinate."""
+    overview = ir.overview.model_dump(mode="json") if ir.overview else None
+    requirements = ir.requirements.model_dump(mode="json") if ir.requirements else None
+    components = [
+        {
+            "ref_des": component.ref_des,
+            "part_number": component.part_number,
+            "name": component.name,
+            "category": component.category,
+        }
+        for component in ir.components
+    ]
+    nets = [
+        {
+            "net_id": net.net_id,
+            "name": net.name,
+            "net_type": net.net_type,
+            "voltage": net.voltage,
+            "connected_refs": sorted({pin.ref_des for pin in net.pins}),
+        }
+        for net in ir.nets
+    ]
+    mechanical = None
+    if ir.mechanical:
+        mechanical = {
+            "enclosure_type": ir.mechanical.enclosure_type,
+            "render_dimensions": (
+                ir.mechanical.render_dimensions.model_dump(mode="json")
+                if ir.mechanical.render_dimensions
+                else None
+            ),
+            "placements": [
+                {
+                    "ref_des": placement.ref_des,
+                    "layer": placement.layer,
+                    "mounting_face": placement.mounting_face,
+                }
+                for placement in ir.mechanical.component_placements
+            ],
+        }
+    return {
+        "overview": overview,
+        "requirements": requirements,
+        "component_interfaces": components,
+        "net_interfaces": nets,
+        "mechanical_interfaces": mechanical,
+    }
+
+
+def project_iteration_domain_contract(namespace: ProjectIterationDomain) -> Dict[str, Any]:
+    """Return exact field schemas only for roots owned by one domain agent."""
+    return {
+        root: TypeAdapter(HardwareIR.model_fields[root].annotation).json_schema()
+        for root in sorted(PROJECT_ITERATION_DOMAIN_ROOTS[namespace])
+    }
+
+
 def _decode_json_pointer(path: str) -> list[str]:
     return [token.replace("~1", "/").replace("~0", "~") for token in path.split("/")[1:]]
 
@@ -249,6 +389,18 @@ def _validate_patch_root(path: str, tokens: list[str]) -> None:
         )
     if root not in HardwareIR.model_fields:
         raise LLMProviderOutputError(f"Project patch path {path!r} is not a HardwareIR field.")
+
+
+def _validate_patch_domain_scope(patch: ProjectIterationPatch, namespace: ProjectIterationDomain) -> None:
+    allowed_roots = PROJECT_ITERATION_DOMAIN_ROOTS[namespace]
+    for operation in patch.operations:
+        tokens = _decode_json_pointer(operation.path)
+        root = tokens[0] if tokens else ""
+        if root not in allowed_roots:
+            raise LLMProviderOutputError(
+                f"The {namespace} agent cannot patch root {root!r}; "
+                f"allowed roots are {', '.join(sorted(allowed_roots))}."
+            )
 
 
 def apply_project_iteration_patch(
@@ -308,6 +460,70 @@ def apply_project_iteration_patch(
     if revised.model_dump(mode="json") == base_document:
         raise LLMProviderOutputError("Project patch did not change the project.")
     return revised
+
+
+def build_iteration_planner_prompt(
+    current_ir: HardwareIR,
+    instruction: str,
+    *,
+    original_prompt: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> str:
+    interfaces = compact_project_interfaces_for_iteration(current_ir)
+    domain_descriptions = {
+        "product.overview": "product intent, requirements, power needs, constraints, and overview",
+        "product.electrical": "components/BOM, motors or actuators, nets, buses, pins, and power rails",
+        "product.mech": "enclosure, mechanisms, dimensions, placements, and fabrication",
+        "product.assembly": "physical build sequence and assembly instructions",
+    }
+    return (
+        "You are Forma's project iteration planner. Route the user's requested revision to small domain agents.\n"
+        "Return one ProjectIterationPlan JSON document and no commentary.\n"
+        "Create one task for every domain that must change for the request to be complete; omit unaffected domains.\n"
+        "Do not design components, wiring, dimensions, or build steps in this plan. Domain agents do that work.\n"
+        "Derived BOM views, validation, project history, and product visuals are refreshed by backend tools.\n"
+        f"Available domain agents: {json.dumps(domain_descriptions, sort_keys=True)}\n"
+        f"Project id: {project_id or (current_ir.assembly_metadata or {}).get('project_id') or 'unknown'}\n"
+        f"Original project prompt: {original_prompt or 'unknown'}\n"
+        f"User iteration request: {instruction}\n\n"
+        "Current cross-domain interfaces:\n"
+        f"{json.dumps(interfaces, indent=2, sort_keys=True)}"
+    )
+
+
+def build_domain_iteration_prompt(
+    current_ir: HardwareIR,
+    *,
+    user_instruction: str,
+    plan_summary: str,
+    task: ProjectIterationDomainTask,
+    original_prompt: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> str:
+    allowed_roots = sorted(PROJECT_ITERATION_DOMAIN_ROOTS[task.namespace])
+    target_payload = namespace_payload(current_ir, task.namespace)
+    interfaces = compact_project_interfaces_for_iteration(current_ir)
+    domain_contract = project_iteration_domain_contract(task.namespace)
+    return (
+        f"You are Forma's {task.namespace} project iteration agent.\n"
+        "Return one compact ProjectIterationPatch JSON document and no commentary.\n"
+        "Each operation uses action set, append, or remove; an RFC 6901 JSON Pointer path; and value_json.\n"
+        "value_json is a string containing complete JSON for the new value; use an empty string for remove.\n"
+        "Use append only for an existing list. Use set for an existing scalar, object, or list item.\n"
+        f"You may patch only these top-level HardwareIR roots: {', '.join(allowed_roots)}.\n"
+        "Preserve stable IDs and all data outside your owned roots. Coordinate against the shared interfaces below.\n"
+        f"Project id: {project_id or (current_ir.assembly_metadata or {}).get('project_id') or 'unknown'}\n"
+        f"Original project prompt: {original_prompt or 'unknown'}\n"
+        f"Complete user request: {user_instruction}\n"
+        f"Planner summary: {plan_summary}\n"
+        f"Your domain task: {task.instruction}\n\n"
+        f"Current {task.namespace} payload:\n"
+        f"{json.dumps(target_payload, indent=2, sort_keys=True)}\n\n"
+        "Exact schemas for your owned HardwareIR roots:\n"
+        f"{json.dumps(domain_contract, indent=2, sort_keys=True)}\n\n"
+        "Current shared interfaces:\n"
+        f"{json.dumps(interfaces, indent=2, sort_keys=True)}"
+    )
 
 
 def build_iteration_prompt(
@@ -454,6 +670,7 @@ def _namespace_versions_for_iteration(
     revision: int,
     previous_revision: int,
     target_namespace: Optional[str],
+    affected_namespaces: Optional[list[str]] = None,
 ) -> Dict[str, int]:
     base_object = (base_ir.assembly_metadata or {}).get("project_object")
     base_versions = base_object.get("namespace_versions") if isinstance(base_object, dict) else None
@@ -467,7 +684,15 @@ def _namespace_versions_for_iteration(
                 if normalized and normalized not in namespace_names:
                     namespace_names.append(normalized)
 
-    if target_namespace:
+    normalized_affected = [
+        namespace
+        for namespace in (
+            normalize_project_namespace(value)
+            for value in (affected_namespaces or ([target_namespace] if target_namespace else []))
+        )
+        if namespace
+    ]
+    if normalized_affected:
         versions = {namespace: previous_revision for namespace in namespace_names}
         if isinstance(base_versions, dict):
             for namespace, raw_value in base_versions.items():
@@ -478,7 +703,8 @@ def _namespace_versions_for_iteration(
                     versions[normalized] = max(1, int(raw_value))
                 except (TypeError, ValueError):
                     versions[normalized] = previous_revision
-        versions[target_namespace] = revision
+        for namespace in normalized_affected:
+            versions[namespace] = revision
         return versions
 
     return {namespace: revision for namespace in namespace_names}
@@ -493,12 +719,24 @@ def _normalize_iteration_metadata(
     provider_validation: LLMProviderValidation,
     project_id: Optional[str],
     target_namespace: Optional[str],
+    affected_namespaces: Optional[list[str]] = None,
 ) -> ProjectIterationMetadata:
     previous_revision = _metadata_revision(base_ir)
     revision = previous_revision + 1
     normalized_project_id = _project_id_from_metadata(base_ir, project_id)
     actual_model = provider_validation.actual_model or provider_validation.requested_model
     normalized_namespace = normalize_project_namespace(target_namespace)
+    normalized_affected = sorted(
+        {"project.history", "project.meta"}
+        | {
+            namespace
+            for namespace in (
+                normalize_project_namespace(value)
+                for value in (affected_namespaces or ([normalized_namespace] if normalized_namespace else []))
+            )
+            if namespace
+        }
+    )
     metadata = dict(ir.assembly_metadata or {})
     base_metadata = dict(base_ir.assembly_metadata or {})
     metadata = _preserve_output_metadata(metadata, base_metadata)
@@ -515,6 +753,7 @@ def _normalize_iteration_metadata(
             "iterated_at": utc_now(),
             "iteration_instruction": instruction,
             "iteration_target_namespace": normalized_namespace,
+            "iteration_affected_namespaces": normalized_affected,
             "iteration_mode": mode,
             "iteration_provider": provider_validation.provider,
             "iteration_model": actual_model,
@@ -524,6 +763,7 @@ def _normalize_iteration_metadata(
                 "instruction": instruction,
                 "mode": mode,
                 "target_namespace": normalized_namespace,
+                "affected_namespaces": normalized_affected,
                 "previous_revision": previous_revision,
                 "revision": revision,
                 "provider": provider_validation.provider,
@@ -539,6 +779,7 @@ def _normalize_iteration_metadata(
         revision=revision,
         previous_revision=previous_revision,
         target_namespace=normalized_namespace,
+        affected_namespaces=normalized_affected,
     )
     metadata["project_object"] = object_metadata
     ir.assembly_metadata = metadata
@@ -574,6 +815,7 @@ def finalize_project_iteration(
     provider_validation: LLMProviderValidation,
     project_id: Optional[str] = None,
     target_namespace: Optional[str] = None,
+    affected_namespaces: Optional[list[str]] = None,
     mode: str = "llm",
 ) -> HardwareIR:
     base = coerce_hardware_ir(base_ir)
@@ -597,6 +839,7 @@ def finalize_project_iteration(
         provider_validation=provider_validation,
         project_id=project_id,
         target_namespace=target_namespace,
+        affected_namespaces=affected_namespaces,
     )
     return revised
 
@@ -706,6 +949,107 @@ def _dedupe_validation_issues(issues: list[Any]) -> list[Any]:
     return deduped
 
 
+class ProjectIterationPlanner:
+    """Routes one conversational change into bounded domain-agent tasks."""
+
+    def __init__(self, llm_provider: StructuredLLMProvider) -> None:
+        self.llm_provider = llm_provider
+
+    def plan(
+        self,
+        current_ir: HardwareIR,
+        instruction: str,
+        *,
+        original_prompt: Optional[str] = None,
+        project_id: Optional[str] = None,
+        target_namespace: Optional[str] = None,
+    ) -> ProjectIterationPlan:
+        if target_namespace:
+            domain = _domain_for_target_namespace(target_namespace)
+            return ProjectIterationPlan(
+                summary=instruction,
+                tasks=[ProjectIterationDomainTask(namespace=domain, instruction=instruction)],
+            )
+
+        prompt = build_iteration_planner_prompt(
+            current_ir,
+            instruction,
+            original_prompt=original_prompt,
+            project_id=project_id,
+        )
+        result = self.llm_provider.generate_structured(prompt, ProjectIterationPlan)
+        plan = result if isinstance(result, ProjectIterationPlan) else ProjectIterationPlan.model_validate(result)
+        task_by_namespace = {task.namespace: task for task in plan.tasks}
+        ordered_tasks = [
+            task_by_namespace[namespace]
+            for namespace in PROJECT_ITERATION_DOMAIN_ORDER
+            if namespace in task_by_namespace
+        ]
+        return plan.model_copy(update={"tasks": ordered_tasks})
+
+
+class ProjectDomainIterationAgent:
+    """Produces and applies one patch limited to a single HardwareIR domain."""
+
+    def __init__(self, llm_provider: StructuredLLMProvider, task: ProjectIterationDomainTask) -> None:
+        self.llm_provider = llm_provider
+        self.task = task
+
+    def apply(
+        self,
+        current_ir: HardwareIR,
+        *,
+        user_instruction: str,
+        plan_summary: str,
+        original_prompt: Optional[str] = None,
+        project_id: Optional[str] = None,
+        image_bytes: Optional[bytes] = None,
+        image_mime_type: Optional[str] = None,
+    ) -> tuple[HardwareIR, str]:
+        prompt = build_domain_iteration_prompt(
+            current_ir,
+            user_instruction=user_instruction,
+            plan_summary=plan_summary,
+            task=self.task,
+            original_prompt=original_prompt,
+            project_id=project_id,
+        )
+        patch_result = self.llm_provider.generate_structured(
+            prompt,
+            ProjectIterationPatch,
+            image_bytes,
+            image_mime_type,
+        )
+        patch = (
+            patch_result
+            if isinstance(patch_result, ProjectIterationPatch)
+            else ProjectIterationPatch.model_validate(patch_result)
+        )
+        try:
+            _validate_patch_domain_scope(patch, self.task.namespace)
+            return apply_project_iteration_patch(current_ir, patch), patch.summary
+        except LLMProviderOutputError as patch_error:
+            logger.warning(
+                "%s project iteration agent patch was not applicable; requesting one repair: %s",
+                self.task.namespace,
+                patch_error,
+            )
+            repair_prompt = build_iteration_patch_repair_prompt(prompt, patch, patch_error)
+            repaired_result = self.llm_provider.generate_structured(
+                repair_prompt,
+                ProjectIterationPatch,
+                image_bytes,
+                image_mime_type,
+            )
+            repaired_patch = (
+                repaired_result
+                if isinstance(repaired_result, ProjectIterationPatch)
+                else ProjectIterationPatch.model_validate(repaired_result)
+            )
+            _validate_patch_domain_scope(repaired_patch, self.task.namespace)
+            return apply_project_iteration_patch(current_ir, repaired_patch), repaired_patch.summary
+
+
 class ProjectIterator:
     """Provider-agnostic project revision engine for HardwareIR documents."""
 
@@ -773,49 +1117,58 @@ class ProjectIterator:
                 target_namespace=normalized_namespace,
             )
 
-        prompt = build_iteration_prompt(
-            base,
-            instruction,
-            original_prompt=original_prompt,
-            project_id=project_id,
-            target_namespace=normalized_namespace,
-        )
         try:
-            patch = self.llm_provider.generate_structured(
-                prompt,
-                ProjectIterationPatch,
-                image_bytes,
-                image_mime_type,
+            plan = ProjectIterationPlanner(self.llm_provider).plan(
+                base,
+                instruction,
+                original_prompt=original_prompt,
+                project_id=project_id,
+                target_namespace=normalized_namespace,
             )
-            try:
-                revised = apply_project_iteration_patch(base, patch)
-            except LLMProviderOutputError as patch_error:
-                logger.warning(
-                    "Project iteration patch was not applicable; requesting one semantic repair: %s",
-                    patch_error,
+            revised = base
+            completed_agents: list[dict[str, str]] = []
+            for task in plan.tasks:
+                revised, patch_summary = ProjectDomainIterationAgent(self.llm_provider, task).apply(
+                    revised,
+                    user_instruction=instruction,
+                    plan_summary=plan.summary,
+                    original_prompt=original_prompt,
+                    project_id=project_id,
+                    image_bytes=image_bytes,
+                    image_mime_type=image_mime_type,
                 )
-                repair_prompt = build_iteration_patch_repair_prompt(prompt, patch, patch_error)
-                repaired_patch = self.llm_provider.generate_structured(
-                    repair_prompt,
-                    ProjectIterationPatch,
-                    image_bytes,
-                    image_mime_type,
-                )
-                revised = apply_project_iteration_patch(base, repaired_patch)
+                completed_agents.append({
+                    "namespace": task.namespace,
+                    "instruction": task.instruction,
+                    "summary": patch_summary,
+                })
         except Exception as exc:
             raise LLMProviderOutputError(
                 f"Project iteration failed for provider={validation.provider} model={validation.actual_model or validation.requested_model}: {exc}"
             ) from exc
 
-        return finalize_project_iteration(
+        affected_namespaces = {
+            namespace
+            for task in plan.tasks
+            for namespace in (task.namespace, *PROJECT_ITERATION_DERIVED_NAMESPACES[task.namespace])
+        }
+        if normalized_namespace:
+            affected_namespaces.add(normalized_namespace)
+        finalized = finalize_project_iteration(
             revised,
             base_ir=base,
             instruction=instruction,
             provider_validation=validation,
             project_id=project_id,
             target_namespace=normalized_namespace,
+            affected_namespaces=sorted(affected_namespaces),
             mode="llm",
         )
+        finalized.assembly_metadata["iteration_agent_flow"] = {
+            "planner_summary": plan.summary,
+            "domains": completed_agents,
+        }
+        return finalized
 
 
 def iterate_project(
@@ -850,16 +1203,27 @@ def iterate_project(
 
 
 __all__ = [
+    "ProjectDomainIterationAgent",
+    "ProjectIterationDomainTask",
     "ProjectIterationMetadata",
+    "ProjectIterationPatch",
+    "ProjectIterationPlan",
+    "ProjectIterationPlanner",
     "ProjectIterator",
+    "ProjectPatchOperation",
     "ProjectSelfCorrectionPlan",
+    "apply_project_iteration_patch",
+    "build_domain_iteration_prompt",
     "build_iteration_prompt",
     "build_iteration_patch_repair_prompt",
+    "build_iteration_planner_prompt",
     "build_metadata_only_iteration",
     "compact_hardware_ir_for_iteration",
+    "compact_project_interfaces_for_iteration",
     "coerce_hardware_ir",
     "finalize_project_iteration",
     "iterate_project",
     "next_revision_number",
     "normalize_iteration_instruction",
+    "project_iteration_domain_contract",
 ]

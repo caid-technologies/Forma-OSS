@@ -76,6 +76,16 @@ function formatTimestamp(value: string) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function latestSuccessfulProjectMessageId(messages: HomeChatMessage[]) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message.role === "assistant" && message.status === "success" && message.projectId) {
+      return message.id;
+    }
+  }
+  return null;
+}
+
 export default function HomeChatView({
   started,
   messages,
@@ -106,7 +116,7 @@ export default function HomeChatView({
   projectArtifact = null,
 }: HomeChatViewProps) {
   const projectArtifactAnchorId = projectArtifact
-    ? messages.find((message) => message.role === "assistant" && Boolean(message.projectId))?.id || null
+    ? latestSuccessfulProjectMessageId(messages)
     : null;
 
   return (

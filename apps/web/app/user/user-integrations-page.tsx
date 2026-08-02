@@ -1993,7 +1993,23 @@ export default function UserIntegrationsPage() {
               onToggle={() => toggleNavCollapse("integrations")}
             >
               {loading && !payload ? (
-                <div className="border border-[#2c2f37] p-4 text-sm text-slate-500">Loading integrations...</div>
+                <div className="border border-[#2c2f37] p-3 text-xs leading-5 text-slate-500">Loading integrations...</div>
+              ) : !navigationGroups.length ? (
+                <div className="border border-[#2c2f37] bg-[#141519] p-3">
+                  <p className="text-xs leading-5 text-slate-400">
+                    {error ? "Could not load integrations." : "No integrations are available for this workspace."}
+                  </p>
+                  {error && <p className="mt-1 break-words text-[11px] leading-5 text-slate-600">{error}</p>}
+                  <button
+                    type="button"
+                    onClick={loadIntegrations}
+                    disabled={loading}
+                    className="mt-3 inline-flex items-center gap-1.5 border border-[#2c2f37] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
+                  >
+                    <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+                    Retry
+                  </button>
+                </div>
               ) : (
                 navigationGroups.map((group) => {
                   const groupKey = `integrations:${group.id}`;

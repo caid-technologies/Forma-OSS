@@ -3,9 +3,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from blueprint_core.llm_providers import (
     LLMProviderConfigError,
@@ -71,22 +71,48 @@ class ContextBriefState(BaseModel):
     readiness: DesignBriefReadiness = DesignBriefReadiness.DRAFT
 
 
+class BuildContextBriefState(ContextBriefState):
+    """Execution-ready brief arguments required by the build_project tool."""
+
+    unresolved_questions: list[str] = Field(default_factory=list, max_length=0)
+
+
+class RespondToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: Literal["respond"]
+    assistant_message: str = Field(min_length=1)
+
+
+class UpdateDesignBriefToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: Literal["update_design_brief"]
+    assistant_message: str = Field(min_length=1)
+    brief: ContextBriefState
+
+
+class BuildProjectToolCall(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tool: Literal["build_project"]
+    assistant_message: str = Field(min_length=1)
+    brief: BuildContextBriefState
+    generation_prompt: str = Field(min_length=1)
+
+
+ContextToolCall = Annotated[
+    RespondToolCall | UpdateDesignBriefToolCall | BuildProjectToolCall,
+    Field(discriminator="tool"),
+]
+
+
 class ContextAgentTurn(BaseModel):
-    """A conversational response plus the persistence tool the model chose."""
+    """A structurally validated tool call selected by the conversational model."""
 
     model_config = ConfigDict(extra="forbid")
 
-    assistant_message: str = Field(min_length=1)
-    tool: Literal["respond", "update_design_brief"]
-    brief: ContextBriefState | None
-
-    @model_validator(mode="after")
-    def require_brief_for_update(self) -> "ContextAgentTurn":
-        if self.tool == "update_design_brief" and self.brief is None:
-            raise ValueError("update_design_brief requires a complete brief state.")
-        if self.tool == "respond" and self.brief is not None:
-            raise ValueError("respond must not include a brief update.")
-        return self
+    call: ContextToolCall
 
 
 def _history_for_prompt(messages: list[dict[str, Any]] | None) -> list[dict[str, str]]:
@@ -176,14 +202,20 @@ class ContextBriefUpdater:
         }
         return (
             "You are Forma, a conversational hardware-design collaborator. Respond naturally to the user's actual "
-            "message and use one of the two tools represented by the output schema.\n\n"
+            "message and choose one tool represented by the output schema.\n\n"
             "Tool policy:\n"
             "- Choose `respond` for greetings, thanks, meta-conversation, capability questions, or any turn that does "
-            "not add or change project facts. Set brief to null for this tool. Never save pleasantries such as 'hi' "
-            "as requirements.\n"
+            "not add or change project facts. Never save pleasantries such as 'hi' as requirements.\n"
             "- Choose `update_design_brief` when the user supplies, changes, or answers something about a project, or "
             "provides a project attachment. Return the complete updated brief state, merging useful prior facts and "
             "removing questions the user has answered.\n"
+            "- Choose `build_project` when the user explicitly asks to make, build, generate, start, proceed, go ahead, "
+            "or show the finished project. This is the only tool that starts generation. Return a complete updated brief "
+            "and a self-contained generation_prompt. Never merely say that work has started.\n"
+            "- For build_project, apply ordinary defaults only when the user authorizes reasonable choices (for example, "
+            "'just make something'). Record every chosen default in assumptions, resolve non-safety questions, and include "
+            "at least one requirement, requested output, and validation criterion. If a safety-critical fact is missing, "
+            "do not build; use update_design_brief and ask for it.\n"
             "- The assistant_message must sound like a direct continuation of the conversation. Do not mention JSON, "
             "schemas, tools, persistence, or internal workflow.\n"
             "- If clarification is genuinely useful, ask only the single most important contextual follow-up in the "
@@ -202,7 +234,7 @@ class ContextBriefUpdater:
         previous: DesignBrief | None = None,
         *,
         messages: list[dict[str, Any]] | None = None,
-    ) -> tuple[DesignBriefCreate | None, str, list[str]]:
+    ) -> tuple[DesignBriefCreate | None, str, list[str], str, str | None]:
         image_bytes, image_mime_type = _first_inline_image(request.attachments)
         turn = self.llm_provider.generate_structured(
             self._prompt(request, previous, messages),
@@ -210,30 +242,45 @@ class ContextBriefUpdater:
             image_bytes,
             image_mime_type,
         )
-        if turn.tool == "respond":
-            return None, turn.assistant_message, list(previous.unresolved_questions) if previous else []
+        call = turn.call
+        if call.tool == "respond":
+            return (
+                None,
+                call.assistant_message,
+                list(previous.unresolved_questions) if previous else [],
+                call.tool,
+                None,
+            )
 
-        assert turn.brief is not None
         references = list(previous.references) if previous else []
         references_by_id = {item.reference_id: item for item in references}
         for attachment in request.attachments:
             item = _reference(attachment)
             references_by_id[item.reference_id] = item
 
-        state = turn.brief
+        state = call.brief
+        requirements = _unique(state.requirements)
+        requested_outputs = _unique(state.requested_outputs)
+        validation_criteria = _unique(state.validation_criteria)
+        if call.tool == "build_project":
+            build_instruction = call.generation_prompt.strip()
+            requirements = requirements or [build_instruction]
+            requested_outputs = requested_outputs or [build_instruction]
+            validation_criteria = validation_criteria or [f"The generated project satisfies: {build_instruction}"]
         questions = _unique(state.unresolved_questions)
         brief = DesignBriefCreate(
             schema_version=DESIGN_BRIEF_SCHEMA_VERSION,
             conversation_id=request.conversation_id,
             intent=state.intent.strip(),
             summary=state.summary.strip(),
-            requirements=_unique(state.requirements),
+            requirements=requirements,
             constraints=_unique(state.constraints),
             references=list(references_by_id.values()),
-            requested_outputs=_unique(state.requested_outputs),
-            validation_criteria=_unique(state.validation_criteria),
+            requested_outputs=requested_outputs,
+            validation_criteria=validation_criteria,
             unresolved_questions=questions,
             assumptions=_unique(state.assumptions),
             readiness=state.readiness,
         )
-        return brief, turn.assistant_message.strip(), questions
+        generation_prompt = call.generation_prompt if call.tool == "build_project" else None
+        return brief, call.assistant_message.strip(), questions, call.tool, generation_prompt

@@ -56,3 +56,5 @@ class ContextGatheringResponse(BaseModel):
     design_brief: DesignBrief | None = None
     assistant_message: NonEmptyString
     questions: list[NonEmptyString] = Field(default_factory=list)
+    action: Literal["respond", "update_design_brief", "build_project"]
+    generation_prompt: NonEmptyString | None = None

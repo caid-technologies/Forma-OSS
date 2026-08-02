@@ -60,27 +60,34 @@ def brief_turn(
     requested_outputs: list[str] | None = None,
     validation_criteria: list[str] | None = None,
     questions: list[str] | None = None,
+    assumptions: list[str] | None = None,
+    tool: str = "update_design_brief",
+    generation_prompt: str | None = None,
 ) -> ContextAgentTurn:
     unresolved = questions or []
-    return ContextAgentTurn(
-        assistant_message=assistant_message,
-        tool="update_design_brief",
-        brief=ContextBriefState(
-            intent="design a buildable hardware product",
-            summary=summary,
-            requirements=requirements,
-            constraints=constraints or [],
-            requested_outputs=requested_outputs or [],
-            validation_criteria=validation_criteria or [],
-            unresolved_questions=unresolved,
-            assumptions=[],
-            readiness=(
-                DesignBriefReadiness.NEEDS_CLARIFICATION
-                if unresolved
-                else DesignBriefReadiness.DRAFT
-            ),
+    brief = ContextBriefState(
+        intent="design a buildable hardware product",
+        summary=summary,
+        requirements=requirements,
+        constraints=constraints or [],
+        requested_outputs=requested_outputs or [],
+        validation_criteria=validation_criteria or [],
+        unresolved_questions=unresolved,
+        assumptions=assumptions or [],
+        readiness=(
+            DesignBriefReadiness.NEEDS_CLARIFICATION
+            if unresolved
+            else DesignBriefReadiness.DRAFT
         ),
     )
+    call: dict[str, object] = {
+        "assistant_message": assistant_message,
+        "tool": tool,
+        "brief": brief.model_dump(mode="json"),
+    }
+    if generation_prompt is not None:
+        call["generation_prompt"] = generation_prompt
+    return ContextAgentTurn(call=call)
 
 
 @contextmanager
@@ -260,9 +267,10 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         project_id = str(uuid.uuid4())
         provider = StubContextProvider([
             ContextAgentTurn(
-                assistant_message="Hey! What are you thinking about building?",
-                tool="respond",
-                brief=None,
+                call={
+                    "assistant_message": "Hey! What are you thinking about building?",
+                    "tool": "respond",
+                },
             ),
         ])
         with sqlite_repository(), patch(
@@ -280,6 +288,42 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertIsNone(response.json()["design_brief"])
         self.assertEqual([], versions)
         self.assertIn("Never save pleasantries", provider.prompts[0])
+
+    def test_explicit_build_request_executes_build_tool_and_transitions_workflow(self) -> None:
+        project_id = str(uuid.uuid4())
+        generation_prompt = (
+            "Generate a standard 250 mm adjustable steel wrench with a 30 mm jaw opening, "
+            "mechanical specification, BOM, and validation plan."
+        )
+        provider = StubContextProvider([
+            brief_turn(
+                "I’m starting the adjustable-wrench build now.",
+                summary="Standard industrial adjustable wrench",
+                requirements=[],
+                requested_outputs=[],
+                validation_criteria=[],
+                assumptions=["Use common industrial adjustable-wrench proportions."],
+                tool="build_project",
+                generation_prompt=generation_prompt,
+            ),
+        ])
+        with sqlite_repository(), patch(
+            "blueprint_core.workspaces.context.agent.build_llm_provider",
+            return_value=provider,
+        ):
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": "build-chat", "text": "Go ahead and build it."},
+            )
+
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertEqual("build_project", response.json()["action"])
+        self.assertEqual(generation_prompt, response.json()["generation_prompt"])
+        self.assertEqual("building", response.json()["workflow"]["state"])
+        self.assertEqual(1, response.json()["design_brief"]["brief_version"])
+        self.assertTrue(response.json()["design_brief"]["requirements"])
+        self.assertTrue(response.json()["design_brief"]["requested_outputs"])
+        self.assertTrue(response.json()["design_brief"]["validation_criteria"])
 
     def test_a2a_generation_rejects_before_worker_job_is_created(self) -> None:
         project_id = str(uuid.uuid4())

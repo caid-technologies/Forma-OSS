@@ -2830,6 +2830,143 @@ export function FormaWorkspace({
     finishGenerationRun(run);
   };
 
+  const executeAgentBuild = async ({
+    assistantMessage,
+    assistantMessageId,
+    generationPrompt,
+    projectId: contextProjectId,
+    requestChatId,
+    userMessageId,
+  }: {
+    assistantMessage: string;
+    assistantMessageId: string;
+    generationPrompt: string;
+    projectId: string;
+    requestChatId: string;
+    userMessageId: string;
+  }) => {
+    if (!selectedGenerationLlm) throw new Error("No language model is configured for generation.");
+
+    const generationRun = beginGenerationRun("chat", requestChatId);
+    const frontendJobId = newFrontendJobId();
+    const pipelineProgress = createAgentPipelineProgress(
+      agentPipelineSteps,
+      generateProductImage,
+      chatTimestamp(),
+      frontendJobId,
+    );
+    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources
+      ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER
+      : null;
+    let progressPollId: number | null = null;
+    const syncProgressFromJob = async () => {
+      const job = await fetchA2aJob(frontendJobId);
+      if (!job) return;
+      applyChatPipelineProgressFromJob(assistantMessageId, job, pipelineProgress, generateProductImage);
+      applyThreadPipelineProgressFromJob(requestChatId, assistantMessageId, job, pipelineProgress, generateProductImage);
+    };
+
+    updateChatMessage(assistantMessageId, {
+      content: assistantMessage,
+      status: "loading",
+      pipelineProgress,
+    });
+    updateThreadMessage(requestChatId, assistantMessageId, {
+      content: assistantMessage,
+      status: "loading",
+      pipelineProgress,
+    });
+    setGenerationRunJob(generationRun, frontendJobId, assistantMessageId);
+    progressPollId = window.setInterval(() => void syncProgressFromJob(), ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS);
+    void syncProgressFromJob();
+
+    try {
+      const res = await fetch(`${API_URL}/generate`, {
+        method: "POST",
+        headers: await generationRequestHeaders(),
+        signal: generationRun.controller.signal,
+        body: JSON.stringify({
+          prompt: generationPrompt,
+          project_id: contextProjectId,
+          workflow: generationWorkflow,
+          external_source_provider: externalSourceProviderForRequest,
+          provider: selectedGenerationLlm.provider,
+          model: selectedGenerationLlm.model,
+          chat_id: requestChatId,
+          client_job_id: frontendJobId,
+          generate_image: generateProductImage,
+        }),
+      });
+      if (!res.ok) {
+        const apiError = await readApiError(res);
+        throw new Error(compactDiagnosticText(apiError.message) || apiError.message);
+      }
+
+      const data = await res.json();
+      if (data.job) {
+        applyChatPipelineProgressFromJob(assistantMessageId, data.job, pipelineProgress, generateProductImage);
+        applyThreadPipelineProgressFromJob(requestChatId, assistantMessageId, data.job, pipelineProgress, generateProductImage);
+      }
+      const ir = withProjectResponseMetadata(data.project_ir, data);
+      setProjectIR(ir);
+      const generatedProjectId = projectIdFromIR(ir) || contextProjectId;
+      const responseChatId = chatIdFromIR(ir) || data.chat_id || requestChatId;
+      const projectTitle = ir?.overview?.title || "Generated project";
+      setActiveChatId(responseChatId);
+      rememberProjectRecord({
+        project_id: generatedProjectId,
+        chat_id: responseChatId,
+        title: projectTitle,
+        prompt: generationPrompt,
+        created_at: data.created_at || chatTimestamp(),
+        can_chat: true,
+        creator_display: "you",
+        creator_image_url: userImageUrl,
+        parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
+        star_count: 0,
+      });
+      rememberChatItem({
+        chatId: responseChatId,
+        title: projectTitle,
+        projectId: generatedProjectId,
+        createdAt: chatTimestamp(),
+        projectCount: 1,
+      });
+      const successMessage = `${projectTitle} is ready. I generated the project object, BOM, documentation, and validation metadata.`;
+      updateChatMessage(assistantMessageId, {
+        content: successMessage,
+        status: "success",
+        projectId: generatedProjectId,
+      });
+      updateThreadMessage(requestChatId, userMessageId, { projectId: generatedProjectId });
+      updateThreadMessage(requestChatId, assistantMessageId, {
+        content: successMessage,
+        status: "success",
+        projectId: generatedProjectId,
+      });
+      setActiveTab("overview");
+      refreshProjectAndChatLists();
+      fetchA2aJobs(jobStatusFilter, { silent: true });
+    } catch (error) {
+      const stopped = generationRun.cancelled || (error instanceof Error && error.name === "AbortError");
+      const message = stopped
+        ? "Generation stopped by you."
+        : generationFailureChatMessage(error instanceof Error ? error.message : "Generation failed.");
+      updateChatMessage(assistantMessageId, {
+        content: message,
+        status: stopped ? "cancelled" : "error",
+      });
+      updateThreadMessage(requestChatId, assistantMessageId, {
+        content: message,
+        status: stopped ? "cancelled" : "error",
+      });
+      if (!stopped) setGenerationInputNotice(message);
+    } finally {
+      if (progressPollId !== null) window.clearInterval(progressPollId);
+      finishGenerationRun(generationRun);
+    }
+  };
+
   const handleGatherContext = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isLoading || activeGenerationRef.current) return;
@@ -2909,6 +3046,19 @@ export function FormaWorkspace({
       updateChatMessage(assistantMessageId, { content: assistantContent, status: "success" });
       updateThreadMessage(requestChatId, assistantMessageId, { content: assistantContent, status: "success" });
       setGenerationInputNotice(null);
+      if (data?.action === "build_project") {
+        if (typeof data?.generation_prompt !== "string" || !data.generation_prompt.trim()) {
+          throw new Error("The build tool did not return a generation prompt.");
+        }
+        await executeAgentBuild({
+          assistantMessage: assistantContent,
+          assistantMessageId,
+          generationPrompt: data.generation_prompt,
+          projectId: persistedProjectId,
+          requestChatId,
+          userMessageId,
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save project context.";
       updateChatMessage(assistantMessageId, { content: message, status: "error" });

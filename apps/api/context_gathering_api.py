@@ -19,6 +19,7 @@ from blueprint_core.database import (
     create_design_brief_version,
     get_latest_design_brief,
     get_project_chat,
+    initiate_project_build,
     initialize_project_workflow,
     upsert_project_chat,
 )
@@ -28,6 +29,7 @@ from blueprint_core.workspaces.context import (
 )
 from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
+from blueprint_core.workspaces.readiness import BuildMode, ReadinessError
 
 
 router = APIRouter(prefix="/projects/{project_id}/context", tags=["context-gathering"])
@@ -101,7 +103,7 @@ def gather_project_context_endpoint(
     else:
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner))
     try:
-        brief_create, assistant_message, questions = ContextGatheringAgent(
+        brief_create, assistant_message, questions, action, generation_prompt = ContextGatheringAgent(
             provider_name=request.provider,
             model_name=request.model,
         ).update(request, previous, messages=existing_messages)
@@ -135,6 +137,28 @@ def gather_project_context_endpoint(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail={"code": "project_not_found", "message": "Project not found."},
             ) from exc
+
+    if action == "build_project":
+        if brief is None or not generation_prompt:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail={
+                    "code": "context_build_tool_invalid",
+                    "message": "The context model selected Build without a complete brief and generation prompt.",
+                },
+            )
+        try:
+            build = initiate_project_build(
+                str(project_id),
+                owner,
+                mode=BuildMode.BUILD,
+                actor_id=owner,
+                idempotency_key=f"context-build:{request.conversation_id}:{brief.brief_version}",
+            )
+            workflow = build.workflow
+        except (ReadinessError, WorkflowStateError) as exc:
+            status_code = status.HTTP_404_NOT_FOUND if exc.code == "workflow_not_found" else status.HTTP_409_CONFLICT
+            raise HTTPException(status_code=status_code, detail=exc.as_dict()) from exc
 
     attachments = [
         {
@@ -188,4 +212,6 @@ def gather_project_context_endpoint(
         design_brief=brief,
         assistant_message=assistant_message,
         questions=questions,
+        action=action,
+        generation_prompt=generation_prompt,
     )

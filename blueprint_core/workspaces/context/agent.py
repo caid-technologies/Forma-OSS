@@ -188,6 +188,7 @@ class ContextBriefUpdater:
         request: ContextGatheringRequest,
         previous: DesignBrief | None,
         messages: list[dict[str, Any]] | None,
+        previous_generation_state: str | None = None,
     ) -> str:
         previous_state = None
         if previous is not None:
@@ -208,6 +209,7 @@ class ContextBriefUpdater:
             "current_user_message": request.text,
             "attachments": _attachment_context(request.attachments),
             "current_design_brief": previous_state,
+            "previous_generation_state": previous_generation_state,
         }
         return (
             "You are Forma, a conversational hardware-design collaborator. Respond naturally to the user's actual "
@@ -218,10 +220,12 @@ class ContextBriefUpdater:
             "- Choose `update_design_brief` when the user supplies, changes, or answers something about a project, or "
             "provides a project attachment. Return the complete updated brief state, merging useful prior facts and "
             "removing questions the user has answered.\n"
-            "- Choose `build_project` when the user explicitly asks to make, build, generate, start, proceed, go ahead, "
-            "retry, try again, or show the finished project. This is the only tool that starts generation. Return a "
-            "complete updated brief "
-            "and a self-contained generation_prompt. Never merely say that work has started.\n"
+            "- Choose `build_project` when the user's intent, the conversation, and the generation state indicate that "
+            "project generation should execute. Decide semantically; never route by matching fixed words or phrases. "
+            "If previous_generation_state indicates a failed or interrupted build, assume the pending build should be "
+            "retried unless the user clearly cancels it, changes its context, or asks something else. This is the only "
+            "tool that starts generation. Return a complete updated brief and a self-contained generation_prompt. Never "
+            "merely say that work has started.\n"
             "- For build_project, apply ordinary defaults only when the user authorizes reasonable choices (for example, "
             "'just make something'). Record every chosen default in assumptions, resolve non-safety questions, and include "
             "at least one requirement, requested output, and validation criterion. If a safety-critical fact is missing, "
@@ -244,10 +248,11 @@ class ContextBriefUpdater:
         previous: DesignBrief | None = None,
         *,
         messages: list[dict[str, Any]] | None = None,
+        previous_generation_state: str | None = None,
     ) -> tuple[DesignBriefCreate | None, str, list[str], str, str | None]:
         image_bytes, image_mime_type = _first_inline_image(request.attachments)
         turn = self.llm_provider.generate_structured(
-            self._prompt(request, previous, messages),
+            self._prompt(request, previous, messages, previous_generation_state),
             ContextAgentTurn,
             image_bytes,
             image_mime_type,

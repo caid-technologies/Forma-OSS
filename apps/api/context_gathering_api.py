@@ -61,10 +61,12 @@ def _resume_retryable_context_workflow(
     project_id: str,
     owner: str,
     workflow: ProjectWorkflow,
-) -> ProjectWorkflow:
+) -> tuple[ProjectWorkflow, ProjectWorkflowState | None]:
     """Return failed or interrupted context builds to a conversational state."""
 
+    previous_generation_state = None
     if workflow.state == ProjectWorkflowState.BUILDING:
+        previous_generation_state = workflow.state
         workflow = transition_project_workflow(
             project_id,
             owner,
@@ -75,6 +77,7 @@ def _resume_retryable_context_workflow(
             idempotency_key=f"context-recover-build:{workflow.revision}",
         ).workflow
     if workflow.state == ProjectWorkflowState.FAILED:
+        previous_generation_state = previous_generation_state or workflow.state
         workflow = transition_project_workflow(
             project_id,
             owner,
@@ -84,7 +87,7 @@ def _resume_retryable_context_workflow(
             reason="User resumed the conversation after a failed build.",
             idempotency_key=f"context-resume-failed:{workflow.revision}",
         ).workflow
-    return workflow
+    return workflow, previous_generation_state
 
 
 @router.post("/messages", response_model=ContextGatheringResponse, status_code=status.HTTP_201_CREATED)
@@ -107,8 +110,13 @@ def gather_project_context_endpoint(
     except WorkflowStateError as exc:
         raise _workflow_error(exc) from exc
     workflow = initialized.workflow
+    previous_generation_state = None
     try:
-        workflow = _resume_retryable_context_workflow(str(project_id), owner, workflow)
+        workflow, previous_generation_state = _resume_retryable_context_workflow(
+            str(project_id),
+            owner,
+            workflow,
+        )
     except WorkflowStateError as exc:
         raise _workflow_error(exc) from exc
     if workflow.state != ProjectWorkflowState.GATHERING_CONTEXT:
@@ -148,6 +156,9 @@ def gather_project_context_endpoint(
             request,
             previous,
             messages=existing_messages,
+            previous_generation_state=(
+                previous_generation_state.value if previous_generation_state is not None else None
+            ),
         )
     except (LLMProviderConfigError, LLMProviderInputError) as exc:
         raise HTTPException(

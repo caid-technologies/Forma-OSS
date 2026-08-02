@@ -375,10 +375,24 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
             ["gathering_context", "building", "failed", "gathering_context", "building"],
             [transition.to_state.value for transition in transitions],
         )
+        self.assertIn('"previous_generation_state": "building"', provider.prompts[1])
+        self.assertIn("Decide semantically; never route by matching fixed words or phrases.", provider.prompts[1])
+        self.assertNotIn("retry, try again", provider.prompts[1])
 
     def test_generate_failure_marks_context_workflow_retryable(self) -> None:
         project_id = str(uuid.uuid4())
         job_store = MagicMock()
+        retry_provider = StubContextProvider([
+            brief_turn(
+                "I’m restarting the pending build.",
+                summary="Pending hardware project",
+                requirements=["Generate the pending hardware project."],
+                requested_outputs=["BOM"],
+                validation_criteria=["The generated project satisfies the saved brief."],
+                tool="build_project",
+                generation_prompt="Generate the pending hardware project from its saved context.",
+            ),
+        ])
         with sqlite_repository():
             database.initialize_project_workflow(project_id, OWNER)
             database.transition_project_workflow(
@@ -403,10 +417,23 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
                         USER,
                     ))
             workflow = database.get_project_workflow(project_id, OWNER)
+            with patch(
+                "blueprint_core.workspaces.context.agent.build_llm_provider",
+                return_value=retry_provider,
+            ):
+                retry = self.client.post(
+                    f"/projects/{project_id}/context/messages",
+                    json={"conversation_id": "failed-retry-chat", "text": "Continue."},
+                )
+            resumed_workflow = database.get_project_workflow(project_id, OWNER)
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertEqual("failed", workflow.state.value)
         job_store.mark_failed.assert_called_once()
+        self.assertEqual(201, retry.status_code, retry.text)
+        self.assertEqual("build_project", retry.json()["action"])
+        self.assertEqual("building", resumed_workflow.state.value)
+        self.assertIn('"previous_generation_state": "failed"', retry_provider.prompts[0])
 
     def test_a2a_generation_rejects_before_worker_job_is_created(self) -> None:
         project_id = str(uuid.uuid4())

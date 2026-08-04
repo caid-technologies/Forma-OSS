@@ -1,0 +1,22 @@
+{
+  "name": "forma-api-cloudflare",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev:cloudflare": "wrangler dev",
+    "deploy:cloudflare": "wrangler deploy",
+    "secrets:sync": "node scripts/sync-cloudflare-secrets.mjs",
+    "typegen": "wrangler types --include-runtime false",
+    "typecheck": "npm run typegen && tsc --noEmit",
+    "check": "npm run typecheck && wrangler deploy --dry-run"
+  },
+  "dependencies": {
+    "@cloudflare/containers": "0.3.7"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260804.1",
+    "typescript": "6.0.3",
+    "wrangler": "4.118.0"
+  }
+}

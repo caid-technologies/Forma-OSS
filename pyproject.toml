@@ -44,7 +44,7 @@ fabricator = "blueprint_core.fabricator.main:main"
 entrypoint = "apps.api.main:app"
 
 [project.optional-dependencies]
-gemini = ["google-genai>=0.1.0"]
+gemini = ["google-genai>=1.75.0"]
 huggingface = ["huggingface-hub>=0.34.0"]
 observability = ["langfuse>=4.0.0"]
 supabase = ["supabase==2.31.0"]
@@ -53,6 +53,7 @@ terminal = ["Pillow>=10.0.0"]
 backend = [
     "fastapi>=0.124.1",
     "cryptography>=42.0.0",
+    "google-genai>=1.75.0",
     "redis>=5.0.0",
     "uvicorn",
     "websockets>=12.0",
@@ -60,7 +61,7 @@ backend = [
 ]
 s3 = ["boto3==1.35.99"]
 all = [
-    "google-genai>=0.1.0",
+    "google-genai>=1.75.0",
     "boto3==1.35.99",
     "cryptography>=42.0.0",
     "fastapi>=0.124.1",

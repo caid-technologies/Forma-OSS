@@ -118,6 +118,7 @@ from apps.api.a2a import (
 )
 from blueprint_core.images import get_image_output_debug_config
 from blueprint_core.config.contract import resolve_runtime_contract
+from blueprint_core.config import config
 from blueprint_core.workspaces.projects.iteration import ProjectIterator
 from blueprint_core.llm import LLMProviderConfigError
 from blueprint_core.llm import LLMProviderOutputError
@@ -271,10 +272,38 @@ class ApiPrefixCompatibilityMiddleware:
 
 app.add_middleware(ApiPrefixCompatibilityMiddleware)
 
-# Enable CORS for Next.js frontend
+_DEFAULT_CORS_ALLOWED_ORIGINS = (
+    "https://caid-technologies.us",
+    "https://www.caid-technologies.us",
+    "https://dev.caid-technologies.us",
+    "https://staging.caid-technologies.us",
+)
+
+
+def _cors_allowed_origins() -> List[str]:
+    configured = [
+        origin.strip().rstrip("/")
+        for origin in (config.get("CORS_ALLOWED_ORIGINS") or "").split(",")
+        if origin.strip()
+    ]
+    frontend_origin = (config.get("PUBLIC_FRONTEND_ORIGIN") or "").strip().rstrip("/")
+    if frontend_origin:
+        configured.append(frontend_origin)
+
+    origins = configured or list(_DEFAULT_CORS_ALLOWED_ORIGINS)
+    if "*" in origins:
+        raise RuntimeError(
+            "CORS_ALLOWED_ORIGINS cannot contain '*' while credentialed requests are enabled."
+        )
+    return list(dict.fromkeys(origins))
+
+
+# Browser API calls use Clerk bearer tokens, so production origins are explicit.
+# Localhost remains available on any port for the existing local dev workflow.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In development, allow all. Can narrow in production
+    allow_origins=_cors_allowed_origins(),
+    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -393,11 +422,15 @@ async def startup_event():
         logger.exception("Error during database startup: %s", e)
         raise
     await start_a2a_tcp_server()
-    _project_purge_stop_event = asyncio.Event()
-    _project_purge_task = asyncio.create_task(
-        purge_worker(_project_purge_stop_event),
-        name="project-retention-purge-worker",
-    )
+    purge_worker_enabled = (config.get("PROJECT_PURGE_WORKER_ENABLED") or "true").strip().lower()
+    if purge_worker_enabled not in {"0", "false", "no", "off"}:
+        _project_purge_stop_event = asyncio.Event()
+        _project_purge_task = asyncio.create_task(
+            purge_worker(_project_purge_stop_event),
+            name="project-retention-purge-worker",
+        )
+    else:
+        logger.info("In-process project retention purge worker is disabled.")
 
 
 @app.on_event("shutdown")
@@ -420,6 +453,12 @@ def read_root():
         "version": "1.0.0",
         "docs_url": "/api/docs"
     }
+
+
+@app.get("/health")
+def health_endpoint():
+    """Return process readiness without calling databases or model providers."""
+    return {"status": "healthy"}
 
 
 @app.get("/admin/session")

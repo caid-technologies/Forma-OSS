@@ -45,6 +45,15 @@ The skill includes a standard-library Python client, so the agent does not need 
 python integrations/agent-skills/forma-hardware/scripts/forma.py tools
 ```
 
+Optionally register Forma as a native Claude Code MCP server so its tools are available outside the skill too:
+
+```bash
+claude mcp add --scope user --transport http forma http://127.0.0.1:8000/mcp
+claude mcp list
+```
+
+Use the full hosted `/api/mcp` URL instead when Forma is deployed behind that route. A protected endpoint also needs an authorization header configured through the agent host. The skill's client remains the portable fallback for both Claude Code and Codex.
+
 ## Use
 
 In Claude Code, ask for a Forma hardware design naturally or invoke `/forma-hardware`. In Codex, ask naturally or invoke `$forma-hardware`.

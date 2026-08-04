@@ -9,7 +9,7 @@ Use Forma as the hardware compiler. Do not invent a successful generation or val
 
 ## Connect
 
-Use the bundled dependency-free client. Resolve `<skill-directory>` to the directory containing this `SKILL.md`; do not assume the current working directory is the skill directory. The client reads `FORMA_MCP_URL` and defaults to `http://127.0.0.1:8000/mcp`.
+Prefer the host's native Forma MCP tools when they are available. Otherwise use the bundled dependency-free client. Resolve `<skill-directory>` to the directory containing this `SKILL.md`; do not assume the current working directory is the skill directory. The client reads `FORMA_MCP_URL` and defaults to `http://127.0.0.1:8000/mcp`.
 
 ```bash
 python <skill-directory>/scripts/forma.py tools

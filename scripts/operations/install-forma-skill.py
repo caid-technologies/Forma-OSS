@@ -24,7 +24,12 @@ def install_skill(source: Path, destination: Path, *, force: bool = False) -> Pa
     if destination.exists() and not force:
         raise FileExistsError(f"Skill already exists at {destination}; pass --force to update it.")
     destination.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, dirs_exist_ok=force)
+    shutil.copytree(
+        source,
+        destination,
+        dirs_exist_ok=force,
+        ignore=shutil.ignore_patterns("__pycache__", "*.py[cod]"),
+    )
     return destination
 
 

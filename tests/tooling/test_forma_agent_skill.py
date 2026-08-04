@@ -159,6 +159,8 @@ class FormaSkillInstallerTests(unittest.TestCase):
             self.assertEqual(0, exit_code)
             self.assertTrue((claude_skill / "SKILL.md").is_file())
             self.assertTrue((codex_skill / "scripts" / "forma.py").is_file())
+            self.assertFalse(any(path.name == "__pycache__" for path in claude_skill.rglob("*")))
+            self.assertFalse(any(path.suffix == ".pyc" for path in codex_skill.rglob("*")))
             self.assertEqual(
                 (SKILL_DIR / "SKILL.md").read_text(encoding="utf-8"),
                 (claude_skill / "SKILL.md").read_text(encoding="utf-8"),

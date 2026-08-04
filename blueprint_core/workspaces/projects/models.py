@@ -149,11 +149,33 @@ class PowerRail(BaseModel):
     max_current_capacity_ma: float = Field(..., description="Maximum continuous current capacity in mA")
     source_component: str = Field(..., description="Reference designator of the power source component")
 
+class SystemInterface(BaseModel):
+    name: str = Field(..., description="Human-readable boundary between two systems")
+    connects_to: str = Field(..., description="System ID on the other side of the boundary")
+    purpose: str = Field(..., description="What crosses this boundary and why the connection is needed")
+
+class SystemNode(BaseModel):
+    system_id: str = Field(..., description="Stable dotted ID such as electrical.power or mechanical.enclosure")
+    name: str = Field(..., description="Human-readable system name")
+    domain: str = Field(..., description="Broad discipline such as product, electrical, mechanical, or firmware")
+    purpose: str = Field(..., description="Why this system is needed in the complete product")
+    responsibilities: List[str] = Field(default_factory=list, description="Outcomes owned by this system")
+    constraints: List[str] = Field(default_factory=list, description="Important system-level limits without implementation minutiae")
+    expected_component_roles: List[str] = Field(default_factory=list, description="Abstract roles this system needs, not exact parts or pins")
+    interfaces: List[SystemInterface] = Field(default_factory=list, description="Boundaries with sibling or parent systems")
+    detail_owner: str = Field("system architect", description="Specialist agent responsible for expanding this node")
+    children: List["SystemNode"] = Field(default_factory=list, description="More specific systems nested below this node")
+
+class SystemArchitecture(BaseModel):
+    summary: str = Field(..., description="Concise explanation of the complete system decomposition")
+    root: SystemNode = Field(..., description="Root of the hierarchical system tree")
+
 class HardwareIR(BaseModel):
     """The master typed document capturing the entire generated hardware design."""
     hardware_ir_version: str = Field("0.1", description="Structured schema version")
     overview: Optional[ProjectOverview] = Field(None, description="Project overview metadata")
     requirements: Optional[FunctionalRequirements] = Field(None, description="Extracted constraints & requirements")
+    system_architecture: Optional[SystemArchitecture] = Field(None, description="Hierarchical, purpose-driven decomposition of the complete product")
     components: List[ComponentInstance] = Field(default_factory=list, description="Instantiated Bill of Materials")
     nets: List[ConnectionNet] = Field(default_factory=list, description="Electrical netlist connections")
     buses: List[BusConnection] = Field(default_factory=list, description="Digital communication buses")

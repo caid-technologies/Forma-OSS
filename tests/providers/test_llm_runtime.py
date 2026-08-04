@@ -771,12 +771,13 @@ class LLMRuntimeTests(unittest.TestCase):
             LLM_PROVIDER="openai",
             LLM_ALLOWED_PROVIDERS="openai,simulation",
             OPENAI_API_KEY="sk_test",
-            OPENAI_MODEL="gpt-5.5",
+            OPENAI_MODEL="gpt-5.6-sol",
+            OPENAI_REASONING_EFFORT="low",
             OPENAI_MAX_TOKENS="123",
             OPENAI_RESPONSE_FORMAT="json_object",
             OPENAI_VALIDATE_MODELS="false",
         ):
-            runtime = resolve_llm_runtime_config("openai", "gpt-5.5")
+            runtime = resolve_llm_runtime_config("openai", "gpt-5.6-sol")
             provider = build_llm_provider(runtime_config=runtime)
 
         payloads = []
@@ -805,6 +806,7 @@ class LLMRuntimeTests(unittest.TestCase):
         provider.generate_structured("Return a project overview.", ProjectOverview)
 
         self.assertEqual(123, payloads[0]["max_completion_tokens"])
+        self.assertEqual("low", payloads[0]["reasoning_effort"])
         self.assertNotIn("max_tokens", payloads[0])
 
     def test_anthropic_output_config_closes_object_schemas(self) -> None:

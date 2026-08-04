@@ -2,45 +2,31 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-  humanContextDefaultAnswer,
-  humanContextDefaultsChatSummary,
-  humanContextDefaultsPromptSection,
+  humanContextSkipChatSummary,
+  humanContextSkipPromptSection,
 } from "../lib/human-context-defaults";
 
 const electronicsQuestions = [
-  { id: "controller_modules", label: "Controller / Modules" },
-  { id: "power", label: "Power" },
-  { id: "outputs", label: "Outputs" },
+  { id: "controller_modules", label: "Controller / Modules", question: "Which controller should coordinate the system?" },
+  { id: "power", label: "Power", question: "How should the product be powered?" },
+  { id: "outputs", label: "Outputs", question: "Which outputs are required?" },
 ];
 
-test("skipped electronics questions get deterministic safe defaults", () => {
-  const prompt = humanContextDefaultsPromptSection("Build an Arduino button panel", electronicsQuestions);
+test("skipped questions remain dynamic instead of receiving fixed design values", () => {
+  const prompt = humanContextSkipPromptSection("Build an Arduino button panel", electronicsQuestions);
 
-  assert.match(prompt, /common, compatible, readily available modules/);
-  assert.match(prompt, /USB-C 5 V/);
-  assert.match(prompt, /simple status indicator/);
-  assert.match(prompt, /original request takes precedence/i);
-  assert.doesNotMatch(prompt, /not specified/);
+  assert.match(prompt, /explicitly skipped/i);
+  assert.match(prompt, /How should the product be powered\?/);
+  assert.match(prompt, /infer missing details from the full project context/i);
+  assert.match(prompt, /record every inferred choice as an assumption/i);
+  assert.doesNotMatch(prompt, /USB-C 5 V|indoor bench|Arduino Uno/);
 });
 
-test("unknown clarifier questions receive a documented conservative default", () => {
-  assert.equal(
-    humanContextDefaultAnswer({ id: "custom", label: "Mounting" }),
-    "Use Forma's conservative prototype default for mounting and document the choice.",
-  );
-});
+test("the chat summary reports the skip without claiming fixed defaults", () => {
+  const summary = humanContextSkipChatSummary(electronicsQuestions, "Use the uploaded reference.");
 
-test("the reused outputs id still gets an artifact default when labeled Artifacts", () => {
-  assert.match(
-    humanContextDefaultAnswer({ id: "outputs", label: "Artifacts" }),
-    /buildability, clear wiring or materials/,
-  );
-});
-
-test("the chat summary makes applied defaults visible to the user", () => {
-  const summary = humanContextDefaultsChatSummary(electronicsQuestions, "Use an Arduino Uno.");
-
-  assert.match(summary, /^Skipped questions and used Forma defaults:/);
-  assert.match(summary, /- Power: Use a safe low-voltage USB-C 5 V supply/);
-  assert.match(summary, /- Additional notes: Use an Arduino Uno\./);
+  assert.match(summary, /^Skipped optional clarification questions/);
+  assert.match(summary, /- Power: skipped/);
+  assert.match(summary, /- Additional notes: Use the uploaded reference\./);
+  assert.doesNotMatch(summary, /defaults|USB-C 5 V/);
 });

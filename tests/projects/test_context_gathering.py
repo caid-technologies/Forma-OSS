@@ -15,12 +15,15 @@ from fastapi.testclient import TestClient
 from apps.api import a2a, main
 from apps.api.a2a import A2AMessage
 from apps.api.auth import UserContext, require_user_context
-from apps.api.context_gathering_api import router
+from apps.api.context_builds import context_build_dispatcher
+from apps.api.context_gathering_api import context_gathering_agent, router
+from blueprint_core.agents.context_gathering import ContextGatheringAgent
 from blueprint_core import database
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workspaces.projects.models import GenerateProjectRequest
-from blueprint_core.workspaces.workflow import WorkflowStateError
+from blueprint_core.workspaces.context import ContextBuildExecution
+from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 
 
 OWNER = "context-user"
@@ -56,7 +59,129 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         app = FastAPI()
         app.include_router(router)
         app.dependency_overrides[require_user_context] = lambda: USER
+        app.dependency_overrides[context_gathering_agent] = lambda: ContextGatheringAgent()
+        app.dependency_overrides[context_build_dispatcher] = lambda: None
+        self.app = app
         self.client = TestClient(app)
+
+    def test_chat_discovery_does_not_create_or_mutate_a_design_brief(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-only"
+        with sqlite_repository():
+            greeting = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "hi"},
+            )
+            discovery = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "what can I build?"},
+            )
+            versions = database.list_design_brief_versions(project_id, OWNER)
+
+        self.assertEqual(201, greeting.status_code, greeting.text)
+        self.assertEqual("chat", greeting.json()["turn_kind"])
+        self.assertIsNone(greeting.json()["workflow"])
+        self.assertIsNone(greeting.json()["design_brief"])
+        self.assertEqual("chat", discovery.json()["turn_kind"])
+        self.assertEqual([], versions)
+
+    def test_proceed_turn_advances_once_and_never_hits_context_writer(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-proceed"
+        with sqlite_repository():
+            context = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a handheld environmental monitor."},
+            )
+            first = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "go ahead"},
+            )
+            replay = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "go ahead"},
+            )
+
+        self.assertEqual(201, context.status_code, context.text)
+        self.assertEqual("context", context.json()["turn_kind"])
+        self.assertEqual(201, first.status_code, first.text)
+        self.assertEqual("proceed", first.json()["turn_kind"])
+        self.assertEqual("ready_to_build", first.json()["workflow"]["state"])
+        self.assertEqual(201, replay.status_code, replay.text)
+        self.assertEqual("proceed", replay.json()["turn_kind"])
+        self.assertEqual("ready_to_build", replay.json()["workflow"]["state"])
+
+    def test_proceed_dispatches_a_real_build_stage_when_a_dispatcher_is_available(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-build-dispatch"
+        build_id = uuid.uuid4()
+
+        class RecordingDispatcher:
+            calls = 0
+
+            def start(self, current_project_id, owner, current_conversation_id):
+                self.calls += 1
+                outcome = database.transition_project_workflow(
+                    current_project_id,
+                    owner,
+                    ProjectWorkflowState.BUILDING,
+                    actor_type=WorkflowActorType.USER,
+                    actor_id=owner,
+                    reason="Test dispatcher started generation.",
+                    idempotency_key=f"test-build:{current_conversation_id}",
+                )
+                return ContextBuildExecution(
+                    build_id=build_id,
+                    plan_id="build-plan-test",
+                    job_id="generation-test",
+                    status="planned",
+                ), outcome.workflow
+
+        dispatcher = RecordingDispatcher()
+        self.app.dependency_overrides[context_build_dispatcher] = lambda: dispatcher
+        with sqlite_repository():
+            context = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a handheld environmental monitor."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "do it now"},
+            )
+
+        self.assertEqual(201, context.status_code, context.text)
+        self.assertEqual(201, started.status_code, started.text)
+        self.assertEqual("building", started.json()["workflow"]["state"])
+        self.assertEqual("build-plan-test", started.json()["build_execution"]["plan_id"])
+        self.assertIn("started the design", started.json()["assistant_message"])
+        self.assertEqual(1, dispatcher.calls)
+
+    def test_production_dispatcher_freezes_build_creates_plan_and_schedules_execution(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-production-dispatch"
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ) as launch_plan:
+            context = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a compact handheld environmental monitor."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            execution = started.json()["build_execution"]
+            plan = database.get_project_generation_plan(execution["plan_id"], OWNER)
+            frozen = database.get_latest_project_build(project_id, OWNER)
+
+        self.assertEqual(201, context.status_code, context.text)
+        self.assertEqual(201, started.status_code, started.text)
+        self.assertEqual("building", started.json()["workflow"]["state"])
+        self.assertEqual("planned", execution["status"])
+        self.assertEqual(str(frozen.build_id), execution["build_id"])
+        self.assertEqual([execution["job_id"]], list(plan.jobs))
+        launch_plan.assert_called_once_with(execution["plan_id"], OWNER)
 
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())
@@ -157,6 +282,55 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertTrue(first.json()["questions"])
         self.assertEqual(201, second.status_code)
         self.assertEqual([], second.json()["questions"])
+
+    def test_uncertain_reply_guides_without_repeating_internal_question(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-chat-guidance"
+        with sqlite_repository():
+            first = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={
+                    "conversation_id": conversation_id,
+                    "text": "Environmental monitor with sensor feedback, display, and battery power.",
+                },
+            )
+            second = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "idk"},
+            )
+
+        self.assertEqual(201, first.status_code)
+        self.assertEqual(201, second.status_code)
+        question = first.json()["questions"][0]
+        reply = second.json()["assistant_message"]
+        self.assertNotIn(question, reply)
+        self.assertIn("you don’t need to choose technical parts", reply)
+        self.assertIn("build agents can propose", reply)
+        self.assertNotIn("idk", second.json()["design_brief"]["requirements"])
+
+    def test_clarification_request_is_answered_instead_of_saved_as_requirement(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-chat-explanation"
+        with sqlite_repository():
+            first = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={
+                    "conversation_id": conversation_id,
+                    "text": "Environmental monitor with sensor feedback, display, and battery power.",
+                },
+            )
+            second = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "What do you mean fixed?"},
+            )
+
+        self.assertEqual(201, first.status_code)
+        self.assertEqual(201, second.status_code)
+        body = second.json()
+        self.assertIn("already decided", body["assistant_message"])
+        self.assertIn("no preference", body["assistant_message"])
+        self.assertIn("build agents can choose", body["assistant_message"])
+        self.assertNotIn("What do you mean fixed?", body["design_brief"]["requirements"])
 
     def test_a2a_generation_rejects_before_worker_job_is_created(self) -> None:
         project_id = str(uuid.uuid4())

@@ -225,7 +225,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>OpenAI</strong></summary>
 
 - `OPENAI_API_KEY`: API key for first-party OpenAI when `LLM_PROVIDER=openai`.
-- `OPENAI_MODEL`: OpenAI model ID. The example default is `gpt-4o-mini`.
+- `OPENAI_MODEL`: OpenAI model ID. The default is `gpt-5.6-sol`.
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format. Defaults to `json_schema`; `json_object` and `none` are also supported.
 - `OPENAI_TIMEOUT_SECONDS`: First-party OpenAI read timeout. Defaults to `300`.
 - `OPENAI_REASONING_EFFORT`: Optional reasoning effort for GPT-5/o-series models, for example `low`.

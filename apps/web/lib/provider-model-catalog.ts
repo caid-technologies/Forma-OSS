@@ -16,7 +16,7 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
     model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
     model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
-    model("gpt-5.5", "GPT-5.5", "Forma legacy default"),
+    model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
   ],
   anthropic: [
     model("claude-fable-5", "Claude Fable 5", "Most capable widely available Claude model"),

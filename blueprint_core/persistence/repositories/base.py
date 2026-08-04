@@ -94,6 +94,12 @@ class ApplicationRepository(Protocol):
         revision: int,
     ) -> Optional[Any]: ...
 
+    def insert_project_revision(
+        self,
+        record: Dict[str, Any],
+        expected_parent_revision: int,
+    ) -> Optional[Any]: ...
+
     def get_project_revision_by_source_job(
         self,
         project_id: str,

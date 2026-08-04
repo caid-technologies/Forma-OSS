@@ -317,6 +317,25 @@ class SupabaseRepository:
         payload = data[0] if isinstance(data, list) and data else data
         return _record(payload) if isinstance(payload, dict) else None
 
+    def insert_project_revision(
+        self,
+        record: Dict[str, Any],
+        expected_parent_revision: int,
+    ) -> Optional[Any]:
+        latest = self.get_latest_project_revision(record["project_id"], record["owner_user_id"])
+        if (
+            latest is None
+            or int(latest.revision) != expected_parent_revision
+            or record["parent_revision"] != expected_parent_revision
+            or record["revision"] != expected_parent_revision + 1
+        ):
+            return None
+        try:
+            rows = self._client.table("project_revisions").insert(record).execute().data or []
+        except Exception:
+            return None
+        return _record(rows[0]) if rows else None
+
     def get_validation_report(self, report_id: str, owner_user_id: str) -> Optional[Any]:
         rows = (
             self._client.table("project_validation_reports")

@@ -83,6 +83,13 @@ DEFAULT_AGENT_PIPELINE_STEPS = [
         description="Capturing functions, voltage, physical constraints, safety notes, and missing information.",
     ),
     AgentPipelineStep(
+        id="system_architecture",
+        agent="System Architecture Agent",
+        label="Decomposing the complete system",
+        description="Building a purpose-driven tree of electrical, mechanical, firmware, and nested subsystems.",
+        duration_ms=5500,
+    ),
+    AgentPipelineStep(
         id="component_selection",
         agent="Component Selection Agent",
         label="Selecting compatible parts",

@@ -1,62 +1,36 @@
 export type HumanContextQuestionForDefaults = {
   id: string;
   label: string;
+  question?: string;
 };
 
-const DEFAULT_ANSWERS: Record<string, string> = {
-  sample_assay: "Use a non-hazardous, research-only demonstration sample; keep the exact assay as an explicit open choice.",
-  instrumentation: "Use the simplest non-hazardous detection method compatible with the requested function.",
-  validation: "Start with bench safety, core-function, and repeatability checks, plus leak testing when fluids are involved.",
-  environment: "Assume an indoor bench prototype unless the request explicitly names another environment.",
-  motion_power: "Use low-voltage, low-force actuation with a manual release and no mains voltage.",
-  success: "Safely demonstrate the requested core function and document any missing quantitative targets as open choices.",
-  controller_modules: "Choose common, compatible, readily available modules that minimize wiring and integration risk.",
-  power: "Use a safe low-voltage USB-C 5 V supply and no mains voltage unless the request requires another source.",
-  outputs: "Implement only requested outputs; otherwise include a simple status indicator for the core function.",
-  use_case: "Treat version one as an indoor bench prototype for technical evaluation.",
-  constraints: "Prefer safe low-voltage operation, readily available components, and a cost-conscious build.",
-  artifacts: "Prioritize buildability, clear wiring or materials, a BOM, assembly steps, and basic validation.",
-};
-
-export function humanContextDefaultAnswer(question: HumanContextQuestionForDefaults) {
-  if (question.label.trim().toLowerCase() === "artifacts") {
-    return DEFAULT_ANSWERS.artifacts;
-  }
-  return (
-    DEFAULT_ANSWERS[question.id] ||
-    `Use Forma's conservative prototype default for ${question.label.toLowerCase()} and document the choice.`
-  );
-}
-
-export function humanContextDefaultsPromptSection(
+export function humanContextSkipPromptSection(
   basePrompt: string,
   questions: HumanContextQuestionForDefaults[],
   finalNotes = "",
 ) {
-  const contextLines = questions.map(
-    (question) => `- ${question.label}: ${humanContextDefaultAnswer(question)}`,
-  );
+  const skippedQuestions = questions.map((item) => `- ${item.label}: ${item.question || "Unanswered"}`);
   if (finalNotes.trim()) {
-    contextLines.push(`- Additional human notes: ${finalNotes.trim()}`);
+    skippedQuestions.push(`- Additional human notes: ${finalNotes.trim()}`);
   }
   return [
     basePrompt,
     "",
     "HUMAN-IN-THE-LOOP CONTEXT:",
-    "- The user skipped optional clarification and asked Forma to apply these defaults:",
-    ...contextLines,
+    "- The user explicitly skipped the optional clarification questions.",
+    ...skippedQuestions,
     "",
-    "The original request takes precedence over these defaults. Keep any safety-critical uncertainty explicit in the project docs instead of inventing hidden constraints.",
+    "Infer missing details from the full project context during generation. Record every inferred choice as an assumption, and keep safety-critical uncertainty explicit instead of inventing a hidden value.",
   ].join("\n");
 }
 
-export function humanContextDefaultsChatSummary(
+export function humanContextSkipChatSummary(
   questions: HumanContextQuestionForDefaults[],
   finalNotes = "",
 ) {
   const lines = [
-    "Skipped questions and used Forma defaults:",
-    ...questions.map((question) => `- ${question.label}: ${humanContextDefaultAnswer(question)}`),
+    "Skipped optional clarification questions. Forma will infer missing details from the project context and record them as assumptions.",
+    ...questions.map((question) => `- ${question.label}: skipped`),
   ];
   if (finalNotes.trim()) {
     lines.push(`- Additional notes: ${finalNotes.trim()}`);

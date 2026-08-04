@@ -677,6 +677,126 @@ def get_latest_project_revision(project_id: str, owner_user_id: str) -> ProjectR
     return ProjectStateService(_DATABASE_REPOSITORY).get_latest(project_id, owner_user_id)
 
 
+def append_project_revision(
+    project_id: str,
+    owner_user_id: str,
+    state: Any,
+    *,
+    source_job_id: str,
+) -> ProjectRevision:
+    """Persist an iteration as the next immutable canonical project revision."""
+
+    from blueprint_core.workers.generation import build_generation_draft
+    from blueprint_core.workspaces.projects.models import HardwareIR
+
+    service = ProjectStateService(_DATABASE_REPOSITORY)
+    parent = service.get_latest(project_id, owner_user_id)
+    brief = service.get_frozen_design_brief(
+        project_id,
+        owner_user_id,
+        parent.design_brief_id,
+        parent.design_brief_version,
+    )
+    draft = build_generation_draft(brief, HardwareIR.model_validate(state))
+    return service.create_revision(
+        draft,
+        project_id=project_id,
+        owner_user_id=owner_user_id,
+        source_job_id=source_job_id,
+    ).revision
+
+
+def create_project_generation_plan(
+    build: ProjectBuild,
+    owner_user_id: str,
+    *,
+    provider_name: Optional[str] = None,
+    model_name: Optional[str] = None,
+):
+    """Create or replay the durable initial-generation plan for one frozen build."""
+
+    from blueprint_core.workers import (
+        GENERATION_CAPABILITY_ID,
+        GENERATION_INPUT_VERSION,
+        GENERATION_WORKER_ID,
+        WORKER_CONTRACT_VERSION,
+        GenerationWorker,
+        HardwareIRGenerationEngine,
+        WorkerOrchestrator,
+        WorkerRequest,
+    )
+
+    owner = _normalize_user_id(owner_user_id)
+    if not owner or owner != build.owner_user_id:
+        raise ValueError("The build owner must match owner_user_id.")
+    plan_id = f"build-plan-{build.build_id}"
+    existing = _DATABASE_REPOSITORY.get_worker_execution_plan(plan_id, owner)
+    engine = HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name)
+    worker = GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY), engine)
+    orchestrator = WorkerOrchestrator(
+        _DATABASE_REPOSITORY,
+        [worker],
+        workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+    )
+    if existing is not None:
+        return orchestrator.get_plan(plan_id, owner)
+
+    job_id = f"generation-{build.build_id}"
+    request = WorkerRequest(
+        contract_version=WORKER_CONTRACT_VERSION,
+        project_id=build.project_id,
+        project_revision=1,
+        design_brief_id=build.design_brief_id,
+        design_brief_version=build.brief_version,
+        job_id=job_id,
+        correlation_id=f"build-{build.build_id}",
+        worker_id=GENERATION_WORKER_ID,
+        capability_id=GENERATION_CAPABILITY_ID,
+        input_contract_version=GENERATION_INPUT_VERSION,
+        payload={"design_brief": build.brief_snapshot.model_dump(mode="json")},
+        metadata={"build_id": str(build.build_id)},
+    )
+    return orchestrator.create_plan([request], owner, max_concurrency=1, plan_id=plan_id)
+
+
+def get_project_generation_plan(plan_id: str, owner_user_id: str):
+    """Return a persisted worker plan without exposing the backing repository."""
+
+    from blueprint_core.workers import GenerationWorker, WorkerOrchestrator
+
+    owner = _normalize_user_id(owner_user_id)
+    orchestrator = WorkerOrchestrator(
+        _DATABASE_REPOSITORY,
+        [GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY))],
+        workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+    )
+    return orchestrator.get_plan(plan_id, owner)
+
+
+async def execute_project_generation_plan(
+    plan_id: str,
+    owner_user_id: str,
+    *,
+    provider_name: Optional[str] = None,
+    model_name: Optional[str] = None,
+):
+    """Execute or resume a persisted project-generation plan."""
+
+    from blueprint_core.workers import GenerationWorker, HardwareIRGenerationEngine, WorkerOrchestrator
+
+    owner = _normalize_user_id(owner_user_id)
+    worker = GenerationWorker(
+        ProjectStateService(_DATABASE_REPOSITORY),
+        HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name),
+    )
+    orchestrator = WorkerOrchestrator(
+        _DATABASE_REPOSITORY,
+        [worker],
+        workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+    )
+    return await orchestrator.execute(plan_id, owner)
+
+
 def list_project_workflow_transitions(
     project_id: str,
     owner_user_id: str,

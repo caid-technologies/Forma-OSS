@@ -125,6 +125,12 @@ DEFAULT_PROJECT_NAMESPACES = ProjectNamespaceRegistry(
             scope="product",
         ),
         ProjectNamespaceDescriptor(
+            name="product.architecture",
+            label="Product Architecture",
+            description="Purpose-driven hierarchy of product, electrical, mechanical, firmware, and nested systems.",
+            scope="product",
+        ),
+        ProjectNamespaceDescriptor(
             name="product.electrical",
             label="Product Electrical",
             description="Components, nets, buses, pin mappings, power rails, and electrical calculations.",
@@ -552,6 +558,10 @@ def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[s
             "overview": payload.get("overview"),
             "requirements": payload.get("requirements"),
             "constraints": payload.get("constraints") or [],
+        }
+    elif normalized == "product.architecture":
+        selected_payload = {
+            "system_architecture": payload.get("system_architecture"),
         }
     elif normalized == "product.electrical":
         selected_payload = {

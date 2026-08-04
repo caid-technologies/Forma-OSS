@@ -12,8 +12,8 @@ import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
-  humanContextDefaultsChatSummary,
-  humanContextDefaultsPromptSection,
+  humanContextSkipChatSummary,
+  humanContextSkipPromptSection,
 } from "../lib/human-context-defaults";
 import CopyButton from "../components/copy-button";
 import {
@@ -175,6 +175,11 @@ type ChatMessage = {
   projectId?: string | null;
   pipelineProgress?: AgentPipelineProgress | null;
   imagePreview?: string | null;
+  contextProjectId?: string | null;
+  workflowState?: string | null;
+  contextQuestions?: string[];
+  buildPlanId?: string | null;
+  buildJobId?: string | null;
 };
 
 type ActiveGenerationRun = {
@@ -251,10 +256,17 @@ const defaultAgentPipelineSteps: AgentPipelineStep[] = [
     duration_ms: 5500,
   },
   {
+    id: "system_architecture",
+    agent: "System Architecture Agent",
+    label: "Decomposing the complete system",
+    description: "Building a purpose-driven tree of electrical, mechanical, firmware, and nested subsystems.",
+    duration_ms: 5500,
+  },
+  {
     id: "component_selection",
     agent: "Component Selection Agent",
     label: "Selecting compatible parts",
-    description: "Choosing parts and pin definitions for the build.",
+    description: "Choosing parts by system role before exact catalog pins are hydrated.",
     duration_ms: 6500,
   },
   {
@@ -396,15 +408,48 @@ function validChatRole(value: any): ChatMessage["role"] {
 
 function normalizeChatMessage(value: any): ChatMessage | null {
   if (!value || typeof value !== "object" || typeof value.content !== "string") return null;
+  const buildExecutionStatus = typeof value.buildExecution?.status === "string"
+    ? value.buildExecution.status
+    : "";
+  const normalizedStatus = buildExecutionStatus === "planned" || buildExecutionStatus === "running"
+    ? "loading"
+    : validChatStatus(value.status);
   return {
     id: typeof value.id === "string" && value.id ? value.id : newChatMessageId(),
     role: validChatRole(value.role),
     content: value.content,
-    status: validChatStatus(value.status),
+    status: normalizedStatus,
     timestamp: typeof value.timestamp === "string" && value.timestamp ? value.timestamp : chatTimestamp(),
     projectId: typeof value.projectId === "string" ? value.projectId : null,
     pipelineProgress: normalizeAgentPipelineProgress(value.pipelineProgress),
     imagePreview: typeof value.imagePreview === "string" ? value.imagePreview : null,
+    contextProjectId: typeof value.contextProjectId === "string"
+      ? value.contextProjectId
+      : typeof value.context_project_id === "string"
+        ? value.context_project_id
+        : null,
+    workflowState: typeof value.workflowState === "string"
+      ? value.workflowState
+      : typeof value.workflow_state === "string"
+        ? value.workflow_state
+        : null,
+    contextQuestions: (Array.isArray(value.contextQuestions) ? value.contextQuestions : value.questions)
+      ?.filter((question: unknown): question is string => typeof question === "string" && Boolean(question.trim()))
+      .map((question: string) => question.trim()) || [],
+    buildPlanId: typeof value.buildPlanId === "string"
+      ? value.buildPlanId
+      : typeof value.build_plan_id === "string"
+        ? value.build_plan_id
+        : typeof value.buildExecution?.plan_id === "string"
+          ? value.buildExecution.plan_id
+          : null,
+    buildJobId: typeof value.buildJobId === "string"
+      ? value.buildJobId
+      : typeof value.build_job_id === "string"
+        ? value.build_job_id
+        : typeof value.buildExecution?.job_id === "string"
+          ? value.buildExecution.job_id
+          : null,
   };
 }
 
@@ -1515,6 +1560,9 @@ export function FormaWorkspace({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => initialChatMessages());
   const [pendingHumanContext, setPendingHumanContext] = useState<PendingHumanContext | null>(null);
   const contextProjectIdsRef = useRef<Record<string, string>>({});
+  const contextBuildWatchersRef = useRef<Set<string>>(new Set());
+  const [contextWorkflowStates, setContextWorkflowStates] = useState<Record<string, string>>({});
+  const [contextSkipping, setContextSkipping] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -2831,6 +2879,125 @@ export function FormaWorkspace({
     finishGenerationRun(run);
   };
 
+  const watchContextBuild = (
+    projectId: string,
+    planId: string,
+    jobId: string,
+    chatId: string,
+    assistantMessageId: string,
+  ) => {
+    const watcherKey = `${projectId}:${planId}`;
+    if (contextBuildWatchersRef.current.has(watcherKey)) return;
+    contextBuildWatchersRef.current.add(watcherKey);
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      try {
+        const response = await fetch(
+          `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}`,
+          { headers: await generationRequestHeaders() },
+        );
+        if (!response.ok) throw new Error(await readApiErrorMessage(response));
+        const plan = await response.json();
+        const planStatus = typeof plan?.status === "string" ? plan.status : "";
+        if (planStatus === "succeeded") {
+          const projectResponse = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+            headers: await optionalAuthHeaders(),
+          });
+          if (!projectResponse.ok) throw new Error(await readApiErrorMessage(projectResponse));
+          const projectData = await projectResponse.json();
+          const ir = withProjectResponseMetadata(projectData.project_ir, projectData);
+          const title = ir?.overview?.title || "Project";
+          setProjectIR(ir);
+          setContextWorkflowStates((current) => ({ ...current, [chatId]: "awaiting_feedback" }));
+          rememberProjectRecord({
+            project_id: projectId,
+            chat_id: chatId,
+            title,
+            prompt: projectData.prompt || title,
+            created_at: projectData.created_at || chatTimestamp(),
+            can_chat: true,
+            creator_display: "you",
+            creator_image_url: userImageUrl,
+            parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
+            star_count: 0,
+          });
+          rememberChatItem({
+            chatId,
+            title,
+            projectId,
+            createdAt: chatTimestamp(),
+            projectCount: 1,
+          });
+          const readyMessage = `${title} is ready. The first structured design revision is available for review.`;
+          updateChatMessage(assistantMessageId, {
+            content: readyMessage,
+            status: "success",
+            projectId,
+            contextProjectId: projectId,
+            workflowState: "awaiting_feedback",
+          });
+          updateThreadMessage(chatId, assistantMessageId, {
+            content: readyMessage,
+            status: "success",
+            projectId,
+            contextProjectId: projectId,
+            workflowState: "awaiting_feedback",
+          });
+          setGenerationInputNotice("Design ready for review.");
+          refreshProjectAndChatLists();
+          contextBuildWatchersRef.current.delete(watcherKey);
+          return;
+        }
+        if (planStatus === "failed") {
+          const task = plan?.jobs?.[jobId];
+          const failureMessage = typeof task?.error?.message === "string"
+            ? task.error.message
+            : "The design build stopped after an agent failure.";
+          updateChatMessage(assistantMessageId, { content: failureMessage, status: "error", workflowState: "awaiting_feedback" });
+          updateThreadMessage(chatId, assistantMessageId, { content: failureMessage, status: "error", workflowState: "awaiting_feedback" });
+          setGenerationInputNotice(failureMessage);
+          contextBuildWatchersRef.current.delete(watcherKey);
+          return;
+        }
+      } catch (error) {
+        if (attempts >= 600) {
+          const message = error instanceof Error ? error.message : "Could not read build progress.";
+          setGenerationInputNotice(message);
+          contextBuildWatchersRef.current.delete(watcherKey);
+          return;
+        }
+      }
+      if (attempts < 600) window.setTimeout(poll, 2000);
+    };
+    window.setTimeout(poll, 750);
+  };
+
+  useEffect(() => {
+    const pending = [...chatMessages].reverse().find((message) => (
+      message.status === "loading"
+      && Boolean(message.buildPlanId)
+      && Boolean(message.buildJobId)
+      && Boolean(message.contextProjectId)
+      && !message.projectId
+    ));
+    if (!pending?.buildPlanId || !pending.buildJobId || !pending.contextProjectId || !activeChatId) return;
+    if (!pending.pipelineProgress) {
+      const progress = createAgentPipelineProgress(agentPipelineSteps, false, chatTimestamp(), pending.buildJobId);
+      updateChatMessage(pending.id, { pipelineProgress: progress, status: "loading" });
+      updateThreadMessage(activeChatId, pending.id, { pipelineProgress: progress, status: "loading" });
+    }
+    watchContextBuild(
+      pending.contextProjectId,
+      pending.buildPlanId,
+      pending.buildJobId,
+      activeChatId,
+      pending.id,
+    );
+    // The watcher registry makes this restart-safe without duplicating poll loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId, chatMessageIdentityKey(chatMessages)]);
+
   const handleGatherContext = async (event: React.FormEvent) => {
     event.preventDefault();
     if (isLoading || activeGenerationRef.current) return;
@@ -2866,8 +3033,8 @@ export function FormaWorkspace({
     syncChatRoute(requestChatId);
     appendChatMessage({ id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
     appendThreadMessage(requestChatId, { id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
-    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
-    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
+    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Thinking…", status: "loading" });
+    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Thinking…", status: "loading" });
     setPrompt("");
     setSelectedImage(null);
     setSelectedImageSource("upload");
@@ -2893,16 +3060,65 @@ export function FormaWorkspace({
       });
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const data = await res.json();
+      const turnKind = typeof data?.turn_kind === "string" ? data.turn_kind : "context";
       const persistedProjectId = typeof data?.design_brief?.project_id === "string"
         ? data.design_brief.project_id
-        : requestProjectId;
-      contextProjectIdsRef.current[requestChatId] = persistedProjectId;
+        : typeof data?.workflow?.project_id === "string"
+          ? data.workflow.project_id
+          : "";
+      const workflowState = typeof data?.workflow?.state === "string" ? data.workflow.state : "";
+      const buildPlanId = typeof data?.build_execution?.plan_id === "string"
+        ? data.build_execution.plan_id
+        : "";
+      const buildJobId = typeof data?.build_execution?.job_id === "string"
+        ? data.build_execution.job_id
+        : "";
+      const buildExecutionStatus = typeof data?.build_execution?.status === "string"
+        ? data.build_execution.status
+        : "";
+      const buildIsActive = buildExecutionStatus === "planned" || buildExecutionStatus === "running";
+      const buildPipelineProgress = buildPlanId
+        ? createAgentPipelineProgress(agentPipelineSteps, false, chatTimestamp(), buildJobId || null)
+        : null;
+      if (persistedProjectId) contextProjectIdsRef.current[requestChatId] = persistedProjectId;
+      if (workflowState) {
+        setContextWorkflowStates((current) => ({ ...current, [requestChatId]: workflowState }));
+      }
       const assistantContent = typeof data?.assistant_message === "string"
         ? data.assistant_message
-        : "I saved that project context. What else should the design account for?";
-      updateChatMessage(assistantMessageId, { content: assistantContent, status: "success" });
-      updateThreadMessage(requestChatId, assistantMessageId, { content: assistantContent, status: "success" });
-      setGenerationInputNotice("Context saved. Continue the conversation to refine the design brief.");
+        : "How can I help with your hardware idea?";
+      updateChatMessage(assistantMessageId, {
+        content: assistantContent,
+        status: buildIsActive ? "loading" : buildExecutionStatus === "failed" ? "error" : "success",
+        pipelineProgress: buildPipelineProgress,
+        contextProjectId: persistedProjectId || null,
+        workflowState: workflowState || null,
+        contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        buildPlanId: buildPlanId || null,
+        buildJobId: buildJobId || null,
+      });
+      updateThreadMessage(requestChatId, assistantMessageId, {
+        content: assistantContent,
+        status: buildIsActive ? "loading" : buildExecutionStatus === "failed" ? "error" : "success",
+        pipelineProgress: buildPipelineProgress,
+        contextProjectId: persistedProjectId || null,
+        workflowState: workflowState || null,
+        contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        buildPlanId: buildPlanId || null,
+        buildJobId: buildJobId || null,
+      });
+      setGenerationInputNotice(
+        buildPlanId
+          ? "Build started."
+          : turnKind === "context"
+          ? "Project context updated."
+          : turnKind === "proceed"
+            ? "Project handed to the next agent stage."
+            : null,
+      );
+      if (buildPlanId && buildJobId && persistedProjectId) {
+        watchContextBuild(persistedProjectId, buildPlanId, buildJobId, requestChatId, assistantMessageId);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save project context.";
       updateChatMessage(assistantMessageId, { content: message, status: "error" });
@@ -2910,6 +3126,83 @@ export function FormaWorkspace({
       setGenerationInputNotice(message);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSkipContextGathering = async () => {
+    if (contextSkipping || isLoading) return;
+    const requestChatId = activeChatId;
+    const availableMessages = requestChatId
+      ? chatThreads[requestChatId] || chatMessages
+      : chatMessages;
+    const persistedContextMessage = [...availableMessages]
+      .reverse()
+      .find((message) => Boolean(message.contextProjectId));
+    const projectId = requestChatId
+      ? contextProjectIdsRef.current[requestChatId] || persistedContextMessage?.contextProjectId || ""
+      : "";
+    if (!requestChatId || !projectId) {
+      setGenerationInputNotice("Save the initial project context before skipping this stage.");
+      return;
+    }
+
+    setContextSkipping(true);
+    setGenerationInputNotice(null);
+    try {
+      const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/context/messages`, {
+        method: "POST",
+        headers: await generationRequestHeaders(),
+        body: JSON.stringify({
+          conversation_id: requestChatId,
+          requested_tool: "build_project",
+        }),
+      });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const outcome = await response.json();
+      const workflowState = typeof outcome?.workflow?.state === "string"
+        ? outcome.workflow.state
+        : "building";
+      const buildPlanId = typeof outcome?.build_execution?.plan_id === "string"
+        ? outcome.build_execution.plan_id
+        : "";
+      const buildJobId = typeof outcome?.build_execution?.job_id === "string"
+        ? outcome.build_execution.job_id
+        : "";
+      const buildStatus = typeof outcome?.build_execution?.status === "string"
+        ? outcome.build_execution.status
+        : "planned";
+      const buildIsActive = buildStatus === "planned" || buildStatus === "running";
+      const pipelineProgress = buildPlanId
+        ? createAgentPipelineProgress(agentPipelineSteps, false, chatTimestamp(), buildJobId || null)
+        : null;
+      contextProjectIdsRef.current[requestChatId] = projectId;
+      setContextWorkflowStates((current) => ({ ...current, [requestChatId]: workflowState }));
+      const message: ChatMessage = {
+        id: newChatMessageId(),
+        role: "assistant",
+        content: typeof outcome?.assistant_message === "string"
+          ? outcome.assistant_message
+          : buildIsActive
+            ? "I’ve started the design build."
+            : "The first design revision is ready for review.",
+        status: buildIsActive ? "loading" : buildStatus === "failed" ? "error" : "success",
+        timestamp: chatTimestamp(),
+        contextProjectId: projectId,
+        workflowState,
+        pipelineProgress,
+        buildPlanId: buildPlanId || null,
+        buildJobId: buildJobId || null,
+      };
+      appendChatMessage(message);
+      appendThreadMessage(requestChatId, message);
+      setGenerationInputNotice(buildIsActive ? "Build started." : "Design ready for review.");
+      if (buildPlanId && buildJobId) {
+        watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id);
+      }
+    } catch (error) {
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not skip context gathering.");
+    } finally {
+      setContextSkipping(false);
     }
   };
 
@@ -2936,8 +3229,8 @@ export function FormaWorkspace({
     }
     const contextCheckpoint = pendingHumanContext;
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const useHumanContextDefaults = Boolean(
-      contextCheckpoint && submitter?.name === "humanContextAction" && submitter.value === "use-defaults"
+    const skipHumanContext = Boolean(
+      contextCheckpoint && submitter?.name === "humanContextAction" && submitter.value === "skip"
     );
     const validationSubject = contextCheckpoint ? contextCheckpoint.basePrompt : prompt;
     const validation = validateGenerationInput(validationSubject, Boolean(selectedImage));
@@ -3030,13 +3323,13 @@ export function FormaWorkspace({
 
     const finalContextNotes = contextCheckpoint ? prompt.trim() : "";
     const promptText = contextCheckpoint
-      ? useHumanContextDefaults
-        ? humanContextDefaultsPromptSection(contextCheckpoint.basePrompt, contextCheckpoint.questions, finalContextNotes)
+      ? skipHumanContext
+        ? humanContextSkipPromptSection(contextCheckpoint.basePrompt, contextCheckpoint.questions, finalContextNotes)
         : humanContextPromptSection(contextCheckpoint, finalContextNotes)
       : rawPromptText;
     const userMessageContent = contextCheckpoint
-      ? useHumanContextDefaults
-        ? humanContextDefaultsChatSummary(contextCheckpoint.questions, finalContextNotes)
+      ? skipHumanContext
+        ? humanContextSkipChatSummary(contextCheckpoint.questions, finalContextNotes)
         : humanContextChatSummary(contextCheckpoint, finalContextNotes)
       : rawPromptText;
     let generatedProject = false;
@@ -3958,6 +4251,7 @@ export function FormaWorkspace({
             features={imageFeatures}
             metrics={metrics}
             metadata={projectIR?.assembly_metadata || {}}
+            systemArchitecture={projectIR?.system_architecture || null}
             showModelName={blueprintDevMode}
           />
         );
@@ -4347,9 +4641,16 @@ export function FormaWorkspace({
                 setPrompt(example);
               }}
               onSubmit={handleGatherContext}
-              pendingContext={pendingHumanContext}
-              onContextAnswer={updateHumanContextAnswer}
-              onClearContext={clearHumanContextCheckpoint}
+              canSkipContext={(() => {
+                const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
+                const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
+                const state = contextWorkflowStates[activeChatId]
+                  || contextMessage?.workflowState
+                  || (contextMessage?.contextProjectId ? "gathering_context" : "");
+                return state === "gathering_context";
+              })()}
+              contextSkipping={contextSkipping}
+              onSkipContext={handleSkipContextGathering}
               isLoading={isLoading}
               generationReady
               needsGenerationProvider={false}

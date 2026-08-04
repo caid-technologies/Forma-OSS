@@ -24,7 +24,7 @@ def parse_llm_selector(value: Optional[str]) -> Optional[LLMSelector]:
 
     provider, separator, model = value.strip().partition("/")
     if not separator or not provider.strip() or not model.strip():
-        raise ValueError("LLM selector must look like provider/model, for example openai/gpt-5.5.")
+        raise ValueError("LLM selector must look like provider/model, for example openai/gpt-5.6-sol.")
 
     return LLMSelector(provider=provider.strip(), model=model.strip())
 

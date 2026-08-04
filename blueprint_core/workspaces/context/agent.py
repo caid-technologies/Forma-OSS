@@ -100,6 +100,59 @@ def _question_answered(question: str, context: str) -> bool:
     return False
 
 
+def _expresses_uncertainty(text: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+    return bool(re.search(
+        r"^(?:idk|i do not know|i don t know|don t know|not sure|unsure|no idea|you choose|up to you)$",
+        normalized,
+    ))
+
+
+def _asks_for_explanation(text: str) -> bool:
+    normalized = re.sub(r"\s+", " ", text.casefold()).strip()
+    return bool(re.search(
+        r"\b(?:what do you mean|what does .+ mean|can you explain|could you explain|why do you ask|why are you asking)\b",
+        normalized,
+    ))
+
+
+def _explain_pending_question(question: str) -> str:
+    normalized = question.casefold()
+    if "treated as fixed" in normalized or ("controller" in normalized and "module" in normalized):
+        return (
+            "By “fixed,” I mean a controller or module that is already decided because you own it, must reuse it, or need compatibility with it. "
+            "If nothing is predetermined, say “no preference,” and the build agents can choose compatible parts from the rest of your requirements."
+        )
+    return (
+        f"I’m asking about this open design choice: “{question}” "
+        "Share only what is already decided. If nothing is decided, say “no preference,” and the build agents can propose it from your goals and constraints."
+    )
+
+
+def _assistant_reply(text: str, questions: list[str], previous: DesignBrief | None) -> str:
+    if _asks_for_explanation(text) and previous and previous.unresolved_questions:
+        return _explain_pending_question(previous.unresolved_questions[0])
+    if _expresses_uncertainty(text):
+        return (
+            "That’s okay—you don’t need to choose technical parts yet. "
+            "Tell me any outcome, operating condition, or constraint you do know, and the build agents can propose the open technical choices. "
+            "You can also skip context gathering whenever you’re ready."
+        )
+    if previous:
+        if questions:
+            return (
+                "Thanks—that helps shape the brief. Add any behavior, operating condition, constraint, or preference that matters to you; "
+                "technical choices can stay open for the build agents."
+            )
+        return "Thanks—that gives the build agents enough direction. Add anything else that matters, or continue to the next stage."
+    if questions:
+        return (
+            f"Got it—I’ve started the design brief. {questions[0]} "
+            "If you don’t know the technical details, describe the outcome you want and the build agents can propose the implementation."
+        )
+    return "Got it—I’ve started the design brief. Add anything else that matters, or continue to the next stage."
+
+
 class ContextBriefUpdater:
     """Updates a DesignBrief without invoking a model, tool, or worker job."""
 
@@ -107,9 +160,14 @@ class ContextBriefUpdater:
         text = request.text.strip()
         attachment_text = [item.extracted_text for item in request.attachments if item.extracted_text]
         combined_update = "\n".join([text, *attachment_text]).strip()
-        update_sentences = _sentences(combined_update)
+        conversational_control = _asks_for_explanation(text) or _expresses_uncertainty(text)
+        update_sentences = [] if conversational_control else _sentences(combined_update)
 
-        prior_requirements = list(previous.requirements) if previous else []
+        prior_requirements = [
+            requirement
+            for requirement in (list(previous.requirements) if previous else [])
+            if not _asks_for_explanation(requirement) and not _expresses_uncertainty(requirement)
+        ]
         requirements = _unique([*prior_requirements, *update_sentences])
         constraint_markers = re.compile(
             r"\b(must|only|under|maximum|max\b|minimum|min\b|budget|fit|within|voltage|battery|usb|no\s+|without|weatherproof|waterproof|material)\b",
@@ -184,8 +242,5 @@ class ContextBriefUpdater:
             assumptions=assumptions,
             readiness=DesignBriefReadiness.NEEDS_CLARIFICATION if questions else DesignBriefReadiness.DRAFT,
         )
-        if questions:
-            assistant_message = "I’ve saved that context. " + " ".join(questions)
-        else:
-            assistant_message = "I’ve saved that context. Add any remaining constraints, references, or expected outputs when you’re ready."
+        assistant_message = _assistant_reply(text, questions, previous)
         return brief, assistant_message, questions

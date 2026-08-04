@@ -360,6 +360,38 @@ class SqlAlchemyRepository:
         except IntegrityError:
             return None
 
+    def insert_project_revision(
+        self,
+        record: Dict[str, Any],
+        expected_parent_revision: int,
+    ) -> Optional[Any]:
+        try:
+            with self._session() as session, session.begin():
+                latest = (
+                    session.query(DBProjectRevision)
+                    .filter(
+                        DBProjectRevision.project_id == record["project_id"],
+                        DBProjectRevision.owner_user_id == record["owner_user_id"],
+                    )
+                    .order_by(DBProjectRevision.revision.desc())
+                    .first()
+                )
+                if (
+                    latest is None
+                    or latest.revision != expected_parent_revision
+                    or record["parent_revision"] != expected_parent_revision
+                    or record["revision"] != expected_parent_revision + 1
+                ):
+                    return None
+                revision = DBProjectRevision(**record)
+                session.add(revision)
+                session.flush()
+                session.refresh(revision)
+                session.expunge(revision)
+                return revision
+        except IntegrityError:
+            return None
+
     def get_validation_report(self, report_id: str, owner_user_id: str) -> Optional[Any]:
         with self._session() as session:
             return session.query(DBProjectValidationReport).filter(

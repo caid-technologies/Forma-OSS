@@ -212,7 +212,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 "llm_model",
                 "Model override",
                 ("LLM_MODEL",),
-                placeholder="gpt-5.5",
+                placeholder="gpt-5.6-sol",
                 help="Advanced override. Leave blank when Preferred model is set.",
             ),
             IntegrationFieldDefinition(
@@ -250,7 +250,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("OPENAI_API_KEY",), secret=True, placeholder="sk-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("OPENAI_BASE_URL", "OPENAI_IMAGE_BASE_URL"), placeholder="https://api.openai.com/v1"),
-            IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.5"),
+            IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.6-sol"),
             IntegrationFieldDefinition("image_model", "Default image model", ("OPENAI_IMAGE_MODEL",), placeholder="gpt-image-2"),
             IntegrationFieldDefinition("image_size", "Image size", ("OPENAI_IMAGE_SIZE",), placeholder="1024x1024"),
             IntegrationFieldDefinition("image_quality", "Image quality", ("OPENAI_IMAGE_QUALITY",), placeholder="medium"),

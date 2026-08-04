@@ -229,7 +229,7 @@ class ContinuousOpenAIJobSpec:
         return cls(
             job_id=str(value.get("job_id") or f"openai-job-{uuid.uuid4().hex}"),
             prompt=str(value.get("prompt") or ""),
-            model=str(value.get("model") or "gpt-5.5"),
+            model=str(value.get("model") or "gpt-5.6-sol"),
             provider=normalize_provider_name(str(value.get("provider") or "openai")),
             instructions=str(value["instructions"]) if value.get("instructions") is not None else None,
             max_output_tokens=int(value["max_output_tokens"]) if value.get("max_output_tokens") is not None else None,

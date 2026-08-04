@@ -22,6 +22,7 @@ class PipelineMetadataTests(unittest.TestCase):
         self.assertGreaterEqual(len(steps), 7)
         self.assertEqual("safety_guardrail", steps[0]["id"])
         self.assertEqual("context_clarifier", steps[1]["id"])
+        self.assertTrue(any(step["id"] == "system_architecture" for step in steps))
         self.assertTrue(any(step["agent"] == "Wiring/Netlist Agent" for step in steps))
         self.assertTrue(all("description" in step for step in steps))
 

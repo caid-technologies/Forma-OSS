@@ -3,7 +3,7 @@
 Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `apps/api/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
 
 ## Pipeline overview
-0. Safety guardrails → 1. Intent Parser → 2. Requirements → 3. Component Selection → 4. Wiring/Netlist (+ repair loop) → 5. BOM → 6. Mechanical/Fabrication → 7. Assembly Instructions → 8. Mechanical render enrichment
+0. Safety guardrails → 1. Intent Parser → 2. Requirements → 3. System Architecture → 4. Component Selection → 5. Wiring/Netlist (+ repair loop) → 6. BOM → 7. Mechanical/Fabrication → 8. Assembly Instructions → 9. Mechanical render enrichment
 
 ## Agent responsibilities
 
@@ -22,10 +22,18 @@ Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `app
 **Output:** `FunctionalRequirements`  
 **Goal:** Extract functional requirements, power needs, constraints, and missing info.
 
+### System Architecture Agent
+**Input:** Overview + requirements
+
+**Output:** `SystemArchitecture`
+
+**Goal:** Decompose the complete product into a purpose-driven tree such as electrical → power/control/sensing and mechanical → enclosure/mounting. Every node explains why it exists, its interfaces, and which specialist owns its details. Exact parts, nets, and pins are excluded at this level.
+
 ### Component Selection Agent
-**Input:** Requirements + seed component database  
+**Input:** Requirements + system tree + compact seed component catalog
+
 **Output:** `ComponentInstance[]`  
-**Goal:** Choose compatible parts and instantiate the BOM with pinouts.
+**Goal:** Choose compatible parts by system role. Exact catalog pinouts are hydrated deterministically after selection.
 
 ### Wiring/Netlist Agent
 **Input:** Components + requirements  
@@ -40,14 +48,16 @@ If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-
 **Goal:** Calculate total cost from unit prices and quantities (deterministic step).
 
 ### Mechanical/Fabrication Agent
-**Input:** Overview + components  
+**Input:** Mechanical system branch + pin-free component summaries
+
 **Output:** `MechanicalNotes`  
 **Goal:** Suggest enclosure type, mounting, and fabrication details.
 
 The agent may also emit `render_dimensions`, `component_placements`, and `spatial_relationships` for the 3D viewer.
 
 ### Assembly Instruction Agent
-**Input:** Overview + components + nets + mechanical notes  
+**Input:** System tree + pin-free component/net summaries + mechanical notes
+
 **Output:** `AssemblyStep[]`  
 **Goal:** Produce step-by-step build instructions with safety flags.
 
@@ -56,12 +66,13 @@ The agent may also emit `render_dimensions`, `component_placements`, and `spatia
 flowchart LR
   A[Prompt] --> B[ProjectOverview]
   B --> C[FunctionalRequirements]
-  C --> D[ComponentInstance[]]
-  D --> E[ConnectionNet[] + PinMappingEntry[]]
-  E --> F[Validation + repair loop]
-  F --> G[MechanicalNotes]
-  G --> H[AssemblyStep[]]
-  H --> I[Hardware IR]
+  C --> D[SystemArchitecture tree]
+  D --> E[ComponentInstance[]]
+  E --> F[ConnectionNet[] + PinMappingEntry[]]
+  F --> G[Validation + repair loop]
+  G --> H[MechanicalNotes]
+  H --> I[AssemblyStep[]]
+  I --> J[Hardware IR]
 ```
 
 ## Notes
@@ -71,5 +82,6 @@ flowchart LR
 - The pipeline is designed to swap models or add agents without rewriting the core IR schema.
 - External agents can call or listen to Forma through the A2A layer documented in `docs/a2a.md`.
 - Specialized worker execution boundaries use the versioned contracts and capability registry documented in `docs/worker-contracts.md`.
+- Prompt context is projected by ownership: only wiring and electrical validation receive physical pins; architecture, mechanical, and assembly agents receive compact system-level views.
 - Dependency-aware concurrent execution and restart recovery are documented in `docs/worker-orchestration.md`.
 - Frozen-brief generation and canonical revision persistence are documented in `docs/generation-worker.md`.

@@ -84,7 +84,32 @@ Available tools:
 - `blueprint.generate_project`
 - `blueprint.debug_config`
 - `blueprint.validate_circuit`
+- `blueprint.export_project_pdf`
 - `blueprint.a2a.send_message`
 - `blueprint.a2a.poll_events`
 - `blueprint.a2a.get_job`
 - `blueprint.a2a.list_jobs`
+- `blueprint.lattice.list_agents`
+- `blueprint.lattice.get_agent_card`
+
+`blueprint.generate_project` accepts `output_formats: ["pdf"]` to add a printable project report. The PDF is returned as an MCP embedded binary resource with MIME type `application/pdf`; existing generation responses are unchanged when `output_formats` is omitted.
+
+To export existing Hardware IR without generating a new project, call `blueprint.export_project_pdf`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "pdf-1",
+  "method": "tools/call",
+  "params": {
+    "name": "blueprint.export_project_pdf",
+    "arguments": {
+      "project_ir": {
+        "overview": {"title": "Plant Monitor", "description": "A low-voltage sensor project"},
+        "components": [],
+        "nets": []
+      }
+    }
+  }
+}
+```

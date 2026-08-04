@@ -38,6 +38,7 @@ The server must have `BLUEPRINT_USER_SECRETS_KEY` and a configured generation pr
 
 - `blueprint.generate_project`: generate Hardware IR and diagrams.
 - `blueprint.validate_circuit`: validate components and connection nets.
+- `blueprint.export_project_pdf`: render existing Hardware IR as an embedded `application/pdf` report.
 - `blueprint.debug_config`: inspect credential-safe runtime configuration.
 - `blueprint.a2a.get_job` and `blueprint.a2a.list_jobs`: inspect persisted job metadata.
 

@@ -129,7 +129,14 @@ def call_tool(
 ) -> Any:
     result = request("tools/call", {"name": name, "arguments": arguments}, url=url, timeout=timeout)
     if isinstance(result, dict) and "structuredContent" in result:
-        return result["structuredContent"]
+        structured = dict(result["structuredContent"])
+        resources = []
+        for block in result.get("content") or []:
+            if isinstance(block, dict) and block.get("type") == "resource" and isinstance(block.get("resource"), dict):
+                resources.append(dict(block["resource"]))
+        if resources:
+            structured["_embedded_resources"] = resources
+        return structured
     return result
 
 
@@ -170,6 +177,35 @@ def _image_data_url(path_value: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
+def _write_embedded_pdf(value: Any, output: str) -> Path:
+    if not isinstance(value, dict):
+        raise FormaClientError("Forma did not return structured PDF output.")
+    resources = value.get("_embedded_resources")
+    if not isinstance(resources, list):
+        raise FormaClientError("Forma did not return an embedded PDF resource.")
+    for resource in resources:
+        if not isinstance(resource, dict) or resource.get("mimeType") != "application/pdf":
+            continue
+        encoded = resource.get("blob")
+        if not isinstance(encoded, str) or not encoded:
+            continue
+        try:
+            pdf = base64.b64decode(encoded, validate=True)
+        except ValueError as exc:
+            raise FormaClientError("Forma returned invalid base64 PDF data.") from exc
+        if not pdf.startswith(b"%PDF-"):
+            raise FormaClientError("Forma returned application/pdf data without a PDF signature.")
+        path = Path(output)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(pdf)
+        resource.pop("blob", None)
+        resource["saved_path"] = str(path)
+        resource["size_bytes"] = len(pdf)
+        print(str(path))
+        return path
+    raise FormaClientError("Forma did not return an embedded application/pdf resource.")
+
+
 def _shared_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--url", help="Forma MCP URL; overrides FORMA_MCP_URL.")
     parser.add_argument("--timeout", type=float, help="HTTP timeout in seconds.")
@@ -194,11 +230,19 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--external-source-provider", choices=("firecrawl",))
     generate.add_argument("--past-jobs", action="store_true", help="Use relevant completed jobs as context.")
     generate.add_argument("--past-jobs-limit", type=int, choices=range(1, 9), default=3)
+    generate.add_argument("--pdf-output", help="Request and save an additional PDF project report.")
     _shared_options(generate)
 
     validate = subparsers.add_parser("validate", help="Validate components and nets from Forma project JSON.")
     validate.add_argument("project", help="Project JSON path, or - for stdin.")
     _shared_options(validate)
+
+    export_pdf = subparsers.add_parser("export-pdf", help="Render existing Forma project JSON as PDF.")
+    export_pdf.add_argument("project", help="Project JSON path, or - for stdin.")
+    export_pdf.add_argument("--pdf-output", required=True, help="Destination PDF path.")
+    export_pdf.add_argument("--filename", help="Optional artifact filename reported by Forma.")
+    export_pdf.add_argument("--project-id", help="Optional project id for the embedded resource URI.")
+    _shared_options(export_pdf)
 
     job = subparsers.add_parser("job", help="Fetch one persisted A2A job.")
     job.add_argument("job_id")
@@ -238,6 +282,8 @@ def run(args: argparse.Namespace) -> Any:
             arguments["external_source_provider"] = args.external_source_provider
         if args.past_jobs:
             arguments["data_sources"] = ["past_jobs"]
+        if args.pdf_output:
+            arguments["output_formats"] = ["pdf"]
         return call_tool("blueprint.generate_project", arguments, **options)
     if args.command == "validate":
         project = _project_ir(_load_json(args.project))
@@ -246,6 +292,14 @@ def run(args: argparse.Namespace) -> Any:
         if not isinstance(components, list) or not isinstance(nets, list):
             raise FormaClientError("The project JSON must contain components and nets arrays.")
         return call_tool("blueprint.validate_circuit", {"components": components, "nets": nets}, **options)
+    if args.command == "export-pdf":
+        project = _project_ir(_load_json(args.project))
+        arguments: dict[str, Any] = {"project_ir": project}
+        if args.filename:
+            arguments["filename"] = args.filename
+        if args.project_id:
+            arguments["project_id"] = args.project_id
+        return call_tool("blueprint.export_project_pdf", arguments, **options)
     if args.command == "job":
         return call_tool("blueprint.a2a.get_job", {"job_id": args.job_id}, **options)
     if args.command == "jobs":
@@ -268,6 +322,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = run(args)
+        pdf_output = getattr(args, "pdf_output", None)
+        if pdf_output:
+            _write_embedded_pdf(result, pdf_output)
         _write_json(result, args.output)
         return 0
     except (FormaClientError, OSError, ValueError, json.JSONDecodeError) as exc:

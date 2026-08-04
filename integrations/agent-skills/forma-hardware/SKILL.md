@@ -29,6 +29,12 @@ python <skill-directory>/scripts/forma.py generate "<complete hardware brief>" -
 
 Use `--workflow web_research` only when the user needs sourced component research and the Forma server has Firecrawl configured. Add `--generate-image` only when the user explicitly wants a concept image. Add `--image-file <path>` when a reference image is part of the request.
 
+When the user requests a printable report, request PDF output and save the embedded MCP resource:
+
+```bash
+python <skill-directory>/scripts/forma.py generate "<complete hardware brief>" --output forma-project.json --pdf-output forma-project.pdf
+```
+
 4. Inspect the returned `project_ir`, especially `overview`, `requirements`, `components`, `nets`, `validation`, `bom`, `assembly_steps`, and `assembly_metadata`.
 5. Report the artifact path, the design summary, unresolved warnings, and whether electrical validation passed. Clearly label the output as a prototype plan, not fabrication-ready engineering approval.
 
@@ -41,6 +47,12 @@ python <skill-directory>/scripts/forma.py validate forma-project.json --output v
 ```
 
 Treat every `CRITICAL` issue as blocking. Report warnings rather than silently discarding them. If the input is not a Forma response or Hardware IR object, explain the schema problem and ask for components and nets.
+
+To create a PDF later from existing Forma project JSON, run:
+
+```bash
+python <skill-directory>/scripts/forma.py export-pdf forma-project.json --pdf-output forma-project.pdf
+```
 
 ## Inspect server state and jobs
 
@@ -62,6 +74,7 @@ Keep Forma output intact when saving JSON. In the user-facing response include:
 - Power assumptions and major components
 - Validation status and remaining issues
 - Saved artifact paths
+- Requested PDF report filename and path
 - Any unavailable optional outputs, such as product imagery or web research
 
 Do not claim that generated diagrams, BOM availability, pricing, or component compatibility have been physically verified unless the returned data explicitly establishes it.

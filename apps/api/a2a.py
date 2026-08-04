@@ -37,6 +37,10 @@ from blueprint_core.jobs.context import (
 )
 from blueprint_core.jobs.source_usage import normalize_source_usage
 from blueprint_core.llm import get_llm_runtime_debug_config
+from blueprint_core.workspaces.projects.exports import (
+    attach_project_output_artifacts,
+    build_project_pdf_artifact,
+)
 from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet
 from blueprint_core.observability import (
     get_langfuse_debug_config,
@@ -217,6 +221,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                     "blueprint.generate_project",
                     "blueprint.debug_config",
                     "blueprint.validate_circuit",
+                    "blueprint.export_project_pdf",
                     "blueprint.a2a.send_message",
                     "blueprint.a2a.poll_events",
                     "blueprint.a2a.get_job",
@@ -237,6 +242,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
             "blueprint.generate_project",
             "blueprint.debug_config",
             "blueprint.validate_circuit",
+            "blueprint.export_project_pdf",
             "blueprint.a2a.capabilities",
             "blueprint.a2a.get_job",
             "blueprint.a2a.list_jobs",
@@ -969,7 +975,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
                 limit=int(payload.get("past_jobs_limit") or 3),
                 exclude_job_id=payload.get("client_job_id") or payload.get("frontend_job_id"),
             )
-        return await asyncio.to_thread(
+        response = await asyncio.to_thread(
             build_generation_response,
             payload.get("prompt", ""),
             payload.get("image_data"),
@@ -986,6 +992,21 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             past_job_context,
             payload.get("project_id"),
         )
+        return attach_project_output_artifacts(response, payload.get("output_formats"))
+
+    if normalized == "export_project_pdf":
+        project_ir = payload.get("project_ir")
+        if not isinstance(project_ir, dict):
+            raise ValueError("project_ir must be a Forma Hardware IR object.")
+        return {
+            "artifacts": [
+                build_project_pdf_artifact(
+                    project_ir,
+                    requested_filename=payload.get("filename"),
+                    project_id=payload.get("project_id"),
+                )
+            ]
+        }
 
     if normalized == "debug_config":
         orchestrator = HardwarePipelineOrchestrator(
@@ -1232,17 +1253,37 @@ def _jsonrpc_error(request_id: Any, code: int, message: str, data: Optional[Any]
 
 
 def _mcp_tool_result(result: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        "content": [{"type": "text", "text": json.dumps(result)}],
-        "structuredContent": result,
-    }
+    structured = json.loads(json.dumps(result))
+    content: List[Dict[str, Any]] = []
+    artifacts = structured.get("artifacts") if isinstance(structured, dict) else None
+    if isinstance(artifacts, list):
+        for artifact in artifacts:
+            if not isinstance(artifact, dict):
+                continue
+            encoded = artifact.pop("data_base64", None)
+            if not isinstance(encoded, str) or not encoded:
+                continue
+            artifact["delivery"] = "embedded_resource"
+            content.append(
+                {
+                    "type": "resource",
+                    "resource": {
+                        "uri": artifact.get("uri") or f"forma://artifacts/{artifact.get('filename', 'output.bin')}",
+                        "mimeType": artifact.get("mime_type") or "application/octet-stream",
+                        "blob": encoded,
+                    },
+                    "annotations": {"audience": ["user"], "priority": 1.0},
+                }
+            )
+    content.insert(0, {"type": "text", "text": json.dumps(structured)})
+    return {"content": content, "structuredContent": structured}
 
 
 def _mcp_tools() -> List[Dict[str, Any]]:
     return [
         {
             "name": "blueprint.generate_project",
-            "description": "Generate a Forma Hardware IR package, Mermaid diagram, and SVG schematic.",
+            "description": "Generate a Forma Hardware IR package, Mermaid diagram, SVG schematic, and optional PDF report.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1270,6 +1311,12 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                         "maximum": 8,
                         "default": 3,
                     },
+                    "output_formats": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["pdf"]},
+                        "uniqueItems": True,
+                        "description": "Optional additional output artifacts. Request pdf for an embedded application/pdf report.",
+                    },
                 },
                 "required": ["prompt"],
             },
@@ -1289,6 +1336,19 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     "nets": {"type": "array", "items": {"type": "object"}},
                 },
                 "required": ["components", "nets"],
+            },
+        },
+        {
+            "name": "blueprint.export_project_pdf",
+            "description": "Render an existing Forma Hardware IR object as an embedded application/pdf project report.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_ir": {"type": "object", "description": "Forma Hardware IR object to render."},
+                    "filename": {"type": "string", "description": "Optional output filename ending in .pdf."},
+                    "project_id": {"type": "string", "description": "Optional project id used in the resource URI."},
+                },
+                "required": ["project_ir"],
             },
         },
         {

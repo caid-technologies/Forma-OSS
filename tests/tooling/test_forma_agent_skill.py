@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import importlib.util
@@ -48,6 +49,39 @@ class _MCPHandler(BaseHTTPRequestHandler):
                 "jsonrpc": "2.0",
                 "id": payload["id"],
                 "result": {"tools": [{"name": "blueprint.generate_project"}]},
+            }
+        elif (
+            payload["params"]["name"] == "blueprint.export_project_pdf"
+            or "pdf" in payload["params"]["arguments"].get("output_formats", [])
+        ):
+            encoded_pdf = base64.b64encode(b"%PDF-1.4\n%%EOF\n").decode("ascii")
+            response = {
+                "jsonrpc": "2.0",
+                "id": payload["id"],
+                "result": {
+                    "content": [
+                        {"type": "text", "text": "pdf"},
+                        {
+                            "type": "resource",
+                            "resource": {
+                                "uri": "forma://artifacts/test/report.pdf",
+                                "mimeType": "application/pdf",
+                                "blob": encoded_pdf,
+                            },
+                        },
+                    ],
+                    "structuredContent": {
+                        "received": payload["params"]["arguments"],
+                        "artifacts": [
+                            {
+                                "format": "pdf",
+                                "filename": "report.pdf",
+                                "mime_type": "application/pdf",
+                                "delivery": "embedded_resource",
+                            }
+                        ]
+                    },
+                },
             }
         else:
             arguments = payload["params"]["arguments"]
@@ -140,6 +174,55 @@ class FormaSkillClientTests(unittest.TestCase):
         self.assertEqual(0, exit_code)
         self.assertEqual([{"id": "mcu"}], saved["received"]["components"])
         self.assertEqual([{"id": "power"}], saved["received"]["nets"])
+
+    def test_generate_can_save_requested_pdf_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir, _mcp_server() as url:
+            pdf_path = Path(temp_dir) / "generated-report.pdf"
+            metadata_path = Path(temp_dir) / "project.json"
+
+            exit_code = forma_client.main([
+                "generate",
+                "ESP32 soil monitor",
+                "--url",
+                url,
+                "--pdf-output",
+                str(pdf_path),
+                "--output",
+                str(metadata_path),
+            ])
+            saved_pdf = pdf_path.read_bytes()
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, exit_code)
+        self.assertTrue(saved_pdf.startswith(b"%PDF-"))
+        self.assertEqual(["pdf"], metadata["received"]["output_formats"])
+
+    def test_export_pdf_saves_embedded_resource(self) -> None:
+        project = {"project_ir": {"overview": {"title": "Test"}, "components": [], "nets": []}}
+        with tempfile.TemporaryDirectory() as temp_dir, _mcp_server() as url:
+            project_path = Path(temp_dir) / "project.json"
+            pdf_path = Path(temp_dir) / "report.pdf"
+            metadata_path = Path(temp_dir) / "metadata.json"
+            project_path.write_text(json.dumps(project), encoding="utf-8")
+
+            exit_code = forma_client.main([
+                "export-pdf",
+                str(project_path),
+                "--url",
+                url,
+                "--pdf-output",
+                str(pdf_path),
+                "--output",
+                str(metadata_path),
+            ])
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            saved_pdf = pdf_path.read_bytes()
+
+        self.assertEqual(0, exit_code)
+        self.assertEqual(b"%PDF-1.4\n%%EOF\n", saved_pdf)
+        resource = metadata["_embedded_resources"][0]
+        self.assertEqual(str(pdf_path), resource["saved_path"])
+        self.assertNotIn("blob", resource)
 
     def test_surfaces_json_rpc_errors(self) -> None:
         with _mcp_server() as url:

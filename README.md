@@ -18,6 +18,7 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 - Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
 - Install the portable **Forma Agent Skill** for Claude Code and Codex
+- Return printable **PDF project reports** from MCP generation and export tools
 
 ## How it works
 

@@ -63,6 +63,13 @@ Example requests:
 - `Use Forma to design a 5V ESP32 soil monitor and save the Hardware IR.`
 - `Validate the components and nets in forma-project.json.`
 - `Generate a low-voltage weather station with sourced component research.`
+- `Generate a printable PDF report for this Forma project.`
+
+The bundled client can save an MCP PDF resource directly:
+
+```bash
+python ~/.claude/skills/forma-hardware/scripts/forma.py export-pdf forma-project.json --pdf-output forma-project.pdf
+```
 
 The skill preserves Forma's safety boundary. Its output is a prototype plan and does not replace electrical review, compliance testing, or physical verification.
 

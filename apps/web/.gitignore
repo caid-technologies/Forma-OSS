@@ -1,0 +1,7 @@
+# OpenNext
+.open-next
+
+# Wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example

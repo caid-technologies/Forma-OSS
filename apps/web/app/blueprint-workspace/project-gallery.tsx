@@ -224,7 +224,7 @@ export function ProjectGallery({
   onVisibleProjectIdsChange,
   standalone = false,
 }: {
-  sectionRef: React.RefObject<HTMLElement>;
+  sectionRef: React.RefObject<HTMLElement | null>;
   items: ProjectGalleryItem[];
   title?: string;
   loading?: boolean;

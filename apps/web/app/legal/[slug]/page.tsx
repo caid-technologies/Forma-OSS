@@ -11,16 +11,17 @@ import {
 } from "../../../lib/legal-docs";
 
 type LegalDocumentPageProps = {
-  params: {
+  params: Promise<{
     slug: string;
-  };
+  }>;
 };
 
 export function generateStaticParams() {
   return legalDocuments.map((document) => ({ slug: document.slug }));
 }
 
-export function generateMetadata({ params }: LegalDocumentPageProps): Metadata {
+export async function generateMetadata(props: LegalDocumentPageProps): Promise<Metadata> {
+  const params = await props.params;
   const document = getLegalDocument(params.slug);
   if (!document) return {};
   return {
@@ -29,7 +30,8 @@ export function generateMetadata({ params }: LegalDocumentPageProps): Metadata {
   };
 }
 
-export default function LegalDocumentPage({ params }: LegalDocumentPageProps) {
+export default async function LegalDocumentPage(props: LegalDocumentPageProps) {
+  const params = await props.params;
   const document = getLegalDocument(params.slug);
   if (!document) notFound();
 

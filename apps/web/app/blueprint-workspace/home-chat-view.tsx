@@ -45,7 +45,7 @@ type PendingContext = {
 type HomeChatViewProps = {
   started: boolean;
   messages: HomeChatMessage[];
-  endRef: RefObject<HTMLDivElement>;
+  endRef: RefObject<HTMLDivElement | null>;
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
   examples: string[];
   onSelectExample: (example: string) => void;
@@ -66,7 +66,7 @@ type HomeChatViewProps = {
   onStop: () => void;
   hasGenerationInput: boolean;
   inputValid: boolean;
-  imageInputRef: RefObject<HTMLInputElement>;
+  imageInputRef: RefObject<HTMLInputElement | null>;
   onImageChange: ChangeEventHandler<HTMLInputElement>;
   onImagePaste: ClipboardEventHandler<HTMLTextAreaElement>;
 };

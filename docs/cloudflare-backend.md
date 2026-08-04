@@ -50,10 +50,19 @@ Required secret values are:
 - `REDIS_URL`
 - `SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
+- `GOOGLE_API_KEY` or `GEMINI_API_KEY`
 
-The allowlist also supports the configured model, image, research, object
-storage, admin, and Langfuse settings shown in `apps/api/.env.example`. Provider
-keys are optional when every user supplies an encrypted BYOK integration.
+Gemini is the committed primary provider, using `gemini-3.5-flash` with strict
+live-provider behavior. Local `LLM_PROVIDER`, `LLM_MODEL`, and
+`LLM_ALLOWED_PROVIDERS` values are deliberately not copied into the production
+secret, so stale local provider choices cannot override or exclude Gemini. The
+allowlist also supports image, research, object
+storage, admin, and Langfuse settings shown in `apps/api/.env.example`.
+`GOOGLE_PROJECT_NAME` and `GOOGLE_PROJECT_NUMBER` may be forwarded as deployment
+metadata, but the current Gemini Developer API client authenticates with the API
+key and does not consume them. The sync script accepts the legacy misspelling
+`GOOGLE_PROJCT_NAME` for existing local configuration; prefer the correctly
+spelled name in new environments.
 
 Production uses `DATABASE_BACKEND=supabase`; job metadata therefore uses the
 same Supabase database. Project data, jobs, integration settings, and images do

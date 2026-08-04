@@ -14,11 +14,15 @@ const allowedNames = new Set([
   "SUPABASE_S3_ENDPOINT",
   "SUPABASE_STORAGE_PUBLIC_BASE_URL",
   "VIDEO_S3_BUCKET",
-  "LLM_PROVIDER",
-  "LLM_MODEL",
-  "LLM_ALLOWED_PROVIDERS",
   "LLM_RESPONSE_FORMAT",
-  "STRICT_LLM",
+  "GOOGLE_API_KEY",
+  "GOOGLE_PROJECT_NAME",
+  "GOOGLE_PROJCT_NAME",
+  "GOOGLE_PROJECT_NUMBER",
+  "GEMINI_API_KEY",
+  "GEMINI_ALLOWED_MODELS",
+  "GEMINI_FALLBACK_MODEL",
+  "STRICT_GEMINI",
   "OPENAI_API_KEY",
   "OPENAI_MODEL",
   "OPENAI_ALLOWED_MODELS",
@@ -82,6 +86,9 @@ for (const envFile of envFiles) {
 }
 
 const missing = requiredNames.filter((name) => !backendEnvironment[name]);
+if (!backendEnvironment.GOOGLE_API_KEY && !backendEnvironment.GEMINI_API_KEY) {
+  missing.push("GOOGLE_API_KEY or GEMINI_API_KEY");
+}
 if (missing.length > 0) {
   throw new Error(`Required backend configuration is missing: ${missing.join(", ")}`);
 }

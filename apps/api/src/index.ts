@@ -30,7 +30,10 @@ function parseBackendEnvironment(serialized: string): Record<string, string> {
     parsed[key] = entry;
   }
 
-  const missing = requiredContainerVariables.filter((key) => !parsed[key]);
+  const missing: string[] = requiredContainerVariables.filter((key) => !parsed[key]);
+  if (!parsed.GOOGLE_API_KEY && !parsed.GEMINI_API_KEY) {
+    missing.push("GOOGLE_API_KEY or GEMINI_API_KEY");
+  }
   if (missing.length > 0) {
     throw new Error(`FORMA_BACKEND_ENV is missing required entries: ${missing.join(", ")}.`);
   }
@@ -53,6 +56,10 @@ export class FormaApiContainer extends Container<Cloudflare.Env> {
     DATABASE_BACKEND: env.DATABASE_BACKEND,
     BLUEPRINT_IMAGE_STORAGE_BACKEND: env.BLUEPRINT_IMAGE_STORAGE_BACKEND,
     JOB_METADATA_BACKEND: env.JOB_METADATA_BACKEND,
+    LLM_PROVIDER: env.LLM_PROVIDER,
+    LLM_MODEL: env.LLM_MODEL,
+    GEMINI_MODEL: env.GEMINI_MODEL,
+    STRICT_LLM: env.STRICT_LLM,
     REDIS_CACHE_PREFIX: env.REDIS_CACHE_PREFIX,
     CORS_ALLOWED_ORIGINS: env.CORS_ALLOWED_ORIGINS,
     PUBLIC_FRONTEND_ORIGIN: env.PUBLIC_FRONTEND_ORIGIN,

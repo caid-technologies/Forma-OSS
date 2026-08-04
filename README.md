@@ -17,6 +17,7 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 - Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `BLUEPRINT_DEV_MODE` for SQLite-only local work
 - Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
+- Install the portable **Forma Agent Skill** for Claude Code and Codex
 
 ## How it works
 
@@ -117,6 +118,17 @@ blueprint-core validate project.json
 blueprint-core iterate project.json "Make the enclosure splash resistant" --namespace product.mech --output revised.json
 python -m blueprint_core --help
 ```
+
+**Claude Code and Codex Agent Skill:**
+
+Install the same portable Forma skill for both agents, then point it at a running Forma backend:
+
+```bash
+python scripts/operations/install-forma-skill.py
+export FORMA_MCP_URL=http://127.0.0.1:8000/mcp
+```
+
+Use `/forma-hardware` in Claude Code or `$forma-hardware` in Codex. Project-scoped installation, authentication, examples, and package details are documented in [Claude Code and Codex Agent Skill](docs/agent-skills.md).
 
 **Developer utilities:**
 
@@ -372,6 +384,7 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [Validation](docs/validation.md)
 - [Database](docs/database.md)
 - [A2A](docs/a2a.md)
+- [Claude Code and Codex Agent Skill](docs/agent-skills.md)
 - [Backend](docs/backend.md)
 - [Frontend](docs/frontend.md)
 - [Setup](docs/setup.md)

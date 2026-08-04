@@ -16,6 +16,7 @@ Common entrypoints:
 ./scripts/quality/test.sh
 ./scripts/models/verify-llm-providers.py --list
 ./scripts/quality/benchmark.sh
+python scripts/operations/install-forma-skill.py
 ```
 
 Scripts should stay thin and call reusable implementations from `blueprint_core` or `evals` instead of accumulating application logic.

@@ -27,6 +27,8 @@ __pycache__/
 .env.staging
 .env.test.local
 .env.production.local
+.dev.vars
+.dev.vars.*
 supabase/.temp/
 tmp/
 

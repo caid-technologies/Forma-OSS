@@ -82,6 +82,10 @@ If you change the published backend URL, rebuild the frontend with a matching pu
 BACKEND_PORT=8010 NEXT_PUBLIC_API_URL=http://localhost:8010 docker compose up --build
 ```
 
+The production FastAPI deployment uses a Cloudflare Worker in front of a
+Cloudflare Container. See [Cloudflare backend deployment](docs/cloudflare-backend.md)
+for local validation, secret setup, deployment, verification, and rollback.
+
 ### Backend (FastAPI)
 From the repo root:
 

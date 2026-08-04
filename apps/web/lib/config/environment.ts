@@ -3,13 +3,14 @@ function truthy(value: string | undefined) {
 }
 
 const development = process.env.NODE_ENV === "development";
+const productionApiUrl = "https://forma-api.caid.workers.dev";
 
 export const webConfig = {
   development,
   apiBaseUrl:
     process.env.NEXT_PUBLIC_API_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
-    (development ? "http://127.0.0.1:8000" : ""),
+    (development ? "http://localhost:8000" : productionApiUrl),
   publicDeveloperTools:
     development ||
     truthy(process.env.NEXT_PUBLIC_BLUEPRINT_DEBUG) ||

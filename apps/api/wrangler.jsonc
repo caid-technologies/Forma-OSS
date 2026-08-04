@@ -1,0 +1,66 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "forma-api",
+  "account_id": "417c84e04ed8ebd20328e0d9cd6de585",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "vars": {
+    "PORT": "8000",
+    "APP_ENV": "production",
+    "BLUEPRINT_AUTH_MODE": "clerk",
+    "BLUEPRINT_DEPLOYMENT": "true",
+    "BLUEPRINT_DEV_MODE": "false",
+    "BLUEPRINT_DEBUG": "false",
+    "DATABASE_BACKEND": "supabase",
+    "BLUEPRINT_IMAGE_STORAGE_BACKEND": "supabase",
+    "JOB_METADATA_BACKEND": "supabase",
+    "REDIS_CACHE_PREFIX": "forma-production",
+    "CORS_ALLOWED_ORIGINS": "https://caid-technologies.us,https://www.caid-technologies.us,https://dev.caid-technologies.us,https://staging.caid-technologies.us",
+    "PUBLIC_FRONTEND_ORIGIN": "https://caid-technologies.us",
+    "PROJECT_PURGE_WORKER_ENABLED": "false",
+    "A2A_SOCKET_ENABLED": "false",
+    "LOG_LEVEL": "INFO"
+  },
+  "secrets": {
+    "required": ["FORMA_BACKEND_ENV"]
+  },
+  "containers": [
+    {
+      "name": "forma-api-container",
+      "class_name": "FormaApiContainer",
+      "image": "./Dockerfile",
+      "image_build_context": "../..",
+      "max_instances": 1,
+      "instance_type": "standard-1",
+      "rollout_active_grace_period": 60,
+      "rollout_step_percentage": [100]
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "FORMA_API_CONTAINER",
+        "class_name": "FormaApiContainer"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["FormaApiContainer"]
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  }
+}

@@ -1,9 +1,10 @@
 "use client";
 
 import { Html, OrbitControls } from "@react-three/drei";
-import { Canvas, useFrame, useThree } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
+import { ChevronDown, Maximize2, Minimize2 } from "lucide-react";
 import * as THREE from "three";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Dimensions = { x_mm: number; y_mm: number; z_mm: number };
 
@@ -61,6 +62,8 @@ type MechanicalSceneProps = {
   features: string[];
   toggles: Record<string, boolean>;
   electricalActive: boolean;
+  setToggles?: (value: Record<string, boolean>) => void;
+  setElectricalActive?: (value: boolean) => void;
 };
 
 type ScenePlacement = {
@@ -87,21 +90,12 @@ type SceneRelationship = {
   notes?: string;
 };
 
-type CalloutLayoutItem = {
-  refDes: string;
-  label: string;
-  color: string;
-  accent: string;
-  selected: boolean;
-  anchorX: number;
-  anchorY: number;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  lineStartX: number;
-  lineStartY: number;
+type HierarchyRow = {
+  placement: ScenePlacement;
+  depth: number;
 };
+
+const ENVELOPE_COLOR = "#2dd4bf";
 
 const categoryPalette: Record<string, { color: string; accent: string; layer: string }> = {
   microcontroller: { color: "#22d3ee", accent: "#cffafe", layer: "electrical" },
@@ -116,6 +110,33 @@ const categoryPalette: Record<string, { color: string; accent: string; layer: st
   default: { color: "#94a3b8", accent: "#e2e8f0", layer: "electrical" },
 };
 
+const categoryLabels: Record<string, string> = {
+  microcontroller: "MCU",
+  sensor: "Sensor",
+  actuator: "Actuator",
+  display: "Display",
+  power: "Power",
+  passives: "Passives",
+  communication: "Comms",
+  mechanical: "Mech",
+  "3d print": "3D Print",
+  default: "Part",
+};
+
+const categoryOrder = [
+  "enclosure",
+  "microcontroller",
+  "sensor",
+  "actuator",
+  "display",
+  "power",
+  "communication",
+  "passives",
+  "mechanical",
+  "3d print",
+  "default",
+];
+
 const categorySizes: Record<string, [number, number, number]> = {
   microcontroller: [38, 28, 5],
   sensor: [20, 18, 8],
@@ -129,8 +150,22 @@ const categorySizes: Record<string, [number, number, number]> = {
   default: [22, 18, 6],
 };
 
+const layerToggles: { key: string; label: string; color: string }[] = [
+  { key: "enclosure", label: "Enclosure", color: ENVELOPE_COLOR },
+  { key: "print", label: "3D Print", color: "#818cf8" },
+  { key: "mechanism", label: "Mechanism", color: "#fb7185" },
+  { key: "structural", label: "Structure", color: "#38bdf8" },
+  { key: "misc", label: "Misc", color: "#94a3b8" },
+  { key: "bodyRotation", label: "Auto Rotate", color: "#facc15" },
+];
+
 function categoryKey(category?: string) {
   return String(category || "default").trim().toLowerCase();
+}
+
+function categoryLabel(category?: string) {
+  const key = categoryKey(category);
+  return categoryLabels[key] || key.toUpperCase();
 }
 
 function isMechanicalCategory(category?: string) {
@@ -142,6 +177,39 @@ function isEnclosureLabel(label: string) {
   const normalized = label.toLowerCase();
   if (/screw|insert|standoff|button cap|fastener/.test(normalized)) return false;
   return /main enclosure|enclosure shell|project box|\bshell\b|\bhousing\b|\bcase\b|\bcover\b|\bbody\b/.test(normalized);
+}
+
+function isEnclosureCandidate(placement: ScenePlacement) {
+  return (
+    placement.layer.toLowerCase() === "enclosure" ||
+    isEnclosureLabel(placement.label) ||
+    /\benclosure\b|\bchassis\b|\benvelope\b/.test(placement.label.toLowerCase())
+  );
+}
+
+/**
+ * Enclosure keywords also match sub-assemblies ("Tilt Servo Housing"), so exactly one part
+ * becomes the outer envelope — the largest that either reads as an enclosure or already spans
+ * the build volume. Everything else keeps its own box.
+ */
+function pickEnvelopeRef(placements: ScenePlacement[], dimensions: Dimensions) {
+  const spansBuildVolume = (placement: ScenePlacement) =>
+    placement.sizeMm[0] >= dimensions.x_mm * 0.8 &&
+    placement.sizeMm[1] >= dimensions.y_mm * 0.8 &&
+    placement.sizeMm[2] >= dimensions.z_mm * 0.8;
+
+  let envelopeRef: string | null = null;
+  let bestVolume = -1;
+
+  for (const placement of placements) {
+    if (!isEnclosureCandidate(placement) && !spansBuildVolume(placement)) continue;
+    const volume = boxVolume(placement.sizeMm);
+    if (volume <= bestVolume) continue;
+    bestVolume = volume;
+    envelopeRef = placement.refDes;
+  }
+
+  return envelopeRef;
 }
 
 function getVectorValue(vector: VectorLike | undefined, axis: "x" | "y" | "z", fallback: number) {
@@ -184,7 +252,6 @@ function placementSize(component: ComponentInstance): [number, number, number] {
 
 function generatedPosition(component: ComponentInstance, index: number, components: ComponentInstance[], dimensions: Dimensions): [number, number, number] {
   const key = categoryKey(component.category);
-  const name = `${component.name || ""} ${component.part_number || ""}`.toLowerCase();
   const electrical = components.filter((item) => !isMechanicalCategory(item.category));
   const electricalIndex = Math.max(0, electrical.findIndex((item) => item.ref_des === component.ref_des));
   const printParts = components.filter((item) => categoryKey(item.category) === "3d print");
@@ -378,6 +445,106 @@ function normalizeRelationships(inputs: SpatialRelationshipInput[], placements: 
     });
 }
 
+function hierarchyBox(placement: ScenePlacement, dimensions: Dimensions, envelopeRef: string | null) {
+  if (placement.refDes === envelopeRef) {
+    return {
+      center: [0, 0, 0] as [number, number, number],
+      size: [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm] as [number, number, number],
+    };
+  }
+  return { center: placement.positionMm, size: placement.sizeMm };
+}
+
+function boxVolume(size: [number, number, number]) {
+  return Math.max(size[0], 1) * Math.max(size[1], 1) * Math.max(size[2], 1);
+}
+
+/**
+ * Nests parts by geometric containment: a part's parent is the smallest other part
+ * whose bounding box swallows its centre. Strict volume ordering keeps this acyclic.
+ */
+function buildHierarchy(placements: ScenePlacement[], dimensions: Dimensions, envelopeRef: string | null): HierarchyRow[] {
+  if (!placements.length) return [];
+
+  const boxes = new Map(placements.map((placement) => [placement.refDes, hierarchyBox(placement, dimensions, envelopeRef)]));
+  const volumes = new Map(Array.from(boxes.entries()).map(([refDes, box]) => [refDes, boxVolume(box.size)]));
+  const childrenByRef = new Map<string, string[]>(placements.map((placement) => [placement.refDes, []]));
+  const roots: string[] = [];
+
+  for (const child of placements) {
+    const childBox = boxes.get(child.refDes)!;
+    const childVolume = volumes.get(child.refDes)!;
+    let parentRef = "";
+    let parentVolume = Number.POSITIVE_INFINITY;
+
+    for (const candidate of placements) {
+      if (candidate.refDes === child.refDes) continue;
+      const candidateVolume = volumes.get(candidate.refDes)!;
+      if (candidateVolume <= childVolume || candidateVolume >= parentVolume) continue;
+
+      const candidateBox = boxes.get(candidate.refDes)!;
+      const contained = [0, 1, 2].every(
+        (axis) => Math.abs(childBox.center[axis] - candidateBox.center[axis]) <= Math.max(candidateBox.size[axis], 1) / 2
+      );
+      if (!contained) continue;
+
+      parentRef = candidate.refDes;
+      parentVolume = candidateVolume;
+    }
+
+    if (parentRef) childrenByRef.get(parentRef)!.push(child.refDes);
+    else roots.push(child.refDes);
+  }
+
+  const placementByRef = new Map(placements.map((placement) => [placement.refDes, placement]));
+  const sortRefs = (refs: string[]) =>
+    refs.slice().sort((a, b) => {
+      const first = placementByRef.get(a)!;
+      const second = placementByRef.get(b)!;
+      const orderDelta = categoryOrder.indexOf(categoryKey(first.category)) - categoryOrder.indexOf(categoryKey(second.category));
+      if (orderDelta !== 0) return orderDelta;
+      return first.label.localeCompare(second.label);
+    });
+
+  const rows: HierarchyRow[] = [];
+  const visited = new Set<string>();
+  const walk = (refs: string[], depth: number) => {
+    sortRefs(refs).forEach((refDes) => {
+      if (visited.has(refDes)) return;
+      visited.add(refDes);
+      rows.push({ placement: placementByRef.get(refDes)!, depth });
+      walk(childrenByRef.get(refDes) || [], depth + 1);
+    });
+  };
+
+  // The envelope reads as the assembly root even when nothing geometrically contains it.
+  const envelopeRoots = roots.filter((refDes) => refDes === envelopeRef);
+  walk(envelopeRoots, 0);
+  walk(
+    roots.filter((refDes) => refDes !== envelopeRef),
+    envelopeRoots.length ? 1 : 0
+  );
+
+  return rows;
+}
+
+function legendCounts(placements: ScenePlacement[], envelopeRef: string | null) {
+  const counts = new Map<string, number>();
+  placements.forEach((placement) => {
+    const key = placement.refDes === envelopeRef ? "enclosure" : categoryKey(placement.category);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  return Array.from(counts.entries())
+    .sort((a, b) => categoryOrder.indexOf(a[0]) - categoryOrder.indexOf(b[0]))
+    .map(([key, count]) => ({
+      key,
+      count,
+      label: key === "enclosure" ? "Enclosure" : categoryLabels[key] || key.toUpperCase(),
+      color: key === "enclosure" ? ENVELOPE_COLOR : (categoryPalette[key] || categoryPalette.default).color,
+    }));
+}
+
 function worldPosition(positionMm: [number, number, number], scale: number): [number, number, number] {
   const [xMm, yMm, zMm] = positionMm;
   return [xMm / scale, zMm / scale, yMm / scale];
@@ -392,264 +559,128 @@ function worldSize(sizeMm: [number, number, number], scale: number): [number, nu
   ];
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(Math.max(value, min), max);
-}
-
-function labelSizeForPlacement(selected: boolean) {
-  return selected ? { width: 166, height: 50 } : { width: 92, height: 34 };
-}
-
-function edgePointForLeader(item: Pick<CalloutLayoutItem, "anchorX" | "anchorY" | "x" | "y" | "width" | "height">) {
-  const centerX = item.x + item.width / 2;
-  const centerY = item.y + item.height / 2;
-  const dx = item.anchorX - centerX;
-  const dy = item.anchorY - centerY;
-  if (Math.abs(dx) < 0.01 && Math.abs(dy) < 0.01) {
-    return { x: centerX, y: centerY };
-  }
-
-  const scaleX = Math.abs(dx) > 0.01 ? item.width / 2 / Math.abs(dx) : Number.POSITIVE_INFINITY;
-  const scaleY = Math.abs(dy) > 0.01 ? item.height / 2 / Math.abs(dy) : Number.POSITIVE_INFINITY;
-  const scale = Math.min(scaleX, scaleY);
-  return {
-    x: centerX + dx * scale,
-    y: centerY + dy * scale,
-  };
-}
-
-function placementAnchorScreenPosition(
-  placement: ScenePlacement,
-  scale: number,
-  camera: THREE.Camera,
-  viewport: { width: number; height: number }
-) {
-  const anchor = new THREE.Vector3(...worldPosition(placement.positionMm, scale));
-  anchor.y += 0.1;
-  const projected = anchor.project(camera);
-  if (projected.z < -1 || projected.z > 1) return null;
-
-  const x = (projected.x * 0.5 + 0.5) * viewport.width;
-  const y = (-projected.y * 0.5 + 0.5) * viewport.height;
-  if (x < -120 || x > viewport.width + 120 || y < -120 || y > viewport.height + 120) return null;
-
-  return { x, y };
-}
-
-function buildCalloutLayout(
-  placements: ScenePlacement[],
-  selectedRef: string | null,
-  scale: number,
-  camera: THREE.Camera,
-  viewport: { width: number; height: number }
-): CalloutLayoutItem[] {
-  const padding = 10;
-  const centerX = viewport.width / 2;
-  const centerY = viewport.height / 2;
-  const items = placements
-    .map((placement, index) => {
-      const anchor = placementAnchorScreenPosition(placement, scale, camera, viewport);
-      if (!anchor) return null;
-
-      const selected = placement.refDes === selectedRef;
-      const { width, height } = labelSizeForPlacement(selected);
-      const radialX = anchor.x - centerX;
-      const radialY = anchor.y - centerY;
-      const fallbackAngle = index * 2.399963229728653;
-      const length = Math.hypot(radialX, radialY);
-      const dirX = length > 4 ? radialX / length : Math.cos(fallbackAngle);
-      const dirY = length > 4 ? radialY / length : Math.sin(fallbackAngle);
-      const offset = selected ? 74 : 54 + (index % 3) * 10;
-      const x = clamp(anchor.x + dirX * offset - width / 2, padding, viewport.width - width - padding);
-      const y = clamp(anchor.y + dirY * offset - height / 2, padding, viewport.height - height - padding);
-
-      return {
-        refDes: placement.refDes,
-        label: placement.label,
-        color: placement.color,
-        accent: placement.accent,
-        selected,
-        anchorX: anchor.x,
-        anchorY: anchor.y,
-        x,
-        y,
-        width,
-        height,
-        lineStartX: x + width / 2,
-        lineStartY: y + height / 2,
-      } satisfies CalloutLayoutItem;
-    })
-    .filter(Boolean) as CalloutLayoutItem[];
-
-  for (let pass = 0; pass < 8; pass += 1) {
-    for (let i = 0; i < items.length; i += 1) {
-      for (let j = i + 1; j < items.length; j += 1) {
-        const first = items[i];
-        const second = items[j];
-        const firstCenterX = first.x + first.width / 2;
-        const firstCenterY = first.y + first.height / 2;
-        const secondCenterX = second.x + second.width / 2;
-        const secondCenterY = second.y + second.height / 2;
-        const dx = secondCenterX - firstCenterX || 1;
-        const dy = secondCenterY - firstCenterY || 1;
-        const overlapX = first.width / 2 + second.width / 2 + padding - Math.abs(dx);
-        const overlapY = first.height / 2 + second.height / 2 + padding - Math.abs(dy);
-        if (overlapX <= 0 || overlapY <= 0) continue;
-
-        if (overlapX < overlapY) {
-          const shift = (overlapX / 2) * Math.sign(dx);
-          first.x = clamp(first.x - shift, padding, viewport.width - first.width - padding);
-          second.x = clamp(second.x + shift, padding, viewport.width - second.width - padding);
-        } else {
-          const shift = (overlapY / 2) * Math.sign(dy);
-          first.y = clamp(first.y - shift, padding, viewport.height - first.height - padding);
-          second.y = clamp(second.y + shift, padding, viewport.height - second.height - padding);
-        }
-      }
-    }
-  }
-
-  return items.map((item) => {
-    const lineStart = edgePointForLeader(item);
-    return {
-      ...item,
-      lineStartX: lineStart.x,
-      lineStartY: lineStart.y,
-    };
-  });
-}
-
-function calloutLayoutKey(items: CalloutLayoutItem[]) {
-  return items
-    .map((item) => `${item.refDes}:${Math.round(item.x)}:${Math.round(item.y)}:${Math.round(item.anchorX)}:${Math.round(item.anchorY)}:${item.selected ? 1 : 0}`)
-    .join("|");
-}
-
 function axisColor(axis: "X" | "Y" | "Z") {
   if (axis === "X") return "#f87171";
   if (axis === "Y") return "#22d3ee";
   return "#facc15";
 }
 
-function ResponsiveCamera() {
+function useDisposableGeometry<T extends THREE.BufferGeometry>(factory: () => T, deps: unknown[]) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const geometry = useMemo(factory, deps);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return geometry;
+}
+
+function useBoxEdges(size: [number, number, number]) {
+  return useDisposableGeometry(() => {
+    const box = new THREE.BoxGeometry(size[0], size[1], size[2]);
+    const edges = new THREE.EdgesGeometry(box);
+    box.dispose();
+    return edges;
+  }, [size[0], size[1], size[2]]);
+}
+
+/** Pulls the camera back far enough that the whole assembly fits, whatever the project's scale. */
+function ResponsiveCamera({ sceneRadius }: { sceneRadius: number }) {
   const { camera, size } = useThree();
 
   useEffect(() => {
     if (!(camera instanceof THREE.PerspectiveCamera)) return;
 
-    const compact = size.width < 520;
-    camera.position.set(compact ? 14 : 9.5, compact ? 8 : 6.8, compact ? 15 : 10.5);
-    camera.fov = compact ? 54 : 40;
+    const compact = size.width < 640;
+    const fov = compact ? 50 : 38;
+    const aspect = size.width / Math.max(size.height, 1);
+    const verticalFov = THREE.MathUtils.degToRad(fov);
+    const horizontalFov = 2 * Math.atan(Math.tan(verticalFov / 2) * aspect);
+    const distance = (sceneRadius / Math.sin(Math.min(verticalFov, horizontalFov) / 2)) * (compact ? 1.15 : 1.05);
+
+    camera.fov = fov;
+    camera.position.copy(new THREE.Vector3(0.62, 0.46, 0.7).normalize().multiplyScalar(distance));
+    camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
-  }, [camera, size.width]);
+  }, [camera, sceneRadius, size.height, size.width]);
 
   return null;
 }
 
-function SceneShell({ dimensions, scale, rotating }: { dimensions: Dimensions; scale: number; rotating: boolean }) {
-  const shellRef = useRef<THREE.Group>(null);
-
-  useFrame(({ clock }) => {
-    if (!shellRef.current) return;
-    shellRef.current.rotation.y = rotating ? Math.sin(clock.elapsedTime * 0.24) * 0.018 : 0;
-  });
-
-  const width = dimensions.x_mm / scale;
-  const height = dimensions.z_mm / scale;
-  const depth = dimensions.y_mm / scale;
-
-  return (
-    <group ref={shellRef}>
-      <mesh receiveShadow>
-        <boxGeometry args={[width, height, depth]} />
-        <meshStandardMaterial color="#8b5cf6" metalness={0.12} roughness={0.55} transparent opacity={0.09} />
-      </mesh>
-      <mesh>
-        <boxGeometry args={[width, height, depth]} />
-        <meshBasicMaterial color="#c4b5fd" wireframe transparent opacity={0.32} />
-      </mesh>
-      <mesh position={[0, -height / 2 - 0.04, 0]} receiveShadow>
-        <boxGeometry args={[width * 0.98, 0.08, depth * 0.98]} />
-        <meshStandardMaterial color="#0e1015" metalness={0.08} roughness={0.85} transparent opacity={0.72} />
-      </mesh>
-    </group>
+function Envelope({ dimensions, scale, selected }: { dimensions: Dimensions; scale: number; selected: boolean }) {
+  const size = useMemo<[number, number, number]>(
+    () => [dimensions.x_mm / scale, dimensions.z_mm / scale, dimensions.y_mm / scale],
+    [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm, scale]
   );
-}
-
-function AxisMeasure({
-  axis,
-  value,
-  dimensions,
-  scale,
-}: {
-  axis: "X" | "Y" | "Z";
-  value: number;
-  dimensions: Dimensions;
-  scale: number;
-}) {
-  const width = dimensions.x_mm / scale;
-  const height = dimensions.z_mm / scale;
-  const depth = dimensions.y_mm / scale;
-  const color = axisColor(axis);
-
-  const lineArgs: [number, number, number] =
-    axis === "X" ? [width, 0.035, 0.035] : axis === "Y" ? [0.035, 0.035, depth] : [0.035, height, 0.035];
-  const position: [number, number, number] =
-    axis === "X"
-      ? [0, -height / 2 - 0.55, -depth / 2 - 0.42]
-      : axis === "Y"
-        ? [-width / 2 - 0.5, -height / 2 - 0.55, 0]
-        : [width / 2 + 0.5, 0, -depth / 2 - 0.42];
-  const labelPosition: [number, number, number] =
-    axis === "X"
-      ? [0, -height / 2 - 0.95, -depth / 2 - 0.42]
-      : axis === "Y"
-        ? [-width / 2 - 1.0, -height / 2 - 0.95, 0]
-        : [width / 2 + 1.0, height / 2 + 0.35, -depth / 2 - 0.42];
+  const edges = useBoxEdges(size);
 
   return (
     <group>
-      <mesh position={position}>
-        <boxGeometry args={lineArgs} />
-        <meshBasicMaterial color={color} />
+      <mesh>
+        <boxGeometry args={size} />
+        <meshBasicMaterial color={ENVELOPE_COLOR} transparent opacity={selected ? 0.1 : 0.05} depthWrite={false} />
       </mesh>
-      <Html transform sprite center position={labelPosition} distanceFactor={8}>
-        <div className="pointer-events-none border border-white/10 bg-black/80 px-2.5 py-1 text-center font-black uppercase tracking-[0.16em] shadow-xl">
-          <div style={{ color }} className="text-[12px] leading-none">
-            {axis} axis
-          </div>
-          <div className="mt-1 text-[10px] leading-none text-white/80">{value}mm</div>
-        </div>
-      </Html>
+      <lineSegments geometry={edges}>
+        <lineBasicMaterial color={selected ? "#ffffff" : ENVELOPE_COLOR} transparent opacity={selected ? 0.95 : 0.6} />
+      </lineSegments>
     </group>
   );
 }
 
-function ModuleBlock({
+function AxisTriad({ dimensions, scale }: { dimensions: Dimensions; scale: number }) {
+  const geometry = useDisposableGeometry(() => {
+    const width = dimensions.x_mm / scale;
+    const height = dimensions.z_mm / scale;
+    const depth = dimensions.y_mm / scale;
+    const originX = -width / 2;
+    const originY = -height / 2;
+    const originZ = depth / 2;
+    const overshoot = 1.16;
+    const tick = Math.max(Math.min(width, height, depth) * 0.06, 0.08);
+    const points: number[] = [];
+    const segment = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+      points.push(ax, ay, az, bx, by, bz);
+    };
+
+    segment(originX, originY, originZ, originX + width * overshoot, originY, originZ);
+    segment(originX, originY, originZ, originX, originY, originZ - depth * overshoot);
+    segment(originX, originY, originZ, originX, originY + height * overshoot, originZ);
+
+    segment(originX + width / 2, originY - tick, originZ, originX + width / 2, originY + tick, originZ);
+    segment(originX, originY - tick, originZ - depth / 2, originX, originY + tick, originZ - depth / 2);
+    segment(originX - tick, originY + height / 2, originZ, originX + tick, originY + height / 2, originZ);
+
+    const buffer = new THREE.BufferGeometry();
+    buffer.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    return buffer;
+  }, [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm, scale]);
+
+  return (
+    <lineSegments geometry={geometry}>
+      <lineBasicMaterial color="#e2e8f0" transparent opacity={0.42} />
+    </lineSegments>
+  );
+}
+
+function PartWireframe({
   spec,
   scale,
   selected,
+  faded,
   onSelect,
+  onHover,
 }: {
   spec: ScenePlacement;
   scale: number;
   selected: boolean;
+  faded: boolean;
   onSelect: (placement: ScenePlacement) => void;
+  onHover: (placement: ScenePlacement | null) => void;
 }) {
-  const blockRef = useRef<THREE.Group>(null);
   const position = worldPosition(spec.positionMm, scale);
-  const size = worldSize(spec.sizeMm, scale);
-
-  useFrame(({ clock }) => {
-    if (!blockRef.current) return;
-    blockRef.current.position.y = position[1] + Math.sin(clock.elapsedTime * 1.4 + spec.positionMm[0] * 0.03) * 0.018;
-  });
+  const size = useMemo(() => worldSize(spec.sizeMm, scale), [spec.sizeMm, scale]);
+  const edges = useBoxEdges(size);
 
   return (
-    <group ref={blockRef} position={position} rotation={spec.rotationRad}>
+    <group position={position} rotation={spec.rotationRad}>
       <mesh
-        castShadow
-        receiveShadow
         onClick={(event) => {
           event.stopPropagation();
           onSelect(spec);
@@ -657,111 +688,33 @@ function ModuleBlock({
         onPointerOver={(event) => {
           event.stopPropagation();
           document.body.style.cursor = "pointer";
+          onHover(spec);
         }}
         onPointerOut={() => {
           document.body.style.cursor = "";
+          onHover(null);
         }}
       >
         <boxGeometry args={size} />
-        <meshStandardMaterial
-          color={spec.color}
-          metalness={0.28}
-          roughness={0.34}
-          emissive={selected ? spec.accent : spec.color}
-          emissiveIntensity={selected ? 0.36 : 0.08}
-        />
+        <meshBasicMaterial color={spec.color} transparent opacity={selected ? 0.2 : 0.06} depthWrite={false} />
       </mesh>
-      <mesh>
-        <boxGeometry args={[size[0] * 1.04, size[1] * 1.04, size[2] * 1.04]} />
-        <meshBasicMaterial color={selected ? "#ffffff" : spec.accent} wireframe transparent opacity={selected ? 0.72 : 0.34} />
-      </mesh>
+      <lineSegments geometry={edges}>
+        <lineBasicMaterial color={selected ? "#ffffff" : spec.color} transparent opacity={selected ? 1 : faded ? 0.3 : 0.85} />
+      </lineSegments>
     </group>
   );
 }
 
-function ComponentCallouts({
-  placements,
-  selectedRef,
-  scale,
-  onSelect,
-}: {
-  placements: ScenePlacement[];
-  selectedRef: string | null;
-  scale: number;
-  onSelect: (placement: ScenePlacement) => void;
-}) {
-  const { camera, size } = useThree();
-  const [items, setItems] = useState<CalloutLayoutItem[]>([]);
-  const lastLayoutKeyRef = useRef("");
-  const lastLayoutAtRef = useRef(0);
-  const placementByRef = useMemo(() => new Map(placements.map((placement) => [placement.refDes, placement])), [placements]);
-
-  useFrame(({ clock }) => {
-    if (clock.elapsedTime - lastLayoutAtRef.current < 0.04) return;
-    lastLayoutAtRef.current = clock.elapsedTime;
-    const nextItems = buildCalloutLayout(placements, selectedRef, scale, camera, size);
-    const nextKey = calloutLayoutKey(nextItems);
-    if (nextKey === lastLayoutKeyRef.current) return;
-    lastLayoutKeyRef.current = nextKey;
-    setItems(nextItems);
-  });
-
-  useEffect(() => {
-    lastLayoutKeyRef.current = "";
-    if (!placements.length) setItems([]);
-  }, [placements, selectedRef, scale, size.width, size.height]);
-
-  if (!items.length) return null;
+function PartTag({ placement, scale }: { placement: ScenePlacement; scale: number }) {
+  const position = worldPosition(placement.positionMm, scale);
+  const size = worldSize(placement.sizeMm, scale);
 
   return (
-    <Html fullscreen zIndexRange={[40, 0]}>
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <svg className="absolute inset-0 h-full w-full" aria-hidden="true">
-          {items.map((item) => (
-            <g key={`${item.refDes}-leader`}>
-              <line
-                x1={item.lineStartX}
-                y1={item.lineStartY}
-                x2={item.anchorX}
-                y2={item.anchorY}
-                stroke={item.selected ? "#ffffff" : item.color}
-                strokeWidth={item.selected ? 1.5 : 1}
-                strokeOpacity={item.selected ? 0.78 : 0.52}
-              />
-              <circle cx={item.anchorX} cy={item.anchorY} r={item.selected ? 3 : 2.2} fill={item.selected ? "#ffffff" : item.color} fillOpacity={0.9} />
-            </g>
-          ))}
-        </svg>
-
-        {items.map((item) => {
-          const placement = placementByRef.get(item.refDes);
-          return (
-            <button
-              key={item.refDes}
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation();
-                if (placement) onSelect(placement);
-              }}
-              className={`pointer-events-auto absolute overflow-hidden border px-2 py-1 text-left text-[9px] font-black uppercase tracking-[0.14em] shadow-lg transition ${
-                item.selected ? "border-white bg-white text-black" : "border-white/15 bg-black/85 text-slate-100 hover:border-white/50"
-              }`}
-              style={{
-                left: item.x,
-                top: item.y,
-                width: item.width,
-                minHeight: item.height,
-              }}
-              title={`${item.refDes}: ${item.label}`}
-              aria-label={`Select ${item.refDes}: ${item.label}`}
-            >
-              <span className="block truncate" style={{ color: item.selected ? "#000000" : item.color }}>
-                {item.refDes}
-              </span>
-              {item.selected && <span className="mt-0.5 block truncate text-[8px] opacity-70">{item.label}</span>}
-            </button>
-          );
-        })}
+    <Html center zIndexRange={[20, 0]} position={[position[0], position[1] + size[1] / 2, position[2]]}>
+      <div className="pointer-events-none -translate-y-5 whitespace-nowrap border border-white/20 bg-black/85 px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-lg">
+        <span style={{ color: placement.color }}>{placement.refDes}</span>
+        <span className="mx-1.5 text-white/25">/</span>
+        <span className="text-white/80">{placement.label}</span>
       </div>
     </Html>
   );
@@ -798,14 +751,14 @@ function RelationshipLink({
     <group>
       <group position={geometry.midpoint} quaternion={geometry.quaternion}>
         <mesh>
-          <cylinderGeometry args={[0.012, 0.012, geometry.length, 8]} />
-          <meshBasicMaterial color={color} transparent opacity={0.7} />
+          <cylinderGeometry args={[0.008, 0.008, geometry.length, 6]} />
+          <meshBasicMaterial color={color} transparent opacity={0.55} />
         </mesh>
       </group>
-      <Html transform sprite center position={geometry.midpoint.toArray() as [number, number, number]} distanceFactor={10}>
-        <div className="pointer-events-none whitespace-nowrap border border-white/10 bg-black/75 px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] text-white/80 shadow-lg">
+      <Html center zIndexRange={[18, 0]} position={geometry.midpoint.toArray() as [number, number, number]}>
+        <div className="pointer-events-none whitespace-nowrap border border-white/10 bg-black/80 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-white/70 shadow-lg">
           <span style={{ color }}>{relationship.axis}</span>
-          <span className="mx-1 text-white/35">/</span>
+          <span className="mx-1 text-white/30">/</span>
           {relationship.offsetMm !== undefined ? `${relationship.offsetMm}mm` : relationship.relation}
         </div>
       </Html>
@@ -813,11 +766,16 @@ function RelationshipLink({
   );
 }
 
-function visiblePlacement(placement: ScenePlacement, toggles: Record<string, boolean>, electricalActive: boolean) {
+function visiblePlacement(
+  placement: ScenePlacement,
+  toggles: Record<string, boolean>,
+  electricalActive: boolean,
+  envelopeRef: string | null
+) {
   const key = categoryKey(placement.category);
   const layer = placement.layer.toLowerCase();
 
-  if (layer === "enclosure" || isEnclosureLabel(placement.label)) return Boolean(toggles.enclosure);
+  if (placement.refDes === envelopeRef || layer === "enclosure" || isEnclosureLabel(placement.label)) return Boolean(toggles.enclosure);
   if (layer === "structural") return Boolean(toggles.structural);
   if (key === "3d print" || layer === "print") return Boolean(toggles.print);
   if (key === "mechanical" || layer === "mechanism") return Boolean(toggles.mechanism);
@@ -833,108 +791,324 @@ export default function MechanicalScene({
   features,
   toggles,
   electricalActive,
+  setToggles,
+  setElectricalActive,
 }: MechanicalSceneProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
+  const [hoveredRef, setHoveredRef] = useState<string | null>(null);
+  const [treeOpen, setTreeOpen] = useState(true);
+  const [nativeFullscreen, setNativeFullscreen] = useState(false);
+  const [fallbackFullscreen, setFallbackFullscreen] = useState(false);
+  const isFullscreen = nativeFullscreen || fallbackFullscreen;
+
   const scale = Math.max(Math.max(dimensions.x_mm, dimensions.y_mm, dimensions.z_mm) / 9.6, 8);
   const scenePlacements = useMemo(() => buildScenePlacements(dimensions, components, placements), [components, dimensions, placements]);
+  const envelopeRef = useMemo(() => pickEnvelopeRef(scenePlacements, dimensions), [dimensions, scenePlacements]);
   const visiblePlacements = useMemo(
-    () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive)),
-    [electricalActive, scenePlacements, toggles]
+    () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive, envelopeRef)),
+    [electricalActive, envelopeRef, scenePlacements, toggles]
   );
-  const visibleModulePlacements = useMemo(
-    () => visiblePlacements.filter((placement) => !(placement.layer === "enclosure" || isEnclosureLabel(placement.label))),
-    [visiblePlacements]
-  );
+  const partPlacements = useMemo(() => visiblePlacements.filter((placement) => placement.refDes !== envelopeRef), [envelopeRef, visiblePlacements]);
   const visiblePlacementMap = useMemo(() => new Map(visiblePlacements.map((placement) => [placement.refDes, placement])), [visiblePlacements]);
   const sceneRelationships = useMemo(() => normalizeRelationships(relationships, visiblePlacements), [relationships, visiblePlacements]);
-  const selectedPlacement = visiblePlacements.find((placement) => placement.refDes === selectedRef) || visiblePlacements[0] || null;
-  const shellLabel = scenePlacements.find((placement) => placement.layer === "enclosure" || isEnclosureLabel(placement.label))?.label || "Mechanical envelope";
+  const hierarchy = useMemo(() => buildHierarchy(visiblePlacements, dimensions, envelopeRef), [dimensions, envelopeRef, visiblePlacements]);
+  const legend = useMemo(() => legendCounts(visiblePlacements, envelopeRef), [envelopeRef, visiblePlacements]);
+  const sceneRadius = useMemo(() => {
+    const envelopeRadius = Math.hypot(dimensions.x_mm, dimensions.y_mm, dimensions.z_mm) / 2;
+    const partRadius = partPlacements.reduce((widest, placement) => {
+      const offset = Math.hypot(placement.positionMm[0], placement.positionMm[1], placement.positionMm[2]);
+      const halfDiagonal = Math.hypot(placement.sizeMm[0], placement.sizeMm[1], placement.sizeMm[2]) / 2;
+      return Math.max(widest, offset + halfDiagonal);
+    }, 0);
+    return Math.max(envelopeRadius, partRadius, 1) / scale;
+  }, [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm, partPlacements, scale]);
+
+  const selectedPlacement = selectedRef ? visiblePlacementMap.get(selectedRef) || null : null;
+  const hoveredPlacement = hoveredRef && hoveredRef !== selectedRef ? visiblePlacementMap.get(hoveredRef) || null : null;
+  const focusedRelationships = useMemo(
+    () =>
+      selectedPlacement
+        ? sceneRelationships.filter(
+            (relationship) => relationship.sourceRef === selectedPlacement.refDes || relationship.targetRef === selectedPlacement.refDes
+          )
+        : [],
+    [sceneRelationships, selectedPlacement]
+  );
+  const envelopePlacement = envelopeRef ? scenePlacements.find((placement) => placement.refDes === envelopeRef) || null : null;
+  const envelopeSelected = Boolean(selectedRef && selectedRef === envelopeRef);
+
+  useEffect(() => {
+    const sync = () => setNativeFullscreen(document.fullscreenElement === containerRef.current);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  }, []);
+
+  // The tree panel covers most of a phone screen, so it starts collapsed there.
+  useEffect(() => {
+    if (window.innerWidth < 640) setTreeOpen(false);
+  }, []);
+
+  useEffect(() => {
+    if (!fallbackFullscreen) return;
+    const previousOverflow = document.body.style.overflow;
+    const exitOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setFallbackFullscreen(false);
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", exitOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", exitOnEscape);
+    };
+  }, [fallbackFullscreen]);
+
+  useEffect(() => () => {
+    document.body.style.cursor = "";
+  }, []);
+
+  const toggleFullscreen = useCallback(() => {
+    const node = containerRef.current;
+    if (!node) return;
+
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => setNativeFullscreen(false));
+      return;
+    }
+    if (fallbackFullscreen) {
+      setFallbackFullscreen(false);
+      return;
+    }
+    if (typeof node.requestFullscreen === "function") {
+      // Safari/iOS and permission-policy blocked frames reject: fall back to an in-page overlay.
+      node.requestFullscreen().catch(() => setFallbackFullscreen(true));
+      return;
+    }
+    setFallbackFullscreen(true);
+  }, [fallbackFullscreen]);
+
+  const applyToggle = (key: string) => {
+    if (!setToggles) return;
+    setToggles({ ...toggles, [key]: !toggles[key] });
+  };
+
+  const envelopeLabel = envelopePlacement?.label || "Mechanical envelope";
+  const dimensionLabel = `${Math.round(dimensions.x_mm)} × ${Math.round(dimensions.y_mm)} × ${Math.round(dimensions.z_mm)} mm`;
 
   return (
-    <div className="relative h-full overflow-hidden bg-[#141519]">
-      <Canvas camera={{ position: [9.5, 6.8, 10.5], fov: 40 }} shadows dpr={[1, 2]} onPointerMissed={() => setSelectedRef(null)}>
-        <color attach="background" args={["#141519"]} />
-        <fog attach="fog" args={["#141519", 18, 42]} />
-        <ambientLight intensity={0.72} />
-        <directionalLight position={[9, 12, 8]} intensity={1.6} color="#f5edff" castShadow />
-        <directionalLight position={[-8, 4, -6]} intensity={0.55} color="#60a5fa" />
-        <ResponsiveCamera />
+    <div
+      ref={containerRef}
+      className={`overflow-hidden bg-[#0a0b0e] ${
+        fallbackFullscreen ? "fixed inset-0 z-[100] h-[100dvh] w-screen" : isFullscreen ? "relative h-[100dvh] w-screen" : "relative h-full w-full"
+      }`}
+    >
+      <Canvas camera={{ position: [10.5, 7.6, 11.5], fov: 38 }} dpr={[1, 2]} onPointerMissed={() => setSelectedRef(null)}>
+        <color attach="background" args={["#0a0b0e"]} />
+        <ambientLight intensity={1} />
+        <ResponsiveCamera sceneRadius={sceneRadius} />
 
         <group position={[0, 0.1, 0]}>
-          {toggles.structural && <gridHelper args={[42, 42, "#2b2f39", "#1f232b"]} position={[0, -dimensions.z_mm / scale / 2 - 0.72, 0]} />}
-          {toggles.enclosure && <SceneShell dimensions={dimensions} scale={scale} rotating={Boolean(toggles.bodyRotation)} />}
+          {toggles.enclosure && <Envelope dimensions={dimensions} scale={scale} selected={envelopeSelected} />}
 
-          {visibleModulePlacements.map((placement) => (
-              <ModuleBlock
-                key={placement.refDes}
-                spec={placement}
-                scale={scale}
-                selected={placement.refDes === selectedPlacement?.refDes}
-                onSelect={(nextPlacement) => setSelectedRef(nextPlacement.refDes)}
-              />
-            ))}
-          <ComponentCallouts
-            placements={visibleModulePlacements}
-            selectedRef={selectedPlacement?.refDes || null}
-            scale={scale}
-            onSelect={(nextPlacement) => setSelectedRef(nextPlacement.refDes)}
-          />
+          {partPlacements.map((placement) => (
+            <PartWireframe
+              key={placement.refDes}
+              spec={placement}
+              scale={scale}
+              selected={placement.refDes === selectedRef}
+              faded={Boolean(selectedRef) && placement.refDes !== selectedRef}
+              onSelect={(next) => setSelectedRef(next.refDes)}
+              onHover={(next) => setHoveredRef(next?.refDes || null)}
+            />
+          ))}
+
+          {selectedPlacement && !envelopeSelected && <PartTag placement={selectedPlacement} scale={scale} />}
+          {hoveredPlacement && hoveredPlacement.refDes !== envelopeRef && <PartTag placement={hoveredPlacement} scale={scale} />}
 
           {toggles.structural &&
-            sceneRelationships.map((relationship) => (
+            focusedRelationships.map((relationship) => (
               <RelationshipLink key={relationship.id} relationship={relationship} placements={visiblePlacementMap} scale={scale} />
             ))}
 
-          <AxisMeasure axis="X" value={dimensions.x_mm} dimensions={dimensions} scale={scale} />
-          <AxisMeasure axis="Y" value={dimensions.y_mm} dimensions={dimensions} scale={scale} />
-          <AxisMeasure axis="Z" value={dimensions.z_mm} dimensions={dimensions} scale={scale} />
-
-          {toggles.print && (
-            <Html transform sprite center position={[0, dimensions.z_mm / scale / 2 + 0.8, 0]} distanceFactor={10}>
-              <div className="pointer-events-none max-w-[260px] text-center font-black uppercase tracking-[0.12em] text-white drop-shadow-[0_0_12px_rgba(0,0,0,0.7)] sm:max-w-none sm:tracking-[0.16em]">
-                <div className="text-xs leading-tight sm:text-base">{shellLabel}</div>
-                <div className="mt-1 text-[8px] leading-tight text-violet-200 sm:text-[10px]">Component placement mapped to X / Y / Z coordinates</div>
-              </div>
-            </Html>
-          )}
+          <AxisTriad dimensions={dimensions} scale={scale} />
         </group>
 
         <OrbitControls
           enableDamping
           enablePan
-          minPolarAngle={0.45}
-          maxPolarAngle={1.38}
-          minDistance={7}
-          maxDistance={22}
+          minPolarAngle={0.25}
+          maxPolarAngle={1.5}
+          minDistance={sceneRadius * 0.5}
+          maxDistance={sceneRadius * 8}
           autoRotate={Boolean(toggles.bodyRotation)}
           autoRotateSpeed={0.26}
         />
       </Canvas>
 
-      <div className="pointer-events-none absolute left-5 top-5 border border-[#30323a] bg-black/70 px-3 py-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
-        <span className="text-white">Live 3D</span>
-        <span className="mx-2 text-slate-700">/</span>
-        Three.js + R3F
-      </div>
+      <div className="pointer-events-none absolute inset-0 z-30">
+        <div className="pointer-events-auto absolute left-3 top-3 flex max-h-[calc(100%-4.5rem)] w-[min(19rem,calc(100%-1.5rem))] flex-col overflow-hidden border border-[#2a2c33] bg-[#0d0e12]/95 shadow-2xl backdrop-blur-sm sm:left-4 sm:top-4">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#22242b] px-3 py-2">
+            <div className="min-w-0">
+              <div className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-white">3D CAD</div>
+              <div className="truncate text-[9px] font-black uppercase tracking-[0.14em] text-slate-600">{dimensionLabel}</div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                aria-pressed={isFullscreen}
+                aria-label={isFullscreen ? "Exit full screen 3D view" : "View 3D model full screen"}
+                title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
+                className="flex h-7 w-7 items-center justify-center border border-[#2a2c33] text-slate-400 transition hover:border-white hover:bg-white hover:text-black"
+              >
+                {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTreeOpen((open) => !open)}
+                aria-expanded={treeOpen}
+                aria-label={treeOpen ? "Collapse assembly tree" : "Expand assembly tree"}
+                title={treeOpen ? "Collapse" : "Expand"}
+                className="flex h-7 w-7 items-center justify-center border border-[#2a2c33] text-slate-400 transition hover:border-white hover:bg-white hover:text-black"
+              >
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${treeOpen ? "" : "-rotate-90"}`} />
+              </button>
+            </div>
+          </div>
 
-      {selectedPlacement && (
-        <div className="pointer-events-none absolute bottom-5 left-5 max-w-[340px] border border-[#30323a] bg-black/78 p-3 shadow-2xl">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: selectedPlacement.color }}>
-            <span>{selectedPlacement.refDes}</span>
-            <span className="text-slate-700">/</span>
-            <span>{selectedPlacement.category}</span>
-          </div>
-          <div className="mt-2 truncate text-sm font-black uppercase tracking-[0.12em] text-white">{selectedPlacement.label}</div>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
-            <div className="flex justify-between"><span>X</span><span>{Math.round(selectedPlacement.positionMm[0])}mm</span></div>
-            <div className="flex justify-between"><span>Y</span><span>{Math.round(selectedPlacement.positionMm[1])}mm</span></div>
-            <div className="flex justify-between"><span>Z</span><span>{Math.round(selectedPlacement.positionMm[2])}mm</span></div>
-          </div>
+          {treeOpen && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+                {hierarchy.length ? (
+                  hierarchy.map(({ placement, depth }) => {
+                    const selected = placement.refDes === selectedRef;
+                    return (
+                      <button
+                        key={placement.refDes}
+                        type="button"
+                        onClick={() => setSelectedRef(selected ? null : placement.refDes)}
+                        onPointerEnter={() => setHoveredRef(placement.refDes)}
+                        onPointerLeave={() => setHoveredRef((current) => (current === placement.refDes ? null : current))}
+                        aria-pressed={selected}
+                        title={`${placement.refDes} / ${placement.label}`}
+                        className={`flex w-full items-center gap-1.5 px-1 py-[3px] text-left transition ${
+                          selected ? "bg-white/10" : "hover:bg-white/5"
+                        }`}
+                        style={{ paddingLeft: 4 + Math.min(depth, 6) * 12 }}
+                      >
+                        {depth > 0 && <span className="shrink-0 font-mono text-[10px] leading-none text-slate-700">└</span>}
+                        <span
+                          className="h-2.5 w-2.5 shrink-0 border border-black/40"
+                          style={{ backgroundColor: placement.refDes === envelopeRef ? ENVELOPE_COLOR : placement.color }}
+                        />
+                        <span className={`truncate text-[11px] ${selected ? "font-bold text-white" : "text-slate-300"}`}>{placement.label}</span>
+                      </button>
+                    );
+                  })
+                ) : (
+                  <div className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">No visible parts</div>
+                )}
+              </div>
+
+              {legend.length > 0 && (
+                <div className="shrink-0 border-t border-[#22242b] px-3 py-2">
+                  <div className="flex flex-wrap gap-x-3 gap-y-1">
+                    {legend.map((entry) => (
+                      <span key={entry.key} className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">
+                        <span className="h-2 w-2 shrink-0" style={{ backgroundColor: entry.color }} />
+                        {entry.label} ({entry.count})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="shrink-0 border-t border-[#22242b] px-3 py-2">
+                <div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-600">Layers</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setElectricalActive?.(!electricalActive)}
+                    aria-pressed={electricalActive}
+                    disabled={!setElectricalActive}
+                    className={`border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition disabled:cursor-not-allowed ${
+                      electricalActive ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-300" : "border-[#2a2c33] text-slate-600 hover:text-slate-300"
+                    }`}
+                  >
+                    Electrical
+                  </button>
+                  {layerToggles.map((layer) => {
+                    const active = Boolean(toggles[layer.key]);
+                    return (
+                      <button
+                        key={layer.key}
+                        type="button"
+                        onClick={() => applyToggle(layer.key)}
+                        aria-pressed={active}
+                        disabled={!setToggles}
+                        className={`border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition disabled:cursor-not-allowed ${
+                          active ? "bg-white/5" : "border-[#2a2c33] text-slate-600 hover:text-slate-300"
+                        }`}
+                        style={active ? { borderColor: `${layer.color}99`, color: layer.color } : undefined}
+                      >
+                        {layer.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {features.length > 0 && (
+                <details className="shrink-0 border-t border-[#22242b] px-3 py-2">
+                  <summary className="cursor-pointer list-none text-[9px] font-black uppercase tracking-[0.16em] text-slate-600 hover:text-slate-300">
+                    Design notes ({features.length})
+                  </summary>
+                  <ul className="mt-2 max-h-32 space-y-1.5 overflow-y-auto pr-1">
+                    {features.map((feature, index) => (
+                      <li key={`${index}-${feature.slice(0, 24)}`} className="text-[10px] leading-snug text-slate-500">
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
         </div>
-      )}
 
-      <div className="pointer-events-none absolute bottom-6 right-8 max-w-sm text-right text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">
-        {features.slice(0, 4).join(" / ")}
+        <div
+          className="absolute right-3 top-3 max-w-[min(16rem,45%)] truncate border border-[#2a2c33] bg-[#0d0e12]/90 px-3 py-2 text-[9px] font-black uppercase tracking-[0.16em] text-slate-500 sm:right-4 sm:top-4"
+          title={selectedPlacement ? envelopeLabel : undefined}
+        >
+          {selectedPlacement ? envelopeLabel : "Tap a part for more info"}
+        </div>
+
+        {selectedPlacement && (
+          <div className="absolute bottom-9 right-3 w-[min(21rem,calc(100%-1.5rem))] border border-[#2a2c33] bg-[#0d0e12]/95 p-3 shadow-2xl sm:bottom-10 sm:right-4">
+            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: selectedPlacement.color }}>
+              <span>{selectedPlacement.refDes}</span>
+              <span className="text-slate-700">/</span>
+              <span>{categoryLabel(selectedPlacement.category)}</span>
+            </div>
+            <div className="mt-2 truncate text-sm font-black uppercase tracking-[0.12em] text-white">{selectedPlacement.label}</div>
+            {selectedPlacement.component?.part_number && (
+              <div className="mt-1 truncate font-mono text-[10px] text-slate-500">{selectedPlacement.component.part_number}</div>
+            )}
+            <div className="mt-3 grid grid-cols-3 gap-1.5 text-[10px] font-black uppercase tracking-[0.12em]">
+              {(["X", "Y", "Z"] as const).map((axis, index) => (
+                <div key={axis} className="border border-[#22242b] px-2 py-1.5">
+                  <div className="text-slate-600">{axis}</div>
+                  <div className="mt-0.5 truncate text-slate-200">{Math.round(selectedPlacement.positionMm[index])}mm</div>
+                </div>
+              ))}
+            </div>
+            {selectedPlacement.notes && <div className="mt-3 line-clamp-3 text-[10px] leading-snug text-slate-500">{selectedPlacement.notes}</div>}
+          </div>
+        )}
+
+        <div className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-[0.18em] text-slate-700 sm:bottom-4 sm:right-4">
+          Live 3D <span className="mx-1 text-slate-800">/</span> Three.js + R3F
+        </div>
       </div>
     </div>
   );

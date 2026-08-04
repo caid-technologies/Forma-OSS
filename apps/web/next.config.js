@@ -9,6 +9,11 @@ loadEnvConfig(path.resolve(__dirname, "../.."));
 const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
+  outputFileTracingRoot: path.resolve(__dirname),
 };
 
 module.exports = nextConfig;
+
+import("@opennextjs/cloudflare").then((module) =>
+  module.initOpenNextCloudflareForDev(),
+);

@@ -138,7 +138,7 @@ export type UseProjectVideoResult = {
   canReview: boolean;
   canMakeNewVideo: boolean;
   canGeneratePrompt: boolean;
-  fileInputRef: RefObject<HTMLInputElement>;
+  fileInputRef: RefObject<HTMLInputElement | null>;
   onImageFileChange: (event: ChangeEvent<HTMLInputElement>) => void;
 };
 

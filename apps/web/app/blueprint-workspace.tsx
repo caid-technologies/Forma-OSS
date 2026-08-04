@@ -2262,7 +2262,6 @@ export function FormaWorkspace({
     setImageGenerationConfig({ configured: null, provider: null, reason: null });
     setImageGenerationConfigLoaded(false);
     setProviderSetup({ llmRequired: false, imageRequired: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authIdentityKey, authLoaded, authRequired, isSignedIn]);
 
   useDeferredTask(() => {
@@ -2299,7 +2298,6 @@ export function FormaWorkspace({
     void fetchAgentPipelineSteps(generationWorkflow);
     // The first request is staged by useDeferredTask; later workflow changes
     // load immediately and cancel any response for the previous workflow.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generationWorkflow]);
 
   useEffect(() => {
@@ -5794,7 +5792,7 @@ function ChatWorkspace({
   canStop: boolean;
   onStop: () => void;
   canChat: boolean;
-  endRef: React.RefObject<HTMLDivElement>;
+  endRef: React.RefObject<HTMLDivElement | null>;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceLabel: string;

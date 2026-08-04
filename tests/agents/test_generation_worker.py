@@ -218,6 +218,37 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.brief, engine.received[0])
         self.assertEqual(["ref-datasheet"], [item.reference_id for item in engine.received[0].references])
 
+    async def test_project_chat_iteration_appends_an_immutable_revision(self) -> None:
+        engine = FakeGenerationEngine()
+        worker = GenerationWorker(self.state, engine)
+        request = self.request().model_copy(update={"metadata": {"execution_owner_user_id": OWNER}})
+
+        async def progress(_: Any) -> None:
+            return None
+
+        first = await worker.execute(request, progress)
+        first_revision = self.state.get_latest(self.project_id, OWNER)
+        revised_state = first_revision.state.model_copy(deep=True)
+        revised_state.overview.title = "Revised Controller"
+        draft = ProjectRevisionDraft(
+            state=revised_state,
+            components=list(revised_state.components),
+            systems=list(first_revision.systems),
+            artifacts=list(first_revision.artifacts),
+            assumptions=list(first_revision.assumptions),
+        )
+        second = self.state.create_revision(
+            draft,
+            project_id=self.project_id,
+            owner_user_id=OWNER,
+            source_job_id="iteration-job-1",
+        ).revision
+
+        self.assertEqual("succeeded", first.status.value)
+        self.assertEqual(2, second.revision)
+        self.assertEqual(1, second.parent_revision)
+        self.assertEqual("Revised Controller", self.state.get_latest(self.project_id, OWNER).state.overview.title)
+
     async def test_provider_failure_is_structured_retryable_and_does_not_create_revision(self) -> None:
         engine = FakeGenerationEngine(fail=True)
         worker = GenerationWorker(self.state, engine)

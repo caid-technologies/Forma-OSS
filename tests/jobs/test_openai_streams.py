@@ -74,6 +74,19 @@ class FakeChatStreamer:
 
 
 class OpenAIStreamTests(unittest.TestCase):
+    def test_openai_response_payload_preserves_reasoning_effort(self) -> None:
+        config = OpenAIStreamConfig(
+            api_key="test-key",
+            model="gpt-5.6-sol",
+            prompt="Plan the system.",
+            reasoning_effort="low",
+        )
+
+        payload = config.request_payload()
+
+        self.assertEqual("gpt-5.6-sol", payload["model"])
+        self.assertEqual({"effort": "low"}, payload["reasoning"])
+
     def test_iter_sse_events_parses_event_and_data_blocks(self) -> None:
         lines = [
             b"event: response.output_text.delta\n",

@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from apps.api.auth import UserContext, require_user_context
+from blueprint_core.database import get_project_generation_plan
+from blueprint_core.workers import WorkerExecutionPlan, WorkerPlanningError
+
+
+router = APIRouter(prefix="/projects/{project_id}/build", tags=["project-build-execution"])
+
+
+def _owner(user: UserContext) -> str:
+    owner = str(user.owner_user_id or "").strip()
+    if not owner:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to view build execution.")
+    return owner
+
+
+@router.get("/plans/{plan_id}", response_model=WorkerExecutionPlan)
+def get_build_plan_endpoint(
+    project_id: UUID,
+    plan_id: str,
+    user: UserContext = Depends(require_user_context),
+) -> WorkerExecutionPlan:
+    try:
+        plan = get_project_generation_plan(plan_id, _owner(user))
+    except WorkerPlanningError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.as_dict()) from exc
+    if str(plan.project_id) != str(project_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Build execution not found.")
+    return plan
+
+
+__all__ = ["router"]

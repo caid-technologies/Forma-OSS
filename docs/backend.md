@@ -171,5 +171,5 @@ Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.lo
 Run against first-party OpenAI:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
 ```

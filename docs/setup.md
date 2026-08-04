@@ -99,7 +99,7 @@ REDIS_URL=redis://localhost:6379/0
 # Live LLM generation
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.6-sol
 STRICT_LLM=true
 
 # Optional first-party OpenAI settings
@@ -142,7 +142,7 @@ SUPABASE_S3_BUCKET=contents
 
 # Generic provider aliases
 # LLM_API_KEY=your_provider_api_key_here
-# LLM_MODEL=gpt-4o-mini
+# LLM_MODEL=gpt-5.6-sol
 # LLM_FALLBACK_MODEL=your_fallback_model_here
 
 # Optional for OpenAI-compatible providers
@@ -175,7 +175,7 @@ Notes:
 - After those inputs are applied, `GET /api/runtime/config` is authoritative for the frontend. Resolution precedence is request override, saved integration, environment, then provider default; the browser does not repeat this merge.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
 - `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
-- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
+- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-5.6-sol"}`.
 - Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `CLOUDFLARE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
 - `OPENAI_RESPONSE_FORMAT` defaults to `json_schema` for OpenAI. You can set it to `json_object` for older JSON mode or `none` to omit `response_format`.
@@ -241,7 +241,7 @@ uvicorn apps.api.main:app --reload --port 8000
 
 OpenAI one-liner:
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
 ```
 
 API docs: http://localhost:8000/api/docs

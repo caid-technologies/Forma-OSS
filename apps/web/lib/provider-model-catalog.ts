@@ -32,6 +32,14 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gemini-2.5-pro", "Gemini 2.5 Pro", "Stable previous-generation pro model"),
     model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable previous-generation flash model"),
   ],
+  vertex: [
+    model("gemini-3.6-flash", "Gemini 3.6 Flash", "Vertex AI agentic and multimodal workloads"),
+    model("gemini-3.5-flash", "Gemini 3.5 Flash", "Vertex AI coding and sustained agentic tasks"),
+    model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Vertex AI high-throughput workloads"),
+    model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Vertex AI fast general-purpose model"),
+    model("gemini-2.5-pro", "Gemini 2.5 Pro", "Stable Vertex AI pro model"),
+    model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable Vertex AI flash model"),
+  ],
   baseten: [
     model("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
     model("zai-org/GLM-5.2", "GLM 5.2"),
@@ -271,6 +279,7 @@ function providerLabel(provider: string) {
     anthropic: "Anthropic",
     baseten: "Baseten",
     gemini: "Google Gemini",
+    vertex: "Google Vertex AI",
     gmi: "GMI Cloud",
     huggingface: "Hugging Face",
     cloudflare: "Cloudflare AI",

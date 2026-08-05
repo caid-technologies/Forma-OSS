@@ -60,12 +60,13 @@ LLM configuration behavior:
 - `PROJECTS_CACHE_TTL_SECONDS`: project-list cache lifetime in seconds, default `60`; successful project writes invalidate all list variants immediately.
 - `REDIS_CACHE_PREFIX`: Redis key namespace, required when `BLUEPRINT_DEV_MODE=false` and defaulting to `blueprint` only for development-mode cache usage.
 - `REDIS_SOCKET_TIMEOUT_SECONDS`: Redis connect/read timeout, default `0.25`; failures open a 30-second local circuit breaker.
-- `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER`: `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching. The backend validates them before generation and records requested/actual provider/model metadata on the project.
 - `/api/generate` accepts `data_sources: ["past_jobs"]` and an optional `past_jobs_limit` (1-8, default 3). This retrieves the signed-in owner's relevant completed generation jobs, compacts their stored project outputs into bounded prompt context, and requires no embedding model or vector database. The current request always takes precedence over historical examples.
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
-- `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
+- `VERTEX_AI_ALLOWED_MODELS` / `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
+- `GOOGLE_CLOUD_PROJECT` / `VERTEX_AI_PROJECT`, `GOOGLE_CLOUD_LOCATION` / `VERTEX_AI_LOCATION`, and `VERTEX_AI_MODEL`: Vertex AI routing when `LLM_PROVIDER=vertex`; authentication uses Google Cloud Application Default Credentials.
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`
 - `OPENAI_MODEL`: first-party OpenAI model alias for `LLM_MODEL`
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format, defaulting to `json_schema`; `json_object` and `none` are also supported
@@ -171,5 +172,5 @@ Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.lo
 Run against first-party OpenAI:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.5-flash uvicorn apps.api.main:app --reload --port 8000
 ```

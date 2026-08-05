@@ -168,9 +168,10 @@ primary SQLite database directly when the API server is not running. Job
 tables include the generation source when known: `Catalog`, `Web Research`, or
 both.
 
-To run with OpenAI:
+To run with Google Vertex AI as the primary LLM provider:
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn apps.api.main:app --reload --port 8000
+gcloud auth application-default login
+LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.5-flash uvicorn apps.api.main:app --reload --port 8000
 ```
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
@@ -197,9 +198,9 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 
 The backend publishes the resolved, credential-safe client contract at `GET /api/runtime/config`. Its precedence is explicit request override, saved integration, environment, then provider default. The web application uses this response for provider/model choices, image behavior, workflow defaults, and BYOK prompts instead of repeating configuration logic.
 
-- `LLM_PROVIDER`: Live generation provider: `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `LLM_PROVIDER`: Live generation provider: `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_ALLOWED_PROVIDERS`: Optional comma-separated allowlist for per-request provider overrides.
-- `OPENAI_ALLOWED_MODELS` / `ANTHROPIC_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `GMI_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.
+- `VERTEX_AI_ALLOWED_MODELS` / `OPENAI_ALLOWED_MODELS` / `ANTHROPIC_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `GMI_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.
 - `/api/generate` also accepts optional `provider` and `model` fields for runtime switching. Each generated project records the requested provider/model and actual provider/model in `assembly_metadata`.
 - In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-sonnet-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
@@ -210,6 +211,15 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 - `LLM_TIMEOUT_SECONDS`: Generic read timeout. OpenAI-compatible endpoints default to `90`.
 - `LLM_REASONING_EFFORT`: Optional generic reasoning effort for compatible endpoints that support it.
 - `LLM_TEMPERATURE`: Optional generic sampling temperature. OpenAI-compatible endpoints default to `0.2`; set `default`, `none`, or `omit` to omit it.
+
+<details>
+<summary><strong>Google Vertex AI (primary)</strong></summary>
+
+- Set `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT` (or `VERTEX_AI_PROJECT`), and `GOOGLE_CLOUD_LOCATION` (or `VERTEX_AI_LOCATION`, default `global`).
+- `VERTEX_AI_MODEL` selects the Gemini model and `VERTEX_AI_FALLBACK_MODEL` configures the optional non-strict fallback.
+- Authentication uses Google Cloud Application Default Credentials. Run `gcloud auth application-default login` locally; in production, attach a service account with Vertex AI access. `GOOGLE_APPLICATION_CREDENTIALS` may point to a mounted credential file.
+
+</details>
 
 <details>
 <summary><strong>OpenAI</strong></summary>

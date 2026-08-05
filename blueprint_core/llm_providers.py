@@ -28,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+DEFAULT_VERTEX_MODEL = DEFAULT_GEMINI_MODEL
+DEFAULT_VERTEX_FALLBACK_MODEL = DEFAULT_GEMINI_FALLBACK_MODEL
+DEFAULT_VERTEX_LOCATION = "global"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
@@ -86,7 +89,7 @@ def model_image_input_support(provider_name: str, model_name: str) -> Optional[b
     provider = normalize_llm_provider_name(provider_name) or provider_name.strip().lower()
     model = _normalize_model_name(model_name).lower()
 
-    if provider in {"gemini", "anthropic"}:
+    if provider in {"gemini", "vertex", "anthropic"}:
         return True
     if provider == "cloudflare" and model == DEFAULT_CLOUDFLARE_MODEL:
         return True
@@ -136,6 +139,7 @@ SUPPORTED_LLM_PROVIDERS = {
     "runpod",
     "runpod-serverless",
     "simulation",
+    "vertex",
 }
 SIMULATION_PROVIDER_ALIASES = {"simulation", "simulated", "offline", "none", "mock"}
 PROVIDER_ALIASES = {
@@ -149,6 +153,10 @@ PROVIDER_ALIASES = {
     "nim": "nvidia",
     "google": "gemini",
     "google-genai": "gemini",
+    "google-vertex": "vertex",
+    "google-vertex-ai": "vertex",
+    "vertex-ai": "vertex",
+    "vertexai": "vertex",
     "gmi-cloud": "gmi",
     "gmi_cloud": "gmi",
     "gmicloud": "gmi",
@@ -423,6 +431,8 @@ def _default_provider_name() -> str:
         return "runpod"
     if runpod_api_key and runpod_serverless_endpoint:
         return "runpod-serverless"
+    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+        return "vertex"
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         return "gemini"
     if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]):
@@ -482,6 +492,8 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         providers.add("runpod-serverless")
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         providers.add("gemini")
+    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+        providers.add("vertex")
     if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"]):
         providers.add("openai")
     if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"]):
@@ -509,6 +521,8 @@ def _default_model_for_provider(provider_name: str, *, include_runtime_override:
         return _first_env(["BASETEN_MODEL", *runtime_model], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
     if provider_name == "gemini":
         return _first_env([*runtime_model, "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
+    if provider_name == "vertex":
+        return _first_env([*runtime_model, "VERTEX_AI_MODEL", "VERTEX_MODEL"], DEFAULT_VERTEX_MODEL) or DEFAULT_VERTEX_MODEL
     if provider_name == "gmi":
         return _normalize_model_for_provider(
             provider_name,
@@ -541,6 +555,11 @@ def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
         return _first_env(["BASETEN_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "gemini":
         return _first_env(["LLM_FALLBACK_MODEL", "GEMINI_FALLBACK_MODEL"], DEFAULT_GEMINI_FALLBACK_MODEL)
+    if provider_name == "vertex":
+        return _first_env(
+            ["LLM_FALLBACK_MODEL", "VERTEX_AI_FALLBACK_MODEL", "VERTEX_FALLBACK_MODEL"],
+            DEFAULT_VERTEX_FALLBACK_MODEL,
+        )
     if provider_name == "gmi":
         fallback = _first_env(["GMI_FALLBACK_MODEL", "GMI_CLOUD_FALLBACK_MODEL", "GMICLOUD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
         return _normalize_model_for_provider(provider_name, fallback) if fallback else None
@@ -608,6 +627,8 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
         ]
     elif provider_name == "gemini":
         env_names = ["GEMINI_ALLOWED_MODELS", "ALLOWED_GEMINI_MODELS", *env_names]
+    elif provider_name == "vertex":
+        env_names = ["VERTEX_AI_ALLOWED_MODELS", "VERTEX_ALLOWED_MODELS", "ALLOWED_VERTEX_MODELS", *env_names]
     elif provider_name == "nvidia":
         env_names = ["NVIDIA_ALLOWED_MODELS", "NVIDIA_NIM_ALLOWED_MODELS", "NIM_ALLOWED_MODELS", *env_names]
     elif provider_name in {"runpod", "runpod-serverless"}:
@@ -689,7 +710,10 @@ def get_llm_runtime_debug_config() -> Dict[str, Any]:
 
 
 def _normalize_model_name(model_name: str) -> str:
-    return model_name.strip().removeprefix("models/")
+    normalized = model_name.strip().removeprefix("models/")
+    if "/models/" in normalized:
+        normalized = normalized.rsplit("/models/", 1)[-1]
+    return normalized
 
 
 def _model_is_available(model_name: str, available_models: List[str]) -> bool:
@@ -915,6 +939,7 @@ class SimulationProvider(StructuredLLMProvider):
 
 class GeminiProvider(StructuredLLMProvider):
     provider_name = "gemini"
+    provider_label = "Gemini"
 
     def __init__(self, model_name: Optional[str] = None):
         self.api_key = _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_API_KEY"])
@@ -932,16 +957,16 @@ class GeminiProvider(StructuredLLMProvider):
         if self.api_key and genai:
             try:
                 self.client = genai.Client(api_key=self.api_key)
-                logger.info("Gemini LLM provider initialized successfully.")
+                logger.info("%s LLM provider initialized successfully.", self.provider_label)
             except Exception as exc:
-                self.init_error = f"Error initializing Gemini provider: {exc}"
+                self.init_error = f"Error initializing {self.provider_label} provider: {exc}"
                 logger.error(self.init_error)
         elif self.api_key and not genai:
-            self.init_error = "Gemini API key is set, but google-genai is unavailable."
+            self.init_error = f"{self.provider_label} credentials are set, but google-genai is unavailable."
             logger.warning("%s Running in simulated/fallback mode.", self.init_error)
         else:
             self.init_error = "No Gemini API key found."
-            logger.warning("%s Live Gemini generation is disabled.", self.init_error)
+            logger.warning("%s Live %s generation is disabled.", self.init_error, self.provider_label)
 
         self.is_configured = self.client is not None
 
@@ -958,6 +983,11 @@ class GeminiProvider(StructuredLLMProvider):
             supported_actions = getattr(model, "supported_actions", None)
             if supported_actions is None and isinstance(model, dict):
                 supported_actions = model.get("supportedActions") or model.get("supported_actions")
+            if supported_actions is None and self.provider_name == "vertex":
+                # Vertex publisher-model listings currently omit capability
+                # metadata even for Gemini generateContent models.
+                available_models.append(name)
+                continue
             supported_actions = supported_actions or []
 
             if "generateContent" in supported_actions:
@@ -980,7 +1010,7 @@ class GeminiProvider(StructuredLLMProvider):
                 strict_mode=self.strict_mode,
                 fallback_active=False,
                 fallback_model=self.fallback_model,
-                validation_error=f"{self.init_error or 'Gemini provider is not configured'} Simulation mode is active.",
+                validation_error=f"{self.init_error or f'{self.provider_label} provider is not configured'} Simulation mode is active.",
                 live_generation_enabled=False,
             )
             return self._validation
@@ -988,7 +1018,7 @@ class GeminiProvider(StructuredLLMProvider):
         try:
             available_models = self._list_generate_content_models()
         except Exception as exc:
-            validation_error = f"Unable to validate Gemini model availability: {exc}"
+            validation_error = f"Unable to validate {self.provider_label} model availability: {exc}"
             actual_model = self.fallback_model if not self.strict_mode else None
             self._validation = LLMProviderValidation(
                 provider=self.provider_name,
@@ -1023,8 +1053,8 @@ class GeminiProvider(StructuredLLMProvider):
 
         if self.strict_mode:
             validation_error = (
-                f"Configured Gemini model {self.requested_model} is not available for this API key/provider. "
-                "Check available models or configure a valid Gemini model ID."
+                f"Configured {self.provider_label} model {self.requested_model} is not available for this account/provider. "
+                f"Check available models or configure a valid {self.provider_label} model ID."
             )
             self._validation = LLMProviderValidation(
                 provider=self.provider_name,
@@ -1044,7 +1074,7 @@ class GeminiProvider(StructuredLLMProvider):
         fallback_available = _model_is_available(self.fallback_model, available_models)
         if not fallback_available:
             validation_error = (
-                f"Configured Gemini model {self.requested_model} is not available, and fallback model "
+                f"Configured {self.provider_label} model {self.requested_model} is not available, and fallback model "
                 f"{self.fallback_model} is not available for this API key/provider."
             )
             self._validation = LLMProviderValidation(
@@ -1081,7 +1111,7 @@ class GeminiProvider(StructuredLLMProvider):
         image_mime_type: Optional[str] = None,
     ) -> Any:
         if self.client is None or genai_types is None:
-            raise RuntimeError("Gemini provider is not configured.")
+            raise RuntimeError(f"{self.provider_label} provider is not configured.")
 
         contents = []
         if image_bytes and image_mime_type:
@@ -1098,6 +1128,67 @@ class GeminiProvider(StructuredLLMProvider):
             ),
         )
         return _validate_structured_json(response.text, schema_class)
+
+
+class VertexAIProvider(GeminiProvider):
+    """Gemini on Vertex AI using Google Cloud Application Default Credentials."""
+
+    provider_name = "vertex"
+    provider_label = "Vertex AI"
+
+    def __init__(self, model_name: Optional[str] = None):
+        self.project = _first_env(
+            ["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]
+        )
+        self.location = (
+            _first_env(["VERTEX_AI_LOCATION", "GOOGLE_CLOUD_LOCATION"], DEFAULT_VERTEX_LOCATION)
+            or DEFAULT_VERTEX_LOCATION
+        )
+        self.api_key = None
+        self.requested_model = (
+            model_name
+            or _first_env(["LLM_MODEL", "VERTEX_AI_MODEL", "VERTEX_MODEL"], DEFAULT_VERTEX_MODEL)
+            or DEFAULT_VERTEX_MODEL
+        )
+        self.fallback_model = (
+            _first_env(
+                ["LLM_FALLBACK_MODEL", "VERTEX_AI_FALLBACK_MODEL", "VERTEX_FALLBACK_MODEL"],
+                DEFAULT_VERTEX_FALLBACK_MODEL,
+            )
+            or DEFAULT_VERTEX_FALLBACK_MODEL
+        )
+        self.strict_mode = _first_env_bool(["STRICT_LLM", "STRICT_VERTEX_AI", "STRICT_VERTEX"], default=True)
+        self.model_name = self.requested_model
+        self.client = None
+        self.init_error: Optional[str] = None
+        self._validation: Optional[LLMProviderValidation] = None
+
+        if self.project and genai:
+            try:
+                self.client = genai.Client(
+                    vertexai=True,
+                    project=self.project,
+                    location=self.location,
+                )
+                logger.info(
+                    "Vertex AI LLM provider initialized for project %s in %s.",
+                    self.project,
+                    self.location,
+                )
+            except Exception as exc:
+                self.init_error = f"Error initializing Vertex AI provider: {exc}"
+                logger.error(self.init_error)
+        elif self.project and not genai:
+            self.init_error = "Vertex AI project is set, but google-genai is unavailable."
+            logger.warning("%s Running in simulated/fallback mode.", self.init_error)
+        else:
+            self.init_error = (
+                "No Vertex AI project found. Set VERTEX_AI_PROJECT or GOOGLE_CLOUD_PROJECT "
+                "and configure Application Default Credentials."
+            )
+            logger.warning("%s Live Vertex AI generation is disabled.", self.init_error)
+
+        self.is_configured = self.client is not None
 
 
 class AnthropicProvider(StructuredLLMProvider):
@@ -2382,6 +2473,8 @@ def build_llm_provider(
         return AnthropicProvider(model_name=runtime.model)
     if runtime.provider == "gemini":
         return GeminiProvider(model_name=runtime.model)
+    if runtime.provider == "vertex":
+        return VertexAIProvider(model_name=runtime.model)
     if runtime.provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "openai-compatible"}:
         return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model)
     if runtime.provider == "runpod":
@@ -2393,7 +2486,8 @@ def build_llm_provider(
 
     message = (
         f"Unsupported LLM_PROVIDER '{runtime.provider}'. Supported providers are "
-        "anthropic, baseten, gemini, gmi, huggingface, cloudflare, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
+        "anthropic, baseten, gemini, gmi, huggingface, cloudflare, nvidia, openai, openai-compatible, "
+        "runpod, runpod-serverless, simulation, and vertex."
     )
     logger.warning(message)
     return SimulationProvider(validation_error=message)

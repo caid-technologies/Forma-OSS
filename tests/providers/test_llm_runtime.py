@@ -55,6 +55,7 @@ LLM_ENV_KEYS = {
     "GEMINI_ALLOWED_MODELS",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
+    "GCLOUD_PROJECT",
     "GMI_ALLOWED_MODELS",
     "GMI_API_KEY",
     "GMI_BASE_URL",
@@ -81,6 +82,11 @@ LLM_ENV_KEYS = {
     "GMICLOUD_TIMEOUT_SECONDS",
     "GMICLOUD_VALIDATE_MODELS",
     "GOOGLE_API_KEY",
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    "GOOGLE_CLOUD_LOCATION",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT_ID",
+    "GOOGLE_GENAI_USE_VERTEXAI",
     "HF_ALLOWED_MODELS",
     "HF_API_TOKEN",
     "HF_BASE_URL",
@@ -155,6 +161,16 @@ LLM_ENV_KEYS = {
     "STRICT_GMICLOUD",
     "STRICT_LLM",
     "STRICT_CLOUDFLARE",
+    "STRICT_VERTEX",
+    "STRICT_VERTEX_AI",
+    "VERTEX_AI_ALLOWED_MODELS",
+    "VERTEX_AI_FALLBACK_MODEL",
+    "VERTEX_AI_LOCATION",
+    "VERTEX_AI_MODEL",
+    "VERTEX_AI_PROJECT",
+    "VERTEX_ALLOWED_MODELS",
+    "VERTEX_FALLBACK_MODEL",
+    "VERTEX_MODEL",
 }
 
 
@@ -226,6 +242,57 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertTrue(model_image_input_support("cloudflare", "@cf/google/gemma-4-26b-a4b-it"))
         self.assertTrue(model_image_input_support("openai", "gpt-5.5"))
         self.assertIsNone(model_image_input_support("cloudflare", "some-new-model"))
+
+    def test_vertex_is_primary_google_cloud_provider_and_uses_adc_client(self) -> None:
+        client_calls = []
+
+        class FakeModel:
+            name = "publishers/google/models/gemini-3.5-flash"
+            supported_actions = None
+
+        class FakeClient:
+            def __init__(self):
+                self.models = self
+
+            def list(self):
+                return [FakeModel()]
+
+        class FakeGenAI:
+            @staticmethod
+            def Client(**kwargs):
+                client_calls.append(kwargs)
+                return FakeClient()
+
+        with isolated_llm_env(
+            GOOGLE_CLOUD_PROJECT="forma-vertex-test",
+            GOOGLE_CLOUD_LOCATION="us-central1",
+            VERTEX_AI_MODEL="gemini-3.5-flash",
+        ), patch("blueprint_core.llm_providers.genai", FakeGenAI):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+            validation = provider.validate_configured_model()
+
+        self.assertEqual("vertex", runtime.provider)
+        self.assertEqual("gemini-3.5-flash", runtime.model)
+        self.assertEqual(
+            [{"vertexai": True, "project": "forma-vertex-test", "location": "us-central1"}],
+            client_calls,
+        )
+        self.assertTrue(provider.is_configured)
+        self.assertTrue(validation.requested_model_available)
+        self.assertEqual("vertex", validation.provider)
+
+    def test_vertex_alias_and_provider_specific_allowlist_are_supported(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="google-vertex-ai",
+            VERTEX_AI_PROJECT="forma-vertex-test",
+            VERTEX_AI_ALLOWED_MODELS="gemini-2.5-flash,gemini-3.5-flash",
+        ):
+            runtime = resolve_llm_runtime_config(model_name="gemini-2.5-flash")
+
+        self.assertEqual("vertex", runtime.provider)
+        self.assertEqual("gemini-2.5-flash", runtime.model)
+        self.assertEqual(["gemini-2.5-flash", "gemini-3.5-flash"], runtime.allowed_models)
 
     def test_parse_provider_model_selector(self) -> None:
         selector = parse_llm_selector("runpod/caid-technologies/parti-base")

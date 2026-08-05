@@ -32,6 +32,7 @@ _PROVIDER_LABELS = {
     "openai-compatible": "OpenAI Compatible",
     "runpod": "Runpod",
     "runpod-serverless": "Runpod Serverless",
+    "vertex": "Google Vertex AI",
 }
 
 _MODEL_LABELS = {

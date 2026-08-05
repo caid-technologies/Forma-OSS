@@ -11,7 +11,7 @@ export function generationLlmImageSupport(option: Pick<GenerationLlmOption, "pro
   const provider = option.provider.trim().toLowerCase();
   const model = option.model.trim().toLowerCase().replace(/^models\//, "");
 
-  if (provider === "gemini" || provider === "anthropic") return true;
+  if (provider === "gemini" || provider === "vertex" || provider === "anthropic") return true;
   if (provider === "cloudflare" && model === "@cf/google/gemma-4-26b-a4b-it") return true;
   if (["-vl", "_vl", "/vl", "vision", "llava"].some((marker) => model.includes(marker))) return true;
   if (provider === "openai" && ["gpt-4o", "gpt-4.1", "gpt-5"].some((prefix) => model.startsWith(prefix))) return true;

@@ -222,6 +222,7 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
       { integrationId: "openai", view: "llm", label: "OpenAI LLM" },
       { integrationId: "anthropic", view: "llm" },
       { integrationId: "gemini", view: "llm" },
+      { integrationId: "vertex", view: "llm" },
       { integrationId: "baseten", view: "llm" },
       { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
       { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },

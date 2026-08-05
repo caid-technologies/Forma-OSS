@@ -494,6 +494,33 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         ),
     ),
     IntegrationDefinition(
+        id="vertex",
+        label="Google Vertex AI",
+        description="Gemini models on Vertex AI using server-side Google Cloud Application Default Credentials.",
+        fields=(
+            IntegrationFieldDefinition(
+                "project",
+                "Google Cloud project",
+                ("VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT"),
+                placeholder="your-gcp-project-id",
+                help="The backend must have Vertex AI access through Application Default Credentials.",
+            ),
+            IntegrationFieldDefinition(
+                "location",
+                "Vertex AI location",
+                ("VERTEX_AI_LOCATION", "GOOGLE_CLOUD_LOCATION"),
+                placeholder="global",
+            ),
+            IntegrationFieldDefinition("model", "Default model", ("VERTEX_AI_MODEL",), placeholder="gemini-3.5-flash"),
+            IntegrationFieldDefinition(
+                "fallback_model",
+                "Fallback model",
+                ("VERTEX_AI_FALLBACK_MODEL",),
+                placeholder="gemini-2.5-flash",
+            ),
+        ),
+    ),
+    IntegrationDefinition(
         id="firecrawl",
         label="Firecrawl",
         description="Firecrawl MCP search and page extraction.",
@@ -533,11 +560,13 @@ EXTRA_MANAGED_ENV_NAMES = {
     "NVIDIA_ALLOWED_MODELS",
     "OPENAI_ALLOWED_MODELS",
     "RUNPOD_ALLOWED_MODELS",
+    "VERTEX_AI_ALLOWED_MODELS",
 }
 LLM_PROVIDER_INTEGRATION_IDS = {
     "anthropic",
     "baseten",
     "gemini",
+    "vertex",
     "gmi",
     "huggingface",
     "cloudflare",
@@ -558,6 +587,10 @@ PROVIDER_ALIASES = {
     "nvidia-nim": "nvidia",
     "nim": "nvidia",
     "google": "gemini",
+    "google-vertex": "vertex",
+    "google-vertex-ai": "vertex",
+    "vertex-ai": "vertex",
+    "vertexai": "vertex",
 }
 MODEL_PREFIX_PROVIDERS = (
     ("claude-", "anthropic"),
@@ -573,6 +606,7 @@ PROVIDER_ALLOWED_MODEL_ENV = {
     "anthropic": "ANTHROPIC_ALLOWED_MODELS",
     "baseten": "BASETEN_ALLOWED_MODELS",
     "gemini": "GEMINI_ALLOWED_MODELS",
+    "vertex": "VERTEX_AI_ALLOWED_MODELS",
     "gmi": "GMI_ALLOWED_MODELS",
     "huggingface": "HUGGINGFACE_ALLOWED_MODELS",
     "cloudflare": "CLOUDFLARE_ALLOWED_MODELS",
@@ -1394,6 +1428,8 @@ def _environment_configures_integration(definition: IntegrationDefinition) -> bo
     ]
     if definition.id not in LLM_PROVIDER_INTEGRATION_IDS:
         return bool(configured_fields)
+    if definition.id == "vertex":
+        return any(field_definition.id == "project" for field_definition in configured_fields)
     if any(field_definition.secret for field_definition in configured_fields):
         return True
     runtime_provider = _normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or "")

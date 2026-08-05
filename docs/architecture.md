@@ -5,7 +5,7 @@ Forma OSS turns prompts into structured hardware projects using a sequential, va
 ## System pipeline
 1. **Prompt + optional image** enters the system.
 2. **Safety guardrails** block high-risk domains early (weapons, medical, mains AC, etc.).
-3. **Model resolution** determines whether live LLM generation runs or a deterministic simulation fallback is used.
+3. **Model resolution** selects an explicitly configured live LLM; simulation requires a separate caller opt-in.
 4. **Intent Parser Agent** produces a high-level `ProjectOverview`.
 5. **Requirements Agent** extracts functional requirements and constraints.
 6. **Component Selection Agent** chooses parts from the seed database.
@@ -33,13 +33,13 @@ Forma OSS turns prompts into structured hardware projects using a sequential, va
 - `blueprint_core.config.contract.resolve_runtime_contract()` is the single client-facing configuration authority. It resolves request/saved/environment/default precedence and publishes LLM options, image defaults, workflow defaults, generation readiness, and BYOK requirements through `GET /api/runtime/config`.
 - Environment variables and encrypted integration records are input adapters. The web application does not merge them or derive provider readiness independently.
 - Gemini-specific variables (`GEMINI_API_KEY`, `GOOGLE_API_KEY`, `GEMINI_MODEL`, `STRICT_GEMINI`, `GEMINI_FALLBACK_MODEL`) remain supported as compatibility aliases.
-- If no API key is configured (or generation errors), the backend uses a deterministic simulation fallback backed by curated example projects.
+- If no API key is configured or generation errors, the backend returns an error. Curated simulation output is available only through explicit `allow_simulation: true` requests.
 
 ## System diagram
 ```mermaid
 flowchart TD
   A[Prompt + optional image] --> S[Safety guardrails]
-  S --> M[Model resolution\n(live LLM vs simulation)]
+  S --> M[Model resolution\nconfigured live LLM or explicit simulation]
   M --> B[Intent Parser Agent]
   B --> C[Requirements Agent]
   C --> D[Component Selection Agent]

@@ -26,6 +26,8 @@ SQLITE_DATABASE_URL=sqlite:////data/blueprint.db
 LLM_PROVIDER=simulation
 ```
 
+This Compose value makes the simulation provider available for local demos; it does not opt requests into simulated generation. A caller must still send `allow_simulation: true`. Claude Code and Codex skills instead author Hardware IR with their host model and call `blueprint.compile_project`.
+
 Compose also starts an ephemeral Redis service and configures the backend to
 cache project gallery responses for 60 seconds. Project writes invalidate the
 cache immediately; Redis outages fall back to the primary database.

@@ -82,9 +82,39 @@ Each line sent to the socket is an `A2AMessage` JSON object. Each line returned 
 
 Available tools:
 - `blueprint.generate_project`
+- `blueprint.compile_project`
 - `blueprint.debug_config`
 - `blueprint.validate_circuit`
+- `blueprint.export_project_pdf`
 - `blueprint.a2a.send_message`
 - `blueprint.a2a.poll_events`
 - `blueprint.a2a.get_job`
 - `blueprint.a2a.list_jobs`
+- `blueprint.lattice.list_agents`
+- `blueprint.lattice.get_agent_card`
+
+`blueprint.compile_project` is the default Claude Code/Codex integration path. The host agent authors `project_ir`; Forma validates it, builds Mermaid and SVG diagrams, records `generation.mode: "host_agent"`, and optionally creates a PDF. Pass `authoring_agent: "claude"` or `"codex"` and `output_formats: ["pdf"]`.
+
+The PDF is returned as an MCP embedded binary resource with MIME type `application/pdf`. Its five landscape pages capture the `INFO`, `BOM`, `MECH`, `WIRE`, and `DOCS` workspace views.
+
+`blueprint.generate_project` is reserved for an explicitly configured server-side LLM. It rejects the simulation provider unless the caller deliberately supplies `allow_simulation: true`.
+
+To export existing Hardware IR without compiling or generating a new project, call `blueprint.export_project_pdf`:
+
+```json
+{
+  "jsonrpc": "2.0",
+  "id": "pdf-1",
+  "method": "tools/call",
+  "params": {
+    "name": "blueprint.export_project_pdf",
+    "arguments": {
+      "project_ir": {
+        "overview": {"title": "Plant Monitor", "description": "A low-voltage sensor project"},
+        "components": [],
+        "nets": []
+      }
+    }
+  }
+}
+```

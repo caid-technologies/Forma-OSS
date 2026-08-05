@@ -112,6 +112,7 @@ from apps.api.a2a import (
     get_a2a_capabilities,
     handle_a2a_websocket,
     handle_mcp_json_rpc,
+    require_explicit_simulation,
     start_a2a_tcp_server,
     stop_a2a_tcp_server,
     submit_a2a_message,
@@ -520,7 +521,8 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
             model_name=request.model,
             external_source_provider=request.external_source_provider,
         )
-    except LLMProviderConfigError as e:
+        require_explicit_simulation(llm_config, allow_simulation=request.allow_simulation)
+    except (LLMProviderConfigError, ValueError) as e:
         raise HTTPException(
             status_code=400,
             detail=api_error_detail(
@@ -582,6 +584,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
+        "allow_simulation": request.allow_simulation,
         "provider": request.provider,
         "model": request.model,
         "chat_id": request.chat_id,
@@ -634,6 +637,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 data_sources=request.data_sources,
                 past_job_context=past_job_context,
                 project_id=request.project_id,
+                allow_simulation=request.allow_simulation,
             )
         if JOB_STORE.is_cancelled(job_id):
             raise JobCancelledError(f"Job {job_id} was cancelled.")

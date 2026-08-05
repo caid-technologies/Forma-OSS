@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forma Hardware"
+  short_description: "Author and compile safe hardware projects"
+  default_prompt: "Use $forma-hardware to author, validate, and compile my hardware idea with a five-view PDF."

@@ -71,6 +71,14 @@ The bundled client can save an MCP PDF resource directly:
 python ~/.claude/skills/forma-hardware/scripts/forma.py export-pdf forma-project.json --pdf-output forma-project.pdf
 ```
 
+Claude Code and Codex author Hardware IR themselves, then ask Forma to compile it:
+
+```bash
+python ~/.claude/skills/forma-hardware/scripts/forma.py compile forma-project.json --authoring-agent claude --pdf-output forma-project.pdf --output compiled-project.json
+```
+
+The PDF contains five screenshot-style pages matching the `INFO`, `BOM`, `MECH`, `WIRE`, and `DOCS` workspace views. Forma's server-side prompt generator is optional and must be selected explicitly with `generate --use-configured-provider`. Simulation additionally requires `--provider simulation --allow-simulation`; it is never used as a failure fallback.
+
 The skill preserves Forma's safety boundary. Its output is a prototype plan and does not replace electrical review, compliance testing, or physical verification.
 
 ## Package layout

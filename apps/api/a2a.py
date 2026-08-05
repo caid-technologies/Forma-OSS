@@ -41,7 +41,7 @@ from blueprint_core.workspaces.projects.exports import (
     attach_project_output_artifacts,
     build_project_pdf_artifact,
 )
-from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet
+from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet, HardwareIR
 from blueprint_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
@@ -58,7 +58,7 @@ from blueprint_core.runtime import (
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
 from apps.api.storage import get_image_storage_config, upload_image_to_supabase_s3
 from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
-from blueprint_core.validation import validate_circuit
+from blueprint_core.validation import build_validation_summary, check_safety_violations, validate_circuit
 
 
 logger = logging.getLogger(__name__)
@@ -86,6 +86,17 @@ def _payload_bool(value: Any, default: bool = False) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"1", "true", "yes", "on"}
     return bool(value)
+
+
+def require_explicit_simulation(llm_config: Dict[str, Any], *, allow_simulation: bool) -> None:
+    runtime = llm_config.get("runtime") if isinstance(llm_config, dict) else None
+    runtime_provider = runtime.get("runtime_provider") if isinstance(runtime, dict) else None
+    provider = str(runtime_provider or llm_config.get("provider") or "").strip().lower()
+    if provider == "simulation" and not allow_simulation:
+        raise ValueError(
+            "Simulation generation is disabled unless allow_simulation=true is explicitly supplied. "
+            "Claude Code and Codex integrations should author Hardware IR and call blueprint.compile_project instead."
+        )
 
 
 class A2AAgentRegistration(BaseModel):
@@ -219,6 +230,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                 "alias": "/api/a2a/mcp",
                 "tools": [
                     "blueprint.generate_project",
+                    "blueprint.compile_project",
                     "blueprint.debug_config",
                     "blueprint.validate_circuit",
                     "blueprint.export_project_pdf",
@@ -240,6 +252,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         "data_sources": list_generation_data_sources(),
         "actions": [
             "blueprint.generate_project",
+            "blueprint.compile_project",
             "blueprint.debug_config",
             "blueprint.validate_circuit",
             "blueprint.export_project_pdf",
@@ -766,6 +779,7 @@ def build_generation_response(
     data_sources: Optional[List[str]] = None,
     past_job_context: Optional[PastJobContext] = None,
     project_id: Optional[str] = None,
+    allow_simulation: bool = False,
 ) -> Dict[str, Any]:
     _apply_owner_user_integrations(owner_user_id)
 
@@ -797,6 +811,7 @@ def build_generation_response(
         model_name=model,
         external_source_provider=external_source_provider,
     )
+    require_explicit_simulation(llm_config, allow_simulation=allow_simulation)
     if deployment_runtime_config(llm_config)["alpha_generation_gate_active"]:
         raise AlphaGenerationUnavailableError(generation_unavailable_message(llm_config))
 
@@ -991,7 +1006,57 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             data_sources,
             past_job_context,
             payload.get("project_id"),
+            _payload_bool(payload.get("allow_simulation"), default=False),
         )
+        return attach_project_output_artifacts(response, payload.get("output_formats"))
+
+    if normalized == "compile_project":
+        project_ir = payload.get("project_ir")
+        if not isinstance(project_ir, dict):
+            raise ValueError("project_ir must be a Forma Hardware IR object authored by Claude Code or Codex.")
+        authoring_agent = str(payload.get("authoring_agent") or "").strip().lower()
+        if authoring_agent not in {"claude", "codex"}:
+            raise ValueError("authoring_agent must be claude or codex.")
+        ir = HardwareIR.model_validate(project_ir)
+        safety_text = " ".join(
+            filter(
+                None,
+                [
+                    getattr(ir.overview, "title", None),
+                    getattr(ir.overview, "description", None),
+                    *((ir.requirements.requirements if ir.requirements else []) or []),
+                ],
+            )
+        )
+        safety_error = check_safety_violations(safety_text)
+        if safety_error:
+            raise ValueError(safety_error)
+        issues = validate_circuit(ir.components, ir.nets, ir.requirements)
+        ir.validation = build_validation_summary(issues)
+        ir.is_valid = not ir.validation.critical
+        if ir.overview:
+            ir.overview.estimated_cost = round(
+                sum(component.unit_price * component.quantity for component in ir.components),
+                2,
+            )
+        ir.assembly_metadata = {
+            **(ir.assembly_metadata or {}),
+            "generation_mode": "host_agent",
+            "authoring_agent": authoring_agent,
+            "simulation": False,
+            "pipeline": f"{authoring_agent}-authored Hardware IR + Forma deterministic compiler",
+        }
+        response = {
+            "project_id": payload.get("project_id") or ir.assembly_metadata.get("project_id"),
+            "project_ir": ir.model_dump(mode="json"),
+            "mermaid_code": generate_mermaid_chart(ir),
+            "svg_schematic": generate_svg_schematic(ir),
+            "generation": {
+                "mode": "host_agent",
+                "authoring_agent": authoring_agent,
+                "simulation": False,
+            },
+        }
         return attach_project_output_artifacts(response, payload.get("output_formats"))
 
     if normalized == "export_project_pdf":
@@ -1283,7 +1348,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
     return [
         {
             "name": "blueprint.generate_project",
-            "description": "Generate a Forma Hardware IR package, Mermaid diagram, SVG schematic, and optional PDF report.",
+            "description": "Run an explicitly configured server-side LLM to generate Hardware IR. Claude Code and Codex integrations should normally author IR themselves and use blueprint.compile_project.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1295,6 +1360,16 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     },
                     "image_data": {"type": "string", "description": "Optional data URL or base64 image"},
                     "generate_image": {"type": "boolean", "default": False},
+                    "provider": {
+                        "type": "string",
+                        "description": "Explicit configured server LLM provider, such as anthropic or openai.",
+                    },
+                    "model": {"type": "string", "description": "Optional allowed server model override."},
+                    "allow_simulation": {
+                        "type": "boolean",
+                        "default": False,
+                        "description": "Must be true to deliberately allow deterministic simulation output.",
+                    },
                     "external_source_provider": {
                         "type": "string",
                         "enum": ["firecrawl"],
@@ -1322,6 +1397,24 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
+            "name": "blueprint.compile_project",
+            "description": "Compile Hardware IR authored by Claude Code or Codex, run deterministic validation, build diagrams, and optionally return the five-view PDF.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_ir": {"type": "object", "description": "Complete Forma Hardware IR authored by the host agent."},
+                    "authoring_agent": {"type": "string", "enum": ["claude", "codex"]},
+                    "project_id": {"type": "string"},
+                    "output_formats": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["pdf"]},
+                        "uniqueItems": True,
+                    },
+                },
+                "required": ["project_ir", "authoring_agent"],
+            },
+        },
+        {
             "name": "blueprint.debug_config",
             "description": "Return configured LLM provider and model resolution details.",
             "inputSchema": {"type": "object", "properties": {}},
@@ -1340,7 +1433,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
         },
         {
             "name": "blueprint.export_project_pdf",
-            "description": "Render an existing Forma Hardware IR object as an embedded application/pdf project report.",
+            "description": "Render existing Hardware IR as a five-page INFO, BOM, MECH, WIRE, and DOCS workspace-capture PDF.",
             "inputSchema": {
                 "type": "object",
                 "properties": {

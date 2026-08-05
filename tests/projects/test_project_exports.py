@@ -11,6 +11,7 @@ from blueprint_core.workspaces.projects.exports import (
     normalize_project_output_formats,
     render_project_pdf,
 )
+from blueprint_core.workspaces.projects.report_views import render_project_view_screenshots
 
 
 SAMPLE_PROJECT = {
@@ -35,9 +36,19 @@ SAMPLE_PROJECT = {
             "ref_des": "U1",
             "part_number": "ESP32-DEVKIT",
             "name": "ESP32 development board",
+            "category": "Microcontroller",
             "quantity": 1,
             "unit_price": 9.5,
             "rationale": "Provides Wi-Fi and analog input.",
+            "pins": [
+                {
+                    "pin_id": "3V3",
+                    "name": "3V3",
+                    "pin_type": "Power",
+                    "voltage": 3.3,
+                    "description": "Regulated 3.3V output",
+                }
+            ],
         }
     ],
     "nets": [
@@ -69,14 +80,15 @@ class ProjectPdfExportTests(unittest.TestCase):
         pdf = render_project_pdf(SAMPLE_PROJECT)
 
         self.assertTrue(pdf.startswith(b"%PDF-1.4"))
-        self.assertTrue(pdf.endswith(b"%%EOF\n"))
+        self.assertTrue(pdf.rstrip().endswith(b"%%EOF"))
         self.assertIn(b"/Type /Catalog", pdf)
         self.assertIn(b"/Type /Pages", pdf)
-        self.assertIn(b"/BaseFont /Helvetica", pdf)
+        self.assertEqual(5, len(re.findall(rb"/Type /Page\b", pdf)))
+        self.assertEqual(5, len(re.findall(rb"/Subtype /Image\b", pdf)))
         startxref = int(re.search(rb"startxref\n(\d+)\n%%EOF", pdf).group(1))
         self.assertEqual(b"xref", pdf[startxref:startxref + 4])
 
-    def test_large_report_is_paginated(self) -> None:
+    def test_report_always_has_one_page_per_workspace_view(self) -> None:
         project = {**SAMPLE_PROJECT, "assembly": [
             {
                 "step_num": index,
@@ -88,10 +100,13 @@ class ProjectPdfExportTests(unittest.TestCase):
         ]}
 
         pdf = render_project_pdf(project)
-        page_count = int(re.search(rb"/Type /Pages /Kids \[[^]]+\] /Count (\d+)", pdf).group(1))
+        self.assertEqual(5, len(re.findall(rb"/Type /Page\b", pdf)))
 
-        self.assertGreater(page_count, 1)
-        self.assertEqual(page_count, len(re.findall(rb"/Type /Page ", pdf)))
+    def test_workspace_screenshots_cover_expected_views(self) -> None:
+        screenshots = render_project_view_screenshots(SAMPLE_PROJECT)
+
+        self.assertEqual(["info", "bom", "mech", "wire", "docs"], [name for name, _data in screenshots])
+        self.assertTrue(all(data.startswith(b"\x89PNG\r\n\x1a\n") for _name, data in screenshots))
 
     def test_artifact_has_integrity_metadata_and_base64_pdf(self) -> None:
         artifact = build_project_pdf_artifact(SAMPLE_PROJECT)
@@ -102,6 +117,8 @@ class ProjectPdfExportTests(unittest.TestCase):
         self.assertEqual(len(pdf), artifact["size_bytes"])
         self.assertEqual(hashlib.sha256(pdf).hexdigest(), artifact["sha256"])
         self.assertEqual("forma://artifacts/project-123/esp32_soil_monitor_report.pdf", artifact["uri"])
+        self.assertEqual(["info", "bom", "mech", "wire", "docs"], artifact["views"])
+        self.assertEqual("workspace_screenshots", artifact["rendering"])
 
     def test_requested_filename_is_sanitized_without_adding_a_suffix(self) -> None:
         artifact = build_project_pdf_artifact(SAMPLE_PROJECT, requested_filename="../Customer Report.PDF")

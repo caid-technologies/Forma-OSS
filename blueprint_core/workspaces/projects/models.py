@@ -206,6 +206,10 @@ class GenerateProjectRequest(BaseModel):
         False,
         description="When true, generate a product concept image with the configured image provider"
     )
+    allow_simulation: bool = Field(
+        False,
+        description="Explicit opt-in required before the deterministic simulation provider may generate output.",
+    )
     provider: Optional[str] = Field(
         None,
         description="Optional runtime LLM provider override, for example openai, anthropic, baseten, gmi, huggingface, cloudflare, nvidia, openai-compatible, gemini, runpod, runpod-serverless, or simulation"

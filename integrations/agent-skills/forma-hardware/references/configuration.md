@@ -24,7 +24,9 @@ or:
 uvicorn apps.api.main:app --reload --port 8000
 ```
 
-The server must have `BLUEPRINT_USER_SECRETS_KEY` and a configured generation provider. Deterministic simulation is suitable only when the user explicitly accepts simulated output.
+The server must have `BLUEPRINT_USER_SECRETS_KEY`. Normal Claude Code/Codex usage does not require a server LLM: the host agent authors Hardware IR and `blueprint.compile_project` performs deterministic compilation.
+
+Server-side prompt generation is optional. Configure a live provider such as Anthropic or OpenAI before using `blueprint.generate_project`. A missing provider never authorizes simulation. Deterministic simulation is suitable only when the user explicitly accepts it and the request supplies `allow_simulation: true` (the client requires `--provider simulation --allow-simulation`).
 
 ## Common failures
 
@@ -36,7 +38,8 @@ The server must have `BLUEPRINT_USER_SECRETS_KEY` and a configured generation pr
 
 ## Supported tool workflow
 
-- `blueprint.generate_project`: generate Hardware IR and diagrams.
+- `blueprint.compile_project`: compile host-agent-authored Hardware IR, validate it, and build diagrams or PDF captures.
+- `blueprint.generate_project`: optional explicitly configured server-side LLM generation; never the default agent-skill path.
 - `blueprint.validate_circuit`: validate components and connection nets.
 - `blueprint.export_project_pdf`: render existing Hardware IR as an embedded `application/pdf` report.
 - `blueprint.debug_config`: inspect credential-safe runtime configuration.

@@ -231,11 +231,34 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--past-jobs", action="store_true", help="Use relevant completed jobs as context.")
     generate.add_argument("--past-jobs-limit", type=int, choices=range(1, 9), default=3)
     generate.add_argument("--pdf-output", help="Request and save an additional PDF project report.")
+    generation_source = generate.add_mutually_exclusive_group(required=True)
+    generation_source.add_argument("--provider", help="Explicit configured server-side LLM provider.")
+    generation_source.add_argument(
+        "--use-configured-provider",
+        action="store_true",
+        help="Use the server's configured live provider; simulation remains blocked by default.",
+    )
+    generate.add_argument("--model", help="Optional allowed model override for server-side generation.")
+    generate.add_argument(
+        "--allow-simulation",
+        action="store_true",
+        help="Explicitly permit deterministic simulation output.",
+    )
     _shared_options(generate)
 
     validate = subparsers.add_parser("validate", help="Validate components and nets from Forma project JSON.")
     validate.add_argument("project", help="Project JSON path, or - for stdin.")
     _shared_options(validate)
+
+    compile_project = subparsers.add_parser(
+        "compile",
+        help="Compile and validate Hardware IR authored by Claude Code or Codex.",
+    )
+    compile_project.add_argument("project", help="Agent-authored Hardware IR JSON path, or - for stdin.")
+    compile_project.add_argument("--authoring-agent", required=True, choices=("claude", "codex"))
+    compile_project.add_argument("--project-id")
+    compile_project.add_argument("--pdf-output", help="Request and save the five-view PDF report.")
+    _shared_options(compile_project)
 
     export_pdf = subparsers.add_parser("export-pdf", help="Render existing Forma project JSON as PDF.")
     export_pdf.add_argument("project", help="Project JSON path, or - for stdin.")
@@ -284,6 +307,14 @@ def run(args: argparse.Namespace) -> Any:
             arguments["data_sources"] = ["past_jobs"]
         if args.pdf_output:
             arguments["output_formats"] = ["pdf"]
+        if args.provider:
+            arguments["provider"] = args.provider
+        if args.model:
+            arguments["model"] = args.model
+        if args.allow_simulation:
+            arguments["allow_simulation"] = True
+        if args.provider and args.provider.strip().lower() == "simulation" and not args.allow_simulation:
+            raise FormaClientError("--provider simulation requires the explicit --allow-simulation flag.")
         return call_tool("blueprint.generate_project", arguments, **options)
     if args.command == "validate":
         project = _project_ir(_load_json(args.project))
@@ -292,6 +323,17 @@ def run(args: argparse.Namespace) -> Any:
         if not isinstance(components, list) or not isinstance(nets, list):
             raise FormaClientError("The project JSON must contain components and nets arrays.")
         return call_tool("blueprint.validate_circuit", {"components": components, "nets": nets}, **options)
+    if args.command == "compile":
+        project = _project_ir(_load_json(args.project))
+        arguments = {
+            "project_ir": project,
+            "authoring_agent": args.authoring_agent,
+        }
+        if args.project_id:
+            arguments["project_id"] = args.project_id
+        if args.pdf_output:
+            arguments["output_formats"] = ["pdf"]
+        return call_tool("blueprint.compile_project", arguments, **options)
     if args.command == "export-pdf":
         project = _project_ir(_load_json(args.project))
         arguments: dict[str, Any] = {"project_ir": project}

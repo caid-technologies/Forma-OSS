@@ -18,7 +18,7 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
 - Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
 - Install the portable **Forma Agent Skill** for Claude Code and Codex
-- Return printable **PDF project reports** from MCP generation and export tools
+- Return five-view **PDF workspace captures** (`INFO`, `BOM`, `MECH`, `WIRE`, `DOCS`) from MCP compile, generation, and export tools
 
 ## How it works
 
@@ -354,7 +354,7 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `A2A_SOCKET_ENABLED`: Set to `true` to start the optional TCP JSONL A2A socket.
 - `A2A_SOCKET_HOST` / `A2A_SOCKET_PORT`: Host and port for the optional TCP JSONL listener.
 
-If no live LLM provider is configured or generation fails, the backend returns deterministic simulation outputs based on built-in example projects.
+If no live LLM provider is configured or generation fails, the backend returns an error. Simulation is never an automatic fallback; it requires an explicit `allow_simulation` request. Claude Code and Codex integrations normally author Hardware IR themselves and use `blueprint.compile_project` for deterministic validation and artifact generation.
 
 ### Frontend (Next.js)
 ```bash

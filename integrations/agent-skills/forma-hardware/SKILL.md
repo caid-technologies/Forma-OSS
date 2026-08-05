@@ -1,80 +1,63 @@
 ---
 name: forma-hardware
-description: Generates and validates structured low-voltage maker-electronics projects with Forma, including Hardware IR, BOMs, wiring nets, diagrams, assembly steps, and optional concept images. Use when a user asks to design, compile, inspect, or electrically validate a safe 3.3V-5V hardware prototype with Forma.
+description: Authors, compiles, validates, and exports structured low-voltage maker-electronics projects with Forma, including Hardware IR, BOMs, wiring, mechanical layouts, build docs, and five-view PDFs. Use when a user asks Claude Code or Codex to design, compile, inspect, document, or electrically validate a safe 3.3V-12V hardware prototype with Forma.
 ---
 
 # Forma Hardware
 
-Use Forma as the hardware compiler. Do not invent a successful generation or validation result when Forma is unavailable.
+Use the current host agent—Claude Code or Codex—to author the design. Use Forma as the deterministic hardware compiler, validator, diagrammer, and exporter. Never substitute a simulated example for failed generation.
 
 ## Connect
 
-Prefer the host's native Forma MCP tools when they are available. Otherwise use the bundled dependency-free client. Resolve `<skill-directory>` to the directory containing this `SKILL.md`; do not assume the current working directory is the skill directory. The client reads `FORMA_MCP_URL` and defaults to `http://127.0.0.1:8000/mcp`.
+Prefer native Forma MCP tools. Otherwise run the bundled client from this skill directory:
 
 ```bash
 python <skill-directory>/scripts/forma.py tools
 ```
 
-If the server requires authentication, have the user set `FORMA_AUTH_TOKEN`; never place the token in a command or output. Read [references/configuration.md](references/configuration.md) when connection, authentication, or server startup fails.
+The client reads `FORMA_MCP_URL` and defaults to `http://127.0.0.1:8000/mcp`. For connection or authentication failures, read [references/configuration.md](references/configuration.md).
 
-## Generate a project
+## Author and compile a project
 
-1. Confirm the request is a low-voltage educational or maker project. Decline requests involving weapons, critical medical or life-support devices, mains AC, automotive control, or unsafe high-power batteries.
-2. Ask a follow-up question only when a missing constraint would materially change the design. Otherwise preserve the user's stated power, size, budget, environment, interfaces, and component preferences in the prompt.
-3. Run:
-
-```bash
-python <skill-directory>/scripts/forma.py generate "<complete hardware brief>" --output forma-project.json
-```
-
-Use `--workflow web_research` only when the user needs sourced component research and the Forma server has Firecrawl configured. Add `--generate-image` only when the user explicitly wants a concept image. Add `--image-file <path>` when a reference image is part of the request.
-
-When the user requests a printable report, request PDF output and save the embedded MCP resource:
+1. Keep the project within safe low-voltage educational or maker scope. Decline weapons, critical medical or life-support devices, mains AC, automotive control, and unsafe high-power battery requests.
+2. Read [references/hardware-ir.md](references/hardware-ir.md), then author complete Forma Hardware IR from the user's brief. Preserve stated power, size, budget, environment, interfaces, and component preferences. Do not copy a bundled example or claim unavailable supplier facts.
+3. Save the IR as `forma-project.json`.
+4. Compile it with the current host identity:
 
 ```bash
-python <skill-directory>/scripts/forma.py generate "<complete hardware brief>" --output forma-project.json --pdf-output forma-project.pdf
+# Claude Code
+python <skill-directory>/scripts/forma.py compile forma-project.json --authoring-agent claude --output compiled-project.json
+
+# Codex
+python <skill-directory>/scripts/forma.py compile forma-project.json --authoring-agent codex --output compiled-project.json
 ```
 
-4. Inspect the returned `project_ir`, especially `overview`, `requirements`, `components`, `nets`, `validation`, `bom`, `assembly_steps`, and `assembly_metadata`.
-5. Report the artifact path, the design summary, unresolved warnings, and whether electrical validation passed. Clearly label the output as a prototype plan, not fabrication-ready engineering approval.
+When the user requests a PDF, add `--pdf-output forma-project.pdf`. The PDF contains five landscape workspace captures: INFO, BOM, MECH, WIRE, and DOCS.
 
-## Validate an existing project
+5. Inspect deterministic validation findings. Fix agent-authored components or nets and compile again when practical. Treat every `CRITICAL` issue as blocking.
+6. Report the authoring agent, artifact paths, design summary, power assumptions, major components, and remaining validation issues. Label the result as an AI-assisted prototype plan.
 
-Run validation after changing components or nets and before presenting the result as complete:
+When using native MCP, call `blueprint.compile_project` with `project_ir`, `authoring_agent` set to `claude` or `codex`, and optional `output_formats: ["pdf"]`.
+
+## Validate or export existing IR
 
 ```bash
 python <skill-directory>/scripts/forma.py validate forma-project.json --output validation.json
-```
-
-Treat every `CRITICAL` issue as blocking. Report warnings rather than silently discarding them. If the input is not a Forma response or Hardware IR object, explain the schema problem and ask for components and nets.
-
-To create a PDF later from existing Forma project JSON, run:
-
-```bash
 python <skill-directory>/scripts/forma.py export-pdf forma-project.json --pdf-output forma-project.pdf
 ```
 
-## Inspect server state and jobs
+Use export-only mode when the IR is already complete. It does not assert who authored the project.
 
-Use these only when they help answer the user's request:
+## Optional server-side generation
+
+Do not use `blueprint.generate_project` by default. Use it only when the user deliberately wants the separately configured Forma server LLM described in [references/configuration.md](references/configuration.md).
 
 ```bash
-python <skill-directory>/scripts/forma.py config
-python <skill-directory>/scripts/forma.py job <job-id>
-python <skill-directory>/scripts/forma.py jobs --status succeeded --limit 10
+python <skill-directory>/scripts/forma.py generate "<brief>" --use-configured-provider --output forma-project.json
 ```
 
-Do not expose provider credentials, authorization headers, or unredacted debug secrets. Prefer the returned structured JSON over parsing the human-readable text content.
+Simulation is never an automatic fallback. It requires explicit user acceptance and both `--provider simulation --allow-simulation`.
 
-## Output contract
+## Output integrity
 
-Keep Forma output intact when saving JSON. In the user-facing response include:
-
-- Project title and goal
-- Power assumptions and major components
-- Validation status and remaining issues
-- Saved artifact paths
-- Requested PDF report filename and path
-- Any unavailable optional outputs, such as product imagery or web research
-
-Do not claim that generated diagrams, BOM availability, pricing, or component compatibility have been physically verified unless the returned data explicitly establishes it.
+Keep compiled JSON intact. Do not expose provider credentials or authorization headers. Do not claim that diagrams, prices, availability, compatibility, or mechanical clearances were physically verified unless returned evidence establishes that.

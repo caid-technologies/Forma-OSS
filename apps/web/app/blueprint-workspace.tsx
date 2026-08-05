@@ -3227,66 +3227,18 @@ export function FormaWorkspace({
         });
         return;
       }
-      console.warn("Using local simulation fallback", error);
-      try {
-        const mockRes = await runMockCompilation(promptText, imageData);
-        mockRes.project_ir.assembly_metadata = {
-          ...(mockRes.project_ir.assembly_metadata || {}),
-          chat_id: requestChatId,
-          can_chat: true,
-        };
-        setProjectIR(mockRes.project_ir);
-        const fallbackProjectId = projectIdFromIR(mockRes.project_ir);
-        generatedProjectId = fallbackProjectId;
-        const fallbackMessage = `${mockRes.project_ir?.overview?.title || "Local example"} is loaded from local fallback because live generation failed.`;
-        rememberProjectRecord({
-          project_id: fallbackProjectId,
-          chat_id: requestChatId,
-          title: mockRes.project_ir?.overview?.title || rawPromptText,
-          prompt: promptText,
-          created_at: chatTimestamp(),
-          can_chat: true,
-          creator_display: "you",
-          creator_image_url: userImageUrl,
-          parts_count: Array.isArray(mockRes.project_ir?.components) ? mockRes.project_ir.components.length : 0,
-          star_count: 0,
-        });
-        rememberChatItem({
-          chatId: requestChatId,
-          title: mockRes.project_ir?.overview?.title || rawPromptText,
-          projectId: fallbackProjectId || "",
-          createdAt: chatTimestamp(),
-          projectCount: fallbackProjectId ? 1 : 0,
-        });
-        updateChatMessage(assistantMessageId, {
-          content: fallbackMessage,
-          status: "success",
-          projectId: fallbackProjectId,
-        });
-        if (fallbackProjectId) {
-          updateThreadMessage(requestChatId, userMessageId, {
-            projectId: fallbackProjectId,
-          });
-          updateThreadMessage(requestChatId, assistantMessageId, {
-            content: fallbackMessage,
-            status: "success",
-            projectId: fallbackProjectId,
-          });
-        }
-        generatedProject = true;
-      } catch (fallbackError) {
-        const message = fallbackError instanceof Error ? fallbackError.message : "Local example fallback failed.";
-        const errorMessage = generationFailureChatMessage(`Generation failed and local fallback was unavailable: ${message}`);
-        setGenerationInputNotice(errorMessage);
-        updateChatMessage(assistantMessageId, {
-          content: errorMessage,
-          status: "error",
-        });
-        updateThreadMessage(requestChatId, assistantMessageId, {
-          content: errorMessage,
-          status: "error",
-        });
-      }
+      console.error("Live generation failed", error);
+      const message = error instanceof Error ? error.message : "Live generation failed.";
+      const errorMessage = generationFailureChatMessage(message);
+      setGenerationInputNotice(errorMessage);
+      updateChatMessage(assistantMessageId, {
+        content: errorMessage,
+        status: "error",
+      });
+      updateThreadMessage(requestChatId, assistantMessageId, {
+        content: errorMessage,
+        status: "error",
+      });
     } finally {
       if (progressPollId !== null) window.clearInterval(progressPollId);
       if (generatedProject) {
@@ -3460,41 +3412,6 @@ export function FormaWorkspace({
     });
   }, []);
 
-
-  const runMockCompilation = async (userPrompt: string, imageData?: string | null): Promise<any> => {
-    const promptLower = userPrompt.toLowerCase();
-    let file = "biometric_deadbolt.json";
-
-    if (
-      imageData ||
-      promptLower.includes("mp3") ||
-      promptLower.includes("audio") ||
-      promptLower.includes("music") ||
-      promptLower.includes("player") ||
-      promptLower.includes("pocket")
-    ) {
-      file = "pocket_mp3_player.json";
-    } else if (promptLower.includes("water") || promptLower.includes("plant") || promptLower.includes("soil") || promptLower.includes("garden")) {
-      file = "plant_watering.json";
-    } else if (promptLower.includes("thermostat") || promptLower.includes("temperature") || promptLower.includes("weather")) {
-      file = "smart_thermostat.json";
-    }
-
-    const res = await fetch(`/examples/${file}`);
-    if (!res.ok) {
-      throw new Error(`Could not load local example ${file}.`);
-    }
-    const ir = await res.json();
-    ir.assembly_metadata = {
-      ...(ir.assembly_metadata || {}),
-      reference_image_data: imageData || ir.assembly_metadata?.reference_image_data || null,
-      input_mode: imageData ? "prompt_image" : "prompt",
-      image_features: ir.assembly_metadata?.image_features || ir.constraints || [],
-    };
-    return {
-      project_ir: ir,
-    };
-  };
 
   const loadOldProject = async (
     projectId: string,

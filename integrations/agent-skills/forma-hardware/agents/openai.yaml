@@ -1,4 +1,4 @@
 interface:
   display_name: "Forma Hardware"
-  short_description: "Generate and validate low-voltage hardware"
-  default_prompt: "Use $forma-hardware to turn my hardware idea into a validated Forma project."
+  short_description: "Author and compile safe hardware projects"
+  default_prompt: "Use $forma-hardware to author, validate, and compile my hardware idea with a five-view PDF."

@@ -136,6 +136,7 @@ class FormaSkillClientTests(unittest.TestCase):
                 exit_code = forma_client.main([
                     "generate",
                     "ESP32 soil monitor",
+                    "--use-configured-provider",
                     "--workflow",
                     "web_research",
                     "--past-jobs",
@@ -183,6 +184,7 @@ class FormaSkillClientTests(unittest.TestCase):
             exit_code = forma_client.main([
                 "generate",
                 "ESP32 soil monitor",
+                "--use-configured-provider",
                 "--url",
                 url,
                 "--pdf-output",
@@ -223,6 +225,41 @@ class FormaSkillClientTests(unittest.TestCase):
         resource = metadata["_embedded_resources"][0]
         self.assertEqual(str(pdf_path), resource["saved_path"])
         self.assertNotIn("blob", resource)
+
+    def test_compile_uses_host_agent_and_saves_pdf(self) -> None:
+        project = {"overview": {"title": "Agent project"}, "components": [], "nets": []}
+        with tempfile.TemporaryDirectory() as temp_dir, _mcp_server() as url:
+            project_path = Path(temp_dir) / "agent-project.json"
+            pdf_path = Path(temp_dir) / "agent-project.pdf"
+            metadata_path = Path(temp_dir) / "compiled.json"
+            project_path.write_text(json.dumps(project), encoding="utf-8")
+
+            exit_code = forma_client.main([
+                "compile",
+                str(project_path),
+                "--authoring-agent",
+                "codex",
+                "--pdf-output",
+                str(pdf_path),
+                "--url",
+                url,
+                "--output",
+                str(metadata_path),
+            ])
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            saved_pdf = pdf_path.read_bytes()
+
+        self.assertEqual(0, exit_code)
+        self.assertTrue(saved_pdf.startswith(b"%PDF-"))
+        self.assertEqual("codex", metadata["received"]["authoring_agent"])
+        self.assertEqual(["pdf"], metadata["received"]["output_formats"])
+
+    def test_simulation_generation_requires_double_opt_in(self) -> None:
+        parser = forma_client.build_parser()
+        args = parser.parse_args(["generate", "test", "--provider", "simulation"])
+
+        with self.assertRaisesRegex(forma_client.FormaClientError, "--allow-simulation"):
+            forma_client.run(args)
 
     def test_surfaces_json_rpc_errors(self) -> None:
         with _mcp_server() as url:

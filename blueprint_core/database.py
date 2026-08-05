@@ -565,6 +565,7 @@ def initiate_project_build(
     actor_id: str,
     assumptions: Optional[List[str]] = None,
     idempotency_key: Optional[str] = None,
+    resolve_unanswered_questions: bool = False,
 ) -> BuildInitiationOutcome:
     canonical_project_id = _canonical_project_id(project_id)
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
@@ -607,15 +608,24 @@ def initiate_project_build(
         )
 
     frozen_brief = latest
+    initial_readiness = readiness
     warnings: List[str] = []
     if mode == BuildMode.BUILD_ANYWAY:
-        if readiness.status == ReadinessStatus.BLOCKED:
+        if readiness.status == ReadinessStatus.BLOCKED and not resolve_unanswered_questions:
             raise ReadinessError(
                 "critical_readiness_blockers",
                 "Build Anyway cannot bypass critical project unknowns.",
                 context=readiness.model_dump(mode="json"),
             )
-        if readiness.status == ReadinessStatus.NOT_READY and not normalized_assumptions:
+        if resolve_unanswered_questions:
+            normalized_assumptions = list(dict.fromkeys([
+                *normalized_assumptions,
+                *(
+                    f"Build agents will choose a safe prototype default for: {question}"
+                    for question in latest.unresolved_questions
+                ),
+            ]))
+        if readiness.status != ReadinessStatus.READY and not normalized_assumptions:
             raise ReadinessError(
                 "build_anyway_assumptions_required",
                 "Build Anyway requires explicit assumptions for incomplete context.",
@@ -625,17 +635,31 @@ def initiate_project_build(
                 "design_brief_id", "project_id", "brief_version", "previous_version", "created_at"
             })
             payload["assumptions"] = list(dict.fromkeys([*latest.assumptions, *normalized_assumptions]))
+            if resolve_unanswered_questions:
+                payload["unresolved_questions"] = []
             frozen_brief = create_design_brief_version(
                 canonical_project_id,
                 normalized_owner_user_id,
                 DesignBriefCreate.model_validate(payload),
             )
             readiness = evaluate_readiness(frozen_brief)
+        if readiness.status == ReadinessStatus.BLOCKED:
+            raise ReadinessError(
+                "critical_readiness_blockers",
+                "Build Anyway cannot bypass critical project unknowns.",
+                context=readiness.model_dump(mode="json"),
+            )
         warnings = [
             f"Build Anyway bypassed non-critical blocker {blocker.code}: {blocker.message}"
-            for blocker in readiness.unresolved_blockers
+            for blocker in initial_readiness.unresolved_blockers
             if not blocker.critical
         ]
+        if resolve_unanswered_questions:
+            warnings.extend(
+                f"Conversational build delegated blocker {blocker.code} to the build agents: {blocker.message}"
+                for blocker in initial_readiness.unresolved_blockers
+                if blocker.critical
+            )
         warnings.extend(f"Execution relies on user assumption: {assumption}" for assumption in normalized_assumptions)
 
     return service.initiate(

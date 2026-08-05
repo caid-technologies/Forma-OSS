@@ -191,18 +191,11 @@ def gather_project_context_endpoint(
                     ),
                 })
             except ReadinessError as exc:
-                blockers = exc.context.get("unresolved_blockers") if isinstance(exc.context, dict) else None
-                critical = [
-                    str(item.get("message") or "").strip()
-                    for item in blockers or []
-                    if isinstance(item, dict) and item.get("critical") and str(item.get("message") or "").strip()
-                ]
-                if not critical:
-                    raise _workflow_error(exc) from exc
+                logger.exception("Conversational build readiness failed for project_id=%s", project_id)
                 decision = decision.model_copy(update={
                     "assistant_message": (
-                        "I can’t safely start the build until one critical choice is resolved: "
-                        f"{critical[0]}"
+                        "I couldn’t start the build automatically. The brief is preserved, so you can try again "
+                        "without re-entering the project details."
                     ),
                 })
             except Exception:

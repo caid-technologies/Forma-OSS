@@ -165,7 +165,10 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         ) as launch_plan:
             context = self.client.post(
                 f"/projects/{project_id}/context/messages",
-                json={"conversation_id": conversation_id, "text": "Build a compact handheld environmental monitor."},
+                json={
+                    "conversation_id": conversation_id,
+                    "text": "Environmental monitor with sensor feedback, display, and battery power.",
+                },
             )
             started = self.client.post(
                 f"/projects/{project_id}/context/messages",
@@ -176,8 +179,10 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
             frozen = database.get_latest_project_build(project_id, OWNER)
 
         self.assertEqual(201, context.status_code, context.text)
+        self.assertTrue(context.json()["questions"])
         self.assertEqual(201, started.status_code, started.text)
         self.assertEqual("building", started.json()["workflow"]["state"])
+        self.assertNotIn("critical choice", started.json()["assistant_message"])
         self.assertEqual("planned", execution["status"])
         self.assertEqual(str(frozen.build_id), execution["build_id"])
         self.assertEqual([execution["job_id"]], list(plan.jobs))

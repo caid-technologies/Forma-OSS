@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 DEFAULT_AGENT_ASSUMPTION = (
-    "Build agents may resolve the remaining non-critical choices using safe prototype defaults "
+    "Build agents may resolve the remaining choices using safe prototype defaults "
     "and must record those choices as assumptions."
 )
 
@@ -43,6 +43,7 @@ class ContextBuildDispatcher:
             actor_id=owner_user_id,
             assumptions=assumptions,
             idempotency_key=f"conversation-build:{conversation_id}",
+            resolve_unanswered_questions=True,
         )
         plan = create_project_generation_plan(outcome.build, owner_user_id)
         job_id = next(iter(plan.jobs))

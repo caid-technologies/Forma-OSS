@@ -3107,7 +3107,7 @@ export function FormaWorkspace({
       });
       setGenerationInputNotice(
         buildPlanId
-          ? "Build started."
+          ? "Build started. Live agent progress is shown above."
           : turnKind === "context"
           ? "Project context updated."
           : turnKind === "proceed"
@@ -3193,7 +3193,9 @@ export function FormaWorkspace({
       };
       appendChatMessage(message);
       appendThreadMessage(requestChatId, message);
-      setGenerationInputNotice(buildIsActive ? "Build started." : "Design ready for review.");
+      setGenerationInputNotice(
+        buildIsActive ? "Build started. Live agent progress is shown above." : "Design ready for review.",
+      );
       if (buildPlanId && buildJobId) {
         watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id);
       }

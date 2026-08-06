@@ -1764,6 +1764,13 @@ export function FormaWorkspace({
       const projectId = messages[index]?.projectId;
       if (projectId) return projectId;
     }
+    const completedWorkerBuild = messages.some((message) => (
+      message.pipelineProgress?.jobId?.startsWith("generation-")
+      && normalizeAgentPipelineEvents(message.pipelineProgress.events).some((event) => (
+        event.step_id === "package_project" && isCompletedPipelineStatus(event.status)
+      ))
+    ));
+    if (completedWorkerBuild && activeChatId) return activeChatId;
     return null;
   }, [activeChatId, chatMessages, chatThreads]);
   const generationInputValidation = useMemo(

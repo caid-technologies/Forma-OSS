@@ -212,7 +212,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 "llm_model",
                 "Model override",
                 ("LLM_MODEL",),
-                placeholder="gpt-5.5",
+                placeholder="gpt-5.6-sol",
                 help="Advanced override. Leave blank when Preferred model is set.",
             ),
             IntegrationFieldDefinition(
@@ -250,7 +250,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("OPENAI_API_KEY",), secret=True, placeholder="sk-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("OPENAI_BASE_URL", "OPENAI_IMAGE_BASE_URL"), placeholder="https://api.openai.com/v1"),
-            IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.5"),
+            IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.6-sol"),
             IntegrationFieldDefinition("image_model", "Default image model", ("OPENAI_IMAGE_MODEL",), placeholder="gpt-image-2"),
             IntegrationFieldDefinition("image_size", "Image size", ("OPENAI_IMAGE_SIZE",), placeholder="1024x1024"),
             IntegrationFieldDefinition("image_quality", "Image quality", ("OPENAI_IMAGE_QUALITY",), placeholder="medium"),
@@ -512,6 +512,36 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 placeholder="global",
             ),
             IntegrationFieldDefinition("model", "Default model", ("VERTEX_AI_MODEL",), placeholder="gemini-3.5-flash"),
+            IntegrationFieldDefinition(
+                "image_model",
+                "Image model",
+                ("VERTEX_AI_IMAGE_MODEL", "VERTEX_IMAGE_MODEL"),
+                placeholder="gemini-3.1-flash-image",
+            ),
+            IntegrationFieldDefinition(
+                "image_resolution",
+                "Image resolution",
+                ("VERTEX_AI_IMAGE_RESOLUTION", "VERTEX_IMAGE_RESOLUTION"),
+                placeholder="1K",
+            ),
+            IntegrationFieldDefinition(
+                "image_aspect_ratio",
+                "Image aspect ratio",
+                ("VERTEX_AI_IMAGE_ASPECT_RATIO", "VERTEX_IMAGE_ASPECT_RATIO"),
+                placeholder="1:1",
+            ),
+            IntegrationFieldDefinition(
+                "image_output_format",
+                "Image output format",
+                ("VERTEX_AI_IMAGE_OUTPUT_FORMAT", "VERTEX_IMAGE_OUTPUT_FORMAT"),
+                placeholder="png",
+            ),
+            IntegrationFieldDefinition(
+                "image_timeout_seconds",
+                "Image timeout seconds",
+                ("VERTEX_AI_IMAGE_TIMEOUT_SECONDS", "VERTEX_IMAGE_TIMEOUT_SECONDS"),
+                placeholder="120",
+            ),
             IntegrationFieldDefinition(
                 "fallback_model",
                 "Fallback model",
@@ -1537,6 +1567,8 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
                 remember_image_provider("openai", integration)
             elif integration.id == "gmi" and integration.field_value("api_key"):
                 remember_image_provider("gmi", integration)
+            elif integration.id == "vertex" and integration.field_value("project") and integration.field_value("image_model"):
+                remember_image_provider("vertex", integration)
 
         if integration.id == "together" and integration.field_value("api_key"):
             remember_image_provider("together", integration)

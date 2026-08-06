@@ -13,6 +13,7 @@ import {
   Download,
   ExternalLink,
   Eye,
+  GitBranch,
   Monitor,
   Printer,
   ShieldCheck,
@@ -60,6 +61,7 @@ export function OverviewPanel({
   features,
   metrics,
   metadata,
+  systemArchitecture,
   showModelName = false,
 }: {
   title: string;
@@ -68,6 +70,7 @@ export function OverviewPanel({
   features: string[];
   metrics: ReturnType<typeof emptyMetrics>;
   metadata: Record<string, any>;
+  systemArchitecture?: Record<string, any> | null;
   showModelName?: boolean;
 }) {
   const imageKey = imageCandidates.map((candidate) => candidate.src).join("|");
@@ -148,6 +151,23 @@ export function OverviewPanel({
             <p className="mt-4 max-w-3xl break-words text-base leading-8 text-slate-300">{description}</p>
           </div>
 
+          {systemArchitecture?.root && (
+            <section className="mt-8 border border-[#2a2c33] bg-[#111216] p-4 sm:p-5">
+              <div className="flex items-start gap-3 border-b border-[#2a2c33] pb-4">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
+                  <GitBranch className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <h2 className="text-xs font-black uppercase tracking-[0.18em] text-white">System Architecture</h2>
+                  <p className="mt-2 break-words text-xs leading-5 text-slate-500">{systemArchitecture.summary}</p>
+                </div>
+              </div>
+              <div className="mt-4">
+                <SystemTreeNode node={systemArchitecture.root} depth={0} />
+              </div>
+            </section>
+          )}
+
           <div className="mt-7 max-w-2xl border border-[#2a2c33]">
             <div className="grid grid-cols-3 border-b border-[#2a2c33] px-4 py-3 text-[12px] font-black uppercase tracking-[0.18em] text-slate-500">
               <span>Category</span>
@@ -160,6 +180,53 @@ export function OverviewPanel({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SystemTreeNode({ node, depth }: { node: Record<string, any>; depth: number }) {
+  const reservedSystemIds = new Set([
+    "system_id", "name", "domain", "purpose", "responsibilities", "constraints",
+    "expected_component_roles", "interfaces", "connects_to", "detail_owner", "children",
+  ]);
+  const seenChildIds = new Set<string>();
+  const children = (Array.isArray(node.children) ? node.children : [])
+    .filter((child: unknown): child is Record<string, any> => Boolean(child && typeof child === "object"))
+    .filter((child) => {
+      const systemId = String(child.system_id || "").trim();
+      const normalizedId = systemId.toLowerCase();
+      if (!systemId || systemId.length > 100 || reservedSystemIds.has(normalizedId) || seenChildIds.has(normalizedId)) return false;
+      seenChildIds.add(normalizedId);
+      return true;
+    })
+    .slice(0, 32);
+  const responsibilities = Array.isArray(node.responsibilities) ? node.responsibilities : [];
+  const domain = String(node.domain || "system");
+
+  return (
+    <div className={depth ? "ml-3 border-l border-[#333640] pl-3 sm:ml-5 sm:pl-5" : ""}>
+      <article className="mb-3 border border-[#292b32] bg-[#17181d] p-3 sm:p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="border border-cyan-400/25 bg-cyan-400/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-300">
+            {domain}
+          </span>
+          <h3 className="break-words text-sm font-black text-white">{node.name || node.system_id}</h3>
+        </div>
+        <div className="mt-3 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">Why needed</div>
+        <p className="mt-1.5 break-words text-xs leading-5 text-slate-400">{node.purpose}</p>
+        {responsibilities.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {responsibilities.slice(0, 5).map((responsibility: string, index: number) => (
+              <span key={`${node.system_id || node.name}-${index}`} className="max-w-full break-words border border-[#333640] px-2 py-1 text-[9px] font-bold text-slate-500">
+                {responsibility}
+              </span>
+            ))}
+          </div>
+        )}
+      </article>
+      {children.map((child: Record<string, any>, index: number) => (
+        <SystemTreeNode key={`${node.system_id || "system"}-${child.system_id || "child"}-${index}`} node={child} depth={depth + 1} />
+      ))}
     </div>
   );
 }

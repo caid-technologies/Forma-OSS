@@ -150,6 +150,7 @@ class ProjectStateRepository(Protocol):
     ) -> Any | None: ...
 
     def insert_initial_project_revision(self, record: dict[str, Any]) -> Any | None: ...
+    def insert_project_revision(self, record: dict[str, Any], expected_parent_revision: int) -> Any | None: ...
 
 
 def _canonical_uuid(value: str | UUID, field_name: str) -> UUID:
@@ -374,6 +375,84 @@ class ProjectStateService:
             "Project state changed before the initial revision could be committed.",
             retryable=True,
             context={"project_id": project},
+        )
+
+    def create_revision(
+        self,
+        draft: ProjectRevisionDraft,
+        *,
+        project_id: str | UUID,
+        owner_user_id: str,
+        source_job_id: str,
+    ) -> ProjectRevisionOutcome:
+        """Append one immutable revision to an existing canonical project."""
+
+        project_uuid = _canonical_uuid(project_id, "project_id")
+        project = str(project_uuid)
+        owner = str(owner_user_id or "").strip()
+        job_id = str(source_job_id or "").strip()
+        if not owner or not job_id:
+            raise ProjectStateError("invalid_project_revision_identity", "owner_user_id and source_job_id are required.")
+
+        replay = self.get_by_source_job(project, owner, job_id)
+        if replay is not None:
+            return ProjectRevisionOutcome(revision=replay, idempotent_replay=True)
+        parent = self.get_latest(project, owner)
+        self.get_frozen_design_brief(
+            project,
+            owner,
+            parent.design_brief_id,
+            parent.design_brief_version,
+        )
+        next_revision = parent.revision + 1
+        state = draft.state.model_copy(deep=True)
+        metadata = dict(state.assembly_metadata or {})
+        supplied_project = str(metadata.get("project_id") or "").strip()
+        if supplied_project and supplied_project != project:
+            raise ProjectStateError("project_revision_identity_mismatch", "Revised state targets a different project.")
+        state.assembly_metadata = {
+            **metadata,
+            "project_id": project,
+            "revision": next_revision,
+            "design_brief_id": str(parent.design_brief_id),
+            "design_brief_version": parent.design_brief_version,
+            "source_job_id": job_id,
+        }
+        normalized = draft.model_copy(update={"state": state, "components": list(state.components)})
+        revision = ProjectRevision(
+            **normalized.model_dump(),
+            revision_id=uuid4(),
+            project_id=project_uuid,
+            owner_user_id=owner,
+            revision=next_revision,
+            parent_revision=parent.revision,
+            design_brief_id=parent.design_brief_id,
+            design_brief_version=parent.design_brief_version,
+            source_job_id=job_id,
+        )
+        record = {
+            "id": str(revision.revision_id),
+            "project_id": project,
+            "owner_user_id": owner,
+            "revision": revision.revision,
+            "parent_revision": revision.parent_revision,
+            "design_brief_id": str(revision.design_brief_id),
+            "design_brief_version": revision.design_brief_version,
+            "source_job_id": job_id,
+            "payload_json": revision.model_dump(mode="json"),
+            "created_at": revision.created_at.isoformat(),
+        }
+        saved = self._repository.insert_project_revision(record, parent.revision)
+        if saved is not None:
+            return ProjectRevisionOutcome(revision=_revision_from_record(saved))
+        replay = self.get_by_source_job(project, owner, job_id)
+        if replay is not None:
+            return ProjectRevisionOutcome(revision=replay, idempotent_replay=True)
+        raise ProjectStateError(
+            "project_revision_conflict",
+            "Project state changed before the revision could be committed.",
+            retryable=True,
+            context={"project_id": project, "parent_revision": parent.revision},
         )
 
     @staticmethod

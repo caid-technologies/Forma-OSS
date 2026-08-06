@@ -99,7 +99,7 @@ REDIS_URL=redis://localhost:6379/0
 # Live LLM generation
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.6-sol
 STRICT_LLM=true
 
 # Optional first-party OpenAI settings
@@ -127,6 +127,11 @@ OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_IMAGE_SIZE=1024x1024
 # OPENAI_IMAGE_QUALITY=medium
 # OPENAI_IMAGE_OUTPUT_FORMAT=png
+# For Nano Banana through the same Vertex AI project and ADC used by the LLM:
+# IMAGE_PROVIDER=vertex
+# VERTEX_AI_IMAGE_MODEL=gemini-3.1-flash-image
+# VERTEX_AI_IMAGE_RESOLUTION=1K
+# VERTEX_AI_IMAGE_ASPECT_RATIO=1:1
 
 # Optional Supabase Storage upload for reference/product images.
 # Uses the Supabase client with SUPABASE_URL plus the service-role/secret key.
@@ -142,7 +147,7 @@ SUPABASE_S3_BUCKET=contents
 
 # Generic provider aliases
 # LLM_API_KEY=your_provider_api_key_here
-# LLM_MODEL=gpt-4o-mini
+# LLM_MODEL=gpt-5.6-sol
 # LLM_FALLBACK_MODEL=your_fallback_model_here
 
 # Optional for OpenAI-compatible providers
@@ -175,7 +180,7 @@ Notes:
 - After those inputs are applied, `GET /api/runtime/config` is authoritative for the frontend. Resolution precedence is request override, saved integration, environment, then provider default; the browser does not repeat this merge.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
 - `LLM_PROVIDER` can be `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
-- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
+- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-5.6-sol"}`.
 - Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`VERTEX_AI_ALLOWED_MODELS`, `OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `CLOUDFLARE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
 - `GOOGLE_CLOUD_PROJECT` (or `VERTEX_AI_PROJECT`), `GOOGLE_CLOUD_LOCATION` (or `VERTEX_AI_LOCATION`), and `VERTEX_AI_MODEL` configure Vertex AI. It authenticates with Application Default Credentials; use `gcloud auth application-default login` locally or an attached service account in production.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
@@ -199,7 +204,8 @@ Notes:
 - `FIRECRAWL_API_KEY` or `FIRECRAWL_MCP_COMMAND` enables Firecrawl research. `FIRECRAWL_SEARCH_LIMIT` and `FIRECRAWL_MCP_TIMEOUT_SECONDS` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
 - A configured image provider makes generated product concept images the frontend default. API clients can still opt out with `generate_image=false`; `IMAGE_OUTPUT_ENABLED` remains the environment-level default for non-frontend callers.
-- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
+- `IMAGE_PROVIDER` can be `vertex`, `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
+- For `IMAGE_PROVIDER=vertex`, `VERTEX_AI_IMAGE_MODEL` defaults to `gemini-3.1-flash-image` (Nano Banana 2) and reuses the configured Vertex project, location, and Application Default Credentials. `VERTEX_AI_IMAGE_RESOLUTION`, `VERTEX_AI_IMAGE_ASPECT_RATIO`, and `VERTEX_AI_IMAGE_OUTPUT_FORMAT` control the output.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
 - For `IMAGE_PROVIDER=openai`, image generation uses `OPENAI_IMAGE_API_KEY` or `OPENAI_API_KEY` and `OPENAI_IMAGE_BASE_URL` or `OPENAI_BASE_URL`. It does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; those belong to text-model routing and OpenAI-compatible providers.
@@ -242,7 +248,7 @@ uvicorn apps.api.main:app --reload --port 8000
 
 OpenAI one-liner:
 ```bash
-LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.5-flash uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
 ```
 
 API docs: http://localhost:8000/api/docs

@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Awaitable, Callable, Protocol
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from blueprint_core.agents.pipeline import (
+    AgentPipelineEvent,
+    PipelineCancelledError,
+    emit_agent_pipeline_event,
+    list_agent_pipeline_steps,
+    observe_agent_pipeline,
+)
 from blueprint_core.workers.contracts import (
     WorkerArtifact,
     WorkerError,
@@ -25,6 +33,7 @@ from blueprint_core.workspaces.projects import (
     ProjectSystem,
 )
 from blueprint_core.workspaces.projects.models import HardwareIR
+from blueprint_core.workspaces.projects.output import attach_product_image
 
 
 GENERATION_WORKER_ID = "generation-worker"
@@ -54,10 +63,12 @@ class HardwareIRGenerationEngine:
         provider_name: str | None = None,
         model_name: str | None = None,
         use_simulation: bool = False,
+        generate_image: bool = True,
     ) -> None:
         self.provider_name = provider_name
         self.model_name = model_name
         self.use_simulation = use_simulation
+        self.generate_image = generate_image
 
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
         from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
@@ -81,6 +92,21 @@ class HardwareIRGenerationEngine:
         if generation_error or (state.assembly_metadata or {}).get("status") == "failed":
             message = generation_error.get("message") if isinstance(generation_error, dict) else None
             raise RuntimeError(str(message or "Structured hardware generation failed."))
+        if self.generate_image:
+            emit_agent_pipeline_event("default", "image_generation", "started")
+        attach_product_image(prompt, state, generate_image=self.generate_image)
+        if self.generate_image:
+            image_status = (state.assembly_metadata or {}).get("image_output_status")
+            emit_agent_pipeline_event(
+                "default",
+                "image_generation",
+                "completed" if image_status == "succeeded" else "failed",
+                details={
+                    "image_output_status": image_status,
+                    "provider": (state.assembly_metadata or {}).get("image_output_provider"),
+                    "model": (state.assembly_metadata or {}).get("image_output_model"),
+                },
+            )
         return build_generation_draft(design_brief, state)
 
     @staticmethod
@@ -246,21 +272,58 @@ class GenerationWorker:
                 )
             return _success_result(request, ProjectRevisionOutcome(revision=replay, idempotent_replay=True))
 
+        cancellation_check = request.metadata.get("pipeline_cancellation_check")
+        if not callable(cancellation_check):
+            cancellation_check = None
+
         try:
+            if cancellation_check is not None and cancellation_check():
+                return _cancelled_result(request)
+            progress_sequence = 1
             await report_progress(WorkerProgress(
                 **context,
-                sequence=1,
+                sequence=progress_sequence,
                 status="running",
                 percent_complete=10,
                 message="Generating structured project state from the frozen DesignBrief.",
             ))
-            candidate = self._engine.generate(payload.design_brief)
-            if hasattr(candidate, "__await__"):
-                candidate = await candidate
+            if isinstance(self._engine, HardwareIRGenerationEngine):
+                event_loop = asyncio.get_running_loop()
+
+                def generate_with_observation() -> ProjectRevisionDraft:
+                    def record_pipeline_event(event: AgentPipelineEvent) -> None:
+                        nonlocal progress_sequence
+                        if cancellation_check is not None and cancellation_check():
+                            raise PipelineCancelledError("Agent pipeline was cancelled.")
+                        progress_sequence += 1
+                        future = asyncio.run_coroutine_threadsafe(
+                            report_progress(WorkerProgress(
+                                **context,
+                                sequence=progress_sequence,
+                                status="running",
+                                percent_complete=_pipeline_event_percent(event),
+                                message=f"{event.label}: {event.status.replace('_', ' ')}",
+                                metadata={"pipeline_event": event.as_dict()},
+                            )),
+                            event_loop,
+                        )
+                        future.result()
+
+                    with observe_agent_pipeline(record_pipeline_event, cancellation_check=cancellation_check):
+                        return self._engine.generate(payload.design_brief)
+
+                candidate = await asyncio.to_thread(generate_with_observation)
+                if cancellation_check is not None and cancellation_check():
+                    raise PipelineCancelledError("Agent pipeline was cancelled.")
+            else:
+                candidate = self._engine.generate(payload.design_brief)
+                if hasattr(candidate, "__await__"):
+                    candidate = await candidate
             draft = ProjectRevisionDraft.model_validate(candidate)
+            progress_sequence += 1
             await report_progress(WorkerProgress(
                 **context,
-                sequence=2,
+                sequence=progress_sequence,
                 status="running",
                 percent_complete=80,
                 message="Persisting initial project revision.",
@@ -273,12 +336,37 @@ class GenerationWorker:
                 design_brief_version=request.design_brief_version,
                 source_job_id=request.job_id,
             )
+        except PipelineCancelledError:
+            return _cancelled_result(request)
         except ProjectStateError as exc:
             return _failure_result(request, exc, retryable=exc.retryable)
         except Exception as exc:
             return _failure_result(request, exc, retryable=True)
 
         return _success_result(request, outcome)
+
+
+def _pipeline_event_percent(event: AgentPipelineEvent) -> float:
+    steps = list_agent_pipeline_steps(event.workflow)
+    index = next((index for index, step in enumerate(steps) if step.get("id") == event.step_id), 0)
+    completed = index + (1 if event.status in {"completed", "skipped"} else 0)
+    return min(75.0, max(10.0, 10.0 + (completed / max(len(steps), 1)) * 65.0))
+
+
+def _cancelled_result(request: WorkerRequest) -> WorkerResult:
+    context = _worker_context(request)
+    error = WorkerError(
+        **context,
+        code="generation_cancelled",
+        message="Build stopped by the user.",
+        retryable=True,
+    )
+    return WorkerResult(
+        **context,
+        output_contract_version=GENERATION_OUTPUT_VERSION,
+        status=WorkerResultStatus.CANCELLED,
+        error=error,
+    )
 
 
 def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> WorkerResult:

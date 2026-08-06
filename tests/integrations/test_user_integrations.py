@@ -75,6 +75,15 @@ TEST_ENV_KEYS = (
     "IMAGE_SIZE",
     "IMAGE_QUALITY",
     "IMAGE_OUTPUT_FORMAT",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "VERTEX_AI_PROJECT",
+    "VERTEX_AI_LOCATION",
+    "VERTEX_AI_MODEL",
+    "VERTEX_AI_IMAGE_MODEL",
+    "VERTEX_AI_IMAGE_RESOLUTION",
+    "VERTEX_AI_IMAGE_ASPECT_RATIO",
+    "VERTEX_AI_IMAGE_OUTPUT_FORMAT",
     "GMI_API_KEY",
     "GMI_CLOUD_API_KEY",
     "GMICLOUD_API_KEY",
@@ -649,6 +658,28 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertNotIn("GMI_IMAGE_MODEL", os.environ)
             self.assertNotIn("GMI_IMAGE_SIZE", os.environ)
             self.assertNotIn("GMI_IMAGE_OUTPUT_FORMAT", os.environ)
+
+    def test_vertex_image_config_becomes_active_image_provider(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "vertex",
+                field_values={
+                    "project": "forma-vertex-project",
+                    "location": "global",
+                    "image_model": "gemini-3.1-flash-image",
+                    "image_resolution": "2K",
+                    "image_aspect_ratio": "16:9",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("vertex", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("forma-vertex-project", os.environ["VERTEX_AI_PROJECT"])
+            self.assertEqual("gemini-3.1-flash-image", os.environ["VERTEX_AI_IMAGE_MODEL"])
+            self.assertEqual("2K", os.environ["VERTEX_AI_IMAGE_RESOLUTION"])
+            self.assertEqual("16:9", os.environ["VERTEX_AI_IMAGE_ASPECT_RATIO"])
 
     def test_together_image_config_becomes_active_image_provider(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:

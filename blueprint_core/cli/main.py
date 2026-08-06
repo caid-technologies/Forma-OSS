@@ -246,7 +246,7 @@ def cmd_iterate(args: argparse.Namespace) -> int:
 
 
 def _add_runtime_selector_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--llm", help="LLM selector in provider/model form, for example openai/gpt-5.5.")
+    parser.add_argument("--llm", help="LLM selector in provider/model form, for example openai/gpt-5.6-sol.")
     parser.add_argument("--provider", help="LLM provider override.")
     parser.add_argument("--model", help="LLM model override.")
 

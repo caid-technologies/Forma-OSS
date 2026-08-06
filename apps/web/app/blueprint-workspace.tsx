@@ -10,10 +10,11 @@ import {
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
+import { calculateProjectCostMetrics } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
-  humanContextDefaultsChatSummary,
-  humanContextDefaultsPromptSection,
+  humanContextSkipChatSummary,
+  humanContextSkipPromptSection,
 } from "../lib/human-context-defaults";
 import CopyButton from "../components/copy-button";
 import {
@@ -175,12 +176,19 @@ type ChatMessage = {
   projectId?: string | null;
   pipelineProgress?: AgentPipelineProgress | null;
   imagePreview?: string | null;
+  contextProjectId?: string | null;
+  workflowState?: string | null;
+  contextQuestions?: string[];
+  buildPlanId?: string | null;
+  buildJobId?: string | null;
 };
 
 type ActiveGenerationRun = {
-  kind: "chat" | "project-chat";
+  kind: "chat" | "project-chat" | "context-build";
   controller: AbortController;
   jobId: string | null;
+  planId?: string | null;
+  projectId?: string | null;
   chatId: string;
   assistantMessageId: string | null;
   cancelled: boolean;
@@ -251,10 +259,17 @@ const defaultAgentPipelineSteps: AgentPipelineStep[] = [
     duration_ms: 5500,
   },
   {
+    id: "system_architecture",
+    agent: "System Architecture Agent",
+    label: "Decomposing the complete system",
+    description: "Building a purpose-driven tree of electrical, mechanical, firmware, and nested subsystems.",
+    duration_ms: 5500,
+  },
+  {
     id: "component_selection",
     agent: "Component Selection Agent",
     label: "Selecting compatible parts",
-    description: "Choosing parts and pin definitions for the build.",
+    description: "Choosing parts by system role before exact catalog pins are hydrated.",
     duration_ms: 6500,
   },
   {
@@ -270,6 +285,13 @@ const defaultAgentPipelineSteps: AgentPipelineStep[] = [
     label: "Validating and repairing wiring",
     description: "Checking shorts, voltage mismatches, unpowered parts, and pin conflicts.",
     duration_ms: 5500,
+  },
+  {
+    id: "bom",
+    agent: "BOM Agent",
+    label: "Calculating BOM and cost",
+    description: "Summing selected components and updating the project estimate.",
+    duration_ms: 3000,
   },
   {
     id: "mechanical_fabrication",
@@ -396,15 +418,48 @@ function validChatRole(value: any): ChatMessage["role"] {
 
 function normalizeChatMessage(value: any): ChatMessage | null {
   if (!value || typeof value !== "object" || typeof value.content !== "string") return null;
+  const buildExecutionStatus = typeof value.buildExecution?.status === "string"
+    ? value.buildExecution.status
+    : "";
+  const normalizedStatus = buildExecutionStatus === "planned" || buildExecutionStatus === "running"
+    ? "loading"
+    : validChatStatus(value.status);
   return {
     id: typeof value.id === "string" && value.id ? value.id : newChatMessageId(),
     role: validChatRole(value.role),
     content: value.content,
-    status: validChatStatus(value.status),
+    status: normalizedStatus,
     timestamp: typeof value.timestamp === "string" && value.timestamp ? value.timestamp : chatTimestamp(),
     projectId: typeof value.projectId === "string" ? value.projectId : null,
     pipelineProgress: normalizeAgentPipelineProgress(value.pipelineProgress),
     imagePreview: typeof value.imagePreview === "string" ? value.imagePreview : null,
+    contextProjectId: typeof value.contextProjectId === "string"
+      ? value.contextProjectId
+      : typeof value.context_project_id === "string"
+        ? value.context_project_id
+        : null,
+    workflowState: typeof value.workflowState === "string"
+      ? value.workflowState
+      : typeof value.workflow_state === "string"
+        ? value.workflow_state
+        : null,
+    contextQuestions: (Array.isArray(value.contextQuestions) ? value.contextQuestions : value.questions)
+      ?.filter((question: unknown): question is string => typeof question === "string" && Boolean(question.trim()))
+      .map((question: string) => question.trim()) || [],
+    buildPlanId: typeof value.buildPlanId === "string"
+      ? value.buildPlanId
+      : typeof value.build_plan_id === "string"
+        ? value.build_plan_id
+        : typeof value.buildExecution?.plan_id === "string"
+          ? value.buildExecution.plan_id
+          : null,
+    buildJobId: typeof value.buildJobId === "string"
+      ? value.buildJobId
+      : typeof value.build_job_id === "string"
+        ? value.build_job_id
+        : typeof value.buildExecution?.job_id === "string"
+          ? value.buildExecution.job_id
+          : null,
   };
 }
 
@@ -424,6 +479,42 @@ function persistableChatMessages(messages: ChatMessage[]): ChatMessage[] {
     .map(normalizeChatMessage)
     .filter((message: ChatMessage | null): message is ChatMessage => Boolean(message))
     .slice(-MAX_PROJECT_CHAT_MESSAGES);
+}
+
+function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: ChatMessage[]): ChatMessage[] {
+  const localById = new Map(localMessages.map((message) => [message.id, message]));
+  const seen = new Set<string>();
+  const merged: ChatMessage[] = [];
+
+  remoteMessages.forEach((remote) => {
+    if (seen.has(remote.id)) return;
+    seen.add(remote.id);
+    const local = localById.get(remote.id);
+    if (!local) {
+      merged.push(remote);
+      return;
+    }
+
+    const localIsTerminal = ["success", "error", "cancelled"].includes(local.status || "");
+    const remoteRegressed = localIsTerminal && remote.status === "loading";
+    merged.push({
+      ...local,
+      ...remote,
+      content: remoteRegressed ? local.content : remote.content,
+      status: remoteRegressed ? local.status : remote.status,
+      timestamp: remoteRegressed ? local.timestamp : remote.timestamp,
+      projectId: remote.projectId || local.projectId || null,
+      pipelineProgress: remote.pipelineProgress || local.pipelineProgress || null,
+      contextProjectId: remote.contextProjectId || local.contextProjectId || null,
+      buildPlanId: remote.buildPlanId || local.buildPlanId || null,
+      buildJobId: remote.buildJobId || local.buildJobId || null,
+    });
+  });
+
+  localMessages.forEach((local) => {
+    if (!seen.has(local.id)) merged.push(local);
+  });
+  return merged.slice(-MAX_PROJECT_CHAT_MESSAGES);
 }
 
 function chatIsWaiting(messages: ChatMessage[]) {
@@ -604,6 +695,13 @@ function isCompletedPipelineStatus(status: any) {
 function failedPipelineEvent(events: AgentPipelineEvent[] | undefined) {
   const normalizedEvents = normalizeAgentPipelineEvents(events);
   return [...normalizedEvents].reverse().find((event) => isFailedPipelineStatus(event.status)) || null;
+}
+
+function pipelineEventsFromWorkerTask(task: any): AgentPipelineEvent[] {
+  if (!Array.isArray(task?.progress)) return [];
+  return normalizeAgentPipelineEvents(
+    task.progress.map((item: any) => item?.metadata?.pipeline_event).filter(Boolean),
+  );
 }
 
 function compactDiagnosticText(value: any, limit: number = CHAT_DIAGNOSTIC_CHARACTER_LIMIT) {
@@ -1515,6 +1613,9 @@ export function FormaWorkspace({
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>(() => initialChatMessages());
   const [pendingHumanContext, setPendingHumanContext] = useState<PendingHumanContext | null>(null);
   const contextProjectIdsRef = useRef<Record<string, string>>({});
+  const contextBuildWatchersRef = useRef<Set<string>>(new Set());
+  const [contextWorkflowStates, setContextWorkflowStates] = useState<Record<string, string>>({});
+  const [contextSkipping, setContextSkipping] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -1664,6 +1765,13 @@ export function FormaWorkspace({
       const projectId = messages[index]?.projectId;
       if (projectId) return projectId;
     }
+    const completedWorkerBuild = messages.some((message) => (
+      message.pipelineProgress?.jobId?.startsWith("generation-")
+      && normalizeAgentPipelineEvents(message.pipelineProgress.events).some((event) => (
+        event.step_id === "package_project" && isCompletedPipelineStatus(event.status)
+      ))
+    ));
+    if (completedWorkerBuild && activeChatId) return activeChatId;
     return null;
   }, [activeChatId, chatMessages, chatThreads]);
   const generationInputValidation = useMemo(
@@ -2065,14 +2173,22 @@ export function FormaWorkspace({
     const jobIds = new Set<string>();
     const collect = (messages: ChatMessage[]) => {
       messages.forEach((message) => {
-        const jobId = message.status === "loading" ? message.pipelineProgress?.jobId : null;
-        if (jobId && jobId !== activeGeneration?.jobId) jobIds.add(jobId);
+        const jobId = message.status === "loading" && !message.buildPlanId ? message.pipelineProgress?.jobId : null;
+        if (jobId && !jobId.startsWith("generation-") && jobId !== activeGeneration?.jobId) jobIds.add(jobId);
       });
     };
     collect(chatMessages);
     Object.values(chatThreads).forEach(collect);
     return Array.from(jobIds).join("\n");
   }, [activeGeneration?.jobId, chatMessages, chatThreads]);
+  const pendingContextBuildMessage = useMemo(
+    () => [...chatMessages].reverse().find((message) => (
+      message.status === "loading"
+      && Boolean(message.buildPlanId)
+      && Boolean(message.contextProjectId)
+    )) || null,
+    [chatMessages],
+  );
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
@@ -2512,13 +2628,20 @@ export function FormaWorkspace({
             const messages = persistableChatMessages(Array.isArray(chat?.messages) ? chat.messages : []);
             if (!chatId || !messages.length) return;
             threadUpdates[chatId] = messages;
-            writeStoredChatThread(chatId, messages, chatStorageScope);
           });
         }
         if (Object.keys(threadUpdates).length) {
-          setChatThreads((current) => ({ ...current, ...threadUpdates }));
+          setChatThreads((current) => {
+            const next = { ...current };
+            Object.entries(threadUpdates).forEach(([chatId, remoteMessages]) => {
+              const mergedMessages = mergeFetchedChatMessages(remoteMessages, current[chatId] || []);
+              next[chatId] = mergedMessages;
+              writeStoredChatThread(chatId, mergedMessages, chatStorageScope);
+            });
+            return next;
+          });
           if (activeChatId && threadUpdates[activeChatId]) {
-            setChatMessages(threadUpdates[activeChatId]);
+            setChatMessages((current) => mergeFetchedChatMessages(threadUpdates[activeChatId], current));
           }
         }
       } else if (res.status === 401) {
@@ -2785,6 +2908,22 @@ export function FormaWorkspace({
     }
   };
 
+  const beginContextBuildRun = (
+    projectId: string,
+    planId: string,
+    jobId: string,
+    chatId: string,
+    assistantMessageId: string,
+  ) => {
+    const active = activeGenerationRef.current;
+    if (active?.kind === "context-build" && active.planId === planId) return active;
+    const run = beginGenerationRun("context-build", chatId);
+    run.projectId = projectId;
+    run.planId = planId;
+    setGenerationRunJob(run, jobId, assistantMessageId);
+    return run;
+  };
+
   const finishGenerationRun = (run: ActiveGenerationRun) => {
     if (activeGenerationRef.current !== run) return;
     activeGenerationRef.current = null;
@@ -2810,6 +2949,36 @@ export function FormaWorkspace({
     }
   };
 
+  const cancelContextBuild = async (projectId: string, planId: string) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/cancel`,
+        { method: "POST", headers: await generationRequestHeaders() },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+    } catch (error) {
+      console.warn("Could not notify the backend that the build was stopped.", error);
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not stop the build.");
+    }
+  };
+
+  const stopContextBuildMessage = (message: ChatMessage) => {
+    const projectId = message.contextProjectId;
+    const planId = message.buildPlanId;
+    if (!projectId || !planId) return;
+    const active = activeGenerationRef.current;
+    if (active?.kind === "context-build" && active.planId === planId) {
+      stopActiveGeneration();
+      return;
+    }
+    const stoppedMessage = "Build stopped by you. Your project brief is preserved.";
+    updateChatMessage(message.id, { content: stoppedMessage, status: "cancelled" });
+    updateThreadMessage(activeChatId, message.id, { content: stoppedMessage, status: "cancelled" });
+    setGenerationInputNotice("Build stopped. Your project brief is preserved.");
+    setIsLoading(false);
+    void cancelContextBuild(projectId, planId);
+  };
+
   const stopActiveGeneration = () => {
     const run = activeGenerationRef.current;
     if (!run) return;
@@ -2818,16 +2987,203 @@ export function FormaWorkspace({
     run.controller.abort();
     if (run.assistantMessageId) {
       const patch: Partial<Omit<ChatMessage, "id">> = {
-        content: "Generation stopped by you.",
+        content: run.kind === "context-build"
+          ? "Build stopped by you. Your project brief is preserved."
+          : "Generation stopped by you.",
         status: "cancelled",
       };
-      if (run.kind === "chat") updateChatMessage(run.assistantMessageId, patch);
+      if (run.kind !== "project-chat") updateChatMessage(run.assistantMessageId, patch);
       updateThreadMessage(run.chatId, run.assistantMessageId, patch);
     }
-    setGenerationInputNotice("Generation stopped. You can send another message whenever you're ready.");
-    if (run.jobId) void cancelGenerationJob(run.jobId);
+    setGenerationInputNotice(
+      run.kind === "context-build"
+        ? "Build stopped. Your project brief is preserved."
+        : "Generation stopped. You can send another message whenever you're ready.",
+    );
+    if (run.kind === "context-build" && run.projectId && run.planId) {
+      void cancelContextBuild(run.projectId, run.planId);
+    } else if (run.jobId) {
+      void cancelGenerationJob(run.jobId);
+    }
     finishGenerationRun(run);
   };
+
+  const watchContextBuild = (
+    projectId: string,
+    planId: string,
+    jobId: string,
+    chatId: string,
+    assistantMessageId: string,
+    run?: ActiveGenerationRun,
+  ) => {
+    const watcherKey = `${projectId}:${planId}`;
+    if (contextBuildWatchersRef.current.has(watcherKey)) return;
+    contextBuildWatchersRef.current.add(watcherKey);
+    let attempts = 0;
+    const poll = async () => {
+      if (run?.cancelled || run?.controller.signal.aborted) {
+        contextBuildWatchersRef.current.delete(watcherKey);
+        return;
+      }
+      attempts += 1;
+      try {
+        const response = await fetch(
+          `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}`,
+          { headers: await generationRequestHeaders(), signal: run?.controller.signal },
+        );
+        if (!response.ok) throw new Error(await readApiErrorMessage(response));
+        const plan = await response.json();
+        const planStatus = typeof plan?.status === "string" ? plan.status : "";
+        const task = plan?.jobs?.[jobId];
+        const progressEvents = pipelineEventsFromWorkerTask(task);
+        let synchronizedProgress: AgentPipelineProgress | null = null;
+        if (progressEvents.length) {
+          const seedProgress = createAgentPipelineProgress(
+            defaultAgentPipelineSteps,
+            false,
+            typeof task?.started_at === "string" ? task.started_at : chatTimestamp(),
+            jobId,
+          );
+          const progressJob: A2AJob = {
+            job_id: jobId,
+            action: "blueprint.generate_project",
+            sender: "worker-orchestrator",
+            recipient: "blueprint",
+            status: "running",
+            started_at: typeof task?.started_at === "string" ? task.started_at : null,
+            progress_events: progressEvents,
+          };
+          synchronizedProgress = progressFromJobEvents(progressJob, seedProgress, false);
+          applyChatPipelineProgressFromJob(assistantMessageId, progressJob, seedProgress, false);
+          applyThreadPipelineProgressFromJob(chatId, assistantMessageId, progressJob, seedProgress, false);
+        }
+        if (planStatus === "succeeded") {
+          const projectResponse = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+            headers: await optionalAuthHeaders(),
+          });
+          if (!projectResponse.ok) throw new Error(await readApiErrorMessage(projectResponse));
+          const projectData = await projectResponse.json();
+          const ir = withProjectResponseMetadata(projectData.project_ir, projectData);
+          const title = ir?.overview?.title || "Project";
+          setProjectIR(ir);
+          setContextWorkflowStates((current) => ({ ...current, [chatId]: "awaiting_feedback" }));
+          rememberProjectRecord({
+            project_id: projectId,
+            chat_id: chatId,
+            title,
+            prompt: projectData.prompt || title,
+            created_at: projectData.created_at || chatTimestamp(),
+            can_chat: true,
+            creator_display: "you",
+            creator_image_url: userImageUrl,
+            parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
+            star_count: 0,
+          });
+          rememberChatItem({
+            chatId,
+            title,
+            projectId,
+            createdAt: chatTimestamp(),
+            projectCount: 1,
+          });
+          const readyMessage = `${title} is ready. The first structured design revision is available for review.`;
+          updateChatMessage(assistantMessageId, {
+            content: readyMessage,
+            status: "success",
+            pipelineProgress: synchronizedProgress,
+            projectId,
+            contextProjectId: projectId,
+            workflowState: "awaiting_feedback",
+          });
+          updateThreadMessage(chatId, assistantMessageId, {
+            content: readyMessage,
+            status: "success",
+            pipelineProgress: synchronizedProgress,
+            projectId,
+            contextProjectId: projectId,
+            workflowState: "awaiting_feedback",
+          });
+          setGenerationInputNotice("Design ready for review.");
+          void fetchProjectHistory();
+          if (!authRequired || isSignedIn) void fetchMyProjectHistory();
+          contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
+          return;
+        }
+        if (planStatus === "cancelled" || planStatus === "canceled") {
+          const stoppedMessage = "Build stopped by you. Your project brief is preserved.";
+          updateChatMessage(assistantMessageId, { content: stoppedMessage, status: "cancelled" });
+          updateThreadMessage(chatId, assistantMessageId, { content: stoppedMessage, status: "cancelled" });
+          setGenerationInputNotice("Build stopped. Your project brief is preserved.");
+          contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
+          return;
+        }
+        if (planStatus === "failed") {
+          const failureMessage = typeof task?.error?.message === "string"
+            ? task.error.message
+            : "The design build stopped after an agent failure.";
+          updateChatMessage(assistantMessageId, { content: failureMessage, status: "error", workflowState: "awaiting_feedback" });
+          updateThreadMessage(chatId, assistantMessageId, { content: failureMessage, status: "error", workflowState: "awaiting_feedback" });
+          setGenerationInputNotice(failureMessage);
+          contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
+          return;
+        }
+      } catch (error) {
+        if (run?.controller.signal.aborted) {
+          contextBuildWatchersRef.current.delete(watcherKey);
+          return;
+        }
+        if (attempts >= 600) {
+          const message = error instanceof Error ? error.message : "Could not read build progress.";
+          setGenerationInputNotice(message);
+          contextBuildWatchersRef.current.delete(watcherKey);
+          return;
+        }
+      }
+      if (attempts < 600) window.setTimeout(poll, 2000);
+    };
+    window.setTimeout(poll, 750);
+  };
+
+  useEffect(() => {
+    const pending = [...chatMessages].reverse().find((message) => (
+      message.status === "loading"
+      && Boolean(message.buildPlanId)
+      && Boolean(message.buildJobId)
+      && Boolean(message.contextProjectId)
+      && !message.projectId
+    ));
+    if (!pending?.buildPlanId || !pending.buildJobId || !pending.contextProjectId || !activeChatId) return;
+    if (!pending.pipelineProgress) {
+      const progress = createAgentPipelineProgress(
+        defaultAgentPipelineSteps,
+        generateProductImage,
+        chatTimestamp(),
+        pending.buildJobId,
+      );
+      updateChatMessage(pending.id, { pipelineProgress: progress, status: "loading" });
+      updateThreadMessage(activeChatId, pending.id, { pipelineProgress: progress, status: "loading" });
+    }
+    const run = beginContextBuildRun(
+      pending.contextProjectId,
+      pending.buildPlanId,
+      pending.buildJobId,
+      activeChatId,
+      pending.id,
+    );
+    watchContextBuild(
+      pending.contextProjectId,
+      pending.buildPlanId,
+      pending.buildJobId,
+      activeChatId,
+      pending.id,
+      run,
+    );
+    // The watcher registry makes this restart-safe without duplicating poll loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeChatId, chatMessageIdentityKey(chatMessages)]);
 
   const handleGatherContext = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -2864,13 +3220,14 @@ export function FormaWorkspace({
     syncChatRoute(requestChatId);
     appendChatMessage({ id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
     appendThreadMessage(requestChatId, { id: userMessageId, role: "user", content: userContent, imagePreview: imageData, status: "idle" });
-    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
-    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Saving project context…", status: "loading" });
+    appendChatMessage({ id: assistantMessageId, role: "assistant", content: "Thinking…", status: "loading" });
+    appendThreadMessage(requestChatId, { id: assistantMessageId, role: "assistant", content: "Thinking…", status: "loading" });
     setPrompt("");
     setSelectedImage(null);
     setSelectedImageSource("upload");
     setGenerationInputNotice(null);
     setIsLoading(true);
+    let contextBuildStarted = false;
 
     try {
       const res = await fetch(`${API_URL}/projects/${encodeURIComponent(requestProjectId)}/context/messages`, {
@@ -2891,23 +3248,170 @@ export function FormaWorkspace({
       });
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
       const data = await res.json();
+      const turnKind = typeof data?.turn_kind === "string" ? data.turn_kind : "context";
       const persistedProjectId = typeof data?.design_brief?.project_id === "string"
         ? data.design_brief.project_id
-        : requestProjectId;
-      contextProjectIdsRef.current[requestChatId] = persistedProjectId;
+        : typeof data?.workflow?.project_id === "string"
+          ? data.workflow.project_id
+          : "";
+      const workflowState = typeof data?.workflow?.state === "string" ? data.workflow.state : "";
+      const buildPlanId = typeof data?.build_execution?.plan_id === "string"
+        ? data.build_execution.plan_id
+        : "";
+      const buildJobId = typeof data?.build_execution?.job_id === "string"
+        ? data.build_execution.job_id
+        : "";
+      const buildExecutionStatus = typeof data?.build_execution?.status === "string"
+        ? data.build_execution.status
+        : "";
+      const buildIsActive = buildExecutionStatus === "planned" || buildExecutionStatus === "running";
+      const buildPipelineProgress = buildPlanId
+        ? createAgentPipelineProgress(defaultAgentPipelineSteps, generateProductImage, chatTimestamp(), buildJobId || null)
+        : null;
+      if (persistedProjectId) contextProjectIdsRef.current[requestChatId] = persistedProjectId;
+      if (workflowState) {
+        setContextWorkflowStates((current) => ({ ...current, [requestChatId]: workflowState }));
+      }
       const assistantContent = typeof data?.assistant_message === "string"
         ? data.assistant_message
-        : "I saved that project context. What else should the design account for?";
-      updateChatMessage(assistantMessageId, { content: assistantContent, status: "success" });
-      updateThreadMessage(requestChatId, assistantMessageId, { content: assistantContent, status: "success" });
-      setGenerationInputNotice("Context saved. Continue the conversation to refine the design brief.");
+        : "How can I help with your hardware idea?";
+      updateChatMessage(assistantMessageId, {
+        content: assistantContent,
+        status: buildIsActive ? "loading" : buildExecutionStatus === "failed" ? "error" : "success",
+        pipelineProgress: buildPipelineProgress,
+        contextProjectId: persistedProjectId || null,
+        workflowState: workflowState || null,
+        contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        buildPlanId: buildPlanId || null,
+        buildJobId: buildJobId || null,
+      });
+      updateThreadMessage(requestChatId, assistantMessageId, {
+        content: assistantContent,
+        status: buildIsActive ? "loading" : buildExecutionStatus === "failed" ? "error" : "success",
+        pipelineProgress: buildPipelineProgress,
+        contextProjectId: persistedProjectId || null,
+        workflowState: workflowState || null,
+        contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        buildPlanId: buildPlanId || null,
+        buildJobId: buildJobId || null,
+      });
+      setGenerationInputNotice(
+        buildPlanId
+          ? "Build started. Live agent progress is shown above."
+          : turnKind === "context"
+          ? "Project context updated."
+          : turnKind === "proceed"
+            ? "Project handed to the next agent stage."
+            : null,
+      );
+      if (buildPlanId && buildJobId && persistedProjectId) {
+        contextBuildStarted = true;
+        const run = beginContextBuildRun(
+          persistedProjectId,
+          buildPlanId,
+          buildJobId,
+          requestChatId,
+          assistantMessageId,
+        );
+        watchContextBuild(
+          persistedProjectId,
+          buildPlanId,
+          buildJobId,
+          requestChatId,
+          assistantMessageId,
+          run,
+        );
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save project context.";
       updateChatMessage(assistantMessageId, { content: message, status: "error" });
       updateThreadMessage(requestChatId, assistantMessageId, { content: message, status: "error" });
       setGenerationInputNotice(message);
     } finally {
-      setIsLoading(false);
+      if (!contextBuildStarted) setIsLoading(false);
+    }
+  };
+
+  const handleSkipContextGathering = async () => {
+    if (contextSkipping || isLoading) return;
+    const requestChatId = activeChatId;
+    const availableMessages = requestChatId
+      ? chatThreads[requestChatId] || chatMessages
+      : chatMessages;
+    const persistedContextMessage = [...availableMessages]
+      .reverse()
+      .find((message) => Boolean(message.contextProjectId));
+    const projectId = requestChatId
+      ? contextProjectIdsRef.current[requestChatId] || persistedContextMessage?.contextProjectId || ""
+      : "";
+    if (!requestChatId || !projectId) {
+      setGenerationInputNotice("Save the initial project context before skipping this stage.");
+      return;
+    }
+
+    setContextSkipping(true);
+    setGenerationInputNotice(null);
+    let contextBuildStarted = false;
+    try {
+      const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/context/messages`, {
+        method: "POST",
+        headers: await generationRequestHeaders(),
+        body: JSON.stringify({
+          conversation_id: requestChatId,
+          requested_tool: "build_project",
+        }),
+      });
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const outcome = await response.json();
+      const workflowState = typeof outcome?.workflow?.state === "string"
+        ? outcome.workflow.state
+        : "building";
+      const buildPlanId = typeof outcome?.build_execution?.plan_id === "string"
+        ? outcome.build_execution.plan_id
+        : "";
+      const buildJobId = typeof outcome?.build_execution?.job_id === "string"
+        ? outcome.build_execution.job_id
+        : "";
+      const buildStatus = typeof outcome?.build_execution?.status === "string"
+        ? outcome.build_execution.status
+        : "planned";
+      const buildIsActive = buildStatus === "planned" || buildStatus === "running";
+      const pipelineProgress = buildPlanId
+        ? createAgentPipelineProgress(defaultAgentPipelineSteps, generateProductImage, chatTimestamp(), buildJobId || null)
+        : null;
+      contextProjectIdsRef.current[requestChatId] = projectId;
+      setContextWorkflowStates((current) => ({ ...current, [requestChatId]: workflowState }));
+      const message: ChatMessage = {
+        id: newChatMessageId(),
+        role: "assistant",
+        content: typeof outcome?.assistant_message === "string"
+          ? outcome.assistant_message
+          : buildIsActive
+            ? "I’ve started the design build."
+            : "The first design revision is ready for review.",
+        status: buildIsActive ? "loading" : buildStatus === "failed" ? "error" : "success",
+        timestamp: chatTimestamp(),
+        contextProjectId: projectId,
+        workflowState,
+        pipelineProgress,
+        buildPlanId: buildPlanId || null,
+        buildJobId: buildJobId || null,
+      };
+      appendChatMessage(message);
+      appendThreadMessage(requestChatId, message);
+      setGenerationInputNotice(
+        buildIsActive ? "Build started. Live agent progress is shown above." : "Design ready for review.",
+      );
+      if (buildPlanId && buildJobId) {
+        contextBuildStarted = true;
+        const run = beginContextBuildRun(projectId, buildPlanId, buildJobId, requestChatId, message.id);
+        watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id, run);
+      }
+    } catch (error) {
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not skip context gathering.");
+    } finally {
+      setContextSkipping(false);
+      if (!contextBuildStarted) setIsLoading(false);
     }
   };
 
@@ -2934,8 +3438,8 @@ export function FormaWorkspace({
     }
     const contextCheckpoint = pendingHumanContext;
     const submitter = (event.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const useHumanContextDefaults = Boolean(
-      contextCheckpoint && submitter?.name === "humanContextAction" && submitter.value === "use-defaults"
+    const skipHumanContext = Boolean(
+      contextCheckpoint && submitter?.name === "humanContextAction" && submitter.value === "skip"
     );
     const validationSubject = contextCheckpoint ? contextCheckpoint.basePrompt : prompt;
     const validation = validateGenerationInput(validationSubject, Boolean(selectedImage));
@@ -3028,13 +3532,13 @@ export function FormaWorkspace({
 
     const finalContextNotes = contextCheckpoint ? prompt.trim() : "";
     const promptText = contextCheckpoint
-      ? useHumanContextDefaults
-        ? humanContextDefaultsPromptSection(contextCheckpoint.basePrompt, contextCheckpoint.questions, finalContextNotes)
+      ? skipHumanContext
+        ? humanContextSkipPromptSection(contextCheckpoint.basePrompt, contextCheckpoint.questions, finalContextNotes)
         : humanContextPromptSection(contextCheckpoint, finalContextNotes)
       : rawPromptText;
     const userMessageContent = contextCheckpoint
-      ? useHumanContextDefaults
-        ? humanContextDefaultsChatSummary(contextCheckpoint.questions, finalContextNotes)
+      ? skipHumanContext
+        ? humanContextSkipChatSummary(contextCheckpoint.questions, finalContextNotes)
         : humanContextChatSummary(contextCheckpoint, finalContextNotes)
       : rawPromptText;
     let generatedProject = false;
@@ -3539,11 +4043,12 @@ export function FormaWorkspace({
   const loadedProjectId = projectIdFromIR(projectIR);
 
   useEffect(() => {
-    if (currentRouteProjectId || currentRouteChatId || homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
+    if (currentRouteProjectId || homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
 
     const controller = new AbortController();
     let retryTimer: number | null = null;
     let attempt = 0;
+    const maxAttempts = 10;
 
     const hydrateInlineProject = async () => {
       attempt += 1;
@@ -3564,8 +4069,9 @@ export function FormaWorkspace({
         setActiveTab("overview");
       } catch (error) {
         if (controller.signal.aborted) return;
-        if (attempt < 4) {
-          retryTimer = window.setTimeout(hydrateInlineProject, 500 * (2 ** (attempt - 1)));
+        if (attempt < maxAttempts) {
+          const retryDelayMs = Math.min(500 * (2 ** (attempt - 1)), 5000);
+          retryTimer = window.setTimeout(hydrateInlineProject, retryDelayMs);
           return;
         }
         console.error("Could not hydrate inline project output", error);
@@ -3672,7 +4178,7 @@ export function FormaWorkspace({
 
     if (!routedChatProjectId) {
       setChatRouteTransition(null);
-      setProjectIR(null);
+      if (!inlineChatProjectId) setProjectIR(null);
       return () => {
         controller.abort();
       };
@@ -3723,7 +4229,7 @@ export function FormaWorkspace({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routedChatId, currentRouteProjectId, routedChatFound, routedChatProjectId, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn, chatStorageScope]);
+  }, [routedChatId, currentRouteProjectId, routedChatFound, routedChatProjectId, inlineChatProjectId, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn, chatStorageScope]);
 
   const findProjectForJob = (job: A2AJob) => {
     const projectId = job.result_summary?.project_id;
@@ -3810,41 +4316,7 @@ export function FormaWorkspace({
     downloadBrowserFile(markdown, docsExportFilename(title), "text/markdown;charset=utf-8");
   };
 
-  const getOverviewMetrics = () => {
-    if (!projectIR?.components) {
-      return { electricalParts: 0, mechanicalParts: 0, totalParts: 0, electricalCost: 0, mechanicalCost: 0, totalCost: 0 };
-    }
-
-    let electricalParts = 0;
-    let mechanicalParts = 0;
-    let electricalCost = 0;
-    let mechanicalCost = 0;
-
-    projectIR.components.forEach((component: any) => {
-      const category = component.category?.toLowerCase() || "";
-      const quantity = component.quantity || 1;
-      const unitPrice = component.unit_price || 0;
-
-      if (["mechanical", "3d print"].includes(category)) {
-        mechanicalParts += quantity;
-        mechanicalCost += unitPrice * quantity;
-      } else {
-        electricalParts += quantity;
-        electricalCost += unitPrice * quantity;
-      }
-    });
-
-    return {
-      electricalParts,
-      mechanicalParts,
-      totalParts: electricalParts + mechanicalParts,
-      electricalCost: Number(electricalCost.toFixed(2)),
-      mechanicalCost: Number(mechanicalCost.toFixed(2)),
-      totalCost: Number((electricalCost + mechanicalCost).toFixed(2)),
-    };
-  };
-
-  const metrics = getOverviewMetrics();
+  const metrics = calculateProjectCostMetrics(projectIR);
   const components = projectIR?.components || [];
   const assembly = projectIR?.assembly || [];
   const constraints = projectIR?.constraints || [];
@@ -3956,6 +4428,7 @@ export function FormaWorkspace({
             features={imageFeatures}
             metrics={metrics}
             metadata={projectIR?.assembly_metadata || {}}
+            systemArchitecture={projectIR?.system_architecture || null}
             showModelName={blueprintDevMode}
           />
         );
@@ -4336,8 +4809,28 @@ export function FormaWorkspace({
                   progress={message.pipelineProgress as AgentPipelineProgress | null}
                   status={message.status}
                   compact
+                  onStop={
+                    message.status === "loading" && message.buildPlanId && message.contextProjectId
+                      ? () => stopContextBuildMessage(message as ChatMessage)
+                      : undefined
+                  }
                 />
               )}
+              projectArtifact={
+                projectIR && inlineChatProjectId && currentProjectId === inlineChatProjectId
+                  ? (
+                    <ChatProjectArtifact
+                      projectId={currentProjectId}
+                      projectTitle={projectTitle}
+                      namespaceTabs={visibleWorkspaceTabs}
+                      activeNamespace={activeWorkspaceTab.id}
+                      activeNamespaceName={displayedWorkspaceNamespace}
+                      onNamespaceChange={setActiveTab}
+                      projectContent={projectNamespaceContent}
+                    />
+                  )
+                  : null
+              }
               examples={samplePrompts}
               onSelectExample={(example) => {
                 setGenerationInputNotice(null);
@@ -4345,9 +4838,16 @@ export function FormaWorkspace({
                 setPrompt(example);
               }}
               onSubmit={handleGatherContext}
-              pendingContext={pendingHumanContext}
-              onContextAnswer={updateHumanContextAnswer}
-              onClearContext={clearHumanContextCheckpoint}
+              canSkipContext={(() => {
+                const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
+                const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
+                const state = contextWorkflowStates[activeChatId]
+                  || contextMessage?.workflowState
+                  || (contextMessage?.contextProjectId ? "gathering_context" : "");
+                return state === "gathering_context";
+              })()}
+              contextSkipping={contextSkipping}
+              onSkipContext={handleSkipContextGathering}
               isLoading={isLoading}
               generationReady
               needsGenerationProvider={false}
@@ -4360,8 +4860,11 @@ export function FormaWorkspace({
                 setGenerationInputNotice(null);
                 setPrompt(value);
               }}
-              generationActive={Boolean(activeGeneration)}
-              onStop={stopActiveGeneration}
+              generationActive={Boolean(activeGeneration || pendingContextBuildMessage)}
+              onStop={() => {
+                if (activeGenerationRef.current) stopActiveGeneration();
+                else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
+              }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}
               imageInputRef={fileInputRefCenter}
@@ -4654,10 +5157,12 @@ function normalizePrivateChatItems(value: any): ChatListItem[] {
     .map((chat: any): ChatListItem | null => {
       const chatId = typeof chat?.chat_id === "string" ? chat.chat_id.trim() : "";
       if (!chatId) return null;
+      const messages = persistableChatMessages(Array.isArray(chat?.messages) ? chat.messages : []);
+      const projectId = [...messages].reverse().find((message) => message.projectId)?.projectId || "";
       return {
         chatId,
         title: typeof chat.title === "string" && chat.title.trim() ? chat.title.trim() : NEW_PROJECT_TITLE,
-        projectId: "",
+        projectId,
         createdAt: typeof chat.updated_at === "string" ? chat.updated_at : typeof chat.created_at === "string" ? chat.created_at : null,
         projectCount: 0,
       };
@@ -6125,10 +6630,12 @@ function AgentPipelineProgressView({
   progress,
   status,
   compact = false,
+  onStop,
 }: {
   progress?: AgentPipelineProgress | null;
   status?: ChatMessage["status"];
   compact?: boolean;
+  onStop?: () => void;
 }) {
   if (!progress) return null;
 
@@ -6143,6 +6650,7 @@ function AgentPipelineProgressView({
   const lastEventMs = pipelineEventTimestampMs(lastEvent);
   const quietMs = lastEventMs === null ? null : nowMs - lastEventMs;
   const isLoading = status === "loading";
+  const isSuccess = status === "success";
   const isCancelled = status === "cancelled";
   // Progress events are an audit trail and may include a failed attempt that
   // the backend subsequently retries. Only the terminal message state means
@@ -6157,6 +6665,8 @@ function AgentPipelineProgressView({
     ? "failed"
     : isCancelled
     ? "stopped"
+    : isSuccess
+    ? "completed"
     : progress.synced
     ? backendQuiet
       ? "waiting on provider"
@@ -6168,6 +6678,8 @@ function AgentPipelineProgressView({
     ? "border-rose-400/35 bg-rose-950/25 text-rose-200"
     : isCancelled
     ? "border-amber-300/35 bg-amber-950/20 text-amber-100"
+    : isSuccess
+    ? "border-emerald-300/35 bg-emerald-950/20 text-emerald-100"
     : backendQuiet || waitingForFirstEvent
     ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
     : progress.synced
@@ -6189,9 +6701,23 @@ function AgentPipelineProgressView({
             <div className="mt-1 truncate font-mono text-[10px] text-slate-600">{progress.jobId}</div>
           )}
         </div>
-        <div className="shrink-0 text-right">
-          <div className="font-mono text-[11px] font-black text-slate-300">{completedCount}/{steps.length}</div>
-          <div className="text-[10px] uppercase text-slate-600">{formatDurationSeconds(elapsedSeconds)}</div>
+        <div className="flex shrink-0 items-start gap-2">
+          {isLoading && onStop && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="inline-flex h-7 items-center gap-1 border border-amber-300/40 px-2 text-[10px] font-black uppercase text-amber-100 hover:bg-amber-300 hover:text-black"
+              aria-label="Stop agent pipeline"
+              title="Stop agent pipeline"
+            >
+              <Square className="h-3 w-3 fill-current" />
+              Stop
+            </button>
+          )}
+          <div className="text-right">
+            <div className="font-mono text-[11px] font-black text-slate-300">{completedCount}/{steps.length}</div>
+            <div className="text-[10px] uppercase text-slate-600">{formatDurationSeconds(elapsedSeconds)}</div>
+          </div>
         </div>
       </div>
 

@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import os
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock
 from unittest.mock import patch
 
-from blueprint_core.image_providers import GeneratedImage, GMIImageProvider, HuggingFaceImageProvider, OpenAIImageProvider, TogetherImageProvider, build_image_provider
+from blueprint_core.image_providers import GeneratedImage, GMIImageProvider, HuggingFaceImageProvider, OpenAIImageProvider, TogetherImageProvider, VertexAIImageProvider, build_image_provider
 
 
 class ImageProviderRoutingTests(unittest.TestCase):
@@ -60,6 +62,60 @@ class ImageProviderRoutingTests(unittest.TestCase):
         self.assertEqual("openai-compatible", provider.provider_name)
         self.assertEqual("http://127.0.0.1:11434/v1", provider.base_url)
         self.assertEqual("local-compatible-key", provider.api_key)
+        self.assertTrue(provider.is_configured)
+
+    def test_vertex_nano_banana_uses_project_adc_and_native_image_response(self) -> None:
+        inline_data = SimpleNamespace(data=b"fake-nano-banana", mime_type="image/png")
+        response = SimpleNamespace(
+            candidates=[SimpleNamespace(content=SimpleNamespace(parts=[SimpleNamespace(inline_data=inline_data)]))]
+        )
+        client = Mock()
+        client.models.generate_content.return_value = response
+        fake_genai = SimpleNamespace(Client=Mock(return_value=client))
+
+        with patch.dict(
+            os.environ,
+            {
+                "IMAGE_PROVIDER": "vertex",
+                "GOOGLE_CLOUD_PROJECT": "forma-image-test",
+                "GOOGLE_CLOUD_LOCATION": "global",
+                "VERTEX_AI_IMAGE_MODEL": "gemini-3.1-flash-image",
+                "VERTEX_AI_IMAGE_RESOLUTION": "2K",
+                "VERTEX_AI_IMAGE_ASPECT_RATIO": "16:9",
+            },
+            clear=True,
+        ), patch("blueprint_core.image_providers.genai", fake_genai):
+            provider = build_image_provider(force_enabled=True)
+            assert isinstance(provider, VertexAIImageProvider)
+            image = provider.generate_test_image("Render a compact environmental monitor")
+
+        client_config = fake_genai.Client.call_args.kwargs
+        self.assertTrue(client_config.pop("vertexai"))
+        self.assertEqual("forma-image-test", client_config.pop("project"))
+        self.assertEqual("global", client_config.pop("location"))
+        self.assertEqual(120_000, client_config.pop("http_options").timeout)
+        self.assertEqual({}, client_config)
+        request = client.models.generate_content.call_args.kwargs
+        self.assertEqual("gemini-3.1-flash-image", request["model"])
+        self.assertEqual("Render a compact environmental monitor", request["contents"])
+        self.assertEqual(["TEXT", "IMAGE"], request["config"].response_modalities)
+        self.assertEqual("2K", request["config"].image_config.image_size)
+        self.assertEqual("16:9", request["config"].image_config.aspect_ratio)
+        self.assertEqual("data:image/png;base64,ZmFrZS1uYW5vLWJhbmFuYQ==", image.data_url)
+        self.assertEqual("vertex", image.provider)
+        self.assertEqual("gemini-3.1-flash-image", image.model)
+
+    def test_vertex_image_provider_auto_routes_from_google_cloud_project(self) -> None:
+        fake_genai = SimpleNamespace(Client=Mock(return_value=Mock()))
+        with patch.dict(
+            os.environ,
+            {"GOOGLE_CLOUD_PROJECT": "forma-image-test"},
+            clear=True,
+        ), patch("blueprint_core.image_providers.genai", fake_genai):
+            provider = build_image_provider(force_enabled=True)
+
+        self.assertIsInstance(provider, VertexAIImageProvider)
+        self.assertEqual("gemini-3.1-flash-image", provider.model_name)
         self.assertTrue(provider.is_configured)
 
     def test_gmi_image_provider_routes_from_image_provider(self) -> None:

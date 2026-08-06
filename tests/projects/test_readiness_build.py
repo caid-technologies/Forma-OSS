@@ -214,6 +214,27 @@ class BuildSemanticsTests(unittest.TestCase):
         self.assertEqual("gathering_context", workflow.state.value)
         self.assertEqual(1, len(versions))
 
+    def test_conversational_build_can_delegate_unanswered_choices_to_agents(self) -> None:
+        project_id = str(uuid.uuid4())
+        question = "Which controller and major modules should be treated as fixed?"
+        with sqlite_repository():
+            create_project_context(project_id, brief_payload(questions=[question]))
+            outcome = database.initiate_project_build(
+                project_id,
+                OWNER,
+                mode=BuildMode.BUILD_ANYWAY,
+                actor_id=OWNER,
+                assumptions=["Use safe prototype defaults and record them."],
+                resolve_unanswered_questions=True,
+            )
+            versions = database.list_design_brief_versions(project_id, OWNER)
+
+        self.assertEqual("building", outcome.workflow.state.value)
+        self.assertEqual([], outcome.build.brief_snapshot.unresolved_questions)
+        self.assertTrue(any(question in item for item in outcome.build.introduced_assumptions))
+        self.assertTrue(any("delegated blocker" in warning for warning in outcome.build.warnings))
+        self.assertEqual([1, 2], [brief.brief_version for brief in versions])
+
 
 class ReadinessApiTests(unittest.TestCase):
     def setUp(self) -> None:

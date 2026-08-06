@@ -16,7 +16,7 @@ from blueprint_core.config import config
 
 
 DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_OPENAI_STREAM_MODEL = "gpt-5.5"
+DEFAULT_OPENAI_STREAM_MODEL = "gpt-5.6-sol"
 DEFAULT_OPENAI_STREAM_PROMPT = "Write one concise sentence about a blue electromechanical device."
 DEFAULT_OPENAI_STREAM_TIMEOUT_SECONDS = 300.0
 DEFAULT_OPENAI_STREAM_MAX_OUTPUT_TOKENS = 1600
@@ -71,6 +71,7 @@ class OpenAIStreamConfig:
     project_id: Optional[str] = None
     organization_id: Optional[str] = None
     instructions: Optional[str] = None
+    reasoning_effort: Optional[str] = None
 
     @classmethod
     def from_env_file(
@@ -83,6 +84,7 @@ class OpenAIStreamConfig:
         timeout_seconds: Optional[float] = None,
         max_output_tokens: Optional[int] = None,
         instructions: Optional[str] = None,
+        reasoning_effort: Optional[str] = None,
     ) -> "OpenAIStreamConfig":
         env = merged_env(env_file)
         api_key = first_env(env, "OPENAI_API_KEY", "LLM_API_KEY")
@@ -99,6 +101,7 @@ class OpenAIStreamConfig:
             "OPENAI_STREAM_MAX_OUTPUT_TOKENS",
             "OPENAI_TEST_MAX_OUTPUT_TOKENS",
         )
+        resolved_reasoning_effort = reasoning_effort or first_env(env, "OPENAI_REASONING_EFFORT", "LLM_REASONING_EFFORT")
 
         return cls(
             api_key=api_key,
@@ -110,6 +113,7 @@ class OpenAIStreamConfig:
             project_id=first_env(env, "OPENAI_PROJECT_ID"),
             organization_id=first_env(env, "OPENAI_ORG_ID", "OPENAI_ORGANIZATION"),
             instructions=instructions or first_env(env, "OPENAI_STREAM_INSTRUCTIONS"),
+            reasoning_effort=resolved_reasoning_effort,
         )
 
     def response_url(self) -> str:
@@ -137,6 +141,8 @@ class OpenAIStreamConfig:
         }
         if self.instructions:
             payload["instructions"] = self.instructions
+        if self.reasoning_effort:
+            payload["reasoning"] = {"effort": self.reasoning_effort}
         return payload
 
 

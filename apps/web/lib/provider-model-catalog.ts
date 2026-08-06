@@ -16,7 +16,7 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
     model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
     model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
-    model("gpt-5.5", "GPT-5.5", "Forma legacy default"),
+    model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
   ],
   anthropic: [
     model("claude-fable-5", "Claude Fable 5", "Most capable widely available Claude model"),
@@ -83,6 +83,12 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
 };
 
 export const IMAGE_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
+  vertex: [
+    model("gemini-3.1-flash-image", "Nano Banana 2", "Recommended balance of quality, latency, and cost"),
+    model("gemini-3.1-flash-lite-image", "Nano Banana 2 Lite", "Fastest and lowest-cost option"),
+    model("gemini-3-pro-image", "Nano Banana Pro", "Highest-quality complex image generation"),
+    model("gemini-2.5-flash-image", "Nano Banana", "Original 1024px Nano Banana model"),
+  ],
   huggingface: [
     model("black-forest-labs/FLUX.1-schnell", "FLUX.1 Schnell", "Fast text-to-image generation"),
     model("black-forest-labs/FLUX.1-Krea-dev", "FLUX.1 Krea Dev", "High-quality image generation"),

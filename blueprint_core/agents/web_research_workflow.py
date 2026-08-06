@@ -16,6 +16,11 @@ from blueprint_core.agents.orchestrator import (
     extract_buses,
     extract_power_rails,
 )
+from blueprint_core.agents.system_architecture import (
+    compact_component_context,
+    compact_net_context,
+    system_context,
+)
 from blueprint_core.database import delete_generated_project, save_generated_project
 from blueprint_core.jobs.source_usage import source_usage_for_workflow
 from blueprint_core.llm import (
@@ -33,6 +38,7 @@ from blueprint_core.workspaces.projects.models import (
     MechanicalNotes,
     PinMappingEntry,
     ProjectOverview,
+    SystemArchitecture,
     ValidationIssue,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
@@ -55,6 +61,7 @@ logger = logging.getLogger(__name__)
 class WebProjectPlan(BaseModel):
     overview: ProjectOverview
     requirements: FunctionalRequirements
+    system_architecture: SystemArchitecture
     architecture_notes: List[str] = Field(default_factory=list)
     recommended_component_roles: List[str] = Field(default_factory=list)
     research_keywords: List[str] = Field(default_factory=list)
@@ -335,6 +342,7 @@ class WebResearchHardwarePipeline:
                 hardware_ir_version="0.1",
                 overview=plan.overview,
                 requirements=plan.requirements,
+                system_architecture=plan.system_architecture,
                 components=components,
                 nets=nets,
                 buses=buses,
@@ -439,6 +447,9 @@ class WebResearchHardwarePipeline:
         {research_context}
 
         Return WebProjectPlan. Prefer concrete component roles that are supported by the research context.
+        Build system_architecture as a purpose-driven hierarchy with a product root and applicable electrical,
+        mechanical, and firmware branches. Include nested systems such as electrical.power and
+        mechanical.enclosure. Keep this tree free of exact parts, nets, and pins; specialists add those later.
         Keep the design in safe low-voltage DC maker-electronics scope.
         """
         return self._call_llm_structured(prompt, WebProjectPlan, image_bytes, image_mime_type, pipeline_step_id="web_architect")
@@ -541,15 +552,20 @@ class WebResearchHardwarePipeline:
         components_json: str,
         research_context: str,
     ) -> MechanicalNotes:
+        mechanical_context = system_context(plan.system_architecture, "mechanical")
+        components = [ComponentInstance.model_validate(item) for item in json.loads(components_json)]
         prompt = f"""
         You are a Mechanical/Fabrication and CAD Sourcing Agent.
         Produce enclosure, mounting, fabrication, CAD source, and 3D render placement details.
 
-        Project plan:
-        {plan.model_dump_json()}
+        Project overview and requirements:
+        {json.dumps({"overview": plan.overview.model_dump(), "requirements": plan.requirements.model_dump()}, indent=2)}
 
-        Components:
-        {components_json}
+        Mechanical system branch:
+        {json.dumps(mechanical_context, indent=2)}
+
+        Components (pin definitions intentionally omitted):
+        {json.dumps(compact_component_context(components), indent=2)}
 
         Research context:
         {research_context}
@@ -566,6 +582,7 @@ class WebResearchHardwarePipeline:
         nets: List[ConnectionNet],
         mechanical: MechanicalNotes,
     ) -> List[AssemblyStep]:
+        components = [ComponentInstance.model_validate(item) for item in json.loads(components_json)]
         prompt = f"""
         You are an Assembly Instruction Agent.
         Produce concrete step-by-step build instructions.
@@ -573,11 +590,14 @@ class WebResearchHardwarePipeline:
         Project:
         {plan.overview.model_dump_json()}
 
-        Components:
-        {components_json}
+        System hierarchy:
+        {json.dumps(system_context(plan.system_architecture), indent=2)}
 
-        Nets:
-        {json.dumps([net.model_dump() for net in nets], indent=2)}
+        Components (pin definitions intentionally omitted):
+        {json.dumps(compact_component_context(components), indent=2)}
+
+        Nets (system connectivity without individual pin IDs):
+        {json.dumps(compact_net_context(nets), indent=2)}
 
         Mechanical guide:
         {mechanical.model_dump_json()}

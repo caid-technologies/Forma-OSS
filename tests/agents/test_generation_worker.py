@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.agents.pipeline import emit_agent_pipeline_event
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workers import (
@@ -18,6 +19,7 @@ from blueprint_core.workers import (
     GENERATION_WORKER_ID,
     WORKER_CONTRACT_VERSION,
     GenerationWorker,
+    HardwareIRGenerationEngine,
     OrchestrationTaskStatus,
     WorkerOrchestrator,
     WorkerPlanStatus,
@@ -100,6 +102,25 @@ class FakeGenerationEngine:
         )
 
 
+class ObservableGenerationEngine(HardwareIRGenerationEngine):
+    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+        emit_agent_pipeline_event(None, "intent_parser", "started")
+        emit_agent_pipeline_event(None, "intent_parser", "completed")
+        return FakeGenerationEngine().generate(design_brief)
+
+
+class CancellableGenerationEngine(HardwareIRGenerationEngine):
+    def __init__(self, cancel: Any) -> None:
+        super().__init__()
+        self.cancel = cancel
+
+    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+        emit_agent_pipeline_event(None, "intent_parser", "started")
+        self.cancel()
+        emit_agent_pipeline_event(None, "intent_parser", "completed")
+        return FakeGenerationEngine().generate(design_brief)
+
+
 class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -123,6 +144,28 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             actor_id=OWNER,
             reason="Start Generation worker test.",
         )
+
+    def test_hardware_engine_generates_a_product_image_by_default(self) -> None:
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Vertex Image Project",
+                description="A project that needs a product render.",
+                difficulty="Beginner",
+                category="IoT",
+            ),
+            assembly_metadata={"project_id": str(self.project_id)},
+        )
+        with (
+            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("blueprint_core.workers.generation.attach_product_image") as attach_image,
+        ):
+            orchestrator_type.return_value.generate_project.return_value = state
+
+            draft = HardwareIRGenerationEngine().generate(self.brief)
+
+        attach_image.assert_called_once()
+        self.assertTrue(attach_image.call_args.kwargs["generate_image"])
+        self.assertEqual("Vertex Image Project", draft.state.overview.title)
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -217,6 +260,81 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(self.project_id), OWNER).state)
         self.assertEqual(self.brief, engine.received[0])
         self.assertEqual(["ref-datasheet"], [item.reference_id for item in engine.received[0].references])
+
+    async def test_project_chat_iteration_appends_an_immutable_revision(self) -> None:
+        engine = FakeGenerationEngine()
+        worker = GenerationWorker(self.state, engine)
+        request = self.request().model_copy(update={"metadata": {"execution_owner_user_id": OWNER}})
+
+        async def progress(_: Any) -> None:
+            return None
+
+        first = await worker.execute(request, progress)
+        first_revision = self.state.get_latest(self.project_id, OWNER)
+        revised_state = first_revision.state.model_copy(deep=True)
+        revised_state.overview.title = "Revised Controller"
+        draft = ProjectRevisionDraft(
+            state=revised_state,
+            components=list(revised_state.components),
+            systems=list(first_revision.systems),
+            artifacts=list(first_revision.artifacts),
+            assumptions=list(first_revision.assumptions),
+        )
+        second = self.state.create_revision(
+            draft,
+            project_id=self.project_id,
+            owner_user_id=OWNER,
+            source_job_id="iteration-job-1",
+        ).revision
+
+        self.assertEqual("succeeded", first.status.value)
+        self.assertEqual(2, second.revision)
+        self.assertEqual(1, second.parent_revision)
+        self.assertEqual("Revised Controller", self.state.get_latest(self.project_id, OWNER).state.overview.title)
+
+    async def test_hardware_pipeline_events_are_reported_as_worker_progress(self) -> None:
+        worker = GenerationWorker(self.state, ObservableGenerationEngine())
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        task = completed.jobs["job-generation-initial"]
+        reported = task.progress
+
+        pipeline_events = [
+            item.metadata["pipeline_event"]
+            for item in reported
+            if "pipeline_event" in item.metadata
+        ]
+        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
+        self.assertEqual(["started", "completed"], [event["status"] for event in pipeline_events])
+        self.assertEqual(["intent_parser", "intent_parser"], [event["step_id"] for event in pipeline_events])
+        self.assertEqual(sorted(item.sequence for item in reported), [item.sequence for item in reported])
+        self.assertEqual(len({item.sequence for item in reported}), len(reported))
+
+    async def test_cancelled_hardware_pipeline_does_not_persist_a_revision(self) -> None:
+        cancellation = {"requested": False}
+        worker = GenerationWorker(
+            self.state,
+            CancellableGenerationEngine(lambda: cancellation.update(requested=True)),
+        )
+        orchestrator = WorkerOrchestrator(
+            self.repository,
+            [worker],
+            workflow_service=self.workflow,
+            cancellation_check=lambda: cancellation["requested"],
+        )
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        task = completed.jobs["job-generation-initial"]
+
+        self.assertEqual(WorkerPlanStatus.CANCELLED, completed.status)
+        self.assertEqual(OrchestrationTaskStatus.CANCELLED, task.status)
+        self.assertEqual("generation_cancelled", task.error.code)
+        self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(self.project_id), OWNER).state)
+        with self.assertRaises(ProjectStateError):
+            self.state.get_latest(self.project_id, OWNER)
 
     async def test_provider_failure_is_structured_retryable_and_does_not_create_revision(self) -> None:
         engine = FakeGenerationEngine(fail=True)

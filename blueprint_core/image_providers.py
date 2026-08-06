@@ -14,6 +14,13 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dotenv import load_dotenv
 
+try:
+    from google import genai
+    from google.genai import types as genai_types
+except ImportError:  # pragma: no cover - exercised when the optional Vertex dependency is absent.
+    genai = None
+    genai_types = None
+
 from blueprint_core.agents.prompt_compaction import (
     DEFAULT_IMAGE_PROMPT_TARGET_CHARS,
     OPENAI_IMAGE_PROMPT_MAX_CHARS,
@@ -26,6 +33,8 @@ load_dotenv()
 logger = logging.getLogger(__name__)
 
 DEFAULT_OPENAI_IMAGE_MODEL = "gpt-image-2"
+DEFAULT_VERTEX_IMAGE_MODEL = "gemini-3.1-flash-image"
+DEFAULT_VERTEX_IMAGE_LOCATION = "global"
 DEFAULT_GMI_IMAGE_BASE_URL = "https://console.gmicloud.ai/api/v1/ie/requestqueue/apikey/requests/v1"
 DEFAULT_GMI_IMAGE_MODEL = "gpt-image-2"
 DEFAULT_GMI_IMAGE_QUALITY = "medium"
@@ -550,6 +559,188 @@ class OpenAIImageProvider(ImageProvider):
                 result.final_length,
         )
         return result
+
+
+class VertexAIImageProvider(OpenAIImageProvider):
+    """Nano Banana image generation on Vertex AI using Application Default Credentials."""
+
+    def __init__(self, enabled: bool = True, force_enabled: bool = False) -> None:
+        ImageProvider.__init__(self)
+        self.provider_name = "vertex"
+        self.enabled = enabled or force_enabled
+        self.project = _first_env(
+            ["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]
+        )
+        self.location = (
+            _first_env(["VERTEX_AI_LOCATION", "GOOGLE_CLOUD_LOCATION"], DEFAULT_VERTEX_IMAGE_LOCATION)
+            or DEFAULT_VERTEX_IMAGE_LOCATION
+        )
+        self.model_name = (
+            _first_env(["VERTEX_AI_IMAGE_MODEL", "VERTEX_IMAGE_MODEL", "IMAGE_MODEL"], DEFAULT_VERTEX_IMAGE_MODEL)
+            or DEFAULT_VERTEX_IMAGE_MODEL
+        )
+        self.aspect_ratio = (
+            _first_env(["VERTEX_AI_IMAGE_ASPECT_RATIO", "VERTEX_IMAGE_ASPECT_RATIO", "IMAGE_ASPECT_RATIO"], "1:1")
+            or "1:1"
+        )
+        self.resolution = (
+            _first_env(["VERTEX_AI_IMAGE_RESOLUTION", "VERTEX_IMAGE_RESOLUTION", "IMAGE_RESOLUTION"], "1K")
+            or "1K"
+        ).upper()
+        self.size = self.resolution
+        self.output_format = (
+            _first_env(["VERTEX_AI_IMAGE_OUTPUT_FORMAT", "VERTEX_IMAGE_OUTPUT_FORMAT", "IMAGE_OUTPUT_FORMAT"], "png")
+            or "png"
+        ).lower().replace("jpg", "jpeg")
+        self.timeout_seconds = _first_env_float(
+            ["VERTEX_AI_IMAGE_TIMEOUT_SECONDS", "VERTEX_IMAGE_TIMEOUT_SECONDS", "IMAGE_TIMEOUT_SECONDS"],
+            DEFAULT_IMAGE_TIMEOUT_SECONDS,
+        )
+        self.prompt_max_chars = _first_env_int(
+            ["VERTEX_AI_IMAGE_PROMPT_MAX_CHARS", "VERTEX_IMAGE_PROMPT_MAX_CHARS", "IMAGE_PROMPT_MAX_CHARS"],
+            OPENAI_IMAGE_PROMPT_MAX_CHARS,
+        )
+        self.prompt_target_chars = _first_env_int(
+            ["VERTEX_AI_IMAGE_PROMPT_TARGET_CHARS", "VERTEX_IMAGE_PROMPT_TARGET_CHARS", "IMAGE_PROMPT_TARGET_CHARS"],
+            DEFAULT_IMAGE_PROMPT_TARGET_CHARS,
+        )
+        self.prompt_compactor = PromptCompactionAgent()
+        self.client = None
+        self.init_error: Optional[str] = None
+
+        if self.enabled and self.project and genai:
+            try:
+                self.client = genai.Client(
+                    vertexai=True,
+                    project=self.project,
+                    location=self.location,
+                    http_options=genai_types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
+                )
+            except Exception as exc:
+                self.init_error = f"Error initializing Vertex AI image provider: {exc}"
+                logger.error(self.init_error)
+        elif not self.project:
+            self.init_error = (
+                "No Vertex AI project found. Set VERTEX_AI_PROJECT or GOOGLE_CLOUD_PROJECT "
+                "and configure Application Default Credentials."
+            )
+        elif not genai:
+            self.init_error = "Vertex AI image generation requires the google-genai package."
+        self.is_configured = bool(self.enabled and self.client is not None)
+
+    def get_debug_config(self) -> Dict[str, Any]:
+        reason = None
+        if not self.enabled:
+            reason = "Image output is disabled."
+        elif self.init_error:
+            reason = self.init_error
+        return {
+            **ImageProvider.get_debug_config(self),
+            "project": self.project,
+            "location": self.location,
+            "aspect_ratio": self.aspect_ratio,
+            "resolution": self.resolution,
+            "output_format": self.output_format,
+            "reason": reason,
+        }
+
+    def _generate_image_from_prompt(
+        self,
+        image_prompt: str,
+        *,
+        view_id: str,
+        label: str,
+        reference_view_id: Optional[str],
+    ) -> GeneratedImage:
+        return self._generate_vertex_image(
+            image_prompt,
+            view_id=view_id,
+            label=label,
+            reference_view_id=reference_view_id,
+        )
+
+    def _edit_image_from_prompt(
+        self,
+        image_prompt: str,
+        reference_image: GeneratedImage,
+        *,
+        view_id: str,
+        label: str,
+        reference_view_id: Optional[str],
+    ) -> GeneratedImage:
+        reference_bytes, reference_mime_type = _image_bytes_from_data(reference_image.data_url)
+        return self._generate_vertex_image(
+            image_prompt,
+            view_id=view_id,
+            label=label,
+            reference_view_id=reference_view_id,
+            reference_bytes=reference_bytes,
+            reference_mime_type=reference_mime_type,
+        )
+
+    def _generate_vertex_image(
+        self,
+        image_prompt: str,
+        *,
+        view_id: str,
+        label: str,
+        reference_view_id: Optional[str],
+        reference_bytes: Optional[bytes] = None,
+        reference_mime_type: str = "image/png",
+    ) -> GeneratedImage:
+        if not self.client or genai_types is None:
+            raise RuntimeError(self.init_error or "Vertex AI image provider is not configured.")
+
+        prompt_result = self._compact_image_prompt(image_prompt, view_id=view_id)
+        contents: Any = prompt_result.prompt
+        if reference_bytes is not None:
+            contents = [
+                genai_types.Part.from_bytes(data=reference_bytes, mime_type=reference_mime_type),
+                prompt_result.prompt,
+            ]
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=contents,
+            config=genai_types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+                image_config=genai_types.ImageConfig(
+                    aspect_ratio=self.aspect_ratio,
+                    image_size=self.resolution,
+                    output_mime_type=_mime_for_output_format(self.output_format),
+                ),
+            ),
+        )
+        image_bytes, image_mime_type = self._first_inline_image(response)
+        actual_format = image_mime_type.removeprefix("image/").replace("jpg", "jpeg")
+        return GeneratedImage(
+            data_url=f"data:{image_mime_type};base64,{base64.b64encode(image_bytes).decode('ascii')}",
+            provider=self.provider_name,
+            model=self.model_name,
+            size=self.resolution,
+            prompt=prompt_result.prompt,
+            output_format=actual_format,
+            view_id=view_id,
+            label=label,
+            reference_view_id=reference_view_id,
+            prompt_original_length=prompt_result.original_length,
+            prompt_final_length=prompt_result.final_length,
+            prompt_compacted=prompt_result.was_compacted,
+            prompt_compaction_strategy=prompt_result.strategy,
+        )
+
+    @staticmethod
+    def _first_inline_image(response: Any) -> Tuple[bytes, str]:
+        for candidate in getattr(response, "candidates", None) or []:
+            content = getattr(candidate, "content", None)
+            for part in getattr(content, "parts", None) or []:
+                inline_data = getattr(part, "inline_data", None)
+                data = getattr(inline_data, "data", None)
+                if data:
+                    if isinstance(data, str):
+                        data = base64.b64decode(data)
+                    mime_type = str(getattr(inline_data, "mime_type", None) or "image/png")
+                    return bytes(data), mime_type
+        raise RuntimeError("Vertex AI image response did not include image data.")
 
 
 class GMIImageProvider(OpenAIImageProvider):
@@ -2735,6 +2926,8 @@ def build_image_provider(force_enabled: bool = False) -> ImageProvider:
             provider_name = "gmi"
         elif _first_env(["TOGETHER_IMAGE_API_KEY", "TOGETHER_API_KEY"]):
             provider_name = "together"
+        elif _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+            provider_name = "vertex"
         elif _first_env(["HUGGINGFACE_IMAGE_API_KEY", "HF_IMAGE_TOKEN", "HF_TOKEN", "HUGGINGFACE_API_KEY"]) and _first_env(["HUGGINGFACE_IMAGE_MODEL", "HF_IMAGE_MODEL"]):
             provider_name = "huggingface"
         elif _first_env(["IMAGE_BASE_URL", "OPENAI_IMAGE_BASE_URL", "LLM_BASE_URL", "OPENAI_BASE_URL"]):
@@ -2750,12 +2943,15 @@ def build_image_provider(force_enabled: bool = False) -> ImageProvider:
         return GMIImageProvider(enabled=enabled, force_enabled=force_enabled)
     if provider_name in {"together", "together-ai", "togetherai"}:
         return TogetherImageProvider(enabled=enabled, force_enabled=force_enabled)
+    if provider_name in {"vertex", "vertex-ai", "google-vertex", "google-vertex-ai", "nano-banana"}:
+        return VertexAIImageProvider(enabled=enabled, force_enabled=force_enabled)
     if provider_name in {"huggingface", "hugging-face", "hf"}:
         return HuggingFaceImageProvider(enabled=enabled, force_enabled=force_enabled)
 
     logger.warning("Unsupported IMAGE_PROVIDER %r; image output is disabled.", provider_name)
     return NoImageProvider(
-        f"Unsupported IMAGE_PROVIDER '{provider_name}'. Supported providers are openai, openai-compatible, gmi, together, huggingface, and none."
+        f"Unsupported IMAGE_PROVIDER '{provider_name}'. Supported providers are openai, openai-compatible, "
+        "vertex, gmi, together, huggingface, and none."
     )
 
 

@@ -32,6 +32,7 @@ NamespaceAgentKind = Literal[
     "docs",
     "history",
     "overview",
+    "architecture",
     "electrical",
     "bom",
     "mech",
@@ -74,6 +75,14 @@ NAMESPACE_AGENT_PROFILES: dict[str, dict[str, Any]] = {
         "outputs": ["overview", "functional_requirements", "missing_info"],
         "tools": ["clarifying questions", "schema validation"],
         "handoffs": ["blueprint.generate_project"],
+    },
+    "product.architecture": {
+        "kind": "architecture",
+        "summary": "Owns the purpose-driven system hierarchy and routes scoped context to discipline specialists.",
+        "inputs": ["overview", "requirements", "constraints"],
+        "outputs": ["system_architecture", "system_interfaces", "detail_owners"],
+        "tools": ["system decomposition", "schema validation", "dependency mapping"],
+        "handoffs": ["blueprint.lattice.get_agent_card", "blueprint.lattice.list_agents"],
     },
     "product.electrical": {
         "kind": "electrical",

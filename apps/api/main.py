@@ -68,12 +68,16 @@ from apps.api.logging_config import configure_backend_logging
 configure_backend_logging()
 
 from blueprint_core.database import (
+    append_project_revision,
+    DesignBriefNotFoundError,
     count_component_templates,
     delete_generated_project,
     delete_project_chat,
     ensure_project_action_allowed,
     get_database_config,
     get_generated_project,
+    get_latest_design_brief,
+    get_latest_project_revision,
     get_latest_project_deletion_audit,
     get_project_contribution_consent,
     get_project_chat,
@@ -101,6 +105,7 @@ from blueprint_core.workspaces.projects.models import (
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
+from blueprint_core.workspaces.projects import ProjectStateError
 from blueprint_core.workspaces.workflow import WorkflowStateError
 from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
@@ -132,6 +137,7 @@ from apps.api.design_briefs_api import router as design_briefs_router
 from apps.api.context_gathering_api import router as context_gathering_router
 from apps.api.project_workflow_api import router as project_workflow_router
 from apps.api.readiness_api import router as readiness_router
+from apps.api.worker_plans_api import router as worker_plans_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
 from apps.api.auth import (
@@ -286,6 +292,7 @@ app.include_router(design_briefs_router)
 app.include_router(context_gathering_router)
 app.include_router(project_workflow_router)
 app.include_router(readiness_router)
+app.include_router(worker_plans_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
 
@@ -1683,7 +1690,34 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
     """Retrieves a specific hardware design and its corresponding schematics."""
     project = get_generated_project(project_id)
     if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
+        owner_user_id = str(user.owner_user_id or "").strip()
+        if not owner_user_id:
+            raise HTTPException(status_code=404, detail="Project not found.")
+        try:
+            revision = get_latest_project_revision(project_id, owner_user_id)
+            brief = get_latest_design_brief(project_id, owner_user_id)
+        except (ProjectStateError, DesignBriefNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found.") from exc
+        ir = revision.state.model_copy(deep=True)
+        ir.assembly_metadata = {
+            **(ir.assembly_metadata or {}),
+            "project_id": str(revision.project_id),
+            "chat_id": brief.conversation_id,
+            "can_chat": True,
+            "project_revision": revision.revision,
+            "design_brief_version": revision.design_brief_version,
+        }
+        return {
+            "project_id": str(revision.project_id),
+            "chat_id": brief.conversation_id,
+            "prompt": brief.summary,
+            "created_at": revision.created_at,
+            "can_chat": True,
+            "project_ir": ir.model_dump(mode="json"),
+            "project_object": build_project_object(ir).model_dump(mode="json"),
+            "mermaid_code": generate_mermaid_chart(ir),
+            "svg_schematic": generate_svg_schematic(ir),
+        }
     _require_project_reader(project, user)
 
     can_chat = _user_owns_project(project, user)
@@ -2025,45 +2059,69 @@ def iterate_project_endpoint(
     """Applies an iteration instruction to an existing project through blueprint_core."""
     _apply_user_integrations(user)
     project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_reader(project, user)
-    save_owner_user_id = _require_project_owner(project, user) if request.save else None
+    canonical_revision = None
+    canonical_brief = None
+    if project is not None:
+        _require_project_reader(project, user)
+        save_owner_user_id = _require_project_owner(project, user) if request.save else None
+        current_ir = HardwareIR(**project.hardware_ir)
+        project_prompt = project.prompt
+        project_chat_id = getattr(project, "chat_id", None)
+        project_created_at = project.created_at
+        can_chat = _user_owns_project(project, user)
+    else:
+        save_owner_user_id = _require_authenticated_user(user)
+        try:
+            canonical_revision = get_latest_project_revision(project_id, save_owner_user_id)
+            canonical_brief = get_latest_design_brief(project_id, save_owner_user_id)
+        except (ProjectStateError, DesignBriefNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Project not found.") from exc
+        current_ir = canonical_revision.state
+        project_prompt = canonical_brief.summary
+        project_chat_id = canonical_brief.conversation_id
+        project_created_at = canonical_revision.created_at
+        can_chat = True
+
     if save_owner_user_id:
         try:
-            ensure_project_action_allowed(project.project_id, save_owner_user_id, "blueprint.iterate_project")
+            ensure_project_action_allowed(project_id, save_owner_user_id, "blueprint.iterate_project")
         except WorkflowStateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
 
     try:
-        current_ir = HardwareIR(**project.hardware_ir)
         iterator = ProjectIterator(provider_name=request.provider, model_name=request.model)
         revised_ir = iterator.iterate_project(
             current_ir,
             request.instruction,
-            original_prompt=project.prompt,
-            project_id=project.project_id,
+            original_prompt=project_prompt,
+            project_id=project_id,
             target_namespace=request.namespace,
         )
-        revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
+        revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project_id)
         if request.save:
-            saved = update_generated_project_hardware_ir(
-                project.project_id,
-                revised_ir.model_dump(mode="json"),
-                owner_user_id=save_owner_user_id,
-            )
-            if not saved:
-                raise HTTPException(status_code=404, detail="Project not found.")
+            if canonical_revision is not None:
+                persisted_revision = append_project_revision(
+                    project_id,
+                    save_owner_user_id,
+                    revised_ir,
+                    source_job_id=f"iteration-{uuid4().hex}",
+                )
+                revised_ir = persisted_revision.state
+            else:
+                saved = update_generated_project_hardware_ir(
+                    project_id,
+                    revised_ir.model_dump(mode="json"),
+                    owner_user_id=save_owner_user_id,
+                )
+                if not saved:
+                    raise HTTPException(status_code=404, detail="Project not found.")
 
         return {
-            "project_id": project.project_id,
-            "chat_id": (
-                getattr(project, "chat_id", None)
-                or (revised_ir.assembly_metadata or {}).get("chat_id")
-            ),
-            "prompt": project.prompt,
-            "created_at": project.created_at,
-            "can_chat": _user_owns_project(project, user),
+            "project_id": project_id,
+            "chat_id": project_chat_id or (revised_ir.assembly_metadata or {}).get("chat_id"),
+            "prompt": project_prompt,
+            "created_at": project_created_at,
+            "can_chat": can_chat,
             "saved": request.save,
             "iteration": (revised_ir.assembly_metadata or {}).get("last_iteration"),
             "project_ir": revised_ir.model_dump(mode="json"),

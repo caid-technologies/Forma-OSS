@@ -4,11 +4,9 @@ import type { ChangeEventHandler, ClipboardEventHandler, FormEventHandler, React
 import Link from "next/link";
 import {
   AlertTriangle,
-  ArrowLeft,
   ArrowRight,
   CheckCircle,
   Cpu,
-  Info,
   KeyRound,
   Paperclip,
   RefreshCw,
@@ -28,18 +26,11 @@ type HomeChatMessage = {
   projectId?: string | null;
   pipelineProgress?: unknown;
   imagePreview?: string | null;
-};
-
-type PendingContext = {
-  basePrompt: string;
-  questions: Array<{
-    id: string;
-    label: string;
-    question: string;
-    placeholder: string;
-    suggestions: string[];
-  }>;
-  answers: Record<string, string>;
+  contextProjectId?: string | null;
+  workflowState?: string | null;
+  contextQuestions?: string[];
+  buildPlanId?: string | null;
+  buildJobId?: string | null;
 };
 
 type HomeChatViewProps = {
@@ -47,12 +38,13 @@ type HomeChatViewProps = {
   messages: HomeChatMessage[];
   endRef: RefObject<HTMLDivElement | null>;
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
+  projectArtifact?: ReactNode;
   examples: string[];
   onSelectExample: (example: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  pendingContext: PendingContext | null;
-  onContextAnswer: (questionId: string, answer: string) => void;
-  onClearContext: () => void;
+  canSkipContext: boolean;
+  contextSkipping: boolean;
+  onSkipContext: () => void;
   isLoading: boolean;
   generationReady: boolean;
   needsGenerationProvider: boolean;
@@ -82,12 +74,13 @@ export default function HomeChatView({
   messages,
   endRef,
   renderPipelineProgress,
+  projectArtifact,
   examples,
   onSelectExample,
   onSubmit,
-  pendingContext,
-  onContextAnswer,
-  onClearContext,
+  canSkipContext,
+  contextSkipping,
+  onSkipContext,
   isLoading,
   generationReady,
   needsGenerationProvider,
@@ -105,6 +98,10 @@ export default function HomeChatView({
   onImageChange,
   onImagePaste,
 }: HomeChatViewProps) {
+  const latestContextMessageId = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && message.workflowState === "gathering_context")?.id;
+
   return (
     <section
       className={`${
@@ -166,6 +163,17 @@ export default function HomeChatView({
                       />
                     </div>
                     <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+                    {!isUser && canSkipContext && message.id === latestContextMessageId && (
+                      <button
+                        type="button"
+                        onClick={onSkipContext}
+                        disabled={contextSkipping || isLoading}
+                        className="mt-3 inline-flex h-9 items-center justify-center gap-2 border border-cyan-300/40 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {contextSkipping ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                        Skip context gathering
+                      </button>
+                    )}
                     {message.imagePreview && (
                       <img
                         src={message.imagePreview}
@@ -178,6 +186,7 @@ export default function HomeChatView({
                 </div>
               );
             })}
+            {projectArtifact}
             <div ref={endRef} />
           </div>
         )}
@@ -200,76 +209,6 @@ export default function HomeChatView({
         )}
 
         <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4">
-          {pendingContext && (
-            <div className="mb-3 border border-cyan-300/25 bg-cyan-300/5 p-3 sm:p-4">
-              <div className="flex min-w-0 flex-wrap items-center gap-2">
-                <div className="inline-flex h-8 items-center gap-2 border border-cyan-300/30 bg-cyan-300/10 px-3 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-100">
-                  <Info className="h-3.5 w-3.5" />
-                  Human Context Checkpoint
-                </div>
-                <div className="min-w-0 break-anywhere text-xs leading-5 text-slate-500">Optional: answer what matters, or use safe prototype defaults.</div>
-              </div>
-              <div className="break-anywhere mt-3 max-h-24 overflow-y-auto border border-[#2c2f37] bg-[#0f1014] px-3 py-2 text-xs leading-5 text-slate-400">
-                {pendingContext.basePrompt}
-              </div>
-              <div className="mt-3 grid max-h-[42dvh] gap-3 overflow-y-auto pr-1 md:max-h-none md:grid-cols-3 md:overflow-visible md:pr-0">
-                {pendingContext.questions.map((question) => (
-                  <label key={question.id} className="block min-w-0 border border-[#2c2f37] bg-[#111216] p-3">
-                    <span className="break-anywhere text-[10px] font-black uppercase tracking-[0.16em] text-cyan-200">{question.label}</span>
-                    <span className="break-anywhere mt-2 block text-xs leading-5 text-slate-300">{question.question}</span>
-                    <textarea
-                      value={pendingContext.answers[question.id] || ""}
-                      onChange={(event) => onContextAnswer(question.id, event.target.value)}
-                      placeholder={question.placeholder}
-                      className="mt-3 min-h-[72px] w-full resize-none border border-[#2c2f37] bg-black px-3 py-2 text-xs leading-5 text-white outline-none placeholder:text-slate-700 focus:border-cyan-300 sm:min-h-[92px]"
-                    />
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {question.suggestions.map((suggestion) => (
-                        <button
-                          key={suggestion}
-                          type="button"
-                          onClick={() => onContextAnswer(question.id, suggestion)}
-                          className="break-anywhere max-w-full border border-[#2c2f37] px-2 py-1 text-left text-[10px] font-bold text-slate-500 hover:border-cyan-300 hover:text-cyan-100"
-                        >
-                          {suggestion}
-                        </button>
-                      ))}
-                    </div>
-                  </label>
-                ))}
-              </div>
-              <div className="mt-3 grid gap-2 sm:flex sm:flex-wrap sm:items-center">
-                <button
-                  type="submit"
-                  disabled={isLoading || !generationReady}
-                  className="inline-flex h-10 items-center justify-center gap-2 bg-white px-4 text-xs font-black uppercase text-black hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  Build with context
-                </button>
-                <button
-                  type="submit"
-                  name="humanContextAction"
-                  value="use-defaults"
-                  disabled={isLoading || !generationReady}
-                  className="inline-flex h-10 items-center justify-center gap-2 border border-cyan-300/40 px-4 text-xs font-black uppercase text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <ArrowRight className="h-4 w-4" />
-                  Skip — use defaults
-                </button>
-                <button
-                  type="button"
-                  disabled={isLoading}
-                  onClick={onClearContext}
-                  className="inline-flex h-10 items-center justify-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase text-slate-400 hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                  Edit request
-                </button>
-              </div>
-            </div>
-          )}
-
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 border border-cyan-300/30 bg-cyan-300/5 p-3 text-left sm:p-4" aria-label="Bring your own key setup">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -344,10 +283,10 @@ export default function HomeChatView({
                   if (!isLoading) event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder={pendingContext ? "Add more context…" : "Describe the product, constraints, references, and outputs you need…"}
+              placeholder="Describe the product, constraints, references, and outputs you need…"
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
-              className={`${pendingContext ? "min-h-[72px] sm:min-h-[96px]" : "min-h-[98px] sm:min-h-[104px]"} w-full resize-none border border-[#2c2f37] bg-[#0f1014] py-3 pl-14 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:py-4 sm:pl-16 sm:pr-16 sm:leading-7`}
+              className="min-h-[98px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] py-3 pl-14 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:min-h-[104px] sm:py-4 sm:pl-16 sm:pr-16 sm:leading-7"
             />
             <button
               type="button"

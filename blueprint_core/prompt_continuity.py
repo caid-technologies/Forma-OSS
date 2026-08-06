@@ -18,7 +18,7 @@ from blueprint_core.jobs.continuous import (
 )
 
 
-DEFAULT_PROMPT_BATCH_MODEL = "gpt-5.5"
+DEFAULT_PROMPT_BATCH_MODEL = "gpt-5.6-sol"
 DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS = 1600
 DEFAULT_PROMPT_BATCH_OBJECTIVE = (
     "Iterate a buildable blue electromechanical desktop environmental monitor while preserving continuity across design, "

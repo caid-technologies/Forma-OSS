@@ -4797,6 +4797,21 @@ export function FormaWorkspace({
                   }
                 />
               )}
+              projectArtifact={
+                projectIR && inlineChatProjectId && currentProjectId === inlineChatProjectId
+                  ? (
+                    <ChatProjectArtifact
+                      projectId={currentProjectId}
+                      projectTitle={projectTitle}
+                      namespaceTabs={visibleWorkspaceTabs}
+                      activeNamespace={activeWorkspaceTab.id}
+                      activeNamespaceName={displayedWorkspaceNamespace}
+                      onNamespaceChange={setActiveTab}
+                      projectContent={projectNamespaceContent}
+                    />
+                  )
+                  : null
+              }
               examples={samplePrompts}
               onSelectExample={(example) => {
                 setGenerationInputNotice(null);

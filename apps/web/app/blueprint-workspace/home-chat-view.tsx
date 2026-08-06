@@ -38,6 +38,7 @@ type HomeChatViewProps = {
   messages: HomeChatMessage[];
   endRef: RefObject<HTMLDivElement | null>;
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
+  projectArtifact?: ReactNode;
   examples: string[];
   onSelectExample: (example: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -73,6 +74,7 @@ export default function HomeChatView({
   messages,
   endRef,
   renderPipelineProgress,
+  projectArtifact,
   examples,
   onSelectExample,
   onSubmit,
@@ -184,6 +186,7 @@ export default function HomeChatView({
                 </div>
               );
             })}
+            {projectArtifact}
             <div ref={endRef} />
           </div>
         )}

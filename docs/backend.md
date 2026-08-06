@@ -67,6 +67,7 @@ LLM configuration behavior:
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
 - `VERTEX_AI_ALLOWED_MODELS` / `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
 - `GOOGLE_CLOUD_PROJECT` / `VERTEX_AI_PROJECT`, `GOOGLE_CLOUD_LOCATION` / `VERTEX_AI_LOCATION`, and `VERTEX_AI_MODEL`: Vertex AI routing when `LLM_PROVIDER=vertex`; authentication uses Google Cloud Application Default Credentials.
+- `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`: optional keyless Vertex authentication for Vercel through workload identity federation. The runtime exchanges Vercel's per-request OIDC token for short-lived Google credentials.
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`
 - `OPENAI_MODEL`: first-party OpenAI model alias for `LLM_MODEL`
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format, defaulting to `json_schema`; `json_object` and `none` are also supported

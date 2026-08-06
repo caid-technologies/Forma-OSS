@@ -294,6 +294,28 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("gemini-2.5-flash", runtime.model)
         self.assertEqual(["gemini-2.5-flash", "gemini-3.5-flash"], runtime.allowed_models)
 
+    def test_vertex_passes_vercel_workload_identity_credentials_to_client(self) -> None:
+        credentials = object()
+        client_calls = []
+
+        class FakeGenAI:
+            @staticmethod
+            def Client(**kwargs):
+                client_calls.append(kwargs)
+                return object()
+
+        with isolated_llm_env(
+            GOOGLE_CLOUD_PROJECT="forma-vertex-test",
+            VERTEX_AI_MODEL="gemini-3.5-flash",
+        ), patch("blueprint_core.llm_providers.genai", FakeGenAI), patch(
+            "blueprint_core.llm_providers.build_vertex_credentials",
+            return_value=credentials,
+        ):
+            provider = build_llm_provider()
+
+        self.assertTrue(provider.is_configured)
+        self.assertIs(credentials, client_calls[0]["credentials"])
+
     def test_parse_provider_model_selector(self) -> None:
         selector = parse_llm_selector("runpod/caid-technologies/parti-base")
 

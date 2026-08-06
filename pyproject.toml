@@ -25,6 +25,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
+    "google-auth>=2.29.0",
     "json-repair>=0.30.0",
     "pydantic>=2.12.0",
     "python-dotenv>=1.0.1",
@@ -45,7 +46,7 @@ entrypoint = "apps.api.main:app"
 
 [project.optional-dependencies]
 gemini = ["google-genai>=1.0.0"]
-vertex = ["google-genai>=1.0.0"]
+vertex = ["google-auth>=2.29.0", "google-genai>=1.0.0"]
 huggingface = ["huggingface-hub>=0.34.0"]
 observability = ["langfuse>=4.0.0"]
 supabase = ["supabase==2.31.0"]

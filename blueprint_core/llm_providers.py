@@ -2,6 +2,7 @@ import base64
 import json
 import logging
 from blueprint_core.config import config
+from blueprint_core.vertex_auth import build_vertex_credentials
 import socket
 import time
 import urllib.error
@@ -1165,10 +1166,16 @@ class VertexAIProvider(GeminiProvider):
 
         if self.project and genai:
             try:
+                client_config: Dict[str, Any] = {
+                    "vertexai": True,
+                    "project": self.project,
+                    "location": self.location,
+                }
+                credentials = build_vertex_credentials()
+                if credentials is not None:
+                    client_config["credentials"] = credentials
                 self.client = genai.Client(
-                    vertexai=True,
-                    project=self.project,
-                    location=self.location,
+                    **client_config,
                 )
                 logger.info(
                     "Vertex AI LLM provider initialized for project %s in %s.",

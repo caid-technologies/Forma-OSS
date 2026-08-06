@@ -178,7 +178,7 @@ class SystemNode(BaseModel):
                 normalized.append(item)
                 continue
             connects_to = item.strip()
-            if not connects_to:
+            if not re.fullmatch(r"[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+", connects_to):
                 continue
             label = connects_to.replace(".", " ").replace("_", " ").replace("-", " ").title()
             normalized.append({
@@ -200,7 +200,7 @@ class SystemNode(BaseModel):
                 normalized.append(item)
                 continue
             system_id = item.strip()
-            if not system_id:
+            if not re.fullmatch(r"[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+", system_id):
                 continue
             label = system_id.rsplit(".", 1)[-1].replace("_", " ").replace("-", " ").title()
             domain = system_id.split(".", 1)[0].strip() or "system"

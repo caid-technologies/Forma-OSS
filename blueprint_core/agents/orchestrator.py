@@ -29,6 +29,7 @@ from blueprint_core.observability import serialize_for_langfuse, start_observati
 from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
 from blueprint_core.agents.component_reconciliation import reconcile_explicit_catalog_components
 from blueprint_core.agents.system_architecture import (
+    architecture_tree_is_usable,
     build_default_system_architecture,
     compact_component_catalog,
     compact_component_context,
@@ -804,6 +805,12 @@ class HardwarePipelineOrchestrator:
                     image_bytes,
                     image_mime_type,
                 )
+                if not architecture_tree_is_usable(system_architecture):
+                    logger.warning(
+                        "System architecture provider output contained flattened or duplicate child IDs; "
+                        "using the deterministic architecture tree instead."
+                    )
+                    system_architecture = build_default_system_architecture(overview, requirements)
 
             # 4. Component Selection Agent
             logger.info("Invoking Component Selection Agent...")

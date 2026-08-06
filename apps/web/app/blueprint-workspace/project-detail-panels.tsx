@@ -185,7 +185,21 @@ export function OverviewPanel({
 }
 
 function SystemTreeNode({ node, depth }: { node: Record<string, any>; depth: number }) {
-  const children = Array.isArray(node.children) ? node.children : [];
+  const reservedSystemIds = new Set([
+    "system_id", "name", "domain", "purpose", "responsibilities", "constraints",
+    "expected_component_roles", "interfaces", "connects_to", "detail_owner", "children",
+  ]);
+  const seenChildIds = new Set<string>();
+  const children = (Array.isArray(node.children) ? node.children : [])
+    .filter((child: unknown): child is Record<string, any> => Boolean(child && typeof child === "object"))
+    .filter((child) => {
+      const systemId = String(child.system_id || "").trim();
+      const normalizedId = systemId.toLowerCase();
+      if (!systemId || systemId.length > 100 || reservedSystemIds.has(normalizedId) || seenChildIds.has(normalizedId)) return false;
+      seenChildIds.add(normalizedId);
+      return true;
+    })
+    .slice(0, 32);
   const responsibilities = Array.isArray(node.responsibilities) ? node.responsibilities : [];
   const domain = String(node.domain || "system");
 
@@ -211,7 +225,7 @@ function SystemTreeNode({ node, depth }: { node: Record<string, any>; depth: num
         )}
       </article>
       {children.map((child: Record<string, any>, index: number) => (
-        <SystemTreeNode key={child.system_id || `${node.system_id}-child-${index}`} node={child} depth={depth + 1} />
+        <SystemTreeNode key={`${node.system_id || "system"}-${child.system_id || "child"}-${index}`} node={child} depth={depth + 1} />
       ))}
     </div>
   );

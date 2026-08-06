@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from blueprint_core.agents.system_architecture import (
+    architecture_tree_is_usable,
     build_default_system_architecture,
     compact_component_catalog,
     compact_component_context,
@@ -135,6 +136,32 @@ class SystemArchitectureTests(unittest.TestCase):
             child.system_id for child in architecture.root.children
         ])
         self.assertEqual(["electrical", "firmware"], [child.domain for child in architecture.root.children])
+
+    def test_flattened_recursive_fields_are_rejected_as_an_architecture_tree(self) -> None:
+        architecture = SystemArchitecture.model_validate({
+            "summary": "Provider output flattened a nested object.",
+            "root": {
+                "system_id": "product",
+                "name": "Product",
+                "domain": "product",
+                "purpose": "Coordinates the product.",
+                "children": [
+                    {
+                        "system_id": "electrical",
+                        "name": "Electrical",
+                        "domain": "electrical",
+                        "purpose": "Owns electronics.",
+                        "children": ["electrical.power", "constraints", "electrical.power"],
+                    }
+                ],
+            },
+        })
+
+        self.assertFalse(architecture_tree_is_usable(architecture))
+        self.assertEqual(
+            ["electrical.power", "electrical.power"],
+            [child.system_id for child in architecture.root.children[0].children],
+        )
 
 
 if __name__ == "__main__":

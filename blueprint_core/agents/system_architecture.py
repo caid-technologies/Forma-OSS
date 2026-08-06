@@ -14,6 +14,40 @@ from blueprint_core.workspaces.projects.models import (
 )
 
 
+_SYSTEM_NODE_FIELD_NAMES = {
+    "system_id",
+    "name",
+    "domain",
+    "purpose",
+    "responsibilities",
+    "constraints",
+    "expected_component_roles",
+    "interfaces",
+    "connects_to",
+    "detail_owner",
+    "children",
+}
+
+
+def architecture_tree_is_usable(architecture: SystemArchitecture) -> bool:
+    """Reject provider output that flattened recursive JSON fields into child IDs."""
+    seen: set[str] = set()
+    node_count = 0
+
+    def visit(node: SystemNode) -> bool:
+        nonlocal node_count
+        node_count += 1
+        system_id = node.system_id.strip().lower()
+        if not system_id or system_id in _SYSTEM_NODE_FIELD_NAMES or system_id in seen:
+            return False
+        seen.add(system_id)
+        if node_count > 64:
+            return False
+        return all(visit(child) for child in node.children)
+
+    return visit(architecture.root)
+
+
 def compact_component_catalog(catalog: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
     """Describe selectable parts without spending prompt context on physical pins."""
     compact: list[dict[str, Any]] = []

@@ -480,6 +480,42 @@ function persistableChatMessages(messages: ChatMessage[]): ChatMessage[] {
     .slice(-MAX_PROJECT_CHAT_MESSAGES);
 }
 
+function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: ChatMessage[]): ChatMessage[] {
+  const localById = new Map(localMessages.map((message) => [message.id, message]));
+  const seen = new Set<string>();
+  const merged: ChatMessage[] = [];
+
+  remoteMessages.forEach((remote) => {
+    if (seen.has(remote.id)) return;
+    seen.add(remote.id);
+    const local = localById.get(remote.id);
+    if (!local) {
+      merged.push(remote);
+      return;
+    }
+
+    const localIsTerminal = ["success", "error", "cancelled"].includes(local.status || "");
+    const remoteRegressed = localIsTerminal && remote.status === "loading";
+    merged.push({
+      ...local,
+      ...remote,
+      content: remoteRegressed ? local.content : remote.content,
+      status: remoteRegressed ? local.status : remote.status,
+      timestamp: remoteRegressed ? local.timestamp : remote.timestamp,
+      projectId: remote.projectId || local.projectId || null,
+      pipelineProgress: remote.pipelineProgress || local.pipelineProgress || null,
+      contextProjectId: remote.contextProjectId || local.contextProjectId || null,
+      buildPlanId: remote.buildPlanId || local.buildPlanId || null,
+      buildJobId: remote.buildJobId || local.buildJobId || null,
+    });
+  });
+
+  localMessages.forEach((local) => {
+    if (!seen.has(local.id)) merged.push(local);
+  });
+  return merged.slice(-MAX_PROJECT_CHAT_MESSAGES);
+}
+
 function chatIsWaiting(messages: ChatMessage[]) {
   return messages.some((message) => message.status === "loading");
 }
@@ -2130,7 +2166,7 @@ export function FormaWorkspace({
     const collect = (messages: ChatMessage[]) => {
       messages.forEach((message) => {
         const jobId = message.status === "loading" && !message.buildPlanId ? message.pipelineProgress?.jobId : null;
-        if (jobId && jobId !== activeGeneration?.jobId) jobIds.add(jobId);
+        if (jobId && !jobId.startsWith("generation-") && jobId !== activeGeneration?.jobId) jobIds.add(jobId);
       });
     };
     collect(chatMessages);
@@ -2584,13 +2620,20 @@ export function FormaWorkspace({
             const messages = persistableChatMessages(Array.isArray(chat?.messages) ? chat.messages : []);
             if (!chatId || !messages.length) return;
             threadUpdates[chatId] = messages;
-            writeStoredChatThread(chatId, messages, chatStorageScope);
           });
         }
         if (Object.keys(threadUpdates).length) {
-          setChatThreads((current) => ({ ...current, ...threadUpdates }));
+          setChatThreads((current) => {
+            const next = { ...current };
+            Object.entries(threadUpdates).forEach(([chatId, remoteMessages]) => {
+              const mergedMessages = mergeFetchedChatMessages(remoteMessages, current[chatId] || []);
+              next[chatId] = mergedMessages;
+              writeStoredChatThread(chatId, mergedMessages, chatStorageScope);
+            });
+            return next;
+          });
           if (activeChatId && threadUpdates[activeChatId]) {
-            setChatMessages(threadUpdates[activeChatId]);
+            setChatMessages((current) => mergeFetchedChatMessages(threadUpdates[activeChatId], current));
           }
         }
       } else if (res.status === 401) {
@@ -3992,7 +4035,7 @@ export function FormaWorkspace({
   const loadedProjectId = projectIdFromIR(projectIR);
 
   useEffect(() => {
-    if (currentRouteProjectId || currentRouteChatId || homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
+    if (currentRouteProjectId || homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
 
     const controller = new AbortController();
     let retryTimer: number | null = null;
@@ -4125,7 +4168,7 @@ export function FormaWorkspace({
 
     if (!routedChatProjectId) {
       setChatRouteTransition(null);
-      setProjectIR(null);
+      if (!inlineChatProjectId) setProjectIR(null);
       return () => {
         controller.abort();
       };
@@ -4176,7 +4219,7 @@ export function FormaWorkspace({
       controller.abort();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routedChatId, currentRouteProjectId, routedChatFound, routedChatProjectId, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn, chatStorageScope]);
+  }, [routedChatId, currentRouteProjectId, routedChatFound, routedChatProjectId, inlineChatProjectId, chatIndexLoaded, chatHistoryLoaded, authRequired, isSignedIn, chatStorageScope]);
 
   const findProjectForJob = (job: A2AJob) => {
     const projectId = job.result_summary?.project_id;
@@ -5138,10 +5181,12 @@ function normalizePrivateChatItems(value: any): ChatListItem[] {
     .map((chat: any): ChatListItem | null => {
       const chatId = typeof chat?.chat_id === "string" ? chat.chat_id.trim() : "";
       if (!chatId) return null;
+      const messages = persistableChatMessages(Array.isArray(chat?.messages) ? chat.messages : []);
+      const projectId = [...messages].reverse().find((message) => message.projectId)?.projectId || "";
       return {
         chatId,
         title: typeof chat.title === "string" && chat.title.trim() ? chat.title.trim() : NEW_PROJECT_TITLE,
-        projectId: "",
+        projectId,
         createdAt: typeof chat.updated_at === "string" ? chat.updated_at : typeof chat.created_at === "string" ? chat.created_at : null,
         projectCount: 0,
       };

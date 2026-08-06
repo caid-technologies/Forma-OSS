@@ -166,6 +166,52 @@ class SystemNode(BaseModel):
     detail_owner: str = Field("system architect", description="Specialist agent responsible for expanding this node")
     children: List["SystemNode"] = Field(default_factory=list, description="More specific systems nested below this node")
 
+    @field_validator("interfaces", mode="before")
+    @classmethod
+    def normalize_interface_shorthand(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        items = value if isinstance(value, list) else [value]
+        normalized: List[Any] = []
+        for item in items:
+            if not isinstance(item, str):
+                normalized.append(item)
+                continue
+            connects_to = item.strip()
+            if not connects_to:
+                continue
+            label = connects_to.replace(".", " ").replace("_", " ").replace("-", " ").title()
+            normalized.append({
+                "name": f"{label} interface",
+                "connects_to": connects_to,
+                "purpose": f"Coordinates this system with {label.lower()} responsibilities.",
+            })
+        return normalized
+
+    @field_validator("children", mode="before")
+    @classmethod
+    def normalize_child_shorthand(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        items = value if isinstance(value, list) else [value]
+        normalized: List[Any] = []
+        for item in items:
+            if not isinstance(item, str):
+                normalized.append(item)
+                continue
+            system_id = item.strip()
+            if not system_id:
+                continue
+            label = system_id.rsplit(".", 1)[-1].replace("_", " ").replace("-", " ").title()
+            domain = system_id.split(".", 1)[0].strip() or "system"
+            normalized.append({
+                "system_id": system_id,
+                "name": label,
+                "domain": domain,
+                "purpose": f"Defines the {label.lower()} responsibilities referenced by the architecture.",
+            })
+        return normalized
+
 class SystemArchitecture(BaseModel):
     summary: str = Field(..., description="Concise explanation of the complete system decomposition")
     root: SystemNode = Field(..., description="Root of the hierarchical system tree")

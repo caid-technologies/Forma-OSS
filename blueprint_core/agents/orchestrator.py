@@ -794,6 +794,9 @@ class HardwarePipelineOrchestrator:
                 Every node must explain why it is needed, what outcomes it owns, its system-level constraints, abstract component roles, interfaces, and the specialist detail_owner.
                 Keep this at architecture level. Do not choose exact parts, nets, packages, connectors, or pin numbers.
                 Use stable dotted system_id values and nest specific systems under their discipline.
+                Every children item must be a complete nested SystemNode object, never a dotted-ID string.
+                Every interfaces item must be a SystemInterface object with name, connects_to, and purpose;
+                use connects_to for dotted system-ID references rather than putting references in children.
                 """
                 system_architecture: SystemArchitecture = self._call_llm_structured(
                     architecture_prompt,

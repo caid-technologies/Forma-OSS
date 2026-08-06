@@ -17,6 +17,7 @@ from blueprint_core.workspaces.projects.models import (
     FunctionalRequirements,
     PinReference,
     ProjectOverview,
+    SystemArchitecture,
 )
 from blueprint_core.workspaces.projects.objects import namespace_payload
 
@@ -114,6 +115,26 @@ class SystemArchitectureTests(unittest.TestCase):
         )
 
         self.assertEqual("product", payload["system_architecture"]["root"]["system_id"])
+
+    def test_dotted_id_shorthand_is_normalized_into_typed_architecture_objects(self) -> None:
+        architecture = SystemArchitecture.model_validate({
+            "summary": "A compact system tree.",
+            "root": {
+                "system_id": "product",
+                "name": "Product",
+                "domain": "product",
+                "purpose": "Coordinates the complete product.",
+                "interfaces": ["mechanical.enclosure"],
+                "children": ["electrical.power", "firmware.control_logic"],
+            },
+        })
+
+        self.assertEqual("mechanical.enclosure", architecture.root.interfaces[0].connects_to)
+        self.assertEqual("Mechanical Enclosure interface", architecture.root.interfaces[0].name)
+        self.assertEqual(["electrical.power", "firmware.control_logic"], [
+            child.system_id for child in architecture.root.children
+        ])
+        self.assertEqual(["electrical", "firmware"], [child.domain for child in architecture.root.children])
 
 
 if __name__ == "__main__":

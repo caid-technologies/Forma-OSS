@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from blueprint_core.agents.pipeline import (
     AgentPipelineEvent,
+    PipelineCancelledError,
     list_agent_pipeline_steps,
     observe_agent_pipeline,
 )
@@ -252,7 +253,13 @@ class GenerationWorker:
                 )
             return _success_result(request, ProjectRevisionOutcome(revision=replay, idempotent_replay=True))
 
+        cancellation_check = request.metadata.get("pipeline_cancellation_check")
+        if not callable(cancellation_check):
+            cancellation_check = None
+
         try:
+            if cancellation_check is not None and cancellation_check():
+                return _cancelled_result(request)
             progress_sequence = 1
             await report_progress(WorkerProgress(
                 **context,
@@ -267,6 +274,8 @@ class GenerationWorker:
                 def generate_with_observation() -> ProjectRevisionDraft:
                     def record_pipeline_event(event: AgentPipelineEvent) -> None:
                         nonlocal progress_sequence
+                        if cancellation_check is not None and cancellation_check():
+                            raise PipelineCancelledError("Agent pipeline was cancelled.")
                         progress_sequence += 1
                         future = asyncio.run_coroutine_threadsafe(
                             report_progress(WorkerProgress(
@@ -281,10 +290,12 @@ class GenerationWorker:
                         )
                         future.result()
 
-                    with observe_agent_pipeline(record_pipeline_event):
+                    with observe_agent_pipeline(record_pipeline_event, cancellation_check=cancellation_check):
                         return self._engine.generate(payload.design_brief)
 
                 candidate = await asyncio.to_thread(generate_with_observation)
+                if cancellation_check is not None and cancellation_check():
+                    raise PipelineCancelledError("Agent pipeline was cancelled.")
             else:
                 candidate = self._engine.generate(payload.design_brief)
                 if hasattr(candidate, "__await__"):
@@ -306,6 +317,8 @@ class GenerationWorker:
                 design_brief_version=request.design_brief_version,
                 source_job_id=request.job_id,
             )
+        except PipelineCancelledError:
+            return _cancelled_result(request)
         except ProjectStateError as exc:
             return _failure_result(request, exc, retryable=exc.retryable)
         except Exception as exc:
@@ -319,6 +332,22 @@ def _pipeline_event_percent(event: AgentPipelineEvent) -> float:
     index = next((index for index, step in enumerate(steps) if step.get("id") == event.step_id), 0)
     completed = index + (1 if event.status in {"completed", "skipped"} else 0)
     return min(75.0, max(10.0, 10.0 + (completed / max(len(steps), 1)) * 65.0))
+
+
+def _cancelled_result(request: WorkerRequest) -> WorkerResult:
+    context = _worker_context(request)
+    error = WorkerError(
+        **context,
+        code="generation_cancelled",
+        message="Build stopped by the user.",
+        retryable=True,
+    )
+    return WorkerResult(
+        **context,
+        output_contract_version=GENERATION_OUTPUT_VERSION,
+        status=WorkerResultStatus.CANCELLED,
+        error=error,
+    )
 
 
 def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> WorkerResult:

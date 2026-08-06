@@ -17,6 +17,7 @@ from apps.api.a2a import A2AMessage
 from apps.api.auth import UserContext, require_user_context
 from apps.api.context_builds import context_build_dispatcher
 from apps.api.context_gathering_api import context_gathering_agent, router
+from apps.api.worker_plans_api import router as worker_plans_router
 from blueprint_core.agents.context_gathering import ContextGatheringAgent
 from blueprint_core import database
 from blueprint_core.persistence.providers import create_sqlite_provider
@@ -58,6 +59,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         app = FastAPI()
         app.include_router(router)
+        app.include_router(worker_plans_router)
         app.dependency_overrides[require_user_context] = lambda: USER
         app.dependency_overrides[context_gathering_agent] = lambda: ContextGatheringAgent()
         app.dependency_overrides[context_build_dispatcher] = lambda: None
@@ -187,6 +189,32 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(str(frozen.build_id), execution["build_id"])
         self.assertEqual([execution["job_id"]], list(plan.jobs))
         launch_plan.assert_called_once_with(execution["plan_id"], OWNER)
+
+    def test_worker_plan_cancel_endpoint_stops_the_durable_build(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-cancel-build"
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build an environmental monitor."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            execution = started.json()["build_execution"]
+            stopped = self.client.post(
+                f"/projects/{project_id}/build/plans/{execution['plan_id']}/cancel",
+            )
+            persisted = database.get_project_generation_plan(execution["plan_id"], OWNER)
+
+        self.assertEqual(200, stopped.status_code, stopped.text)
+        self.assertEqual("cancelled", stopped.json()["status"])
+        self.assertEqual("cancelled", stopped.json()["jobs"][execution["job_id"]]["status"])
+        self.assertEqual("cancelled", persisted.status.value)
 
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())

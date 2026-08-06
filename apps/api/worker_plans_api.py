@@ -5,7 +5,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
-from blueprint_core.database import get_project_generation_plan
+from apps.api.context_builds import ContextBuildDispatcher
+from blueprint_core.database import cancel_project_generation_plan, get_project_generation_plan
 from blueprint_core.workers import WorkerExecutionPlan, WorkerPlanningError
 
 
@@ -32,6 +33,23 @@ def get_build_plan_endpoint(
     if str(plan.project_id) != str(project_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Build execution not found.")
     return plan
+
+
+@router.post("/plans/{plan_id}/cancel", response_model=WorkerExecutionPlan)
+async def cancel_build_plan_endpoint(
+    project_id: UUID,
+    plan_id: str,
+    user: UserContext = Depends(require_user_context),
+) -> WorkerExecutionPlan:
+    owner = _owner(user)
+    try:
+        plan = get_project_generation_plan(plan_id, owner)
+    except WorkerPlanningError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.as_dict()) from exc
+    if str(plan.project_id) != str(project_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Build execution not found.")
+    ContextBuildDispatcher.signal_cancel(plan_id)
+    return await cancel_project_generation_plan(plan_id, owner)
 
 
 __all__ = ["router"]

@@ -37,6 +37,7 @@ class OrchestrationTaskStatus(str, Enum):
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     BLOCKED = "blocked"
+    CANCELLED = "cancelled"
 
 
 class WorkerPlanStatus(str, Enum):
@@ -44,14 +45,20 @@ class WorkerPlanStatus(str, Enum):
     RUNNING = "running"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 TERMINAL_JOB_STATUSES = frozenset({
     OrchestrationTaskStatus.SUCCEEDED,
     OrchestrationTaskStatus.FAILED,
     OrchestrationTaskStatus.BLOCKED,
+    OrchestrationTaskStatus.CANCELLED,
 })
-TERMINAL_PLAN_STATUSES = frozenset({WorkerPlanStatus.SUCCEEDED, WorkerPlanStatus.FAILED})
+TERMINAL_PLAN_STATUSES = frozenset({
+    WorkerPlanStatus.SUCCEEDED,
+    WorkerPlanStatus.FAILED,
+    WorkerPlanStatus.CANCELLED,
+})
 
 
 class OrchestrationTaskState(BaseModel):
@@ -140,11 +147,13 @@ class WorkerOrchestrator:
         workers: Sequence[WorkerExecutor],
         *,
         workflow_service: ProjectWorkflowService | None = None,
+        cancellation_check: Callable[[], bool] | None = None,
     ) -> None:
         self._repository = repository
         self._workers = {worker.worker_definition().worker_id: worker for worker in workers}
         self._registry = WorkerRegistry(list(workers))
         self._workflow = workflow_service or ProjectWorkflowService(repository)
+        self._cancellation_check = cancellation_check
         self._state_lock = asyncio.Lock()
 
     def create_plan(
@@ -307,10 +316,32 @@ class WorkerOrchestrator:
             if job.status == OrchestrationTaskStatus.SUCCEEDED and job.result is not None
         }
         plan.status = (
-            WorkerPlanStatus.SUCCEEDED
+            WorkerPlanStatus.CANCELLED
+            if any(job.status == OrchestrationTaskStatus.CANCELLED for job in plan.jobs.values())
+            else WorkerPlanStatus.SUCCEEDED
             if all(job.status == OrchestrationTaskStatus.SUCCEEDED for job in plan.jobs.values())
             else WorkerPlanStatus.FAILED
         )
+        plan.completed_at = _utc_now()
+        await self._persist(plan)
+        await self._advance_workflow(plan)
+        return plan
+
+    async def cancel(self, plan_id: str, owner_user_id: str) -> WorkerExecutionPlan:
+        plan = self.get_plan(plan_id, owner_user_id)
+        if plan.status in TERMINAL_PLAN_STATUSES:
+            return plan
+
+        for job in plan.jobs.values():
+            if job.status in TERMINAL_JOB_STATUSES:
+                continue
+            result = self._cancelled_result(job.request)
+            job.status = OrchestrationTaskStatus.CANCELLED
+            job.result = result
+            job.error = result.error
+            job.completed_at = result.completed_at
+        plan.aggregate = {}
+        plan.status = WorkerPlanStatus.CANCELLED
         plan.completed_at = _utc_now()
         await self._persist(plan)
         await self._advance_workflow(plan)
@@ -401,13 +432,18 @@ class WorkerOrchestrator:
                 state.status = (
                     OrchestrationTaskStatus.SUCCEEDED
                     if result.status == WorkerResultStatus.SUCCEEDED
+                    else OrchestrationTaskStatus.CANCELLED
+                    if result.status == WorkerResultStatus.CANCELLED
                     else OrchestrationTaskStatus.FAILED
                 )
+                if result.status == WorkerResultStatus.CANCELLED:
+                    plan.status = WorkerPlanStatus.CANCELLED
+                    plan.completed_at = result.completed_at
                 state.completed_at = result.completed_at
                 await self._persist_unlocked(plan)
 
-    @staticmethod
     def _request_with_dependency_results(
+        self,
         plan: WorkerExecutionPlan,
         request: WorkerRequest,
     ) -> WorkerRequest:
@@ -425,7 +461,15 @@ class WorkerOrchestrator:
                 if request.dependencies
                 else dict(request.payload)
             ),
-            "metadata": {**request.metadata, "execution_owner_user_id": plan.owner_user_id},
+            "metadata": {
+                **request.metadata,
+                "execution_owner_user_id": plan.owner_user_id,
+                **(
+                    {"pipeline_cancellation_check": self._cancellation_check}
+                    if self._cancellation_check is not None
+                    else {}
+                ),
+            },
         })
 
     def _failure_result(self, request: WorkerRequest, exc: Exception) -> WorkerResult:
@@ -450,6 +494,27 @@ class WorkerOrchestrator:
             error=error,
         )
 
+    def _cancelled_result(self, request: WorkerRequest) -> WorkerResult:
+        resolution = self._registry.resolve(request.worker_id, request.capability_id)
+        context = request.model_dump(
+            include={
+                "contract_version", "project_id", "project_revision", "design_brief_id",
+                "design_brief_version", "job_id", "correlation_id", "worker_id", "capability_id",
+            }
+        )
+        error = WorkerError(
+            **context,
+            code="worker_cancelled",
+            message="Build stopped by the user.",
+            retryable=True,
+        )
+        return WorkerResult(
+            **context,
+            output_contract_version=resolution.capability.supported_output_versions[0],
+            status=WorkerResultStatus.CANCELLED,
+            error=error,
+        )
+
     async def _advance_workflow(self, plan: WorkerExecutionPlan) -> None:
         self._workflow.transition(
             plan.project_id,
@@ -466,6 +531,11 @@ class WorkerOrchestrator:
             await self._persist_unlocked(plan)
 
     async def _persist_unlocked(self, plan: WorkerExecutionPlan) -> None:
+        existing = self._repository.get_worker_execution_plan(plan.plan_id, plan.owner_user_id)
+        if existing is not None:
+            persisted = _record_to_plan(existing)
+            if persisted.status == WorkerPlanStatus.CANCELLED and plan.status != WorkerPlanStatus.CANCELLED:
+                return
         plan.updated_at = _utc_now()
         updated = self._repository.update_worker_execution_plan(
             plan.plan_id,

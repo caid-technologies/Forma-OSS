@@ -183,9 +183,11 @@ type ChatMessage = {
 };
 
 type ActiveGenerationRun = {
-  kind: "chat" | "project-chat";
+  kind: "chat" | "project-chat" | "context-build";
   controller: AbortController;
   jobId: string | null;
+  planId?: string | null;
+  projectId?: string | null;
   chatId: string;
   assistantMessageId: string | null;
   cancelled: boolean;
@@ -2840,6 +2842,22 @@ export function FormaWorkspace({
     }
   };
 
+  const beginContextBuildRun = (
+    projectId: string,
+    planId: string,
+    jobId: string,
+    chatId: string,
+    assistantMessageId: string,
+  ) => {
+    const active = activeGenerationRef.current;
+    if (active?.kind === "context-build" && active.planId === planId) return active;
+    const run = beginGenerationRun("context-build", chatId);
+    run.projectId = projectId;
+    run.planId = planId;
+    setGenerationRunJob(run, jobId, assistantMessageId);
+    return run;
+  };
+
   const finishGenerationRun = (run: ActiveGenerationRun) => {
     if (activeGenerationRef.current !== run) return;
     activeGenerationRef.current = null;
@@ -2865,6 +2883,19 @@ export function FormaWorkspace({
     }
   };
 
+  const cancelContextBuild = async (projectId: string, planId: string) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/cancel`,
+        { method: "POST", headers: await generationRequestHeaders() },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+    } catch (error) {
+      console.warn("Could not notify the backend that the build was stopped.", error);
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not stop the build.");
+    }
+  };
+
   const stopActiveGeneration = () => {
     const run = activeGenerationRef.current;
     if (!run) return;
@@ -2873,14 +2904,24 @@ export function FormaWorkspace({
     run.controller.abort();
     if (run.assistantMessageId) {
       const patch: Partial<Omit<ChatMessage, "id">> = {
-        content: "Generation stopped by you.",
+        content: run.kind === "context-build"
+          ? "Build stopped by you. Your project brief is preserved."
+          : "Generation stopped by you.",
         status: "cancelled",
       };
-      if (run.kind === "chat") updateChatMessage(run.assistantMessageId, patch);
+      if (run.kind !== "project-chat") updateChatMessage(run.assistantMessageId, patch);
       updateThreadMessage(run.chatId, run.assistantMessageId, patch);
     }
-    setGenerationInputNotice("Generation stopped. You can send another message whenever you're ready.");
-    if (run.jobId) void cancelGenerationJob(run.jobId);
+    setGenerationInputNotice(
+      run.kind === "context-build"
+        ? "Build stopped. Your project brief is preserved."
+        : "Generation stopped. You can send another message whenever you're ready.",
+    );
+    if (run.kind === "context-build" && run.projectId && run.planId) {
+      void cancelContextBuild(run.projectId, run.planId);
+    } else if (run.jobId) {
+      void cancelGenerationJob(run.jobId);
+    }
     finishGenerationRun(run);
   };
 
@@ -2890,17 +2931,22 @@ export function FormaWorkspace({
     jobId: string,
     chatId: string,
     assistantMessageId: string,
+    run?: ActiveGenerationRun,
   ) => {
     const watcherKey = `${projectId}:${planId}`;
     if (contextBuildWatchersRef.current.has(watcherKey)) return;
     contextBuildWatchersRef.current.add(watcherKey);
     let attempts = 0;
     const poll = async () => {
+      if (run?.cancelled || run?.controller.signal.aborted) {
+        contextBuildWatchersRef.current.delete(watcherKey);
+        return;
+      }
       attempts += 1;
       try {
         const response = await fetch(
           `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}`,
-          { headers: await generationRequestHeaders() },
+          { headers: await generationRequestHeaders(), signal: run?.controller.signal },
         );
         if (!response.ok) throw new Error(await readApiErrorMessage(response));
         const plan = await response.json();
@@ -2973,6 +3019,16 @@ export function FormaWorkspace({
           setGenerationInputNotice("Design ready for review.");
           refreshProjectAndChatLists();
           contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
+          return;
+        }
+        if (planStatus === "cancelled" || planStatus === "canceled") {
+          const stoppedMessage = "Build stopped by you. Your project brief is preserved.";
+          updateChatMessage(assistantMessageId, { content: stoppedMessage, status: "cancelled" });
+          updateThreadMessage(chatId, assistantMessageId, { content: stoppedMessage, status: "cancelled" });
+          setGenerationInputNotice("Build stopped. Your project brief is preserved.");
+          contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
           return;
         }
         if (planStatus === "failed") {
@@ -2983,9 +3039,14 @@ export function FormaWorkspace({
           updateThreadMessage(chatId, assistantMessageId, { content: failureMessage, status: "error", workflowState: "awaiting_feedback" });
           setGenerationInputNotice(failureMessage);
           contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
           return;
         }
       } catch (error) {
+        if (run?.controller.signal.aborted) {
+          contextBuildWatchersRef.current.delete(watcherKey);
+          return;
+        }
         if (attempts >= 600) {
           const message = error instanceof Error ? error.message : "Could not read build progress.";
           setGenerationInputNotice(message);
@@ -3012,12 +3073,20 @@ export function FormaWorkspace({
       updateChatMessage(pending.id, { pipelineProgress: progress, status: "loading" });
       updateThreadMessage(activeChatId, pending.id, { pipelineProgress: progress, status: "loading" });
     }
+    const run = beginContextBuildRun(
+      pending.contextProjectId,
+      pending.buildPlanId,
+      pending.buildJobId,
+      activeChatId,
+      pending.id,
+    );
     watchContextBuild(
       pending.contextProjectId,
       pending.buildPlanId,
       pending.buildJobId,
       activeChatId,
       pending.id,
+      run,
     );
     // The watcher registry makes this restart-safe without duplicating poll loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -3065,6 +3134,7 @@ export function FormaWorkspace({
     setSelectedImageSource("upload");
     setGenerationInputNotice(null);
     setIsLoading(true);
+    let contextBuildStarted = false;
 
     try {
       const res = await fetch(`${API_URL}/projects/${encodeURIComponent(requestProjectId)}/context/messages`, {
@@ -3142,7 +3212,22 @@ export function FormaWorkspace({
             : null,
       );
       if (buildPlanId && buildJobId && persistedProjectId) {
-        watchContextBuild(persistedProjectId, buildPlanId, buildJobId, requestChatId, assistantMessageId);
+        contextBuildStarted = true;
+        const run = beginContextBuildRun(
+          persistedProjectId,
+          buildPlanId,
+          buildJobId,
+          requestChatId,
+          assistantMessageId,
+        );
+        watchContextBuild(
+          persistedProjectId,
+          buildPlanId,
+          buildJobId,
+          requestChatId,
+          assistantMessageId,
+          run,
+        );
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Could not save project context.";
@@ -3150,7 +3235,7 @@ export function FormaWorkspace({
       updateThreadMessage(requestChatId, assistantMessageId, { content: message, status: "error" });
       setGenerationInputNotice(message);
     } finally {
-      setIsLoading(false);
+      if (!contextBuildStarted) setIsLoading(false);
     }
   };
 
@@ -3173,6 +3258,7 @@ export function FormaWorkspace({
 
     setContextSkipping(true);
     setGenerationInputNotice(null);
+    let contextBuildStarted = false;
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/context/messages`, {
         method: "POST",
@@ -3224,12 +3310,15 @@ export function FormaWorkspace({
         buildIsActive ? "Build started. Live agent progress is shown above." : "Design ready for review.",
       );
       if (buildPlanId && buildJobId) {
-        watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id);
+        contextBuildStarted = true;
+        const run = beginContextBuildRun(projectId, buildPlanId, buildJobId, requestChatId, message.id);
+        watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id, run);
       }
     } catch (error) {
       setGenerationInputNotice(error instanceof Error ? error.message : "Could not skip context gathering.");
     } finally {
       setContextSkipping(false);
+      if (!contextBuildStarted) setIsLoading(false);
     }
   };
 

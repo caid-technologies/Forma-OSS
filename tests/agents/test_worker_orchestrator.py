@@ -227,6 +227,22 @@ class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("required_dependency_failed", completed.jobs["job-dependent"].error.code)
         self.assertEqual(0, dependent.execution_count)
 
+    async def test_planned_build_can_be_cancelled_without_running_workers(self) -> None:
+        self.enter_building()
+        worker = FakeWorker("generation")
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([make_request("generation", "job-generation")], OWNER)
+
+        cancelled = await orchestrator.cancel(plan.plan_id, OWNER)
+        replay = await orchestrator.cancel(plan.plan_id, OWNER)
+
+        self.assertEqual(WorkerPlanStatus.CANCELLED, cancelled.status)
+        self.assertEqual(OrchestrationTaskStatus.CANCELLED, cancelled.jobs["job-generation"].status)
+        self.assertEqual("worker_cancelled", cancelled.jobs["job-generation"].error.code)
+        self.assertEqual(cancelled, replay)
+        self.assertEqual(0, worker.execution_count)
+        self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(PROJECT_ID), OWNER).state)
+
     async def test_persisted_plan_survives_orchestrator_restart_without_rerunning_success(self) -> None:
         self.enter_building()
         first = FakeWorker("first")

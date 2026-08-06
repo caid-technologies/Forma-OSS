@@ -3,7 +3,7 @@ from blueprint_core.config import config
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
@@ -803,6 +803,7 @@ async def execute_project_generation_plan(
     *,
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
+    cancellation_check: Optional[Callable[[], bool]] = None,
 ):
     """Execute or resume a persisted project-generation plan."""
 
@@ -817,8 +818,23 @@ async def execute_project_generation_plan(
         _DATABASE_REPOSITORY,
         [worker],
         workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+        cancellation_check=cancellation_check,
     )
     return await orchestrator.execute(plan_id, owner)
+
+
+async def cancel_project_generation_plan(plan_id: str, owner_user_id: str):
+    """Persist cancellation for a project-generation plan and its active worker."""
+
+    from blueprint_core.workers import GenerationWorker, WorkerOrchestrator
+
+    owner = _normalize_user_id(owner_user_id)
+    orchestrator = WorkerOrchestrator(
+        _DATABASE_REPOSITORY,
+        [GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY))],
+        workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+    )
+    return await orchestrator.cancel(plan_id, owner)
 
 
 def list_project_workflow_transitions(

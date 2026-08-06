@@ -109,6 +109,18 @@ class ObservableGenerationEngine(HardwareIRGenerationEngine):
         return FakeGenerationEngine().generate(design_brief)
 
 
+class CancellableGenerationEngine(HardwareIRGenerationEngine):
+    def __init__(self, cancel: Any) -> None:
+        super().__init__()
+        self.cancel = cancel
+
+    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+        emit_agent_pipeline_event(None, "intent_parser", "started")
+        self.cancel()
+        emit_agent_pipeline_event(None, "intent_parser", "completed")
+        return FakeGenerationEngine().generate(design_brief)
+
+
 class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -277,6 +289,30 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(["intent_parser", "intent_parser"], [event["step_id"] for event in pipeline_events])
         self.assertEqual(sorted(item.sequence for item in reported), [item.sequence for item in reported])
         self.assertEqual(len({item.sequence for item in reported}), len(reported))
+
+    async def test_cancelled_hardware_pipeline_does_not_persist_a_revision(self) -> None:
+        cancellation = {"requested": False}
+        worker = GenerationWorker(
+            self.state,
+            CancellableGenerationEngine(lambda: cancellation.update(requested=True)),
+        )
+        orchestrator = WorkerOrchestrator(
+            self.repository,
+            [worker],
+            workflow_service=self.workflow,
+            cancellation_check=lambda: cancellation["requested"],
+        )
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        task = completed.jobs["job-generation-initial"]
+
+        self.assertEqual(WorkerPlanStatus.CANCELLED, completed.status)
+        self.assertEqual(OrchestrationTaskStatus.CANCELLED, task.status)
+        self.assertEqual("generation_cancelled", task.error.code)
+        self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(self.project_id), OWNER).state)
+        with self.assertRaises(ProjectStateError):
+            self.state.get_latest(self.project_id, OWNER)
 
     async def test_provider_failure_is_structured_retryable_and_does_not_create_revision(self) -> None:
         engine = FakeGenerationEngine(fail=True)

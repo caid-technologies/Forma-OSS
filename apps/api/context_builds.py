@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from threading import Thread
+from threading import Event, Lock, Thread
 
 from blueprint_core.database import (
     create_project_generation_plan,
@@ -26,6 +26,9 @@ DEFAULT_AGENT_ASSUMPTION = (
 
 class ContextBuildDispatcher:
     """Turn conversational permission to proceed into a durable worker execution plan."""
+
+    _cancellation_events: dict[str, Event] = {}
+    _cancellation_lock = Lock()
 
     def start(
         self,
@@ -59,17 +62,38 @@ class ContextBuildDispatcher:
             outcome.workflow,
         )
 
-    @staticmethod
-    def _launch(plan_id: str, owner_user_id: str) -> None:
+    @classmethod
+    def _launch(cls, plan_id: str, owner_user_id: str) -> None:
         """Run independently of the HTTP response lifecycle so the UI can begin polling immediately."""
+
+        cancellation_event = Event()
+        with cls._cancellation_lock:
+            cls._cancellation_events[plan_id] = cancellation_event
 
         def run() -> None:
             try:
-                asyncio.run(execute_project_generation_plan(plan_id, owner_user_id))
+                asyncio.run(execute_project_generation_plan(
+                    plan_id,
+                    owner_user_id,
+                    cancellation_check=cancellation_event.is_set,
+                ))
             except Exception:
                 logger.exception("Detached generation plan failed: plan_id=%s", plan_id)
+            finally:
+                with cls._cancellation_lock:
+                    if cls._cancellation_events.get(plan_id) is cancellation_event:
+                        cls._cancellation_events.pop(plan_id, None)
 
         Thread(target=run, name=f"forma-build-{plan_id}", daemon=True).start()
+
+    @classmethod
+    def signal_cancel(cls, plan_id: str) -> bool:
+        with cls._cancellation_lock:
+            cancellation_event = cls._cancellation_events.get(plan_id)
+        if cancellation_event is None:
+            return False
+        cancellation_event.set()
+        return True
 
 
 def context_build_dispatcher() -> ContextBuildDispatcher:

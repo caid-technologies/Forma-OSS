@@ -8,7 +8,7 @@ Forma exposes the same hardware generation capability through several agent-frie
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
 - **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
 
-Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `blueprint_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, or both.
+Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `blueprint_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, past-job context, or a combination.
 
 ## Message Shape
 ```json
@@ -22,12 +22,16 @@ Job metadata is stored in the primary application database selected by `DATABASE
   "payload": {
     "prompt": "ESP32 soil moisture monitor with OLED",
     "workflow": "default",
+    "data_sources": ["past_jobs"],
+    "past_jobs_limit": 3,
     "generate_image": false
   }
 }
 ```
 
 Server-owned actions queue an `ack` event followed by a `result` or `error` event for the sender. Messages addressed to another agent are brokered into that agent's queue. Every submitted message is persisted with a `job_id` and lifecycle status.
+
+`data_sources: ["past_jobs"]` adds lightweight, owner-scoped retrieval over completed generation jobs. Forma ranks recent stored project outputs by lexical overlap with the new prompt and supplies a compact context window to the generator. Retrieval and generation run asynchronously; no embeddings or external retrieval infrastructure are used.
 
 ## REST Listen Flow
 1. Register an agent:

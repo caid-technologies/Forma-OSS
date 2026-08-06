@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-import os
+from blueprint_core.config import config
 import re
 import traceback
 from typing import Any, Dict, Optional
+
+from blueprint_core.config.runtime import blueprint_dev_mode_enabled
 
 
 DEBUG_ENV_VARS = ("BLUEPRINT_DEBUG", "BLUEPRINT_DEBUG_MODE", "API_DEBUG", "DEBUG")
@@ -18,13 +20,14 @@ SECRET_TEXT_PATTERNS = [
     re.compile(r"\b(fc-[A-Za-z0-9._-]{8,})"),
     re.compile(r"(?i)(api[_-]?key|authorization|bearer|password|secret|token)\s*[:=]\s*([^\s,'\"]{8,})"),
 ]
+RUNTIME_CONTEXT_PATTERN = re.compile(
+    r"\s+for\s+provider=[^\s:]+(?:\s+model=[^\s:]+)?\s*:",
+    re.IGNORECASE,
+)
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return config.boolean(name, default)
 
 
 def debug_mode_enabled() -> bool:
@@ -34,7 +37,7 @@ def debug_mode_enabled() -> bool:
 def get_debug_mode_config() -> Dict[str, Any]:
     return {
         "enabled": debug_mode_enabled(),
-        "env_vars": [name for name in DEBUG_ENV_VARS if os.getenv(name) is not None],
+        "env_vars": [name for name in DEBUG_ENV_VARS if config.get(name) is not None],
     }
 
 
@@ -67,6 +70,35 @@ def redact_debug_text(value: str) -> str:
     return redacted
 
 
+def runtime_safe_error_message(
+    value: str,
+    *,
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+) -> str:
+    message = redact_debug_text(value)
+    if blueprint_dev_mode_enabled():
+        return message
+
+    message = RUNTIME_CONTEXT_PATTERN.sub(":", message)
+    replacements = (
+        (model, "configured model"),
+        (provider, "model provider"),
+    )
+    for identifier, replacement in replacements:
+        if not identifier:
+            continue
+        identifier_pattern = re.compile(
+            rf"(?<![\w-]){re.escape(identifier)}(?![\w-])",
+            re.IGNORECASE,
+        )
+        message = identifier_pattern.sub(replacement, message)
+
+    message = re.sub(r"\bmodel\s*=\s*[^\s,:;]+", "model=<redacted>", message, flags=re.IGNORECASE)
+    message = re.sub(r"\bprovider\s*=\s*[^\s,:;]+", "provider=<redacted>", message, flags=re.IGNORECASE)
+    return message
+
+
 def exception_debug_payload(
     exc: BaseException,
     *,
@@ -92,18 +124,19 @@ def api_error_detail(
     model: Optional[str] = None,
     context: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
+    runtime_details_visible = blueprint_dev_mode_enabled()
     detail: Dict[str, Any] = {
         "code": code,
-        "message": redact_debug_text(message),
+        "message": runtime_safe_error_message(message, provider=provider, model=model),
     }
     if job_id:
         detail["job_id"] = job_id
-    if provider:
+    if runtime_details_visible and provider:
         detail["provider"] = provider
-    if model:
+    if runtime_details_visible and model:
         detail["model"] = model
-    if debug_mode_enabled() and exc is not None:
+    if runtime_details_visible and debug_mode_enabled() and exc is not None:
         detail["debug"] = exception_debug_payload(exc, context=context)
-    elif debug_mode_enabled() and context:
+    elif runtime_details_visible and debug_mode_enabled() and context:
         detail["debug"] = {"context": redact_debug_value(context)}
     return detail

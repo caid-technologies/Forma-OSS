@@ -28,7 +28,7 @@ The UI communicates with the backend API:
 - `GET /api/projects` – history of generated projects
 - `POST /api/generate` – run the agent pipeline
 
-If the backend is offline, the UI can still load example JSONs from `frontend/public/examples/`.
+If the backend is offline, the UI can still load example JSONs from `apps/web/public/examples/`.
 
 ## Deep links
 You can load an example directly:
@@ -38,10 +38,10 @@ You can also preselect a tab:
 - `http://localhost:3000/?example=pocket_mp3_player&tab=mech`
 
 ## Where to look
-- `frontend/app/page.tsx` – main UI, React Flow rendering, and tab layouts
-- `frontend/public/examples/` – example IR JSON files
-- `frontend/app/globals.css` – styling and theming
-- `frontend/components/mechanical-scene.tsx` – 3D mechanical viewer
+- `apps/web/app/page.tsx` – main UI, React Flow rendering, and tab layouts
+- `apps/web/public/examples/` – example IR JSON files
+- `apps/web/app/globals.css` – styling and theming
+- `apps/web/components/mechanical-scene.tsx` – 3D mechanical viewer
 
 ## Rendering details
 The schematic view maps:

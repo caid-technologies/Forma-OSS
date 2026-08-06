@@ -1,0 +1,76 @@
+name: Feature request
+description: Propose an improvement to a Forma user or contributor workflow.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem before proposing an implementation. For substantial changes, maintainers may use this issue to confirm scope before development begins.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who needs this feature, and what can they not accomplish today?
+      placeholder: As a..., I need..., because...
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Affected workflow
+      description: Describe the current workflow and where it falls short.
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Explain the observable outcome rather than only an implementation detail.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - Backend API
+        - Frontend UI
+        - Project generation or agents
+        - Hardware IR or validation
+        - Authentication or user integrations
+        - Database or persistence
+        - Image or video generation
+        - Provider integration
+        - Developer tooling or deployment
+        - Documentation
+        - Other
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Current alternatives
+      description: Explain existing workarounds and why they are insufficient.
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Safety and compatibility considerations
+      description: Note hardware-safety, API, schema, database, deployment, provider, or backward-compatibility concerns.
+      placeholder: No known concerns, or...
+
+  - type: textarea
+    id: implementation
+    attributes:
+      label: Possible implementation
+      description: Optional technical direction, examples, mockups, or references.
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Submission checklist
+      options:
+        - label: I searched existing issues and discussions for similar requests.
+        - label: This request describes one focused problem.
+        - label: I considered Forma's low-voltage hardware safety boundaries.

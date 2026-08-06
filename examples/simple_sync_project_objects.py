@@ -3,8 +3,6 @@
 
 from __future__ import annotations
 
-import os
-
 from sync_project_objects import (
     baseten_job,
     gmi_job,
@@ -17,6 +15,7 @@ from sync_project_objects import (
     save_summary,
     utc_run_id,
 )
+from blueprint_core.config import config
 
 
 PROMPT = (
@@ -52,7 +51,7 @@ def main() -> int:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     load_env_file(repo_path(ENV_FILE))
-    base_environment = dict(os.environ)
+    base_environment = config.snapshot()
 
     jobs = [
         # ollama_job(OLLAMA_MODEL, OLLAMA_BASE_URL, TIMEOUT_SECONDS, generate_image=GENERATE_IMAGE),

@@ -1,7 +1,7 @@
 import base64
 import json
 import logging
-import os
+from blueprint_core.config import config
 import socket
 import time
 import urllib.error
@@ -28,10 +28,13 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_GEMINI_MODEL = "gemini-3.5-flash"
 DEFAULT_GEMINI_FALLBACK_MODEL = "gemini-2.5-flash"
+DEFAULT_VERTEX_MODEL = DEFAULT_GEMINI_MODEL
+DEFAULT_VERTEX_FALLBACK_MODEL = DEFAULT_GEMINI_FALLBACK_MODEL
+DEFAULT_VERTEX_LOCATION = "global"
 DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-5"
 DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
 DEFAULT_ANTHROPIC_VERSION = "2023-06-01"
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_MODEL = "gpt-5.6-sol"
 DEFAULT_TIMEOUT_SECONDS = 90.0
 DEFAULT_OPENAI_TIMEOUT_SECONDS = 300.0
 DEFAULT_RUNPOD_TIMEOUT_SECONDS = 1200.0
@@ -39,12 +42,12 @@ DEFAULT_RUNPOD_POLL_TIMEOUT_SECONDS = 1200.0
 DEFAULT_BASETEN_MODEL = "deepseek-ai/DeepSeek-V4-Pro"
 DEFAULT_GMI_MODEL = "anthropic/claude-fable-5"
 DEFAULT_HUGGINGFACE_MODEL = "Qwen/Qwen2.5-Coder-3B-Instruct:nscale"
-DEFAULT_NEBIUS_MODEL = "Qwen/Qwen3.5-397B-A17B"
+DEFAULT_CLOUDFLARE_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 DEFAULT_NVIDIA_MODEL = "nvidia/z-ai/glm-5.2"
 DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
-DEFAULT_NEBIUS_BASE_URL = "https://api.tokenfactory.nebius.com/v1"
+DEFAULT_CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
 DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
@@ -71,19 +74,72 @@ class LLMProviderOutputError(RuntimeError):
     """Raised when a live provider returns unusable structured output."""
 
 
+class LLMProviderInputError(ValueError):
+    """Raised when the selected provider/model cannot consume the supplied input."""
+
+
+def model_image_input_support(provider_name: str, model_name: str) -> Optional[bool]:
+    """Return known image-input support, or ``None`` when it is not known.
+
+    OpenAI-compatible model catalogs do not expose capabilities consistently, so
+    unknown models are allowed through and provider errors are normalized later.
+    The explicit text-only markers prevent known-incompatible requests from
+    starting expensive workflow steps such as web research.
+    """
+    provider = normalize_llm_provider_name(provider_name) or provider_name.strip().lower()
+    model = _normalize_model_name(model_name).lower()
+
+    if provider in {"gemini", "vertex", "anthropic"}:
+        return True
+    if provider == "cloudflare" and model == DEFAULT_CLOUDFLARE_MODEL:
+        return True
+    if any(marker in model for marker in ("-vl", "_vl", "/vl", "vision", "llava")):
+        return True
+    if provider == "openai" and model.startswith(("gpt-4o", "gpt-4.1", "gpt-5")):
+        return True
+    if any(marker in model for marker in ("nemotron", "gpt-oss", "coder")):
+        return False
+    return None
+
+
+def _image_input_error_message(provider_name: str, model_name: str) -> str:
+    return (
+        f"The selected model '{provider_name}/{model_name}' cannot read reference images. "
+        "Choose a vision-capable model or remove the image attachment."
+    )
+
+
+def _is_image_input_unsupported_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "unknown modality: image",
+            "image input is not supported",
+            "image inputs are not supported",
+            "does not support image input",
+            "doesn't support image input",
+            "unsupported image input",
+            "multimodal input is not supported",
+            "only supports text input",
+        )
+    )
+
+
 SUPPORTED_LLM_PROVIDERS = {
     "anthropic",
     "baseten",
     "gemini",
     "gmi",
     "huggingface",
-    "nebius",
+    "cloudflare",
     "nvidia",
     "openai",
     "openai-compatible",
     "runpod",
     "runpod-serverless",
     "simulation",
+    "vertex",
 }
 SIMULATION_PROVIDER_ALIASES = {"simulation", "simulated", "offline", "none", "mock"}
 PROVIDER_ALIASES = {
@@ -97,6 +153,10 @@ PROVIDER_ALIASES = {
     "nim": "nvidia",
     "google": "gemini",
     "google-genai": "gemini",
+    "google-vertex": "vertex",
+    "google-vertex-ai": "vertex",
+    "vertex-ai": "vertex",
+    "vertexai": "vertex",
     "gmi-cloud": "gmi",
     "gmi_cloud": "gmi",
     "gmicloud": "gmi",
@@ -106,10 +166,10 @@ PROVIDER_ALIASES = {
     "hugging-face": "huggingface",
     "huggingface-inference": "huggingface",
     "huggingface-router": "huggingface",
-    "nebius-ai": "nebius",
-    "nebius-token-factory": "nebius",
-    "token-factory": "nebius",
-    "tokenfactory": "nebius",
+    "cloudflare-ai": "cloudflare",
+    "cloudflare-workers-ai": "cloudflare",
+    "workers-ai": "cloudflare",
+    "workers_ai": "cloudflare",
     "compatible": "openai-compatible",
     "openai_compatible": "openai-compatible",
     "runpod-openai": "runpod",
@@ -134,6 +194,7 @@ class LLMProviderValidation:
     live_generation_enabled: bool = True
 
     def as_debug_dict(self) -> Dict[str, Any]:
+        image_support_model = self.actual_model or self.requested_model
         return {
             "provider": self.provider,
             "requested_model": self.requested_model,
@@ -145,6 +206,7 @@ class LLMProviderValidation:
             "fallback_model": self.fallback_model,
             "validation_error": self.validation_error,
             "live_generation_enabled": self.live_generation_enabled,
+            "supports_image_input": model_image_input_support(self.provider, image_support_model),
         }
 
 
@@ -175,7 +237,7 @@ class LLMRuntimeConfig:
 
 
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     stripped = value.strip()
@@ -188,6 +250,17 @@ def _first_env(names: List[str], default: Optional[str] = None) -> Optional[str]
         if value is not None:
             return value
     return default
+
+
+def _cloudflare_base_url_from_env() -> Optional[str]:
+    configured = _first_env(["CLOUDFLARE_BASE_URL"])
+    if configured:
+        return configured.rstrip("/")
+    account_id = _first_env(["CLOUDFLARE_ACCOUNT_ID"])
+    if not account_id:
+        return None
+    encoded_account_id = urllib.parse.quote(account_id, safe="")
+    return f"https://api.cloudflare.com/client/v4/accounts/{encoded_account_id}/ai/v1"
 
 
 def _parse_csv_env(names: List[str]) -> Optional[List[str]]:
@@ -280,7 +353,7 @@ def normalize_llm_provider_name(value: Optional[str]) -> Optional[str]:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    value = os.getenv(name)
+    value = config.get(name)
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
@@ -288,7 +361,7 @@ def _env_bool(name: str, default: bool = False) -> bool:
 
 def _first_env_bool(names: List[str], default: bool = False) -> bool:
     for name in names:
-        if os.getenv(name) is not None:
+        if config.get(name) is not None:
             return _env_bool(name, default)
     return default
 
@@ -358,6 +431,8 @@ def _default_provider_name() -> str:
         return "runpod"
     if runpod_api_key and runpod_serverless_endpoint:
         return "runpod-serverless"
+    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+        return "vertex"
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         return "gemini"
     if _first_env(["ANTHROPIC_API_KEY", "CLAUDE_API_KEY"]):
@@ -378,8 +453,8 @@ def _default_provider_name() -> str:
         DEFAULT_HUGGINGFACE_BASE_URL,
     ):
         return "huggingface"
-    if _first_env(["NEBIUS_API_KEY"]) and _first_env(["NEBIUS_BASE_URL"], DEFAULT_NEBIUS_BASE_URL):
-        return "nebius"
+    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"]) and _cloudflare_base_url_from_env():
+        return "cloudflare"
     if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
@@ -404,11 +479,8 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         DEFAULT_HUGGINGFACE_BASE_URL,
     ):
         providers.add("huggingface")
-    if _first_env(["NEBIUS_API_KEY"]) and _first_env(
-        ["NEBIUS_BASE_URL"],
-        DEFAULT_NEBIUS_BASE_URL,
-    ):
-        providers.add("nebius")
+    if _first_env(["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"]) and _cloudflare_base_url_from_env():
+        providers.add("cloudflare")
     if _first_env(["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"]) and _first_env(
         ["NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL", "LLM_BASE_URL"],
         DEFAULT_NVIDIA_BASE_URL,
@@ -420,6 +492,8 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         providers.add("runpod-serverless")
     if _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY"]):
         providers.add("gemini")
+    if _first_env(["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]):
+        providers.add("vertex")
     if _first_env(["OPENAI_API_KEY", "LLM_API_KEY"]):
         providers.add("openai")
     if _first_env(["LLM_BASE_URL", "OPENAI_BASE_URL"]):
@@ -439,33 +513,36 @@ def _allowed_provider_names(default_provider: str) -> Optional[List[str]]:
     return sorted(set(allowed))
 
 
-def _default_model_for_provider(provider_name: str) -> str:
+def _default_model_for_provider(provider_name: str, *, include_runtime_override: bool = True) -> str:
+    runtime_model = ["LLM_MODEL"] if include_runtime_override else []
     if provider_name == "anthropic":
-        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", "LLM_MODEL"], DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
+        return _first_env(["ANTHROPIC_MODEL", "CLAUDE_MODEL", *runtime_model], DEFAULT_ANTHROPIC_MODEL) or DEFAULT_ANTHROPIC_MODEL
     if provider_name == "baseten":
-        return _first_env(["BASETEN_MODEL", "LLM_MODEL"], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
+        return _first_env(["BASETEN_MODEL", *runtime_model], DEFAULT_BASETEN_MODEL) or DEFAULT_BASETEN_MODEL
     if provider_name == "gemini":
-        return _first_env(["LLM_MODEL", "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
+        return _first_env([*runtime_model, "GEMINI_MODEL"], DEFAULT_GEMINI_MODEL) or DEFAULT_GEMINI_MODEL
+    if provider_name == "vertex":
+        return _first_env([*runtime_model, "VERTEX_AI_MODEL", "VERTEX_MODEL"], DEFAULT_VERTEX_MODEL) or DEFAULT_VERTEX_MODEL
     if provider_name == "gmi":
         return _normalize_model_for_provider(
             provider_name,
-            _first_env(["GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", "LLM_MODEL"], DEFAULT_GMI_MODEL) or DEFAULT_GMI_MODEL,
+            _first_env(["GMI_MODEL", "GMI_CLOUD_MODEL", "GMICLOUD_MODEL", *runtime_model], DEFAULT_GMI_MODEL) or DEFAULT_GMI_MODEL,
         )
     if provider_name == "huggingface":
         return _first_env(["HUGGINGFACE_MODEL", "HF_MODEL"], DEFAULT_HUGGINGFACE_MODEL) or DEFAULT_HUGGINGFACE_MODEL
-    if provider_name == "nebius":
-        return _first_env(["NEBIUS_MODEL", "LLM_MODEL"], DEFAULT_NEBIUS_MODEL) or DEFAULT_NEBIUS_MODEL
+    if provider_name == "cloudflare":
+        return _first_env(["CLOUDFLARE_MODEL", *runtime_model], DEFAULT_CLOUDFLARE_MODEL) or DEFAULT_CLOUDFLARE_MODEL
     if provider_name == "nvidia":
-        return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", "LLM_MODEL"], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
+        return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", *runtime_model], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
     if provider_name == "openai":
-        return _first_env(["OPENAI_MODEL", "LLM_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        return _first_env(["OPENAI_MODEL", *runtime_model], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
     if provider_name == "openai-compatible":
-        return _first_env(["LLM_MODEL", "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        return _first_env([*runtime_model, "OPENAI_MODEL"], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
     if provider_name == "runpod":
-        return _first_env(["RUNPOD_OPENAI_MODEL", "LLM_MODEL", "RUNPOD_MODEL"], "runpod-default") or "runpod-default"
+        return _first_env(["RUNPOD_OPENAI_MODEL", *runtime_model, "RUNPOD_MODEL"], "runpod-default") or "runpod-default"
     if provider_name == "runpod-serverless":
         return (
-            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", "LLM_MODEL"], "runpod-serverless")
+            _first_env(["RUNPOD_SERVERLESS_MODEL", "RUNPOD_MODEL", "RUNPOD_OPENAI_MODEL", *runtime_model], "runpod-serverless")
             or "runpod-serverless"
         )
     return "simulation"
@@ -478,13 +555,18 @@ def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
         return _first_env(["BASETEN_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "gemini":
         return _first_env(["LLM_FALLBACK_MODEL", "GEMINI_FALLBACK_MODEL"], DEFAULT_GEMINI_FALLBACK_MODEL)
+    if provider_name == "vertex":
+        return _first_env(
+            ["LLM_FALLBACK_MODEL", "VERTEX_AI_FALLBACK_MODEL", "VERTEX_FALLBACK_MODEL"],
+            DEFAULT_VERTEX_FALLBACK_MODEL,
+        )
     if provider_name == "gmi":
         fallback = _first_env(["GMI_FALLBACK_MODEL", "GMI_CLOUD_FALLBACK_MODEL", "GMICLOUD_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
         return _normalize_model_for_provider(provider_name, fallback) if fallback else None
     if provider_name == "huggingface":
         return _first_env(["HUGGINGFACE_FALLBACK_MODEL", "HF_FALLBACK_MODEL"])
-    if provider_name == "nebius":
-        return _first_env(["NEBIUS_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+    if provider_name == "cloudflare":
+        return _first_env(["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "nvidia":
         return _first_env(["NVIDIA_FALLBACK_MODEL", "NVIDIA_NIM_FALLBACK_MODEL", "NIM_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "openai":
@@ -532,8 +614,8 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
         env_names = ["GMI_ALLOWED_MODELS", "GMI_CLOUD_ALLOWED_MODELS", "GMICLOUD_ALLOWED_MODELS", "ALLOWED_GMI_MODELS", *env_names]
     elif provider_name == "huggingface":
         env_names = ["HUGGINGFACE_ALLOWED_MODELS", "HF_ALLOWED_MODELS", "ALLOWED_HUGGINGFACE_MODELS", *env_names]
-    elif provider_name == "nebius":
-        env_names = ["NEBIUS_ALLOWED_MODELS", "ALLOWED_NEBIUS_MODELS", *env_names]
+    elif provider_name == "cloudflare":
+        env_names = ["CLOUDFLARE_ALLOWED_MODELS", "ALLOWED_CLOUDFLARE_MODELS", *env_names]
     elif provider_name == "openai":
         env_names = ["OPENAI_ALLOWED_MODELS", "ALLOWED_OPENAI_MODELS", *env_names]
     elif provider_name == "openai-compatible":
@@ -545,6 +627,8 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
         ]
     elif provider_name == "gemini":
         env_names = ["GEMINI_ALLOWED_MODELS", "ALLOWED_GEMINI_MODELS", *env_names]
+    elif provider_name == "vertex":
+        env_names = ["VERTEX_AI_ALLOWED_MODELS", "VERTEX_ALLOWED_MODELS", "ALLOWED_VERTEX_MODELS", *env_names]
     elif provider_name == "nvidia":
         env_names = ["NVIDIA_ALLOWED_MODELS", "NVIDIA_NIM_ALLOWED_MODELS", "NIM_ALLOWED_MODELS", *env_names]
     elif provider_name in {"runpod", "runpod-serverless"}:
@@ -587,7 +671,10 @@ def resolve_llm_runtime_config(
                 "Set LLM_ALLOWED_PROVIDERS to include it."
             )
 
-    default_model = _default_model_for_provider(provider)
+    default_model = _default_model_for_provider(
+        provider,
+        include_runtime_override=provider == default_provider,
+    )
     requested_model = model_name.strip() if isinstance(model_name, str) else None
     requested_model = requested_model or None
     model = _normalize_model_for_provider(provider, requested_model or default_model)
@@ -623,7 +710,10 @@ def get_llm_runtime_debug_config() -> Dict[str, Any]:
 
 
 def _normalize_model_name(model_name: str) -> str:
-    return model_name.strip().removeprefix("models/")
+    normalized = model_name.strip().removeprefix("models/")
+    if "/models/" in normalized:
+        normalized = normalized.rsplit("/models/", 1)[-1]
+    return normalized
 
 
 def _model_is_available(model_name: str, available_models: List[str]) -> bool:
@@ -798,6 +888,10 @@ class StructuredLLMProvider:
     def get_debug_config(self) -> Dict[str, Any]:
         return self.validate_configured_model(raise_on_strict=False).as_debug_dict()
 
+    def validate_image_input(self) -> None:
+        if model_image_input_support(self.provider_name, self.model_name) is False:
+            raise LLMProviderInputError(_image_input_error_message(self.provider_name, self.model_name))
+
     def generate_structured(
         self,
         prompt: str,
@@ -845,6 +939,7 @@ class SimulationProvider(StructuredLLMProvider):
 
 class GeminiProvider(StructuredLLMProvider):
     provider_name = "gemini"
+    provider_label = "Gemini"
 
     def __init__(self, model_name: Optional[str] = None):
         self.api_key = _first_env(["GEMINI_API_KEY", "GOOGLE_API_KEY", "LLM_API_KEY"])
@@ -862,16 +957,16 @@ class GeminiProvider(StructuredLLMProvider):
         if self.api_key and genai:
             try:
                 self.client = genai.Client(api_key=self.api_key)
-                logger.info("Gemini LLM provider initialized successfully.")
+                logger.info("%s LLM provider initialized successfully.", self.provider_label)
             except Exception as exc:
-                self.init_error = f"Error initializing Gemini provider: {exc}"
+                self.init_error = f"Error initializing {self.provider_label} provider: {exc}"
                 logger.error(self.init_error)
         elif self.api_key and not genai:
-            self.init_error = "Gemini API key is set, but google-genai is unavailable."
+            self.init_error = f"{self.provider_label} credentials are set, but google-genai is unavailable."
             logger.warning("%s Running in simulated/fallback mode.", self.init_error)
         else:
             self.init_error = "No Gemini API key found."
-            logger.warning("%s Live Gemini generation is disabled.", self.init_error)
+            logger.warning("%s Live %s generation is disabled.", self.init_error, self.provider_label)
 
         self.is_configured = self.client is not None
 
@@ -888,6 +983,11 @@ class GeminiProvider(StructuredLLMProvider):
             supported_actions = getattr(model, "supported_actions", None)
             if supported_actions is None and isinstance(model, dict):
                 supported_actions = model.get("supportedActions") or model.get("supported_actions")
+            if supported_actions is None and self.provider_name == "vertex":
+                # Vertex publisher-model listings currently omit capability
+                # metadata even for Gemini generateContent models.
+                available_models.append(name)
+                continue
             supported_actions = supported_actions or []
 
             if "generateContent" in supported_actions:
@@ -910,7 +1010,7 @@ class GeminiProvider(StructuredLLMProvider):
                 strict_mode=self.strict_mode,
                 fallback_active=False,
                 fallback_model=self.fallback_model,
-                validation_error=f"{self.init_error or 'Gemini provider is not configured'} Simulation mode is active.",
+                validation_error=f"{self.init_error or f'{self.provider_label} provider is not configured'} Simulation mode is active.",
                 live_generation_enabled=False,
             )
             return self._validation
@@ -918,7 +1018,7 @@ class GeminiProvider(StructuredLLMProvider):
         try:
             available_models = self._list_generate_content_models()
         except Exception as exc:
-            validation_error = f"Unable to validate Gemini model availability: {exc}"
+            validation_error = f"Unable to validate {self.provider_label} model availability: {exc}"
             actual_model = self.fallback_model if not self.strict_mode else None
             self._validation = LLMProviderValidation(
                 provider=self.provider_name,
@@ -953,8 +1053,8 @@ class GeminiProvider(StructuredLLMProvider):
 
         if self.strict_mode:
             validation_error = (
-                f"Configured Gemini model {self.requested_model} is not available for this API key/provider. "
-                "Check available models or configure a valid Gemini model ID."
+                f"Configured {self.provider_label} model {self.requested_model} is not available for this account/provider. "
+                f"Check available models or configure a valid {self.provider_label} model ID."
             )
             self._validation = LLMProviderValidation(
                 provider=self.provider_name,
@@ -974,7 +1074,7 @@ class GeminiProvider(StructuredLLMProvider):
         fallback_available = _model_is_available(self.fallback_model, available_models)
         if not fallback_available:
             validation_error = (
-                f"Configured Gemini model {self.requested_model} is not available, and fallback model "
+                f"Configured {self.provider_label} model {self.requested_model} is not available, and fallback model "
                 f"{self.fallback_model} is not available for this API key/provider."
             )
             self._validation = LLMProviderValidation(
@@ -1011,7 +1111,7 @@ class GeminiProvider(StructuredLLMProvider):
         image_mime_type: Optional[str] = None,
     ) -> Any:
         if self.client is None or genai_types is None:
-            raise RuntimeError("Gemini provider is not configured.")
+            raise RuntimeError(f"{self.provider_label} provider is not configured.")
 
         contents = []
         if image_bytes and image_mime_type:
@@ -1028,6 +1128,67 @@ class GeminiProvider(StructuredLLMProvider):
             ),
         )
         return _validate_structured_json(response.text, schema_class)
+
+
+class VertexAIProvider(GeminiProvider):
+    """Gemini on Vertex AI using Google Cloud Application Default Credentials."""
+
+    provider_name = "vertex"
+    provider_label = "Vertex AI"
+
+    def __init__(self, model_name: Optional[str] = None):
+        self.project = _first_env(
+            ["VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"]
+        )
+        self.location = (
+            _first_env(["VERTEX_AI_LOCATION", "GOOGLE_CLOUD_LOCATION"], DEFAULT_VERTEX_LOCATION)
+            or DEFAULT_VERTEX_LOCATION
+        )
+        self.api_key = None
+        self.requested_model = (
+            model_name
+            or _first_env(["LLM_MODEL", "VERTEX_AI_MODEL", "VERTEX_MODEL"], DEFAULT_VERTEX_MODEL)
+            or DEFAULT_VERTEX_MODEL
+        )
+        self.fallback_model = (
+            _first_env(
+                ["LLM_FALLBACK_MODEL", "VERTEX_AI_FALLBACK_MODEL", "VERTEX_FALLBACK_MODEL"],
+                DEFAULT_VERTEX_FALLBACK_MODEL,
+            )
+            or DEFAULT_VERTEX_FALLBACK_MODEL
+        )
+        self.strict_mode = _first_env_bool(["STRICT_LLM", "STRICT_VERTEX_AI", "STRICT_VERTEX"], default=True)
+        self.model_name = self.requested_model
+        self.client = None
+        self.init_error: Optional[str] = None
+        self._validation: Optional[LLMProviderValidation] = None
+
+        if self.project and genai:
+            try:
+                self.client = genai.Client(
+                    vertexai=True,
+                    project=self.project,
+                    location=self.location,
+                )
+                logger.info(
+                    "Vertex AI LLM provider initialized for project %s in %s.",
+                    self.project,
+                    self.location,
+                )
+            except Exception as exc:
+                self.init_error = f"Error initializing Vertex AI provider: {exc}"
+                logger.error(self.init_error)
+        elif self.project and not genai:
+            self.init_error = "Vertex AI project is set, but google-genai is unavailable."
+            logger.warning("%s Running in simulated/fallback mode.", self.init_error)
+        else:
+            self.init_error = (
+                "No Vertex AI project found. Set VERTEX_AI_PROJECT or GOOGLE_CLOUD_PROJECT "
+                "and configure Application Default Credentials."
+            )
+            logger.warning("%s Live Vertex AI generation is disabled.", self.init_error)
+
+        self.is_configured = self.client is not None
 
 
 class AnthropicProvider(StructuredLLMProvider):
@@ -1063,7 +1224,7 @@ class AnthropicProvider(StructuredLLMProvider):
         return {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": os.getenv("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "User-Agent": config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
             "x-api-key": self.api_key or "",
             "anthropic-version": self.anthropic_version,
         }
@@ -1357,7 +1518,7 @@ class AnthropicProvider(StructuredLLMProvider):
 class OpenAICompatibleProvider(StructuredLLMProvider):
     def __init__(self, provider_name: str = "openai", model_name: Optional[str] = None):
         normalized_provider = normalize_llm_provider_name(provider_name) or "openai"
-        if normalized_provider in {"baseten", "gmi", "huggingface", "nebius", "nvidia", "openai", "runpod"}:
+        if normalized_provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "runpod"}:
             self.provider_name = normalized_provider
         else:
             self.provider_name = "openai-compatible"
@@ -1410,21 +1571,21 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             default_model_name = DEFAULT_HUGGINGFACE_MODEL
             default_base_url = DEFAULT_HUGGINGFACE_BASE_URL
             default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
-        elif self.provider_name == "nebius":
-            api_key_names = ["NEBIUS_API_KEY", "LLM_API_KEY"]
-            base_url_names = ["NEBIUS_BASE_URL"]
-            model_names = ["NEBIUS_MODEL", "LLM_MODEL"]
-            fallback_model_names = ["NEBIUS_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
-            strict_names = ["STRICT_NEBIUS", "STRICT_LLM"]
-            validate_model_names = ["NEBIUS_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
-            response_format_names = ["NEBIUS_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
-            timeout_names = ["NEBIUS_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
-            max_tokens_names = ["NEBIUS_MAX_TOKENS", "LLM_MAX_TOKENS"]
-            temperature_names = ["NEBIUS_TEMPERATURE", "LLM_TEMPERATURE"]
-            reasoning_effort_names = ["NEBIUS_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
-            allow_no_api_key_names = ["NEBIUS_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
-            default_model_name = DEFAULT_NEBIUS_MODEL
-            default_base_url = DEFAULT_NEBIUS_BASE_URL
+        elif self.provider_name == "cloudflare":
+            api_key_names = ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY", "LLM_API_KEY"]
+            base_url_names = ["CLOUDFLARE_BASE_URL"]
+            model_names = ["CLOUDFLARE_MODEL", "LLM_MODEL"]
+            fallback_model_names = ["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
+            strict_names = ["STRICT_CLOUDFLARE", "STRICT_LLM"]
+            validate_model_names = ["CLOUDFLARE_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
+            response_format_names = ["CLOUDFLARE_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
+            timeout_names = ["CLOUDFLARE_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
+            max_tokens_names = ["CLOUDFLARE_MAX_TOKENS", "LLM_MAX_TOKENS"]
+            temperature_names = ["CLOUDFLARE_TEMPERATURE", "LLM_TEMPERATURE"]
+            reasoning_effort_names = ["CLOUDFLARE_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
+            allow_no_api_key_names = ["CLOUDFLARE_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
+            default_model_name = DEFAULT_CLOUDFLARE_MODEL
+            default_base_url = None
             default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
         elif self.provider_name == "nvidia":
             api_key_names = ["NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY", "LLM_API_KEY"]
@@ -1494,13 +1655,29 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.api_key = _first_env(api_key_names)
         self.organization_id = _first_env(["OPENAI_ORG_ID", "OPENAI_ORGANIZATION", "OPENAI_ORGANIZATION_ID"])
         self.project_id = _first_env(["OPENAI_PROJECT_ID", "OPENAI_PROJECT"])
-        configured_base_url = _runpod_openai_base_url_from_env() if self.provider_name == "runpod" else _first_env(base_url_names)
+        if self.provider_name == "runpod":
+            configured_base_url = _runpod_openai_base_url_from_env()
+        elif self.provider_name == "cloudflare":
+            configured_base_url = _cloudflare_base_url_from_env()
+        else:
+            configured_base_url = _first_env(base_url_names)
         if self.provider_name == "runpod" and configured_base_url is None:
             runpod_serverless_url_env_name = _runpod_serverless_url_env_name()
             if runpod_serverless_url_env_name:
                 configured_base_url = _env(runpod_serverless_url_env_name)
                 self.configuration_error = _runpod_serverless_url_misconfiguration_message(runpod_serverless_url_env_name)
         self.base_url = (configured_base_url or default_base_url or "").rstrip("/")
+        parsed_base_url = urllib.parse.urlparse(self.base_url)
+        base_host = (parsed_base_url.hostname or "").lower()
+        self.ollama_native_chat = bool(
+            self.provider_name == "openai-compatible"
+            and base_host in {"localhost", "127.0.0.1", "::1"}
+            and (parsed_base_url.port == 11434 or _first_env_bool(["OLLAMA_NATIVE_CHAT"], default=False))
+        )
+        self.ollama_context_length = _first_env_int(["OLLAMA_CONTEXT_LENGTH", "OLLAMA_NUM_CTX", "LLM_CONTEXT_LENGTH"])
+        if self.ollama_native_chat and self.ollama_context_length is None:
+            self.ollama_context_length = 16384
+        self.ollama_think = _first_env_bool(["OLLAMA_THINK"], default=False)
         self.requested_model = _normalize_model_for_provider(
             self.provider_name,
             model_name or _first_env(model_names, default_model_name) or default_model_name,
@@ -1509,7 +1686,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.fallback_model = _normalize_model_for_provider(self.provider_name, raw_fallback_model) if raw_fallback_model else None
         self.strict_mode = _first_env_bool(strict_names, default=True)
         self.validate_models = _first_env_bool(validate_model_names, default=False)
-        default_response_format = "json_schema" if self.provider_name in {"nebius", "openai"} else "json_object"
+        default_response_format = "json_schema" if self.provider_name in {"cloudflare", "openai"} else "json_object"
         self.response_format = (
             _first_env(response_format_names, default_response_format)
             or default_response_format
@@ -1523,6 +1700,9 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         self.reasoning_effort = _first_env_optional_string(
             reasoning_effort_names,
             omit_values=["default", "omit"],
+        )
+        self.cloudflare_enable_thinking = (
+            config.cloudflare_enable_thinking if self.provider_name == "cloudflare" else None
         )
         self.allow_no_api_key = _first_env_bool(
             allow_no_api_key_names,
@@ -1541,7 +1721,7 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         headers = {
             "Accept": "application/json",
             "Content-Type": "application/json",
-            "User-Agent": os.getenv("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
+            "User-Agent": config.get("LLM_USER_AGENT", DEFAULT_HTTP_USER_AGENT),
         }
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
@@ -1553,8 +1733,44 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         return headers
 
     def _request_json(self, path: str, method: str = "GET", payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        url = f"{self.base_url}/{path.lstrip('/')}"
-        data = json.dumps(payload).encode("utf-8") if payload is not None else None
+        use_ollama_chat = bool(
+            self.ollama_native_chat
+            and method == "POST"
+            and path.lstrip("/") == "chat/completions"
+            and payload is not None
+        )
+        request_payload = payload
+        if use_ollama_chat:
+            parsed = urllib.parse.urlparse(self.base_url)
+            url = f"{parsed.scheme}://{parsed.netloc}/api/chat"
+            response_format = payload.get("response_format") if isinstance(payload, dict) else None
+            native_format: Any = None
+            if isinstance(response_format, dict) and response_format.get("type") == "json_schema":
+                json_schema = response_format.get("json_schema")
+                if isinstance(json_schema, dict):
+                    native_format = json_schema.get("schema")
+            elif isinstance(response_format, dict) and response_format.get("type") == "json_object":
+                native_format = "json"
+
+            options: Dict[str, Any] = {
+                "num_predict": payload.get("max_tokens") or DEFAULT_STRUCTURED_MAX_TOKENS,
+            }
+            if self.ollama_context_length:
+                options["num_ctx"] = self.ollama_context_length
+            if payload.get("temperature") is not None:
+                options["temperature"] = payload["temperature"]
+            request_payload = {
+                "model": payload.get("model"),
+                "messages": payload.get("messages") or [],
+                "stream": False,
+                "think": self.ollama_think,
+                "options": options,
+            }
+            if native_format is not None:
+                request_payload["format"] = native_format
+        else:
+            url = f"{self.base_url}/{path.lstrip('/')}"
+        data = json.dumps(request_payload).encode("utf-8") if request_payload is not None else None
         request = urllib.request.Request(url, data=data, headers=self._headers(), method=method)
 
         try:
@@ -1583,7 +1799,24 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
 
         if not body.strip():
             return {}
-        return json.loads(body)
+        decoded = json.loads(body)
+        if not use_ollama_chat:
+            return decoded
+
+        message = decoded.get("message") if isinstance(decoded.get("message"), dict) else {}
+        return {
+            "choices": [
+                {
+                    "message": message,
+                    "finish_reason": decoded.get("done_reason") or ("stop" if decoded.get("done") else None),
+                }
+            ],
+            "usage": {
+                "prompt_tokens": decoded.get("prompt_eval_count"),
+                "completion_tokens": decoded.get("eval_count"),
+            },
+            "model": decoded.get("model"),
+        }
 
     def _http_error_hint(self, status_code: int, path: str) -> str:
         if self.provider_name == "runpod" and status_code == 404 and path.lstrip("/") == "chat/completions":
@@ -1601,8 +1834,8 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Increase HUGGINGFACE_TIMEOUT_SECONDS/HF_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "gmi":
             return "Increase GMI_TIMEOUT_SECONDS/GMI_CLOUD_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
-        if self.provider_name == "nebius":
-            return "Increase NEBIUS_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
+        if self.provider_name == "cloudflare":
+            return "Increase CLOUDFLARE_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "nvidia":
             return "Increase NVIDIA_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "runpod":
@@ -1616,8 +1849,8 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Set HF_TOKEN, HUGGINGFACE_API_KEY, or HUGGINGFACE_HUB_TOKEN. HUGGINGFACE_BASE_URL defaults to https://router.huggingface.co/v1."
         if self.provider_name == "gmi":
             return "Set GMI_API_KEY or GMI_CLOUD_API_KEY. GMI_BASE_URL defaults to https://api.gmi-serving.com/v1."
-        if self.provider_name == "nebius":
-            return "Set NEBIUS_API_KEY. NEBIUS_BASE_URL defaults to https://api.tokenfactory.nebius.com/v1."
+        if self.provider_name == "cloudflare":
+            return "Set CLOUDFLARE_API_TOKEN plus CLOUDFLARE_ACCOUNT_ID, or set CLOUDFLARE_BASE_URL explicitly."
         if self.provider_name == "nvidia":
             return "Set NVIDIA_API_KEY. NVIDIA_BASE_URL defaults to https://integrate.api.nvidia.com/v1."
         if self.provider_name == "runpod":
@@ -1852,6 +2085,11 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         if self.temperature is not None:
             payload["temperature"] = self.temperature
 
+        if self.provider_name == "cloudflare":
+            payload["chat_template_kwargs"] = {
+                "enable_thinking": bool(self.cloudflare_enable_thinking),
+            }
+
         if self.reasoning_effort:
             payload["reasoning_effort"] = self.reasoning_effort
 
@@ -1881,18 +2119,63 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         finish_reason: Optional[str] = None
         for attempt in range(2):
             payload[tokens_key] = budget
-            response = self._request_json("chat/completions", method="POST", payload=payload)
+            try:
+                response = self._request_json("chat/completions", method="POST", payload=payload)
+            except RuntimeError as exc:
+                if image_bytes and _is_image_input_unsupported_error(exc):
+                    raise LLMProviderInputError(
+                        _image_input_error_message(self.provider_name, self.model_name)
+                    ) from exc
+                raise
             choices = response.get("choices") or []
             if not choices:
                 raise RuntimeError(f"{self.provider_name} response did not include any choices.")
 
-            finish_reason = choices[0].get("finish_reason")
-            message = choices[0].get("message") or {}
+            choice = choices[0]
+            finish_reason = choice.get("finish_reason")
+            message = choice.get("message") or {}
             content = message.get("content")
             if isinstance(content, list):
                 content = "".join(part.get("text", "") for part in content if isinstance(part, dict))
             if not isinstance(content, str) or not content.strip():
-                raise RuntimeError(f"{self.provider_name} response did not include text content.")
+                choice_text = choice.get("text")
+                if isinstance(choice_text, str) and choice_text.strip():
+                    content = choice_text
+            if not isinstance(content, str) or not content.strip():
+                refusal = message.get("refusal")
+                if isinstance(refusal, str) and refusal.strip():
+                    raise LLMProviderOutputError(
+                        f"{self.provider_name} refused to produce structured output for {_schema_name(schema_class)}."
+                    )
+
+                usage = response.get("usage") if isinstance(response.get("usage"), dict) else {}
+                completion_tokens = usage.get("completion_tokens")
+                reasoning_content = message.get("reasoning_content")
+                has_reasoning_content = isinstance(reasoning_content, str) and bool(reasoning_content.strip())
+                last_error = LLMProviderOutputError(
+                    f"{self.provider_name} response did not include text content "
+                    f"(finish_reason={finish_reason}, max_tokens={budget}, "
+                    f"completion_tokens={completion_tokens}, reasoning_content={has_reasoning_content})."
+                )
+                if attempt == 0:
+                    budget = min(
+                        max(budget * 2, STRUCTURED_MAX_TOKENS_FLOOR),
+                        STRUCTURED_MAX_TOKENS_CEILING,
+                    )
+                    if self.provider_name == "cloudflare" and has_reasoning_content and not self.reasoning_effort:
+                        payload["reasoning_effort"] = "low"
+                    logger.warning(
+                        "%s returned no visible %s content (finish_reason=%s, completion_tokens=%s, "
+                        "reasoning_content=%s); retrying once with max_tokens=%d.",
+                        self.provider_name,
+                        _schema_name(schema_class),
+                        finish_reason,
+                        completion_tokens,
+                        has_reasoning_content,
+                        budget,
+                    )
+                    continue
+                break
 
             try:
                 result = _validate_structured_json(content, schema_class)
@@ -2190,7 +2473,9 @@ def build_llm_provider(
         return AnthropicProvider(model_name=runtime.model)
     if runtime.provider == "gemini":
         return GeminiProvider(model_name=runtime.model)
-    if runtime.provider in {"baseten", "gmi", "huggingface", "nebius", "nvidia", "openai", "openai-compatible"}:
+    if runtime.provider == "vertex":
+        return VertexAIProvider(model_name=runtime.model)
+    if runtime.provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "openai-compatible"}:
         return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model)
     if runtime.provider == "runpod":
         return OpenAICompatibleProvider(provider_name="runpod", model_name=runtime.model)
@@ -2201,7 +2486,8 @@ def build_llm_provider(
 
     message = (
         f"Unsupported LLM_PROVIDER '{runtime.provider}'. Supported providers are "
-        "anthropic, baseten, gemini, gmi, huggingface, nebius, nvidia, openai, openai-compatible, runpod, runpod-serverless, and simulation."
+        "anthropic, baseten, gemini, gmi, huggingface, cloudflare, nvidia, openai, openai-compatible, "
+        "runpod, runpod-serverless, simulation, and vertex."
     )
     logger.warning(message)
     return SimulationProvider(validation_error=message)

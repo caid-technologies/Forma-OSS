@@ -9,11 +9,12 @@ Forma’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic.
 - **Diffable:** Changes across versions are explicit and comparable.
 
 ## Top-level structure
-The core schema lives in `backend/models.py` and includes:
+The core schema lives in `apps/api/models.py` and includes:
 
 - **hardware_ir_version** – schema version string.
 - **overview** – `ProjectOverview` with title, description, difficulty, category.
 - **requirements** – `FunctionalRequirements` with power, constraints, safety notes.
+- **system_architecture** – purpose-driven `SystemArchitecture` tree of discipline and nested subsystem nodes.
 - **components** – list of `ComponentInstance` objects (instantiated BOM).
 - **nets** – list of `ConnectionNet` objects (netlist connections).
 - **buses** – `BusConnection` definitions (I2C/SPI/UART groups).
@@ -34,6 +35,7 @@ Additional fields commonly populated at runtime:
 - **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
 
 ## Key relationships
+- **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.
 - **ComponentInstance → PinDefinition:** Each instance carries a full pinout.
 - **ConnectionNet → PinReference:** Nets reference component pins by `ref_des` + `pin_id`.
 - **BusConnection → ConnectionNet:** Buses group nets for higher-level comms.

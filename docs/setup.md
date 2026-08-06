@@ -6,7 +6,7 @@ Forma OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported f
 - **Python 3.11+**
 - **Node.js 18+**
 - **Supabase project** (optional, recommended for deployed persistent storage)
-- **Docker** (optional, for containerized frontend/backend images)
+- **Docker** (optional, for containerized frontend and backend images)
 
 ## Docker setup
 From the repo root:
@@ -21,11 +21,31 @@ The Compose backend defaults to:
 
 ```env
 BLUEPRINT_DEV_MODE=false
+DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:////data/blueprint.db
 LLM_PROVIDER=simulation
 ```
 
-Set the same database and live-provider variables listed below in your shell or repo-root `.env` before running Compose if you want Supabase or model-backed generation.
+Compose also starts an ephemeral Redis service and configures the backend to
+cache project gallery responses for 60 seconds. Project writes invalidate the
+cache immediately; Redis outages fall back to the primary database.
+
+Host-side `DATABASE_BACKEND` and `SQLITE_DATABASE_URL` values are intentionally
+ignored by Compose so a repo-root `.env` cannot accidentally route the backend
+container to a database on its own loopback interface. Live-provider variables
+still pass through normally.
+
+To intentionally use Supabase from Compose, set
+`COMPOSE_DATABASE_BACKEND=supabase` and use a URL reachable from the container.
+For a Supabase CLI instance running on the Docker host:
+
+```bash
+COMPOSE_DATABASE_BACKEND=supabase \
+SUPABASE_URL=http://host.docker.internal:54321 \
+docker compose up --build
+```
+
+Use the API port reported by `supabase status` if it differs from `54321`.
 
 If you publish the backend on a different host or port, rebuild the frontend with a matching browser-visible API URL:
 
@@ -39,13 +59,13 @@ From the repo root:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r backend/requirements.txt
+pip install -r apps/api/requirements.txt
 ```
 
-Both `requirements.txt` and `backend/requirements.txt` list only third-party
+Both `requirements.txt` and `apps/api/requirements.txt` list only third-party
 runtime dependencies. Do not add local package paths such as `.[backend]` or
-`./backend`; Vercel may resolve dependency files from a service subdirectory and
-turn those paths into `backend/backend`. The `blueprint_core` source is bundled
+`../..`; Vercel may resolve dependency files from a service subdirectory and
+turn those into invalid deployment-relative paths. The `blueprint_core` source is bundled
 into the backend function through `vercel.json` `includeFiles`, which keeps
 deployments on the current monorepo source without relying on a stale PyPI
 wheel. `vercel.json` also excludes local databases, logs, frontend artifacts,
@@ -66,13 +86,20 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:///./blueprint.db
 
+# Project gallery cache. Required when BLUEPRINT_DEV_MODE is false; development
+# mode may leave these unset to read directly from the database.
+REDIS_URL=redis://localhost:6379/0
+# PROJECTS_CACHE_TTL_SECONDS=60
+# REDIS_CACHE_PREFIX=blueprint
+# REDIS_SOCKET_TIMEOUT_SECONDS=0.25
+
 # Deployment-only alpha gate
 # BLUEPRINT_DEPLOYMENT=true
 
 # Live LLM generation
 LLM_PROVIDER=openai
 OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-4o-mini
+OPENAI_MODEL=gpt-5.6-sol
 STRICT_LLM=true
 
 # Optional first-party OpenAI settings
@@ -100,21 +127,27 @@ OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_IMAGE_SIZE=1024x1024
 # OPENAI_IMAGE_QUALITY=medium
 # OPENAI_IMAGE_OUTPUT_FORMAT=png
+# For Nano Banana through the same Vertex AI project and ADC used by the LLM:
+# IMAGE_PROVIDER=vertex
+# VERTEX_AI_IMAGE_MODEL=gemini-3.1-flash-image
+# VERTEX_AI_IMAGE_RESOLUTION=1K
+# VERTEX_AI_IMAGE_ASPECT_RATIO=1:1
 
 # Optional Supabase Storage upload for reference/product images.
 # Uses the Supabase client with SUPABASE_URL plus the service-role/secret key.
-SUPABASE_S3_ENDPOINT=https://knmuwxhfrgkykyvblzwi.storage.supabase.co/storage/v1/s3
 SUPABASE_S3_BUCKET=contents
 # SUPABASE_S3_REGION=us-east-1
-# Optional fallback for S3-compatible uploads when Supabase client env is absent.
+# Optional direct S3-compatible mode; all three values are required.
+# BLUEPRINT_IMAGE_STORAGE_BACKEND=s3-compatible
+# SUPABASE_S3_ENDPOINT=https://your-project-ref.storage.supabase.co/storage/v1/s3
 # SUPABASE_S3_ACCESS_KEY_ID=your_supabase_s3_access_key_id
 # SUPABASE_S3_SECRET_ACCESS_KEY=your_supabase_s3_secret_access_key
 # SUPABASE_IMAGE_SIGNED_URL_SECONDS=86400
-# SUPABASE_STORAGE_PUBLIC_BASE_URL=https://knmuwxhfrgkykyvblzwi.supabase.co
+# SUPABASE_STORAGE_PUBLIC_BASE_URL=https://your-project-ref.supabase.co
 
 # Generic provider aliases
 # LLM_API_KEY=your_provider_api_key_here
-# LLM_MODEL=gpt-4o-mini
+# LLM_MODEL=gpt-5.6-sol
 # LLM_FALLBACK_MODEL=your_fallback_model_here
 
 # Optional for OpenAI-compatible providers
@@ -140,12 +173,16 @@ Notes:
 - `BLUEPRINT_DEV_MODE=true` selects SQLite for the complete application database when Supabase points at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode still disables Supabase Storage writes, so reference and product image data is stored inline unless dev mode is disabled.
 - If Supabase client variables are missing, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
 - `DATABASE_BACKEND` can be `supabase` or `sqlite`.
+- `REDIS_URL` and `REDIS_CACHE_PREFIX` are required at backend startup whenever `BLUEPRINT_DEV_MODE` is false. Development mode can omit them and fall back directly to the primary database.
+- Docker Compose uses `COMPOSE_DATABASE_BACKEND` instead and defaults it to `sqlite`; this prevents host-only loopback Supabase URLs from breaking the container quickstart. `COMPOSE_SQLITE_DATABASE_URL` optionally overrides the container SQLite URL.
 - Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
 - Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
+- After those inputs are applied, `GET /api/runtime/config` is authoritative for the frontend. Resolution precedence is request override, saved integration, environment, then provider default; the browser does not repeat this merge.
 - `BLUEPRINT_DEPLOYMENT=true` requires a configured deployment provider or signed-in user's BYOK provider for generation. The frontend keeps the composer visible and directs users without an active provider to Settings.
-- `LLM_PROVIDER` can be `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
-- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
-- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `NEBIUS_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
+- `LLM_PROVIDER` can be `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-5.6-sol"}`.
+- Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`VERTEX_AI_ALLOWED_MODELS`, `OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `CLOUDFLARE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.
+- `GOOGLE_CLOUD_PROJECT` (or `VERTEX_AI_PROJECT`), `GOOGLE_CLOUD_LOCATION` (or `VERTEX_AI_LOCATION`), and `VERTEX_AI_MODEL` configure Vertex AI. It authenticates with Application Default Credentials; use `gcloud auth application-default login` locally or an attached service account in production.
 - `OPENAI_API_KEY` enables first-party OpenAI live structured generation when `LLM_PROVIDER=openai`.
 - `OPENAI_RESPONSE_FORMAT` defaults to `json_schema` for OpenAI. You can set it to `json_object` for older JSON mode or `none` to omit `response_format`.
 - `OPENAI_TIMEOUT_SECONDS` controls the per-request OpenAI read timeout and defaults to `300`.
@@ -157,15 +194,18 @@ Notes:
 - `HF_TOKEN`, `HUGGINGFACE_API_KEY`, or `HUGGINGFACE_HUB_TOKEN` enables Hugging Face Inference Providers when `LLM_PROVIDER=huggingface`; `HUGGINGFACE_BASE_URL` defaults to `https://router.huggingface.co/v1`.
 - `ANTHROPIC_API_KEY` or `CLAUDE_API_KEY` enables Claude when `LLM_PROVIDER=anthropic`; `ANTHROPIC_BASE_URL` defaults to `https://api.anthropic.com/v1`.
 - `HUGGINGFACE_MODEL` selects the Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`.
-- `NEBIUS_API_KEY` enables Nebius Token Factory when `LLM_PROVIDER=nebius`; `NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`.
-- `NEBIUS_MODEL` selects the Nebius model ID, for example `Qwen/Qwen3.5-397B-A17B`; structured generation defaults to `NEBIUS_RESPONSE_FORMAT=json_schema`.
+- `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` enable Cloudflare AI when `LLM_PROVIDER=cloudflare`; `CLOUDFLARE_BASE_URL` can override the derived OpenAI-compatible endpoint.
+- `CLOUDFLARE_MODEL` selects the Cloudflare Workers AI model ID and defaults to the Free-plan-compatible `@cf/google/gemma-4-26b-a4b-it`; structured generation defaults to `CLOUDFLARE_RESPONSE_FORMAT=json_schema`.
+- `CLOUDFLARE_ENABLE_THINKING=false` is the structured-generation default. Set it to `true` only when hidden reasoning is worth reducing the token budget available for the JSON answer.
 - `NVIDIA_API_KEY` enables NVIDIA Build/NIM APIs when `LLM_PROVIDER=nvidia`; `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL` selects the NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`.
 - `EXTERNAL_SOURCE_PROVIDER` controls external source research for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
+- `BLUEPRINT_DEFAULT_GENERATION_WORKFLOW` selects the initial workflow shown by the frontend: `web_research` (default) or `default` (Catalog). Explicit workflow selections in generation requests take precedence.
 - `FIRECRAWL_API_KEY` or `FIRECRAWL_MCP_COMMAND` enables Firecrawl research. `FIRECRAWL_SEARCH_LIMIT` and `FIRECRAWL_MCP_TIMEOUT_SECONDS` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
-- `IMAGE_OUTPUT_ENABLED=true` makes generated product concept images the default. Leave it `false` and use the UI checkbox or `generate_image=true` API flag to opt in per job.
-- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, `huggingface`, or `none`.
+- A configured image provider makes generated product concept images the frontend default. API clients can still opt out with `generate_image=false`; `IMAGE_OUTPUT_ENABLED` remains the environment-level default for non-frontend callers.
+- `IMAGE_PROVIDER` can be `vertex`, `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
+- For `IMAGE_PROVIDER=vertex`, `VERTEX_AI_IMAGE_MODEL` defaults to `gemini-3.1-flash-image` (Nano Banana 2) and reuses the configured Vertex project, location, and Application Default Credentials. `VERTEX_AI_IMAGE_RESOLUTION`, `VERTEX_AI_IMAGE_ASPECT_RATIO`, and `VERTEX_AI_IMAGE_OUTPUT_FORMAT` control the output.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
 - For `IMAGE_PROVIDER=openai`, image generation uses `OPENAI_IMAGE_API_KEY` or `OPENAI_API_KEY` and `OPENAI_IMAGE_BASE_URL` or `OPENAI_BASE_URL`. It does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; those belong to text-model routing and OpenAI-compatible providers.
@@ -196,26 +236,26 @@ The server auto-seeds templates on startup if the `component_templates` table is
 
 Optional manual seed:
 ```bash
-python3 backend/seed_db.py
+python3 apps/api/seed_db.py
 ```
 
 ### Run the backend
-Run from the repo root so `backend.*` imports resolve correctly:
+Run from the repo root so `apps.api.*` imports resolve correctly:
 
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 OpenAI one-liner:
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn backend.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
 ```
 
 API docs: http://localhost:8000/api/docs
 
 ## Frontend setup (Next.js)
 ```bash
-cd frontend
+cd apps/web
 npm install
 npm run dev
 ```

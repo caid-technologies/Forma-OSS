@@ -1,6 +1,6 @@
 import json
 import logging
-import os
+from blueprint_core.config import config
 import re
 import uuid
 from datetime import datetime, timezone
@@ -18,6 +18,7 @@ from blueprint_core.database import (
 )
 from blueprint_core.llm import (
     LLMProviderConfigError,
+    LLMProviderInputError,
     LLMProviderOutputError,
     LLMProviderValidation,
     LLMRuntimeConfig,
@@ -25,18 +26,30 @@ from blueprint_core.llm import (
     resolve_llm_runtime_config,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from blueprint_core.agents.component_reconciliation import reconcile_explicit_catalog_components
+from blueprint_core.agents.system_architecture import (
+    architecture_tree_is_usable,
+    build_default_system_architecture,
+    compact_component_catalog,
+    compact_component_context,
+    compact_net_context,
+    ensure_system_architecture,
+    hydrate_catalog_components,
+    system_context,
+)
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
     generation_unavailable_message,
 )
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     HardwareIR, ProjectOverview, FunctionalRequirements, 
     ComponentInstance, ConnectionNet, PinReference, AssemblyStep, 
     MechanicalNotes, MechanicalSource, MechanicalVector3, MechanicalRotation3,
     MechanicalPlacement, MechanicalSpatialRelationship, PinMappingEntry,
-    ValidationIssue, PinDefinition, ValidationSummary, BusConnection, PowerRail
+    ValidationIssue, PinDefinition, ValidationSummary, BusConnection, PowerRail,
+    SystemArchitecture,
 )
 from blueprint_core.validation import validate_circuit, check_safety_violations, build_validation_summary
 
@@ -151,7 +164,7 @@ def _extract_json_object(text: str) -> Optional[Dict[str, Any]]:
 
 
 def _env_float(name: str, default: float) -> float:
-    raw_value = os.getenv(name)
+    raw_value = config.get(name)
     if raw_value is None or not raw_value.strip():
         return default
     try:
@@ -162,7 +175,7 @@ def _env_float(name: str, default: float) -> float:
 
 
 def _env_bool(name: str, default: bool = False) -> bool:
-    raw_value = os.getenv(name)
+    raw_value = config.get(name)
     if raw_value is None:
         return default
     return raw_value.strip().lower() in {"1", "true", "yes", "on"}
@@ -199,6 +212,7 @@ def get_db_component_templates() -> List[Dict[str, Any]]:
             "category": t.category,
             "description": t.description,
             "price": t.price,
+            "sourcing_url": t.sourcing_url,
             "pins": t.pins,
             "use_cases": t.use_cases
         })
@@ -459,6 +473,7 @@ def _offset_for_axis(source: MechanicalPlacement, target: MechanicalPlacement, a
 
 def build_mechanical_render_data(ir: HardwareIR) -> HardwareIR:
     """Populate the live Three.js/R3F render contract when the agent output is sparse."""
+    ensure_system_architecture(ir)
     if not ir.mechanical or not ir.components:
         return ir
 
@@ -555,6 +570,7 @@ class HardwarePipelineOrchestrator:
         provider_name: Optional[str] = None,
         model_name: Optional[str] = None,
         runtime_config: Optional[LLMRuntimeConfig] = None,
+        persist_project: bool = True,
     ):
         self.runtime_config = runtime_config or resolve_llm_runtime_config(
             provider_name=provider_name,
@@ -563,6 +579,7 @@ class HardwarePipelineOrchestrator:
         self.llm_provider = build_llm_provider(runtime_config=self.runtime_config)
         self.use_simulation = use_simulation or not self.llm_provider.is_configured
         self.model_name = self.llm_provider.model_name
+        self.persist_project = persist_project
         self._active_generation_metadata: Dict[str, Any] = {}
 
     def get_debug_config(self) -> Dict[str, Any]:
@@ -639,10 +656,11 @@ class HardwarePipelineOrchestrator:
         }
         # 0. Safety Guardrail Pre-check
         emit_agent_pipeline_event("default", "safety_guardrail", "started")
-        safety_error = check_safety_violations(user_prompt)
+        safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
+        safety_error = check_safety_violations(safety_prompt)
         if safety_error:
             emit_agent_pipeline_event("default", "safety_guardrail", "failed", details={"reason": safety_error})
-            logger.warning(f"Safety block triggered for prompt: '{user_prompt}'")
+            logger.warning(f"Safety block triggered for prompt: '{safety_prompt}'")
             # Compile a default safety-blocked IR package
             overview = ProjectOverview(
                 title="PROJECT BLOCKED - Safe Scope Enforced",
@@ -711,6 +729,8 @@ class HardwarePipelineOrchestrator:
 
         try:
             model_validation = self.validate_configured_model()
+            if image_bytes:
+                self.llm_provider.validate_image_input()
         except LLMProviderConfigError as e:
             if deployment_mode_enabled():
                 logger.error("LLM provider validation failed in deployment mode: %s", e)
@@ -742,7 +762,7 @@ class HardwarePipelineOrchestrator:
                     "LLM output was unusable: the selected model returned placeholder project overview fields "
                     f"(title={overview.title!r}, description={overview.description!r}) for "
                     f"{self.llm_provider.provider_name}/{self.llm_provider.model_name}. "
-                    "Use openai/gpt-5.5 for this pipeline or add a dedicated Parti adapter before using "
+                    "Use openai/gpt-5.6-sol for this pipeline or add a dedicated Parti adapter before using "
                     "runpod/caid-technologies/parti-base for full project generation."
                 )
 
@@ -758,20 +778,58 @@ class HardwarePipelineOrchestrator:
                 """
                 requirements: FunctionalRequirements = self._call_llm_structured(req_prompt, FunctionalRequirements, image_bytes, image_mime_type)
 
-            # 3. Component Selection Agent
+            # 3. System Architecture Agent
+            logger.info("Invoking System Architecture Agent...")
+            with agent_pipeline_step("default", "system_architecture"):
+                architecture_prompt = f"""
+                You are a System Architecture Agent. Decompose the complete product into a concise hierarchical tree before any specialist expands implementation details.
+
+                Project: {overview.model_dump_json()}
+                Requirements: {requirements.model_dump_json()}
+
+                Return SystemArchitecture with one product root and only the applicable discipline branches, such as:
+                - electrical: power, control/compute, sensing/input, communication, and output/actuation systems
+                - mechanical: enclosure/protection, mounting/structure, motion, thermal, sealing, and service systems
+                - firmware: hardware abstraction, control logic, communications, and diagnostics
+
+                Every node must explain why it is needed, what outcomes it owns, its system-level constraints, abstract component roles, interfaces, and the specialist detail_owner.
+                Keep this at architecture level. Do not choose exact parts, nets, packages, connectors, or pin numbers.
+                Use stable dotted system_id values and nest specific systems under their discipline.
+                Every children item must be a complete nested SystemNode object, never a dotted-ID string.
+                Every interfaces item must be a SystemInterface object with name, connects_to, and purpose;
+                use connects_to for dotted system-ID references rather than putting references in children.
+                """
+                system_architecture: SystemArchitecture = self._call_llm_structured(
+                    architecture_prompt,
+                    SystemArchitecture,
+                    image_bytes,
+                    image_mime_type,
+                )
+                if not architecture_tree_is_usable(system_architecture):
+                    logger.warning(
+                        "System architecture provider output contained flattened or duplicate child IDs; "
+                        "using the deterministic architecture tree instead."
+                    )
+                    system_architecture = build_default_system_architecture(overview, requirements)
+
+            # 4. Component Selection Agent
             logger.info("Invoking Component Selection Agent...")
             with agent_pipeline_step("default", "component_selection"):
                 db_components = get_db_component_templates()
-                db_comp_json = json.dumps(db_components, indent=2)
+                compact_catalog_json = json.dumps(compact_component_catalog(db_components), indent=2)
+                architecture_json = json.dumps(system_context(system_architecture), indent=2)
                 
                 comp_prompt = f"""
                 You are a Component Selection Agent.
                 Your job is to select compatible components from our inventory database to fulfill the project's requirements.
                 
                 Requirements: {requirements.model_dump_json()}
+
+                System architecture (purpose and roles, intentionally no pins):
+                {architecture_json}
                 
-                Here are the available components in our database with their pin definitions and prices:
-                {db_comp_json}
+                Here is the compact component catalog. Pin counts and interface types are included, but physical pin definitions are intentionally omitted:
+                {compact_catalog_json}
                 
                 Select a suitable list of components. You MUST include a microcontroller (e.g., ESP32-WROOM-32D or Arduino-Nano-V3) and any sensors, actuators, displays, or passive/power parts needed.
                 For each selected component, instantiate it as a ComponentInstance with:
@@ -779,7 +837,7 @@ class HardwarePipelineOrchestrator:
                 - part_number: MUST match exactly one of the available part_numbers in the database list above.
                 - name, category, quantity, unit_price, sourcing_url: Match the selected DB template.
                 - rationale: Explain why this component is selected and how it fits.
-                - pins: MUST match the exact list of pins from the template, including pin_id, name, pin_type, voltage.
+                - pins: Return an empty list. Exact catalog pins are hydrated deterministically after selection.
                 
                 Output a JSON representation conforming to a List[ComponentInstance].
                 """
@@ -788,12 +846,22 @@ class HardwarePipelineOrchestrator:
                     components: List[ComponentInstance]
                     
                 comp_wrapper: ComponentListWrapper = self._call_llm_structured(comp_prompt, ComponentListWrapper, image_bytes, image_mime_type)
-                components = comp_wrapper.components
+                components = hydrate_catalog_components(comp_wrapper.components, db_components)
+                components, reconciled_component_parts = reconcile_explicit_catalog_components(
+                    user_prompt,
+                    components,
+                    db_components,
+                )
+                if reconciled_component_parts:
+                    logger.info(
+                        "Restored explicitly requested catalog parts omitted by component selection: %s",
+                        ", ".join(reconciled_component_parts),
+                    )
 
             # Compile intermediate IR for wiring
             components_json = json.dumps([c.model_dump() for c in components], indent=2)
 
-            # 4. Wiring/Netlist Agent (With Auto-Correction Loop)
+            # 5. Wiring/Netlist Agent (With Auto-Correction Loop)
             logger.info("Invoking Wiring/Netlist Agent...")
             with agent_pipeline_step("default", "wiring_netlist"):
                 wiring_prompt = f"""
@@ -833,7 +901,7 @@ class HardwarePipelineOrchestrator:
             # Self-healing loop: Run validation checks on wiring
             logger.info("Running circuit validation checks on generated netlist...")
             with agent_pipeline_step("default", "validation_repair"):
-                validation_issues = validate_circuit(components, nets)
+                validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity == "CRITICAL" for issue in validation_issues)
 
                 if not is_valid:
@@ -866,7 +934,7 @@ class HardwarePipelineOrchestrator:
                     pin_mappings = corrected_wiring.pin_mappings
                     
                     # Re-validate
-                    validation_issues = validate_circuit(components, nets)
+                    validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
                     is_valid = not any(issue.severity == "CRITICAL" for issue in validation_issues)
                     logger.info(f"Self-healing completed. Is valid: {is_valid}")
 
@@ -879,10 +947,15 @@ class HardwarePipelineOrchestrator:
             # 6. Mechanical/Fabrication Agent
             logger.info("Invoking Mechanical/Fabrication Agent...")
             with agent_pipeline_step("default", "mechanical_fabrication"):
+                mechanical_components_json = json.dumps(compact_component_context(components), indent=2)
+                mechanical_architecture_json = json.dumps(system_context(system_architecture, "mechanical"), indent=2)
                 mech_prompt = f"""
             You are a Mechanical/Fabrication and CAD Sourcing Agent. Provide enclosure, mounting, material, and 3D printing/laser cutting details for this project.
             Project: "{overview.title}" - Description: "{overview.description}"
-            Components Selected: {components_json}
+            Mechanical system branch:
+            {mechanical_architecture_json}
+            Components Selected (identity and envelope purpose only; electrical pins are intentionally omitted):
+            {mechanical_components_json}
             Populate the MechanicalNotes schema, including:
             - fabrication_cost_estimate_usd: realistic mechanical-only print/cut/enclosure cost, excluding electrical components.
             - cad_sources: CAD/enclosure/fabrication records with name, source_type, url, file_formats, license, estimated_unit_price_usd, and adaptation notes.
@@ -897,11 +970,15 @@ class HardwarePipelineOrchestrator:
             # 7. Assembly Instruction Agent
             logger.info("Invoking Assembly Instruction Agent...")
             with agent_pipeline_step("default", "assembly"):
+                assembly_components_json = json.dumps(compact_component_context(components), indent=2)
+                assembly_nets_json = json.dumps(compact_net_context(nets), indent=2)
+                assembly_architecture_json = json.dumps(system_context(system_architecture), indent=2)
                 assembly_prompt = f"""
             You are an Assembly Instruction Agent. Produce step-by-step physical and electronic build instructions for the user.
             Project: "{overview.title}"
-            Components: {components_json}
-            Wiring Nets: {json.dumps([n.model_dump() for n in nets], indent=2)}
+            System hierarchy: {assembly_architecture_json}
+            Components (pin-free context): {assembly_components_json}
+            Wiring Nets (system connectivity without individual pin IDs): {assembly_nets_json}
             Mechanical Guide: {mechanical.model_dump_json()}
             
             Provide structured sequential steps in the AssemblyStep schema (list of steps). Specify warnings/dangers where necessary.
@@ -927,6 +1004,7 @@ class HardwarePipelineOrchestrator:
                     hardware_ir_version="0.1",
                     overview=overview,
                     requirements=requirements,
+                    system_architecture=system_architecture,
                     components=components,
                     nets=nets,
                     buses=buses,
@@ -945,6 +1023,7 @@ class HardwarePipelineOrchestrator:
                     "requested_model": model_validation.requested_model,
                     "actual_model": model_validation.actual_model,
                     "llm_provider": model_validation.provider,
+                    "component_reconciliation_added": reconciled_component_parts,
                     "requested_provider": self.runtime_config.requested_provider or self.runtime_config.provider,
                     "runtime_provider": self.runtime_config.provider,
                     "runtime_model": self.runtime_config.model,
@@ -965,6 +1044,8 @@ class HardwarePipelineOrchestrator:
         except PipelineCancelledError:
             raise
         except LLMProviderConfigError:
+            raise
+        except LLMProviderInputError:
             raise
         except LLMProviderOutputError:
             raise
@@ -1128,6 +1209,10 @@ class HardwarePipelineOrchestrator:
         )
         emit_agent_pipeline_event("default", "requirements", "completed", details={"adapter": "parti-base-v1"})
 
+        emit_agent_pipeline_event("default", "system_architecture", "started", details={"adapter": "parti-base-v1"})
+        system_architecture = build_default_system_architecture(overview, requirements)
+        emit_agent_pipeline_event("default", "system_architecture", "completed", details={"adapter": "parti-base-v1"})
+
         emit_agent_pipeline_event("default", "component_selection", "started", details={"adapter": "parti-base-v1"})
         components = [
             self._component_from_template(
@@ -1276,7 +1361,7 @@ class HardwarePipelineOrchestrator:
         emit_agent_pipeline_event("default", "wiring_netlist", "completed", details={"net_count": len(nets)})
 
         emit_agent_pipeline_event("default", "validation_repair", "started", details={"adapter": "parti-base-v1"})
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
             category="Power Path",
@@ -1358,6 +1443,7 @@ class HardwarePipelineOrchestrator:
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
+            system_architecture=system_architecture,
             components=components,
             nets=nets,
             buses=extract_buses(nets),
@@ -1412,23 +1498,27 @@ class HardwarePipelineOrchestrator:
     def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         """Saves a successfully generated HardwareIR to the configured database."""
         ensure_agent_pipeline_active()
-        project_id = canonical_project_uuid((ir.assembly_metadata or {}).get("project_id"))
         generation_metadata = self._active_generation_metadata or {}
+        project_id = canonical_project_uuid(
+            (ir.assembly_metadata or {}).get("project_id") or generation_metadata.get("project_id")
+        )
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
-            if key != "owner_user_id"
+            if key not in {"owner_user_id", "project_prompt"}
         }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
             **public_generation_metadata,
             "project_id": project_id,
         }
+        if not self.persist_project:
+            return project_id
         try:
             save_generated_project(
                 project_id=project_id,
                 title=ir.overview.title,
-                prompt=prompt,
+                prompt=str(generation_metadata.get("project_prompt") or prompt),
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 chat_id=generation_metadata.get("chat_id"),
@@ -1750,7 +1840,7 @@ class HardwarePipelineOrchestrator:
             ],
             manufacturability_rating="Moderate"
         )
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_summary = build_validation_summary(validation_issues)
         project_ir = HardwareIR(
             hardware_ir_version="0.1",
@@ -2016,7 +2106,7 @@ class HardwarePipelineOrchestrator:
             manufacturability_rating="Easy"
         )
 
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_summary = build_validation_summary(validation_issues)
         power_rails = extract_power_rails(components, nets)
         buses = extract_buses(nets)
@@ -2275,7 +2365,7 @@ class HardwarePipelineOrchestrator:
             manufacturability_rating="Moderate"
         )
 
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
             category="Scope Gap",
@@ -2525,7 +2615,7 @@ class HardwarePipelineOrchestrator:
             manufacturability_rating="Moderate"
         )
 
-        validation_issues = validate_circuit(components, nets)
+        validation_issues = validate_circuit(components, nets, requirements)
         validation_issues.append(ValidationIssue(
             severity="INFO",
             category="Scope Gap",

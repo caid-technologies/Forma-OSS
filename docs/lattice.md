@@ -16,7 +16,7 @@ Each meaningful project namespace can be represented as its own Lattice agent:
 - `project.history`
 - `project.meta`
 
-`fabricator` follows the same pattern as a specialist namespace-style agent. It keeps the CLI/package name `fabricator`, but its Lattice card declares ownership of `product.fabricator`.
+`blueprint_core.fabricator` follows the same pattern as a specialist namespace-style agent. Its installed command remains `fabricator`, while its Lattice card declares ownership of `product.fabricator`.
 
 ## Contract Shape
 

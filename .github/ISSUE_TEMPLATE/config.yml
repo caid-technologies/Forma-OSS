@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question
+    url: https://github.com/caid-technologies/Forma-OSS/discussions
+    about: Ask for help or discuss an idea before opening a focused issue.
+  - name: Report a security vulnerability
+    url: mailto:team@caid-technologies.com
+    about: Report suspected vulnerabilities privately. Do not open a public issue.

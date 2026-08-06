@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+
+from blueprint_core.config import config as env_config
 import re
 import hashlib
 import base64
@@ -210,7 +212,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 "llm_model",
                 "Model override",
                 ("LLM_MODEL",),
-                placeholder="gpt-5.5",
+                placeholder="gpt-5.6-sol",
                 help="Advanced override. Leave blank when Preferred model is set.",
             ),
             IntegrationFieldDefinition(
@@ -248,7 +250,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("OPENAI_API_KEY",), secret=True, placeholder="sk-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("OPENAI_BASE_URL", "OPENAI_IMAGE_BASE_URL"), placeholder="https://api.openai.com/v1"),
-            IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.5"),
+            IntegrationFieldDefinition("model", "Default text model", ("OPENAI_MODEL", "OPENAI_STREAM_MODEL"), placeholder="gpt-5.6-sol"),
             IntegrationFieldDefinition("image_model", "Default image model", ("OPENAI_IMAGE_MODEL",), placeholder="gpt-image-2"),
             IntegrationFieldDefinition("image_size", "Image size", ("OPENAI_IMAGE_SIZE",), placeholder="1024x1024"),
             IntegrationFieldDefinition("image_quality", "Image quality", ("OPENAI_IMAGE_QUALITY",), placeholder="medium"),
@@ -283,16 +285,17 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         ),
     ),
     IntegrationDefinition(
-        id="nebius",
-        label="Nebius Token Factory",
-        description="OpenAI-compatible text generation through Nebius Token Factory.",
+        id="cloudflare",
+        label="Cloudflare AI",
+        description="OpenAI-compatible text generation through Cloudflare AI.",
         fields=(
-            IntegrationFieldDefinition("api_key", "API key", ("NEBIUS_API_KEY",), secret=True, placeholder="Nebius API key"),
-            IntegrationFieldDefinition("base_url", "Base URL", ("NEBIUS_BASE_URL",), placeholder="https://api.tokenfactory.nebius.com/v1"),
-            IntegrationFieldDefinition("model", "Default model", ("NEBIUS_MODEL", "NEBIUS_STREAM_MODEL"), placeholder="Qwen/Qwen3.5-397B-A17B"),
-            IntegrationFieldDefinition("fallback_model", "Fallback model", ("NEBIUS_FALLBACK_MODEL",), placeholder="openai/gpt-oss-120b"),
-            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NEBIUS_TIMEOUT_SECONDS", "NEBIUS_STREAM_TIMEOUT_SECONDS"), placeholder="300"),
-            IntegrationFieldDefinition("max_tokens", "Max tokens", ("NEBIUS_MAX_TOKENS", "NEBIUS_STREAM_MAX_OUTPUT_TOKENS"), placeholder="8192"),
+            IntegrationFieldDefinition("api_key", "API token", ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"), secret=True, placeholder="Cloudflare API token"),
+            IntegrationFieldDefinition("account_id", "Account ID", ("CLOUDFLARE_ACCOUNT_ID",), placeholder="Cloudflare account ID"),
+            IntegrationFieldDefinition("base_url", "Base URL override", ("CLOUDFLARE_BASE_URL",), placeholder="Derived from the account ID"),
+            IntegrationFieldDefinition("model", "Default model", ("CLOUDFLARE_MODEL", "CLOUDFLARE_STREAM_MODEL"), placeholder="@cf/google/gemma-4-26b-a4b-it"),
+            IntegrationFieldDefinition("fallback_model", "Fallback model", ("CLOUDFLARE_FALLBACK_MODEL",), placeholder="@cf/google/gemma-4-26b-a4b-it"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("CLOUDFLARE_TIMEOUT_SECONDS", "CLOUDFLARE_STREAM_TIMEOUT_SECONDS"), placeholder="300"),
+            IntegrationFieldDefinition("max_tokens", "Max tokens", ("CLOUDFLARE_MAX_TOKENS", "CLOUDFLARE_STREAM_MAX_OUTPUT_TOKENS"), placeholder="8192"),
         ),
     ),
     IntegrationDefinition(
@@ -491,6 +494,63 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         ),
     ),
     IntegrationDefinition(
+        id="vertex",
+        label="Google Vertex AI",
+        description="Gemini models on Vertex AI using server-side Google Cloud Application Default Credentials.",
+        fields=(
+            IntegrationFieldDefinition(
+                "project",
+                "Google Cloud project",
+                ("VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT"),
+                placeholder="your-gcp-project-id",
+                help="The backend must have Vertex AI access through Application Default Credentials.",
+            ),
+            IntegrationFieldDefinition(
+                "location",
+                "Vertex AI location",
+                ("VERTEX_AI_LOCATION", "GOOGLE_CLOUD_LOCATION"),
+                placeholder="global",
+            ),
+            IntegrationFieldDefinition("model", "Default model", ("VERTEX_AI_MODEL",), placeholder="gemini-3.5-flash"),
+            IntegrationFieldDefinition(
+                "image_model",
+                "Image model",
+                ("VERTEX_AI_IMAGE_MODEL", "VERTEX_IMAGE_MODEL"),
+                placeholder="gemini-3.1-flash-image",
+            ),
+            IntegrationFieldDefinition(
+                "image_resolution",
+                "Image resolution",
+                ("VERTEX_AI_IMAGE_RESOLUTION", "VERTEX_IMAGE_RESOLUTION"),
+                placeholder="1K",
+            ),
+            IntegrationFieldDefinition(
+                "image_aspect_ratio",
+                "Image aspect ratio",
+                ("VERTEX_AI_IMAGE_ASPECT_RATIO", "VERTEX_IMAGE_ASPECT_RATIO"),
+                placeholder="1:1",
+            ),
+            IntegrationFieldDefinition(
+                "image_output_format",
+                "Image output format",
+                ("VERTEX_AI_IMAGE_OUTPUT_FORMAT", "VERTEX_IMAGE_OUTPUT_FORMAT"),
+                placeholder="png",
+            ),
+            IntegrationFieldDefinition(
+                "image_timeout_seconds",
+                "Image timeout seconds",
+                ("VERTEX_AI_IMAGE_TIMEOUT_SECONDS", "VERTEX_IMAGE_TIMEOUT_SECONDS"),
+                placeholder="120",
+            ),
+            IntegrationFieldDefinition(
+                "fallback_model",
+                "Fallback model",
+                ("VERTEX_AI_FALLBACK_MODEL",),
+                placeholder="gemini-2.5-flash",
+            ),
+        ),
+    ),
+    IntegrationDefinition(
         id="firecrawl",
         label="Firecrawl",
         description="Firecrawl MCP search and page extraction.",
@@ -526,18 +586,20 @@ EXTRA_MANAGED_ENV_NAMES = {
     "BASETEN_ALLOWED_MODELS",
     "GMI_ALLOWED_MODELS",
     "HUGGINGFACE_ALLOWED_MODELS",
-    "NEBIUS_ALLOWED_MODELS",
+    "CLOUDFLARE_ALLOWED_MODELS",
     "NVIDIA_ALLOWED_MODELS",
     "OPENAI_ALLOWED_MODELS",
     "RUNPOD_ALLOWED_MODELS",
+    "VERTEX_AI_ALLOWED_MODELS",
 }
 LLM_PROVIDER_INTEGRATION_IDS = {
     "anthropic",
     "baseten",
     "gemini",
+    "vertex",
     "gmi",
     "huggingface",
-    "nebius",
+    "cloudflare",
     "nvidia",
     "openai",
     "runpod",
@@ -547,14 +609,18 @@ PROVIDER_ALIASES = {
     "anthropic-claude": "anthropic",
     "hf": "huggingface",
     "hugging-face": "huggingface",
-    "nebius-ai": "nebius",
-    "nebius-token-factory": "nebius",
-    "token-factory": "nebius",
-    "tokenfactory": "nebius",
+    "cloudflare-ai": "cloudflare",
+    "cloudflare-workers-ai": "cloudflare",
+    "workers-ai": "cloudflare",
+    "workers_ai": "cloudflare",
     "nvidia-build": "nvidia",
     "nvidia-nim": "nvidia",
     "nim": "nvidia",
     "google": "gemini",
+    "google-vertex": "vertex",
+    "google-vertex-ai": "vertex",
+    "vertex-ai": "vertex",
+    "vertexai": "vertex",
 }
 MODEL_PREFIX_PROVIDERS = (
     ("claude-", "anthropic"),
@@ -570,9 +636,10 @@ PROVIDER_ALLOWED_MODEL_ENV = {
     "anthropic": "ANTHROPIC_ALLOWED_MODELS",
     "baseten": "BASETEN_ALLOWED_MODELS",
     "gemini": "GEMINI_ALLOWED_MODELS",
+    "vertex": "VERTEX_AI_ALLOWED_MODELS",
     "gmi": "GMI_ALLOWED_MODELS",
     "huggingface": "HUGGINGFACE_ALLOWED_MODELS",
-    "nebius": "NEBIUS_ALLOWED_MODELS",
+    "cloudflare": "CLOUDFLARE_ALLOWED_MODELS",
     "nvidia": "NVIDIA_ALLOWED_MODELS",
     "openai": "OPENAI_ALLOWED_MODELS",
     "runpod": "RUNPOD_ALLOWED_MODELS",
@@ -634,14 +701,14 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
             "deployment, or unrestricted account tokens are not accepted."
         ),
     ),
-    "nebius": HostedByokPolicy(
+    "cloudflare": HostedByokPolicy(
         hosted_byok="disabled",
         local_byok="enabled",
         self_hosted_byok="enabled",
         blocked_secret_fields=("api_key",),
         note=(
-            "Forma Cloud does not accept user-supplied Nebius Token Factory API keys until provider terms and "
-            "credential scopes have been reviewed. Use local or self-hosted Forma for Nebius BYOK."
+            "Forma Cloud does not accept user-supplied Cloudflare API tokens until provider terms and "
+            "credential scopes have been reviewed. Use local or self-hosted Forma for Cloudflare BYOK."
         ),
     ),
     "together": HostedByokPolicy(
@@ -679,11 +746,11 @@ def _repo_root() -> Path:
 
 def _configured_path() -> Optional[Path]:
     for env_name in CONFIG_PATH_ENV_NAMES:
-        raw_value = os.getenv(env_name)
+        raw_value = env_config.get(env_name)
         if raw_value and raw_value.strip():
             return Path(raw_value.strip()).expanduser()
     for env_name in CONFIG_DIR_ENV_NAMES:
-        raw_value = os.getenv(env_name)
+        raw_value = env_config.get(env_name)
         if raw_value and raw_value.strip():
             return Path(raw_value.strip()).expanduser() / DEFAULT_CONFIG_FILENAME
     return None
@@ -701,7 +768,7 @@ def user_integrations_path_for_user(user_id: str) -> Path:
 
 
 def encrypted_workspace_integrations_path() -> Path:
-    configured = os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_PATH")
+    configured = env_config.get("BLUEPRINT_WORKSPACE_INTEGRATIONS_PATH")
     if configured and configured.strip():
         return Path(configured.strip()).expanduser()
     return _repo_root() / DEFAULT_CONFIG_DIR / DEFAULT_ENCRYPTED_CONFIG_FILENAME
@@ -814,35 +881,35 @@ class UserIntegrationStore:
 
 def _workspace_integration_backend() -> str:
     return (
-        os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND")
-        or os.getenv("BLUEPRINT_INTEGRATIONS_BACKEND")
+        env_config.get("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND")
+        or env_config.get("BLUEPRINT_INTEGRATIONS_BACKEND")
         or ""
     ).strip().lower()
 
 
 def _user_integration_backend() -> str:
     return (
-        os.getenv("BLUEPRINT_USER_INTEGRATIONS_BACKEND")
-        or os.getenv("BLUEPRINT_INTEGRATIONS_BACKEND")
+        env_config.get("BLUEPRINT_USER_INTEGRATIONS_BACKEND")
+        or env_config.get("BLUEPRINT_INTEGRATIONS_BACKEND")
         or ""
     ).strip().lower()
 
 
 def _supabase_url() -> Optional[str]:
-    value = os.getenv("SUPABASE_URL") or os.getenv("NEXT_PUBLIC_SUPABASE_URL")
+    value = env_config.get("SUPABASE_URL") or env_config.get("NEXT_PUBLIC_SUPABASE_URL")
     return value.strip() if value and value.strip() else None
 
 
 def _supabase_service_key() -> Optional[str]:
     for name in ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"):
-        value = os.getenv(name)
+        value = env_config.get(name)
         if value and value.strip():
             return value.strip()
     return None
 
 
 def _env_float(name: str, default: float) -> float:
-    value = os.getenv(name)
+    value = env_config.get(name)
     if not value or not value.strip():
         return default
     try:
@@ -949,7 +1016,7 @@ def _requires_hosted_together_confirmation(integration_id: str, field_values: Op
 
 
 def require_user_secrets_key() -> str:
-    value = os.getenv("BLUEPRINT_USER_SECRETS_KEY")
+    value = env_config.get("BLUEPRINT_USER_SECRETS_KEY")
     if not value or not value.strip():
         message = (
             "BLUEPRINT_USER_SECRETS_KEY is required at runtime for encrypted integration settings. "
@@ -978,9 +1045,9 @@ def _fernet_for_secret(secret: str) -> Fernet:
 
 def _workspace_encryption_secret() -> str:
     value = (
-        os.getenv("BLUEPRINT_WORKSPACE_SECRETS_KEY")
-        or os.getenv("BLUEPRINT_WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
-        or os.getenv("WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
+        env_config.get("BLUEPRINT_WORKSPACE_SECRETS_KEY")
+        or env_config.get("BLUEPRINT_WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
+        or env_config.get("WORKSPACE_INTEGRATIONS_ENCRYPTION_KEY")
     )
     if value and value.strip():
         return value.strip()
@@ -1095,7 +1162,7 @@ class SupabaseUserIntegrationStore(UserIntegrationStore):
             try:
                 from supabase import create_client
             except ImportError as exc:
-                raise RuntimeError("Supabase client is not installed. Run pip install -r backend/requirements.txt.") from exc
+                raise RuntimeError("Supabase client is not installed. Run pip install -r apps/api/requirements.txt.") from exc
             return create_client(url, key)
 
     def load(self) -> UserIntegrationConfig:
@@ -1275,7 +1342,7 @@ class SupabaseWorkspaceIntegrationStore(UserIntegrationStore):
             try:
                 from supabase import create_client
             except ImportError as exc:
-                raise RuntimeError("Supabase client is not installed. Run pip install -r backend/requirements.txt.") from exc
+                raise RuntimeError("Supabase client is not installed. Run pip install -r apps/api/requirements.txt.") from exc
             return create_client(url, key)
 
     def load(self) -> UserIntegrationConfig:
@@ -1353,7 +1420,7 @@ def mask_secret(value: Optional[str]) -> Optional[str]:
 
 def _first_env(env_names: Iterable[str]) -> Optional[str]:
     for env_name in env_names:
-        value = os.getenv(env_name)
+        value = env_config.get(env_name)
         if value and value.strip():
             return value.strip()
     return None
@@ -1372,7 +1439,7 @@ def _capture_original_environment(env_names: Iterable[str]) -> None:
     """Remember deployment/local env values before applying a saved BYOK overlay."""
     for env_name in env_names:
         if env_name not in _ORIGINAL_ENV_VALUES:
-            _ORIGINAL_ENV_VALUES[env_name] = os.environ.get(env_name)
+            _ORIGINAL_ENV_VALUES[env_name] = env_config.get(env_name)
 
 
 def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
@@ -1391,6 +1458,8 @@ def _environment_configures_integration(definition: IntegrationDefinition) -> bo
     ]
     if definition.id not in LLM_PROVIDER_INTEGRATION_IDS:
         return bool(configured_fields)
+    if definition.id == "vertex":
+        return any(field_definition.id == "project" for field_definition in configured_fields)
     if any(field_definition.secret for field_definition in configured_fields):
         return True
     runtime_provider = _normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or "")
@@ -1498,6 +1567,8 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
                 remember_image_provider("openai", integration)
             elif integration.id == "gmi" and integration.field_value("api_key"):
                 remember_image_provider("gmi", integration)
+            elif integration.id == "vertex" and integration.field_value("project") and integration.field_value("image_model"):
+                remember_image_provider("vertex", integration)
 
         if integration.id == "together" and integration.field_value("api_key"):
             remember_image_provider("together", integration)
@@ -1585,13 +1656,13 @@ def apply_user_integrations_to_environment(
             continue
         original_value = _ORIGINAL_ENV_VALUES.get(env_name)
         if original_value is None:
-            os.environ.pop(env_name, None)
+            env_config.unset(env_name)
         else:
-            os.environ[env_name] = original_value
+            env_config.set(env_name, original_value)
         _APPLIED_ENV_VALUES.pop(env_name, None)
 
     for env_name, desired_value in desired.items():
-        os.environ[env_name] = desired_value
+        env_config.set(env_name, desired_value)
         _APPLIED_ENV_VALUES[env_name] = desired_value
 
     return config

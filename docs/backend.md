@@ -3,23 +3,23 @@
 The backend is a **FastAPI** service that orchestrates agents, validates netlists, renders diagrams, and stores generated projects.
 
 ## Key modules
-- `backend/main.py` – FastAPI app and API routes
-- `backend/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
+- `apps/api/main.py` – FastAPI app and API routes
+- `apps/api/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
 - `blueprint_core/generation.py` – high-level generation API
 - `blueprint_core/agents/orchestrator.py` – multi-agent pipeline
 - `blueprint_core/models.py` – Pydantic Hardware IR schemas
 - `blueprint_core/validation.py` – rule-based electrical checks
 - `blueprint_core/llm_providers.py` – provider-agnostic structured LLM adapters
 - `blueprint_core/image_providers.py` – optional generated product image adapters
-- `blueprint_core/runtime_config.py` – deployment and runtime gating helpers
+- `blueprint_core/config/runtime.py` – deployment and runtime gating helpers
 - `blueprint_core/observability.py` – optional Langfuse tracing helpers
 - `blueprint_core/database.py` – SQLAlchemy models + DB setup
 - `blueprint_core/utils.py` – Mermaid and SVG schematic generation
-- `backend/storage.py` – Supabase Storage image uploads, disabled in development mode
-- `backend/seed_db.py` – seed component templates
+- `apps/api/storage.py` – Supabase Storage image uploads, disabled in development mode
+- `apps/api/seed_db.py` – seed component templates
 
 ## API endpoints
-- `POST /api/generate` – run the pipeline and return IR + diagrams
+- `POST /api/generate` – asynchronously run the pipeline off the API event loop and return IR + diagrams
 - `POST /api/alpha-signups` – capture alpha launch interest while deployed generation is gated
 - `GET /api/a2a/capabilities` – inspect agent transports and actions
 - `PUT /api/a2a/agents/{agent_id}` – register an agent listener
@@ -27,6 +27,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/a2a/agents/{agent_id}/events` – long-poll queued A2A events
 - `GET /api/a2a/jobs` – list persisted A2A job metadata, including generation `source_usage`
 - `GET /api/a2a/jobs/{job_id}` – fetch one persisted A2A job metadata record, including generation `source_usage`
+- `GET /api/data-sources` – list optional generation context sources and their limits
 - `GET /api/logs/backend` – tail recent backend and uvicorn log lines for the frontend LOGS tab
 - `WebSocket /api/a2a/socket/{agent_id}` – bidirectional A2A event stream
 - `POST /api/mcp` and `POST /api/a2a/mcp` – MCP-style JSON-RPC tool endpoint
@@ -36,6 +37,7 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/projects/{project_id}` – fetch a stored project
 - `POST /api/seed` – re-seed the component database
 - `GET /api/debug/config` – inspect LLM, database, image-provider, and image-storage resolution (no secrets)
+- `GET /api/runtime/config` – canonical user-scoped generation contract used by the frontend (selected/configured LLMs, image behavior, workflow default, and provider-setup requirements)
 
 ## Orchestration layer
 The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `blueprint_core/agents/orchestrator.py`). Live agent calls go through `blueprint_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
@@ -47,16 +49,24 @@ Generation behavior is packaged under `blueprint_core` so the API server, CLI, s
 The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
 
 LLM configuration behavior:
+
+- Runtime precedence is fixed in one backend resolver: explicit request override, saved integration, environment, then provider default. `/api/runtime/config` is the client authority; clients must not reconstruct readiness or defaults from environment variables or integration form fields.
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
-- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
+- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/development/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `BLUEPRINT_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `BLUEPRINT_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
-- `LLM_PROVIDER`: `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `nebius`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
+- `REDIS_URL`: Redis connection URL for cached `/projects` and `/my/projects` responses. It and `REDIS_CACHE_PREFIX` are required at startup when `BLUEPRINT_DEV_MODE=false`; runtime cache failures still fall back to the database.
+- `PROJECTS_CACHE_TTL_SECONDS`: project-list cache lifetime in seconds, default `60`; successful project writes invalidate all list variants immediately.
+- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `BLUEPRINT_DEV_MODE=false` and defaulting to `blueprint` only for development-mode cache usage.
+- `REDIS_SOCKET_TIMEOUT_SECONDS`: Redis connect/read timeout, default `0.25`; failures open a 30-second local circuit breaker.
+- `LLM_PROVIDER`: `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching. The backend validates them before generation and records requested/actual provider/model metadata on the project.
+- `/api/generate` accepts `data_sources: ["past_jobs"]` and an optional `past_jobs_limit` (1-8, default 3). This retrieves the signed-in owner's relevant completed generation jobs, compacts their stored project outputs into bounded prompt context, and requires no embedding model or vector database. The current request always takes precedence over historical examples.
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
-- `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `NEBIUS_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
+- `VERTEX_AI_ALLOWED_MODELS` / `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
+- `GOOGLE_CLOUD_PROJECT` / `VERTEX_AI_PROJECT`, `GOOGLE_CLOUD_LOCATION` / `VERTEX_AI_LOCATION`, and `VERTEX_AI_MODEL`: Vertex AI routing when `LLM_PROVIDER=vertex`; authentication uses Google Cloud Application Default Credentials.
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`
 - `OPENAI_MODEL`: first-party OpenAI model alias for `LLM_MODEL`
 - `OPENAI_RESPONSE_FORMAT`: OpenAI response format, defaulting to `json_schema`; `json_object` and `none` are also supported
@@ -70,12 +80,14 @@ LLM configuration behavior:
 - `LANGFUSE_MAX_FIELD_CHARS`: optional per-field payload cap for traced prompt/output previews, defaulting to `20000`.
 - `LANGFUSE_ENABLED=false`: explicit opt-out when project keys are present in the runtime environment.
 - `IMAGE_OUTPUT_ENABLED=true`: make product concept image generation the default. Requests can opt in per job with `generate_image=true`
-- `IMAGE_PROVIDER`: `openai`, `openai-compatible`, `huggingface`, or `none`
+- `IMAGE_PROVIDER`: `vertex`, `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`
+- `VERTEX_AI_IMAGE_MODEL`: Nano Banana model on Vertex AI; defaults to `gemini-3.1-flash-image`
+- `VERTEX_AI_IMAGE_RESOLUTION` / `VERTEX_AI_IMAGE_ASPECT_RATIO`: Vertex image size controls, defaulting to `1K` and `1:1`
 - `OPENAI_IMAGE_MODEL`: first-party OpenAI image model, for example `gpt-image-2`
 - `OPENAI_IMAGE_SIZE`: image output size, for example `1024x1024`
 - `HUGGINGFACE_IMAGE_MODEL` / `HUGGINGFACE_IMAGE_INFERENCE_PROVIDER`: Hugging Face text-to-image model and underlying inference provider when `IMAGE_PROVIDER=huggingface`
 - `HUGGINGFACE_IMAGE_MODEL_REVISION` / `HUGGINGFACE_IMAGE_MODEL_LICENSE`: optional policy metadata recorded with stored Hugging Face image outputs
-- `SUPABASE_S3_ENDPOINT`: Supabase Storage S3 endpoint associated with image uploads, defaulting from `SUPABASE_URL` when possible
+- `SUPABASE_S3_ENDPOINT`: explicit endpoint required for direct S3-compatible image uploads; Supabase-client uploads derive their endpoint from `SUPABASE_URL`
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for reference and generated product images, defaulting to `contents`
 - `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `BLUEPRINT_DEV_MODE=true` disables these image uploads
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: lifetime for refreshed Supabase Storage read URLs when projects are loaded, defaulting to `86400`
@@ -94,8 +106,8 @@ LLM configuration behavior:
 - `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`: Anthropic Claude key when `LLM_PROVIDER=anthropic` or a request uses `provider=anthropic`
 - `ANTHROPIC_BASE_URL`: Claude API base URL. Defaults to `https://api.anthropic.com/v1`
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`
-- `NEBIUS_API_KEY` / `NEBIUS_BASE_URL`: Nebius Token Factory configuration when `LLM_PROVIDER=nebius` or a request uses `provider=nebius`. `NEBIUS_BASE_URL` defaults to `https://api.tokenfactory.nebius.com/v1`.
-- `NEBIUS_MODEL`: Nebius model ID, for example `Qwen/Qwen3.5-397B-A17B`. `NEBIUS_RESPONSE_FORMAT` defaults to `json_schema`.
+- `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`: Cloudflare AI configuration when `LLM_PROVIDER=cloudflare` or a request uses `provider=cloudflare`. The OpenAI-compatible base URL is derived from the account ID; `CLOUDFLARE_BASE_URL` can override it.
+- `CLOUDFLARE_MODEL`: Cloudflare Workers AI model ID. Defaults to the Free-plan-compatible `@cf/google/gemma-4-26b-a4b-it`; `CLOUDFLARE_RESPONSE_FORMAT` defaults to `json_schema`.
 - `NVIDIA_API_KEY` / `NVIDIA_BASE_URL`: NVIDIA Build/NIM configuration when `LLM_PROVIDER=nvidia` or a request uses `provider=nvidia`. `NVIDIA_BASE_URL` defaults to `https://integrate.api.nvidia.com/v1`.
 - `NVIDIA_MODEL`: NVIDIA model slug, for example `nvidia/z-ai/glm-5.2`
 - `RUNPOD_API_KEY` / `RUNPOD_OPENAI_BASE_URL`: Runpod OpenAI-compatible/vLLM configuration when `LLM_PROVIDER=runpod` or a request uses `provider=runpod`
@@ -122,43 +134,45 @@ On startup the server:
 Run the server from the repo root:
 
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 To make backend logs visible in the local frontend LOGS tab when running uvicorn directly, set `BACKEND_LOG_FILE`:
 
 ```bash
-BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn backend.main:app --reload --port 8000
+BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn apps.api.main:app --reload --port 8000
 ```
 
-Switch the generation LLM from the CLI with `--llm provider/model`:
+Run generation directly through the sole Blueprint Core CLI with `--llm provider/model`:
 
 ```bash
-./scripts/blueprint-backend generate "plant watering monitor" --llm openai/gpt-5.5
-./scripts/blueprint-backend generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
+blueprint-core generate "plant watering monitor" --llm openai/gpt-5.5
+blueprint-core generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
 ```
+
+Live CLI generation and iteration are strict: provider, model, and pipeline failures return a nonzero exit code instead of producing fallback output. Simulated output requires the explicit `--simulation` flag.
 
 Smoke-test configured LLM providers with a tiny structured prompt:
 
 ```bash
-./scripts/verify-llm-providers.py --list
-./scripts/verify-llm-providers.py --config-only
-./scripts/verify-llm-providers.py --save
-./scripts/run-llm-smoke-tests.py
-./scripts/verify-llm-providers.py --llm openai/gpt-5.5
-./scripts/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
-./scripts/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
-./scripts/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
-./scripts/verify-llm-providers.py --llm nebius/Qwen/Qwen3.5-397B-A17B
-./scripts/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
-./scripts/sample.py "Describe a low-voltage plant watering monitor with OLED status"
-./scripts/sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/models/verify-llm-providers.py --list
+./scripts/models/verify-llm-providers.py --config-only
+./scripts/models/verify-llm-providers.py --save
+./scripts/models/run-llm-smoke-tests.py
+./scripts/models/verify-llm-providers.py --llm openai/gpt-5.5
+./scripts/models/verify-llm-providers.py --llm runpod/caid-technologies/parti-base --timeout-seconds 1200
+./scripts/models/verify-llm-providers.py --llm baseten/deepseek-ai/DeepSeek-V4-Pro
+./scripts/models/verify-llm-providers.py --llm huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale
+./scripts/models/verify-llm-providers.py --llm cloudflare/@cf/google/gemma-4-26b-a4b-it
+./scripts/models/verify-llm-providers.py --llm nvidia/nvidia/z-ai/glm-5.2
+./scripts/models/sample.py "Describe a low-voltage plant watering monitor with OLED status"
+./scripts/models/sample_async.py --concurrency 4 "Describe a low-voltage plant watering monitor with OLED status"
 ```
 
-Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `scripts/sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `scripts/sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
+Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `scripts/models/sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `scripts/models/sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
 
 Run against first-party OpenAI:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-4o-mini uvicorn backend.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
 ```

@@ -651,6 +651,13 @@ function failedPipelineEvent(events: AgentPipelineEvent[] | undefined) {
   return [...normalizedEvents].reverse().find((event) => isFailedPipelineStatus(event.status)) || null;
 }
 
+function pipelineEventsFromWorkerTask(task: any): AgentPipelineEvent[] {
+  if (!Array.isArray(task?.progress)) return [];
+  return normalizeAgentPipelineEvents(
+    task.progress.map((item: any) => item?.metadata?.pipeline_event).filter(Boolean),
+  );
+}
+
 function compactDiagnosticText(value: any, limit: number = CHAT_DIAGNOSTIC_CHARACTER_LIMIT) {
   const original = String(value || "").trim();
   if (!original) return "";
@@ -2113,7 +2120,7 @@ export function FormaWorkspace({
     const jobIds = new Set<string>();
     const collect = (messages: ChatMessage[]) => {
       messages.forEach((message) => {
-        const jobId = message.status === "loading" ? message.pipelineProgress?.jobId : null;
+        const jobId = message.status === "loading" && !message.buildPlanId ? message.pipelineProgress?.jobId : null;
         if (jobId && jobId !== activeGeneration?.jobId) jobIds.add(jobId);
       });
     };
@@ -2898,6 +2905,27 @@ export function FormaWorkspace({
         if (!response.ok) throw new Error(await readApiErrorMessage(response));
         const plan = await response.json();
         const planStatus = typeof plan?.status === "string" ? plan.status : "";
+        const task = plan?.jobs?.[jobId];
+        const progressEvents = pipelineEventsFromWorkerTask(task);
+        if (progressEvents.length) {
+          const seedProgress = createAgentPipelineProgress(
+            agentPipelineSteps,
+            false,
+            typeof task?.started_at === "string" ? task.started_at : chatTimestamp(),
+            jobId,
+          );
+          const progressJob: A2AJob = {
+            job_id: jobId,
+            action: "blueprint.generate_project",
+            sender: "worker-orchestrator",
+            recipient: "blueprint",
+            status: "running",
+            started_at: typeof task?.started_at === "string" ? task.started_at : null,
+            progress_events: progressEvents,
+          };
+          applyChatPipelineProgressFromJob(assistantMessageId, progressJob, seedProgress, false);
+          applyThreadPipelineProgressFromJob(chatId, assistantMessageId, progressJob, seedProgress, false);
+        }
         if (planStatus === "succeeded") {
           const projectResponse = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
             headers: await optionalAuthHeaders(),
@@ -2948,7 +2976,6 @@ export function FormaWorkspace({
           return;
         }
         if (planStatus === "failed") {
-          const task = plan?.jobs?.[jobId];
           const failureMessage = typeof task?.error?.message === "string"
             ? task.error.message
             : "The design build stopped after an agent failure.";

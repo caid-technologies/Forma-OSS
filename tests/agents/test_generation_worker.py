@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import patch
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.agents.pipeline import emit_agent_pipeline_event
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workers import (
@@ -18,6 +19,7 @@ from blueprint_core.workers import (
     GENERATION_WORKER_ID,
     WORKER_CONTRACT_VERSION,
     GenerationWorker,
+    HardwareIRGenerationEngine,
     OrchestrationTaskStatus,
     WorkerOrchestrator,
     WorkerPlanStatus,
@@ -98,6 +100,13 @@ class FakeGenerationEngine:
             ],
             assumptions=[*design_brief.assumptions, "Use the ESP32 development-board regulator."],
         )
+
+
+class ObservableGenerationEngine(HardwareIRGenerationEngine):
+    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+        emit_agent_pipeline_event(None, "intent_parser", "started")
+        emit_agent_pipeline_event(None, "intent_parser", "completed")
+        return FakeGenerationEngine().generate(design_brief)
 
 
 class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
@@ -248,6 +257,26 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(2, second.revision)
         self.assertEqual(1, second.parent_revision)
         self.assertEqual("Revised Controller", self.state.get_latest(self.project_id, OWNER).state.overview.title)
+
+    async def test_hardware_pipeline_events_are_reported_as_worker_progress(self) -> None:
+        worker = GenerationWorker(self.state, ObservableGenerationEngine())
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        task = completed.jobs["job-generation-initial"]
+        reported = task.progress
+
+        pipeline_events = [
+            item.metadata["pipeline_event"]
+            for item in reported
+            if "pipeline_event" in item.metadata
+        ]
+        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
+        self.assertEqual(["started", "completed"], [event["status"] for event in pipeline_events])
+        self.assertEqual(["intent_parser", "intent_parser"], [event["step_id"] for event in pipeline_events])
+        self.assertEqual(sorted(item.sequence for item in reported), [item.sequence for item in reported])
+        self.assertEqual(len({item.sequence for item in reported}), len(reported))
 
     async def test_provider_failure_is_structured_retryable_and_does_not_create_revision(self) -> None:
         engine = FakeGenerationEngine(fail=True)

@@ -145,6 +145,28 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             reason="Start Generation worker test.",
         )
 
+    def test_hardware_engine_generates_a_product_image_by_default(self) -> None:
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Vertex Image Project",
+                description="A project that needs a product render.",
+                difficulty="Beginner",
+                category="IoT",
+            ),
+            assembly_metadata={"project_id": str(self.project_id)},
+        )
+        with (
+            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("blueprint_core.workers.generation.attach_product_image") as attach_image,
+        ):
+            orchestrator_type.return_value.generate_project.return_value = state
+
+            draft = HardwareIRGenerationEngine().generate(self.brief)
+
+        attach_image.assert_called_once()
+        self.assertTrue(attach_image.call_args.kwargs["generate_image"])
+        self.assertEqual("Vertex Image Project", draft.state.overview.title)
+
     def tearDown(self) -> None:
         self.directory.cleanup()
 

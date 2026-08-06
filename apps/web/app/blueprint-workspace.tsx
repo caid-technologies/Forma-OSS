@@ -3158,7 +3158,7 @@ export function FormaWorkspace({
     if (!pending.pipelineProgress) {
       const progress = createAgentPipelineProgress(
         defaultAgentPipelineSteps,
-        false,
+        generateProductImage,
         chatTimestamp(),
         pending.buildJobId,
       );
@@ -3265,7 +3265,7 @@ export function FormaWorkspace({
         : "";
       const buildIsActive = buildExecutionStatus === "planned" || buildExecutionStatus === "running";
       const buildPipelineProgress = buildPlanId
-        ? createAgentPipelineProgress(defaultAgentPipelineSteps, false, chatTimestamp(), buildJobId || null)
+        ? createAgentPipelineProgress(defaultAgentPipelineSteps, generateProductImage, chatTimestamp(), buildJobId || null)
         : null;
       if (persistedProjectId) contextProjectIdsRef.current[requestChatId] = persistedProjectId;
       if (workflowState) {
@@ -3376,7 +3376,7 @@ export function FormaWorkspace({
         : "planned";
       const buildIsActive = buildStatus === "planned" || buildStatus === "running";
       const pipelineProgress = buildPlanId
-        ? createAgentPipelineProgress(defaultAgentPipelineSteps, false, chatTimestamp(), buildJobId || null)
+        ? createAgentPipelineProgress(defaultAgentPipelineSteps, generateProductImage, chatTimestamp(), buildJobId || null)
         : null;
       contextProjectIdsRef.current[requestChatId] = projectId;
       setContextWorkflowStates((current) => ({ ...current, [requestChatId]: workflowState }));

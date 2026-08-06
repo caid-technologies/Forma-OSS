@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 from blueprint_core.agents.pipeline import (
     AgentPipelineEvent,
     PipelineCancelledError,
+    emit_agent_pipeline_event,
     list_agent_pipeline_steps,
     observe_agent_pipeline,
 )
@@ -32,6 +33,7 @@ from blueprint_core.workspaces.projects import (
     ProjectSystem,
 )
 from blueprint_core.workspaces.projects.models import HardwareIR
+from blueprint_core.workspaces.projects.output import attach_product_image
 
 
 GENERATION_WORKER_ID = "generation-worker"
@@ -61,10 +63,12 @@ class HardwareIRGenerationEngine:
         provider_name: str | None = None,
         model_name: str | None = None,
         use_simulation: bool = False,
+        generate_image: bool = True,
     ) -> None:
         self.provider_name = provider_name
         self.model_name = model_name
         self.use_simulation = use_simulation
+        self.generate_image = generate_image
 
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
         from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
@@ -88,6 +92,21 @@ class HardwareIRGenerationEngine:
         if generation_error or (state.assembly_metadata or {}).get("status") == "failed":
             message = generation_error.get("message") if isinstance(generation_error, dict) else None
             raise RuntimeError(str(message or "Structured hardware generation failed."))
+        if self.generate_image:
+            emit_agent_pipeline_event("default", "image_generation", "started")
+        attach_product_image(prompt, state, generate_image=self.generate_image)
+        if self.generate_image:
+            image_status = (state.assembly_metadata or {}).get("image_output_status")
+            emit_agent_pipeline_event(
+                "default",
+                "image_generation",
+                "completed" if image_status == "succeeded" else "failed",
+                details={
+                    "image_output_status": image_status,
+                    "provider": (state.assembly_metadata or {}).get("image_output_provider"),
+                    "model": (state.assembly_metadata or {}).get("image_output_model"),
+                },
+            )
         return build_generation_draft(design_brief, state)
 
     @staticmethod

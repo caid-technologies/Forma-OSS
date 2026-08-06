@@ -10,6 +10,7 @@ import {
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
+import { calculateProjectCostMetrics } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
   humanContextSkipChatSummary,
@@ -4313,41 +4314,7 @@ export function FormaWorkspace({
     downloadBrowserFile(markdown, docsExportFilename(title), "text/markdown;charset=utf-8");
   };
 
-  const getOverviewMetrics = () => {
-    if (!projectIR?.components) {
-      return { electricalParts: 0, mechanicalParts: 0, totalParts: 0, electricalCost: 0, mechanicalCost: 0, totalCost: 0 };
-    }
-
-    let electricalParts = 0;
-    let mechanicalParts = 0;
-    let electricalCost = 0;
-    let mechanicalCost = 0;
-
-    projectIR.components.forEach((component: any) => {
-      const category = component.category?.toLowerCase() || "";
-      const quantity = component.quantity || 1;
-      const unitPrice = component.unit_price || 0;
-
-      if (["mechanical", "3d print"].includes(category)) {
-        mechanicalParts += quantity;
-        mechanicalCost += unitPrice * quantity;
-      } else {
-        electricalParts += quantity;
-        electricalCost += unitPrice * quantity;
-      }
-    });
-
-    return {
-      electricalParts,
-      mechanicalParts,
-      totalParts: electricalParts + mechanicalParts,
-      electricalCost: Number(electricalCost.toFixed(2)),
-      mechanicalCost: Number(mechanicalCost.toFixed(2)),
-      totalCost: Number((electricalCost + mechanicalCost).toFixed(2)),
-    };
-  };
-
-  const metrics = getOverviewMetrics();
+  const metrics = calculateProjectCostMetrics(projectIR);
   const components = projectIR?.components || [];
   const assembly = projectIR?.assembly || [];
   const constraints = projectIR?.constraints || [];

@@ -513,6 +513,36 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
             ),
             IntegrationFieldDefinition("model", "Default model", ("VERTEX_AI_MODEL",), placeholder="gemini-3.5-flash"),
             IntegrationFieldDefinition(
+                "image_model",
+                "Image model",
+                ("VERTEX_AI_IMAGE_MODEL", "VERTEX_IMAGE_MODEL"),
+                placeholder="gemini-3.1-flash-image",
+            ),
+            IntegrationFieldDefinition(
+                "image_resolution",
+                "Image resolution",
+                ("VERTEX_AI_IMAGE_RESOLUTION", "VERTEX_IMAGE_RESOLUTION"),
+                placeholder="1K",
+            ),
+            IntegrationFieldDefinition(
+                "image_aspect_ratio",
+                "Image aspect ratio",
+                ("VERTEX_AI_IMAGE_ASPECT_RATIO", "VERTEX_IMAGE_ASPECT_RATIO"),
+                placeholder="1:1",
+            ),
+            IntegrationFieldDefinition(
+                "image_output_format",
+                "Image output format",
+                ("VERTEX_AI_IMAGE_OUTPUT_FORMAT", "VERTEX_IMAGE_OUTPUT_FORMAT"),
+                placeholder="png",
+            ),
+            IntegrationFieldDefinition(
+                "image_timeout_seconds",
+                "Image timeout seconds",
+                ("VERTEX_AI_IMAGE_TIMEOUT_SECONDS", "VERTEX_IMAGE_TIMEOUT_SECONDS"),
+                placeholder="120",
+            ),
+            IntegrationFieldDefinition(
                 "fallback_model",
                 "Fallback model",
                 ("VERTEX_AI_FALLBACK_MODEL",),
@@ -1537,6 +1567,8 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
                 remember_image_provider("openai", integration)
             elif integration.id == "gmi" and integration.field_value("api_key"):
                 remember_image_provider("gmi", integration)
+            elif integration.id == "vertex" and integration.field_value("project") and integration.field_value("image_model"):
+                remember_image_provider("vertex", integration)
 
         if integration.id == "together" and integration.field_value("api_key"):
             remember_image_provider("together", integration)

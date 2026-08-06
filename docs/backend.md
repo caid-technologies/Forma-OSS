@@ -80,7 +80,9 @@ LLM configuration behavior:
 - `LANGFUSE_MAX_FIELD_CHARS`: optional per-field payload cap for traced prompt/output previews, defaulting to `20000`.
 - `LANGFUSE_ENABLED=false`: explicit opt-out when project keys are present in the runtime environment.
 - `IMAGE_OUTPUT_ENABLED=true`: make product concept image generation the default. Requests can opt in per job with `generate_image=true`
-- `IMAGE_PROVIDER`: `openai`, `openai-compatible`, `huggingface`, or `none`
+- `IMAGE_PROVIDER`: `vertex`, `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`
+- `VERTEX_AI_IMAGE_MODEL`: Nano Banana model on Vertex AI; defaults to `gemini-3.1-flash-image`
+- `VERTEX_AI_IMAGE_RESOLUTION` / `VERTEX_AI_IMAGE_ASPECT_RATIO`: Vertex image size controls, defaulting to `1K` and `1:1`
 - `OPENAI_IMAGE_MODEL`: first-party OpenAI image model, for example `gpt-image-2`
 - `OPENAI_IMAGE_SIZE`: image output size, for example `1024x1024`
 - `HUGGINGFACE_IMAGE_MODEL` / `HUGGINGFACE_IMAGE_INFERENCE_PROVIDER`: Hugging Face text-to-image model and underlying inference provider when `IMAGE_PROVIDER=huggingface`

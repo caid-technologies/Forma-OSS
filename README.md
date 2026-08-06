@@ -325,7 +325,9 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `LANGFUSE_MAX_FIELD_CHARS`: Optional traced payload preview cap (default `20000`).
 - `LANGFUSE_ENABLED`: Optional explicit on/off switch. Set to `false` to disable tracing even when keys are present.
 - `IMAGE_OUTPUT_ENABLED`: Optional global default for generated product images. The UI and API can opt in per job with `generate_image=true`.
-- `IMAGE_PROVIDER`: Image provider. Supports `openai`, `openai-compatible`, or `none`.
+- `IMAGE_PROVIDER`: Image provider. Supports `vertex`, `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
+- `VERTEX_AI_IMAGE_MODEL`: Vertex AI Nano Banana model ID. `gemini-3.1-flash-image` (Nano Banana 2) is the default.
+- `VERTEX_AI_IMAGE_RESOLUTION` / `VERTEX_AI_IMAGE_ASPECT_RATIO`: Vertex output controls, defaulting to `1K` and `1:1`.
 - `OPENAI_IMAGE_MODEL`: OpenAI image model ID. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`: Generated image size, for example `1024x1024`.
 - `OPENAI_IMAGE_API_KEY` / `OPENAI_API_KEY`: First-party OpenAI image credentials. `IMAGE_PROVIDER=openai` does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; use `IMAGE_PROVIDER=openai-compatible` plus `IMAGE_BASE_URL`/`IMAGE_API_KEY` or `LLM_BASE_URL`/`LLM_API_KEY` for compatible image endpoints.

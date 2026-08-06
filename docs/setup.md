@@ -127,6 +127,11 @@ OPENAI_IMAGE_MODEL=gpt-image-2
 OPENAI_IMAGE_SIZE=1024x1024
 # OPENAI_IMAGE_QUALITY=medium
 # OPENAI_IMAGE_OUTPUT_FORMAT=png
+# For Nano Banana through the same Vertex AI project and ADC used by the LLM:
+# IMAGE_PROVIDER=vertex
+# VERTEX_AI_IMAGE_MODEL=gemini-3.1-flash-image
+# VERTEX_AI_IMAGE_RESOLUTION=1K
+# VERTEX_AI_IMAGE_ASPECT_RATIO=1:1
 
 # Optional Supabase Storage upload for reference/product images.
 # Uses the Supabase client with SUPABASE_URL plus the service-role/secret key.
@@ -199,7 +204,8 @@ Notes:
 - `FIRECRAWL_API_KEY` or `FIRECRAWL_MCP_COMMAND` enables Firecrawl research. `FIRECRAWL_SEARCH_LIMIT` and `FIRECRAWL_MCP_TIMEOUT_SECONDS` tune search behavior.
 - Set `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable Langfuse tracing for full generation requests and every structured LLM step. `GET /api/debug/config` reports whether tracing is active without exposing secrets. Set `LANGFUSE_ENABLED=false` to disable tracing even when keys are present.
 - A configured image provider makes generated product concept images the frontend default. API clients can still opt out with `generate_image=false`; `IMAGE_OUTPUT_ENABLED` remains the environment-level default for non-frontend callers.
-- `IMAGE_PROVIDER` can be `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
+- `IMAGE_PROVIDER` can be `vertex`, `openai`, `openai-compatible`, `gmi`, `together`, `huggingface`, or `none`.
+- For `IMAGE_PROVIDER=vertex`, `VERTEX_AI_IMAGE_MODEL` defaults to `gemini-3.1-flash-image` (Nano Banana 2) and reuses the configured Vertex project, location, and Application Default Credentials. `VERTEX_AI_IMAGE_RESOLUTION`, `VERTEX_AI_IMAGE_ASPECT_RATIO`, and `VERTEX_AI_IMAGE_OUTPUT_FORMAT` control the output.
 - `OPENAI_IMAGE_MODEL` selects the image model. The example default is `gpt-image-2`.
 - `OPENAI_IMAGE_SIZE`, `OPENAI_IMAGE_QUALITY`, and `OPENAI_IMAGE_OUTPUT_FORMAT` tune generated image output.
 - For `IMAGE_PROVIDER=openai`, image generation uses `OPENAI_IMAGE_API_KEY` or `OPENAI_API_KEY` and `OPENAI_IMAGE_BASE_URL` or `OPENAI_BASE_URL`. It does not inherit `LLM_API_KEY` or `LLM_BASE_URL`; those belong to text-model routing and OpenAI-compatible providers.

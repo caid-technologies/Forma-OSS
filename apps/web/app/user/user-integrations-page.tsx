@@ -117,6 +117,17 @@ type ImageProviderOption = {
 
 const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
   {
+    id: "vertex",
+    label: "Google Vertex AI",
+    integrationId: "vertex",
+    modelFieldId: "image_model",
+    models: IMAGE_MODEL_OPTIONS.vertex,
+    credentialFieldIds: ["project", "location"],
+    configFieldIds: ["image_model"],
+    advancedFieldIds: ["image_resolution", "image_aspect_ratio", "image_output_format", "image_timeout_seconds"],
+    summary: "Nano Banana image generation using your Google Cloud project and Application Default Credentials.",
+  },
+  {
     id: "huggingface",
     label: "Hugging Face",
     integrationId: "huggingface",
@@ -236,6 +247,7 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
     id: "image",
     label: "Image Providers",
     items: [
+      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", imageProviderId: "vertex" },
       { integrationId: "openai", view: "image", label: "OpenAI Images", imageProviderId: "openai" },
       { integrationId: "gmi", view: "image", label: "GMI Cloud Images", imageProviderId: "gmi" },
       { integrationId: "huggingface", view: "image", label: "Hugging Face Images", imageProviderId: "huggingface" },

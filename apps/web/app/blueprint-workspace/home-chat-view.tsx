@@ -29,6 +29,8 @@ type HomeChatMessage = {
   contextProjectId?: string | null;
   workflowState?: string | null;
   contextQuestions?: string[];
+  buildPlanId?: string | null;
+  buildJobId?: string | null;
 };
 
 type HomeChatViewProps = {

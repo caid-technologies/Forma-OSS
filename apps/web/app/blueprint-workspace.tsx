@@ -286,6 +286,13 @@ const defaultAgentPipelineSteps: AgentPipelineStep[] = [
     duration_ms: 5500,
   },
   {
+    id: "bom",
+    agent: "BOM Agent",
+    label: "Calculating BOM and cost",
+    description: "Summing selected components and updating the project estimate.",
+    duration_ms: 3000,
+  },
+  {
     id: "mechanical_fabrication",
     agent: "Mechanical/Fabrication Agent",
     label: "Designing enclosure and placement",
@@ -2130,6 +2137,14 @@ export function FormaWorkspace({
     Object.values(chatThreads).forEach(collect);
     return Array.from(jobIds).join("\n");
   }, [activeGeneration?.jobId, chatMessages, chatThreads]);
+  const pendingContextBuildMessage = useMemo(
+    () => [...chatMessages].reverse().find((message) => (
+      message.status === "loading"
+      && Boolean(message.buildPlanId)
+      && Boolean(message.contextProjectId)
+    )) || null,
+    [chatMessages],
+  );
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
@@ -2896,6 +2911,23 @@ export function FormaWorkspace({
     }
   };
 
+  const stopContextBuildMessage = (message: ChatMessage) => {
+    const projectId = message.contextProjectId;
+    const planId = message.buildPlanId;
+    if (!projectId || !planId) return;
+    const active = activeGenerationRef.current;
+    if (active?.kind === "context-build" && active.planId === planId) {
+      stopActiveGeneration();
+      return;
+    }
+    const stoppedMessage = "Build stopped by you. Your project brief is preserved.";
+    updateChatMessage(message.id, { content: stoppedMessage, status: "cancelled" });
+    updateThreadMessage(activeChatId, message.id, { content: stoppedMessage, status: "cancelled" });
+    setGenerationInputNotice("Build stopped. Your project brief is preserved.");
+    setIsLoading(false);
+    void cancelContextBuild(projectId, planId);
+  };
+
   const stopActiveGeneration = () => {
     const run = activeGenerationRef.current;
     if (!run) return;
@@ -2953,9 +2985,10 @@ export function FormaWorkspace({
         const planStatus = typeof plan?.status === "string" ? plan.status : "";
         const task = plan?.jobs?.[jobId];
         const progressEvents = pipelineEventsFromWorkerTask(task);
+        let synchronizedProgress: AgentPipelineProgress | null = null;
         if (progressEvents.length) {
           const seedProgress = createAgentPipelineProgress(
-            agentPipelineSteps,
+            defaultAgentPipelineSteps,
             false,
             typeof task?.started_at === "string" ? task.started_at : chatTimestamp(),
             jobId,
@@ -2969,6 +3002,7 @@ export function FormaWorkspace({
             started_at: typeof task?.started_at === "string" ? task.started_at : null,
             progress_events: progressEvents,
           };
+          synchronizedProgress = progressFromJobEvents(progressJob, seedProgress, false);
           applyChatPipelineProgressFromJob(assistantMessageId, progressJob, seedProgress, false);
           applyThreadPipelineProgressFromJob(chatId, assistantMessageId, progressJob, seedProgress, false);
         }
@@ -3005,6 +3039,7 @@ export function FormaWorkspace({
           updateChatMessage(assistantMessageId, {
             content: readyMessage,
             status: "success",
+            pipelineProgress: synchronizedProgress,
             projectId,
             contextProjectId: projectId,
             workflowState: "awaiting_feedback",
@@ -3012,12 +3047,14 @@ export function FormaWorkspace({
           updateThreadMessage(chatId, assistantMessageId, {
             content: readyMessage,
             status: "success",
+            pipelineProgress: synchronizedProgress,
             projectId,
             contextProjectId: projectId,
             workflowState: "awaiting_feedback",
           });
           setGenerationInputNotice("Design ready for review.");
-          refreshProjectAndChatLists();
+          void fetchProjectHistory();
+          if (!authRequired || isSignedIn) void fetchMyProjectHistory();
           contextBuildWatchersRef.current.delete(watcherKey);
           if (run) finishGenerationRun(run);
           return;
@@ -3069,7 +3106,12 @@ export function FormaWorkspace({
     ));
     if (!pending?.buildPlanId || !pending.buildJobId || !pending.contextProjectId || !activeChatId) return;
     if (!pending.pipelineProgress) {
-      const progress = createAgentPipelineProgress(agentPipelineSteps, false, chatTimestamp(), pending.buildJobId);
+      const progress = createAgentPipelineProgress(
+        defaultAgentPipelineSteps,
+        false,
+        chatTimestamp(),
+        pending.buildJobId,
+      );
       updateChatMessage(pending.id, { pipelineProgress: progress, status: "loading" });
       updateThreadMessage(activeChatId, pending.id, { pipelineProgress: progress, status: "loading" });
     }
@@ -3173,7 +3215,7 @@ export function FormaWorkspace({
         : "";
       const buildIsActive = buildExecutionStatus === "planned" || buildExecutionStatus === "running";
       const buildPipelineProgress = buildPlanId
-        ? createAgentPipelineProgress(agentPipelineSteps, false, chatTimestamp(), buildJobId || null)
+        ? createAgentPipelineProgress(defaultAgentPipelineSteps, false, chatTimestamp(), buildJobId || null)
         : null;
       if (persistedProjectId) contextProjectIdsRef.current[requestChatId] = persistedProjectId;
       if (workflowState) {
@@ -3284,7 +3326,7 @@ export function FormaWorkspace({
         : "planned";
       const buildIsActive = buildStatus === "planned" || buildStatus === "running";
       const pipelineProgress = buildPlanId
-        ? createAgentPipelineProgress(agentPipelineSteps, false, chatTimestamp(), buildJobId || null)
+        ? createAgentPipelineProgress(defaultAgentPipelineSteps, false, chatTimestamp(), buildJobId || null)
         : null;
       contextProjectIdsRef.current[requestChatId] = projectId;
       setContextWorkflowStates((current) => ({ ...current, [requestChatId]: workflowState }));
@@ -4748,6 +4790,11 @@ export function FormaWorkspace({
                   progress={message.pipelineProgress as AgentPipelineProgress | null}
                   status={message.status}
                   compact
+                  onStop={
+                    message.status === "loading" && message.buildPlanId && message.contextProjectId
+                      ? () => stopContextBuildMessage(message as ChatMessage)
+                      : undefined
+                  }
                 />
               )}
               examples={samplePrompts}
@@ -4779,8 +4826,11 @@ export function FormaWorkspace({
                 setGenerationInputNotice(null);
                 setPrompt(value);
               }}
-              generationActive={Boolean(activeGeneration)}
-              onStop={stopActiveGeneration}
+              generationActive={Boolean(activeGeneration || pendingContextBuildMessage)}
+              onStop={() => {
+                if (activeGenerationRef.current) stopActiveGeneration();
+                else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
+              }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}
               imageInputRef={fileInputRefCenter}
@@ -6544,10 +6594,12 @@ function AgentPipelineProgressView({
   progress,
   status,
   compact = false,
+  onStop,
 }: {
   progress?: AgentPipelineProgress | null;
   status?: ChatMessage["status"];
   compact?: boolean;
+  onStop?: () => void;
 }) {
   if (!progress) return null;
 
@@ -6562,6 +6614,7 @@ function AgentPipelineProgressView({
   const lastEventMs = pipelineEventTimestampMs(lastEvent);
   const quietMs = lastEventMs === null ? null : nowMs - lastEventMs;
   const isLoading = status === "loading";
+  const isSuccess = status === "success";
   const isCancelled = status === "cancelled";
   // Progress events are an audit trail and may include a failed attempt that
   // the backend subsequently retries. Only the terminal message state means
@@ -6576,6 +6629,8 @@ function AgentPipelineProgressView({
     ? "failed"
     : isCancelled
     ? "stopped"
+    : isSuccess
+    ? "completed"
     : progress.synced
     ? backendQuiet
       ? "waiting on provider"
@@ -6587,6 +6642,8 @@ function AgentPipelineProgressView({
     ? "border-rose-400/35 bg-rose-950/25 text-rose-200"
     : isCancelled
     ? "border-amber-300/35 bg-amber-950/20 text-amber-100"
+    : isSuccess
+    ? "border-emerald-300/35 bg-emerald-950/20 text-emerald-100"
     : backendQuiet || waitingForFirstEvent
     ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
     : progress.synced
@@ -6608,9 +6665,23 @@ function AgentPipelineProgressView({
             <div className="mt-1 truncate font-mono text-[10px] text-slate-600">{progress.jobId}</div>
           )}
         </div>
-        <div className="shrink-0 text-right">
-          <div className="font-mono text-[11px] font-black text-slate-300">{completedCount}/{steps.length}</div>
-          <div className="text-[10px] uppercase text-slate-600">{formatDurationSeconds(elapsedSeconds)}</div>
+        <div className="flex shrink-0 items-start gap-2">
+          {isLoading && onStop && (
+            <button
+              type="button"
+              onClick={onStop}
+              className="inline-flex h-7 items-center gap-1 border border-amber-300/40 px-2 text-[10px] font-black uppercase text-amber-100 hover:bg-amber-300 hover:text-black"
+              aria-label="Stop agent pipeline"
+              title="Stop agent pipeline"
+            >
+              <Square className="h-3 w-3 fill-current" />
+              Stop
+            </button>
+          )}
+          <div className="text-right">
+            <div className="font-mono text-[11px] font-black text-slate-300">{completedCount}/{steps.length}</div>
+            <div className="text-[10px] uppercase text-slate-600">{formatDurationSeconds(elapsedSeconds)}</div>
+          </div>
         </div>
       </div>
 

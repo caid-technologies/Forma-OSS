@@ -4048,6 +4048,7 @@ export function FormaWorkspace({
     const controller = new AbortController();
     let retryTimer: number | null = null;
     let attempt = 0;
+    const maxAttempts = 10;
 
     const hydrateInlineProject = async () => {
       attempt += 1;
@@ -4068,8 +4069,9 @@ export function FormaWorkspace({
         setActiveTab("overview");
       } catch (error) {
         if (controller.signal.aborted) return;
-        if (attempt < 4) {
-          retryTimer = window.setTimeout(hydrateInlineProject, 500 * (2 ** (attempt - 1)));
+        if (attempt < maxAttempts) {
+          const retryDelayMs = Math.min(500 * (2 ** (attempt - 1)), 5000);
+          retryTimer = window.setTimeout(hydrateInlineProject, retryDelayMs);
           return;
         }
         console.error("Could not hydrate inline project output", error);

@@ -11,7 +11,7 @@ from blueprint_core.runtime import blueprint_dev_mode_enabled
 from blueprint_core.project_list_cache import invalidate_project_lists
 from blueprint_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from blueprint_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
-from blueprint_core.workspaces.projects import ProjectRevision, ProjectStateService
+from blueprint_core.workspaces.projects import ProjectRevision, ProjectStateError, ProjectStateService
 from blueprint_core.workspaces.readiness import (
     BuildInitiationOutcome,
     BuildMode,
@@ -1071,7 +1071,15 @@ def upsert_project_chat(
             linked_project = get_generated_project(str(linked_project_id), include_deleted=True)
         except ValueError:
             linked_project = None
-        if not linked_project or getattr(linked_project, "status", "active") != "active":
+        if linked_project is not None:
+            linked_project_is_active = getattr(linked_project, "status", "active") == "active"
+        else:
+            try:
+                get_latest_project_revision(str(linked_project_id), normalized_owner_user_id)
+                linked_project_is_active = True
+            except (ProjectStateError, ValueError):
+                linked_project_is_active = False
+        if not linked_project_is_active:
             raise ValueError("Cannot write chat data for a deleted or missing project.")
     record = {
         "chat_id": normalized_chat_id,

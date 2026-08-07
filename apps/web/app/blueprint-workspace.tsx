@@ -2962,6 +2962,30 @@ export function FormaWorkspace({
     }
   };
 
+  const executeContextBuild = async (
+    projectId: string,
+    planId: string,
+    run?: ActiveGenerationRun,
+  ) => {
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/execute`,
+        {
+          method: "POST",
+          headers: await generationRequestHeaders(),
+          signal: run?.controller.signal,
+        },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+    } catch (error) {
+      if (run?.cancelled || run?.controller.signal.aborted) return;
+      console.warn("The build execution request ended before the plan reached a terminal state.", error);
+      setGenerationInputNotice(
+        error instanceof Error ? error.message : "The build execution request ended unexpectedly.",
+      );
+    }
+  };
+
   const stopContextBuildMessage = (message: ChatMessage) => {
     const projectId = message.contextProjectId;
     const planId = message.buildPlanId;
@@ -3019,6 +3043,7 @@ export function FormaWorkspace({
     const watcherKey = `${projectId}:${planId}`;
     if (contextBuildWatchersRef.current.has(watcherKey)) return;
     contextBuildWatchersRef.current.add(watcherKey);
+    void executeContextBuild(projectId, planId, run);
     let attempts = 0;
     const poll = async () => {
       if (run?.cancelled || run?.controller.signal.aborted) {

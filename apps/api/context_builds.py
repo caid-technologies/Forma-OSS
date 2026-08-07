@@ -8,8 +8,10 @@ from blueprint_core.database import (
     create_project_generation_plan,
     evaluate_project_readiness,
     execute_project_generation_plan,
+    get_project_generation_plan,
     initiate_project_build,
 )
+from blueprint_core.config import config
 from blueprint_core.workspaces.context import ContextBuildExecution
 from blueprint_core.workspaces.readiness import BuildMode, ReadinessStatus
 from blueprint_core.workspaces.workflow import ProjectWorkflow
@@ -55,7 +57,7 @@ class ContextBuildDispatcher:
         )
         plan = create_project_generation_plan(outcome.build, owner_user_id)
         job_id = next(iter(plan.jobs))
-        if plan.status.value == "planned":
+        if plan.status.value == "planned" and not self.requires_request_bound_execution():
             self._launch(plan.plan_id, owner_user_id)
         return (
             ContextBuildExecution(
@@ -66,6 +68,33 @@ class ContextBuildDispatcher:
             ),
             outcome.workflow,
         )
+
+    @staticmethod
+    def requires_request_bound_execution() -> bool:
+        """Return whether the runtime can discard work after an HTTP response."""
+
+        return str(config.get("VERCEL") or "").strip() == "1"
+
+    @classmethod
+    async def execute(cls, plan_id: str, owner_user_id: str):
+        """Keep a build attached to an HTTP invocation on serverless runtimes."""
+
+        cancellation_event = Event()
+        with cls._cancellation_lock:
+            if plan_id in cls._cancellation_events:
+                return get_project_generation_plan(plan_id, owner_user_id)
+            cls._cancellation_events[plan_id] = cancellation_event
+
+        try:
+            return await execute_project_generation_plan(
+                plan_id,
+                owner_user_id,
+                cancellation_check=cancellation_event.is_set,
+            )
+        finally:
+            with cls._cancellation_lock:
+                if cls._cancellation_events.get(plan_id) is cancellation_event:
+                    cls._cancellation_events.pop(plan_id, None)
 
     @classmethod
     def _launch(cls, plan_id: str, owner_user_id: str) -> None:

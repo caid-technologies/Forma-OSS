@@ -60,6 +60,7 @@ load_dotenv(REPO_ROOT / ".env")
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
 from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
+from blueprint_core.vertex_auth import VercelOidcContextMiddleware
 
 apply_user_integrations_to_environment()
 
@@ -276,6 +277,7 @@ class ApiPrefixCompatibilityMiddleware:
 
 
 app.add_middleware(ApiPrefixCompatibilityMiddleware)
+app.add_middleware(VercelOidcContextMiddleware)
 
 # Enable CORS for Next.js frontend
 app.add_middleware(

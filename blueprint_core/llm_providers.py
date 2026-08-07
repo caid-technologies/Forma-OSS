@@ -982,6 +982,10 @@ class GeminiProvider(StructuredLLMProvider):
             or DEFAULT_GEMINI_FALLBACK_MODEL
         )
         self.strict_mode = _first_env_bool(["STRICT_LLM", "STRICT_GEMINI"], default=True)
+        self.timeout_seconds = _first_env_float(
+            ["GEMINI_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"],
+            DEFAULT_TIMEOUT_SECONDS,
+        )
         self.model_name = self.requested_model
         self.client = None
         self.init_error: Optional[str] = None
@@ -989,7 +993,10 @@ class GeminiProvider(StructuredLLMProvider):
 
         if self.api_key and genai:
             try:
-                self.client = genai.Client(api_key=self.api_key)
+                self.client = genai.Client(
+                    api_key=self.api_key,
+                    http_options=genai_types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
+                )
                 logger.info("%s LLM provider initialized successfully.", self.provider_label)
             except Exception as exc:
                 self.init_error = f"Error initializing {self.provider_label} provider: {exc}"
@@ -1191,6 +1198,10 @@ class VertexAIProvider(GeminiProvider):
             or DEFAULT_VERTEX_FALLBACK_MODEL
         )
         self.strict_mode = _first_env_bool(["STRICT_LLM", "STRICT_VERTEX_AI", "STRICT_VERTEX"], default=True)
+        self.timeout_seconds = _first_env_float(
+            ["VERTEX_AI_TIMEOUT_SECONDS", "VERTEX_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"],
+            DEFAULT_TIMEOUT_SECONDS,
+        )
         self.model_name = self.requested_model
         self.client = None
         self.init_error: Optional[str] = None
@@ -1202,6 +1213,7 @@ class VertexAIProvider(GeminiProvider):
                     "vertexai": True,
                     "project": self.project,
                     "location": self.location,
+                    "http_options": genai_types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
                 }
                 credentials = build_vertex_credentials()
                 if credentials is not None:

@@ -349,10 +349,13 @@ class LLMRuntimeTests(unittest.TestCase):
 
         self.assertEqual("vertex", runtime.provider)
         self.assertEqual("gemini-3.5-flash", runtime.model)
-        self.assertEqual(
-            [{"vertexai": True, "project": "forma-vertex-test", "location": "us-central1"}],
-            client_calls,
-        )
+        self.assertEqual(1, len(client_calls))
+        vertex_client_config = client_calls[0]
+        self.assertTrue(vertex_client_config.pop("vertexai"))
+        self.assertEqual("forma-vertex-test", vertex_client_config.pop("project"))
+        self.assertEqual("us-central1", vertex_client_config.pop("location"))
+        self.assertEqual(90_000, vertex_client_config.pop("http_options").timeout)
+        self.assertEqual({}, vertex_client_config)
         self.assertTrue(provider.is_configured)
         self.assertTrue(validation.requested_model_available)
         self.assertEqual("vertex", validation.provider)

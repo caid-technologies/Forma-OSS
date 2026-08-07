@@ -35,6 +35,24 @@ def get_build_plan_endpoint(
     return plan
 
 
+@router.post("/plans/{plan_id}/execute", response_model=WorkerExecutionPlan)
+async def execute_build_plan_endpoint(
+    project_id: UUID,
+    plan_id: str,
+    user: UserContext = Depends(require_user_context),
+) -> WorkerExecutionPlan:
+    """Execute a plan inside this request so serverless runtimes keep it alive."""
+
+    owner = _owner(user)
+    try:
+        plan = get_project_generation_plan(plan_id, owner)
+    except WorkerPlanningError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=exc.as_dict()) from exc
+    if str(plan.project_id) != str(project_id):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Build execution not found.")
+    return await ContextBuildDispatcher.execute(plan_id, owner)
+
+
 @router.post("/plans/{plan_id}/cancel", response_model=WorkerExecutionPlan)
 async def cancel_build_plan_endpoint(
     project_id: UUID,

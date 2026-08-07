@@ -1,0 +1,672 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --forma-page: #141519;
+  --forma-surface: #17181d;
+  --forma-surface-muted: #101115;
+  --forma-border: #2c2f37;
+  --forma-text: #f8fafc;
+}
+
+/*
+ * Two light themes share every override rule below and differ only in the
+ * variables declared here, so neither can drift away from the other. Both are
+ * mirrored in lib/theme.ts and asserted by test/theme.test.ts.
+ *
+ * The `*-rgb` variables hold bare channel triplets so one value can serve both
+ * a solid fill and its translucent washes.
+ */
+
+/*
+ * Light: Solarized Light by Ethan Schoonover.
+ * https://ethanschoonover.com/solarized/
+ *
+ *   base3  #fdf6e3  primary background     base01 #586e75  emphasized content
+ *   base2  #eee8d5  background highlights  base00 #657b83  primary content
+ *   base1  #93a1a1  secondary content      base02 #073642  darkest tone
+ *
+ * Panels are base3 on a base2 page, which keeps the dark theme's elevation
+ * direction (surfaces sit above the page). Rules and recessed wells are base1
+ * at low alpha rather than fixed hexes, so a well always reads one step deeper
+ * than whichever tone is behind it, and a 1px border stays as quiet against
+ * base2 and base3 as #2c2f37 is against #141519 in the dark theme.
+ */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --forma-page: #eee8d5;
+  --forma-surface: #fdf6e3;
+  --forma-surface-muted: rgb(147 161 161 / 0.18);
+  --forma-border: rgb(147 161 161 / 0.45);
+  --forma-text: #586e75;
+
+  --forma-text-strong: #073642;
+  --forma-text-body: #586e75;
+  --forma-text-secondary: #586e75;
+  --forma-text-muted: #657b83;
+
+  --forma-cyan-rgb: 31 126 119;
+  --forma-green-rgb: 104 121 0;
+  --forma-yellow-rgb: 143 108 0;
+  --forma-red-rgb: 214 48 46;
+  --forma-violet-rgb: 101 106 185;
+
+  /*
+   * The 50 and 100 steps of each accent ramp are near-white in the dark theme:
+   * body copy that happens to sit inside a tinted panel, not accent text. In
+   * Solarized they take the emphasized content tone so a tinted message stays
+   * as readable as an untinted one.
+   */
+  --forma-cyan-soft: #586e75;
+  --forma-green-soft: #586e75;
+  --forma-yellow-soft: #586e75;
+  --forma-red-soft: #586e75;
+  --forma-violet-soft: #586e75;
+
+  --forma-neutral-rgb: 147 161 161;
+  --forma-chrome-rgb: 253 246 227;
+  --forma-scrim-rgb: 238 232 213;
+  --forma-scroll-thumb: #93a1a1;
+  --forma-card-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
+}
+
+/*
+ * Arctic: the cool slate light theme Forma shipped before Solarized, kept as a
+ * separate choice. Panels are white on a slate page with fixed slate rules.
+ */
+:root[data-theme="arctic"] {
+  color-scheme: light;
+  --forma-page: #eef2f7;
+  --forma-surface: #ffffff;
+  --forma-surface-muted: #f8fafc;
+  --forma-border: #cbd5e1;
+  --forma-text: #0f172a;
+
+  --forma-text-strong: #0f172a;
+  --forma-text-body: #334155;
+  --forma-text-secondary: #475569;
+  --forma-text-muted: #64748b;
+
+  --forma-cyan-rgb: 14 116 144;
+  --forma-green-rgb: 4 120 87;
+  --forma-yellow-rgb: 161 98 7;
+  --forma-red-rgb: 190 18 60;
+  --forma-violet-rgb: 126 34 206;
+
+  /* Arctic keeps its original behaviour of tinting the quiet steps too. */
+  --forma-cyan-soft: #0e7490;
+  --forma-green-soft: #047857;
+  --forma-yellow-soft: #a16207;
+  --forma-red-soft: #be123c;
+  --forma-violet-soft: #7e22ce;
+
+  --forma-neutral-rgb: 100 116 139;
+  --forma-chrome-rgb: 238 242 247;
+  --forma-scrim-rgb: 238 242 247;
+  --forma-scroll-thumb: #94a3b8;
+  --forma-card-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  background: var(--forma-page);
+  color: var(--forma-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  text-rendering: geometricPrecision;
+}
+
+html {
+  overflow-x: clip;
+}
+
+body {
+  min-height: 100vh;
+}
+
+img,
+svg,
+canvas,
+video {
+  max-width: 100%;
+}
+
+.schematic-svg-wrap svg {
+  height: auto;
+  max-width: 100%;
+}
+
+.break-anywhere {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+.react-flow__node {
+  border-radius: 0;
+}
+
+.react-flow__handle {
+  width: 7px;
+  height: 7px;
+  background-color: var(--handle-color, #111216) !important;
+  border: 1.5px solid var(--handle-border, #22d3ee) !important;
+}
+
+.schematic-node .react-flow__handle {
+  opacity: 1;
+  box-shadow: 0 0 0 2px #0f1014;
+}
+
+.schematic-flow .react-flow__pane {
+  cursor: grab;
+}
+
+.schematic-flow .react-flow__pane:active {
+  cursor: grabbing;
+}
+
+.schematic-card {
+  width: 240px;
+  min-height: 104px;
+  border: 1px solid color-mix(in srgb, var(--schematic-accent, #38bdf8) 48%, #2f333c);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+    #15161b;
+  padding: 10px;
+  color: #f8fafc;
+  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.28);
+}
+
+.schematic-controller-card {
+  width: 300px;
+  min-height: 292px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--schematic-soft, #082f49) 46%, transparent), transparent 58%),
+    #15161b;
+}
+
+.schematic-flow .react-flow__node {
+  cursor: zoom-in;
+  transition: filter 120ms ease, box-shadow 120ms ease;
+}
+
+.schematic-flow .react-flow__node:hover,
+.schematic-flow .react-flow__node:focus-visible {
+  filter: brightness(1.12);
+  box-shadow: 0 0 0 1px var(--schematic-accent, #38bdf8);
+}
+
+.schematic-flow .react-flow__node.dragging {
+  cursor: grabbing;
+}
+
+.schematic-view-card,
+.schematic-view-card.schematic-controller-card {
+  width: 100%;
+  min-height: 180px;
+  padding: 18px;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.52);
+}
+
+.schematic-view-card .schematic-pin-row {
+  min-height: 30px;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.schematic-pin-row {
+  position: relative;
+  min-height: 17px;
+  border: 1px solid #2c3440;
+  background: #0f1014;
+  padding-top: 3px;
+  padding-bottom: 3px;
+}
+
+.schematic-pin-connected {
+  border-color: color-mix(in srgb, var(--schematic-accent, #38bdf8) 62%, #2c3440);
+  background: color-mix(in srgb, var(--schematic-soft, #082f49) 44%, #0f1014);
+}
+
+.schematic-pin-row .react-flow__handle {
+  width: 6px;
+  height: 6px;
+}
+
+.schematic-flow .react-flow__edge-path {
+  filter: drop-shadow(0 0 2px rgba(0, 0, 0, 0.7));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.schematic-flow .react-flow__minimap-mask {
+  fill: rgba(17, 18, 22, 0.64);
+}
+
+.react-flow__edge-path {
+  stroke-dashoffset: 0;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  animation: dash 18s linear infinite;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #ffffff !important;
+}
+
+.partner-logo-marquee {
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+
+.caid-logo-on-light {
+  display: none;
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) .caid-logo-on-dark {
+  display: none;
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) .caid-logo-on-light {
+  display: block;
+}
+
+.partner-logo-track {
+  width: max-content;
+  animation: partner-logo-scroll 32s linear infinite;
+}
+
+.partner-logo-marquee:hover .partner-logo-track,
+.partner-logo-marquee:focus-within .partner-logo-track {
+  animation-play-state: paused;
+}
+
+@keyframes partner-logo-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .partner-logo-track {
+    animation: none;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .schematic-flow .react-flow__node {
+    transition: none;
+  }
+}
+
+.react-flow__controls-button {
+  background: #15161b !important;
+  border-bottom-color: #2f333c !important;
+  color: #cbd5e1 !important;
+  fill: #cbd5e1 !important;
+}
+
+.react-flow__controls-button:hover {
+  background: #ffffff !important;
+  color: #000000 !important;
+  fill: #000000 !important;
+}
+
+@keyframes dash {
+  from {
+    stroke-dashoffset: 100;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #141519;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #42454f;
+  border: 2px solid #141519;
+  border-radius: 999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #5b606c;
+}
+
+/*
+ * The interface uses a compact set of Tailwind color utilities. These overrides
+ * translate that palette onto light surfaces. Both light themes share the rules
+ * and supply their own values, so a fix here lands in both at once.
+ *
+ * `:is()` takes the specificity of its most specific argument, so
+ * `html:is([data-theme="light"], [data-theme="arctic"])` is an exact
+ * specificity match for the `html[data-theme="light"]` these rules replaced.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'] {
+  background-color: var(--forma-page);
+}
+
+/*
+ * Sticky and floating chrome keeps its translucency over the theme's chrome
+ * tone, so the wells nested inside it still read as recessed.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]/95'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]/95'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.95);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]/90'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.9);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]/80'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.8);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]/85'] {
+  background-color: rgb(var(--forma-scrim-rgb) / 0.85);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101116]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1013]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1720]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111820]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#1d1f26]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#1d2027]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#20242d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#242832]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#252832]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0c0d10]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-slate-900"] {
+  background-color: var(--forma-surface);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
+  background-color: var(--forma-surface-muted);
+}
+
+/*
+ * Status washes. The interface tints panels with dark 950 shades, which land as
+ * muddy blocks once the surface below them is light. Matching on the class
+ * prefix covers every alpha step in one rule.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-rose-950/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-red-950/"] {
+  background-color: rgb(var(--forma-red-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-emerald-950/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-green-950/"] {
+  background-color: rgb(var(--forma-green-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-amber-950/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-yellow-950/"] {
+  background-color: rgb(var(--forma-yellow-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-cyan-950/"] {
+  background-color: rgb(var(--forma-cyan-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-violet-950/"] {
+  background-color: rgb(var(--forma-violet-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-slate-950/"] {
+  background-color: rgb(var(--forma-neutral-rgb) / 0.14);
+}
+
+/*
+ * Low-alpha black is used for quiet wells. Heavier black is a modal scrim and
+ * still needs to dim the page, so it is deliberately left alone.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/20"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/25"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/30"] {
+  background-color: rgb(var(--forma-neutral-rgb) / 0.16);
+}
+
+/*
+ * Selected and highlighted panels tint themselves with a light accent. Only the
+ * low-alpha wash variants are remapped; the solid /60 and /70 fills stay put so
+ * that filled controls keep their weight.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/5"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/10"] {
+  background-color: rgb(var(--forma-cyan-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"] {
+  background-color: rgb(var(--forma-green-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-amber-300/10"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-amber-400/10"] {
+  background-color: rgb(var(--forma-yellow-rgb) / 0.1);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-violet-300/10"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-violet-200/25"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-fuchsia-400/10"] {
+  background-color: rgb(var(--forma-violet-rgb) / 0.1);
+}
+
+/*
+ * Accent borders. The dark theme draws these from the 300-400 range at low
+ * alpha; each theme's accent stands in at the same weight.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-rose-400/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-rose-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-red-400/"] {
+  border-color: rgb(var(--forma-red-rgb) / 0.45);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-400/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-300/"] {
+  border-color: rgb(var(--forma-green-rgb) / 0.45);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-amber-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-amber-400/"] {
+  border-color: rgb(var(--forma-yellow-rgb) / 0.45);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-cyan-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-cyan-400/"] {
+  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-400/"] {
+  border-color: rgb(var(--forma-violet-rgb) / 0.45);
+}
+
+/* The slate text ramp collapses onto each theme's content tiers. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-white"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-100"] {
+  color: var(--forma-text-strong);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-300"] {
+  color: var(--forma-text-body);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-400"] {
+  color: var(--forma-text-secondary);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-500"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-600"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-700"] {
+  color: var(--forma-text-muted);
+}
+
+/* The quiet 50 and 100 steps of each accent ramp. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-50"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-100"] {
+  color: var(--forma-cyan-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-50"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-100"] {
+  color: var(--forma-green-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-50"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-100"] {
+  color: var(--forma-yellow-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-100"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-100"] {
+  color: var(--forma-red-soft);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-100"] {
+  color: var(--forma-violet-soft);
+}
+
+/* The 200 and 300 steps are the visible accent: icons, labels, and emphasis. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-300"] {
+  color: rgb(var(--forma-cyan-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-300"] {
+  color: rgb(var(--forma-green-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-300"] {
+  color: rgb(var(--forma-yellow-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-300"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-300"] {
+  color: rgb(var(--forma-red-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-300"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-fuchsia-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-fuchsia-300"] {
+  color: rgb(var(--forma-violet-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#24262c]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#242832]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#25272e]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#282a30]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#292b31]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2a2c33]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2b3038]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2c2f37]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2f333c]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30323a]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30333b]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30333d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30343d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333640]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333844]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#34363f]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#343740]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#3a3d46]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#4b4d56]'] {
+  border-color: var(--forma-border);
+}
+
+/* Inverted fills darken to the strongest text tone rather than staying white. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-white"][class~="text-black"] {
+  background-color: var(--forma-text-strong);
+  color: var(--forma-surface);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:bg-white"]:hover {
+  background-color: var(--forma-text-strong);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-black"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="group-hover:text-black"]:where(.group:hover *) {
+  color: var(--forma-surface);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) .schematic-card,
+html:is([data-theme="light"], [data-theme="arctic"]) .schematic-controller-card {
+  background: var(--forma-surface);
+  color: var(--forma-text);
+  box-shadow: var(--forma-card-shadow);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) .schematic-pin-row {
+  border-color: var(--forma-border);
+  background: var(--forma-surface-muted);
+}
+
+/* The dark theme selects edges with white, which disappears on a light canvas. */
+html:is([data-theme="light"], [data-theme="arctic"]) .react-flow__edge.selected .react-flow__edge-path {
+  stroke: var(--forma-text-strong) !important;
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) .react-flow__controls-button {
+  background: var(--forma-surface) !important;
+  border-bottom-color: var(--forma-border) !important;
+  color: var(--forma-text-body) !important;
+  fill: var(--forma-text-body) !important;
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-track {
+  background: var(--forma-page);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-thumb {
+  background: var(--forma-scroll-thumb);
+  border-color: var(--forma-page);
+}

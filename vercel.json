@@ -1,25 +1,28 @@
 {
     "services": {
         "frontend": {
-            "root": "frontend/",
+            "root": "apps/web/",
             "framework": "nextjs"
         },
         "backend": {
             "root": ".",
             "framework": "fastapi",
-            "entrypoint": "backend.main:app",
+            "entrypoint": "apps.api.main:app",
             "functions": {
-                "backend.main:app": {
+                "apps.api.main:app": {
                     "includeFiles": "blueprint_core/**",
-                    "excludeFiles": "{frontend/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
+                    "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
+                    "maxDuration": 300
                 },
-                "backend/main.py": {
+                "apps/api/main.py": {
                     "includeFiles": "blueprint_core/**",
-                    "excludeFiles": "{frontend/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
+                    "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
+                    "maxDuration": 300
                 },
                 "main.py": {
                     "includeFiles": "blueprint_core/**",
-                    "excludeFiles": "{frontend/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}"
+                    "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
+                    "maxDuration": 300
                 }
             }
         }

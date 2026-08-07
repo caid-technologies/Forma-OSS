@@ -3,7 +3,7 @@
 Validation is a rule-based safety layer that checks the generated netlist before it is finalized. It protects beginners from unsafe wiring and provides structured feedback for repair loops.
 
 ## Electrical rules (current MVP)
-Validation logic lives in `backend/validation.py` and includes:
+Validation logic lives in `apps/api/validation.py` and includes:
 - **Short Circuit Detection:** Power directly connected to ground.
 - **Voltage Mismatch:** Mixed logic voltages on the same net.
 - **Unpowered ICs:** Active components without power or ground.

@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
-from blueprint_core.models import HardwareIR
-from blueprint_core.project_objects import namespace_payload
+from blueprint_core.workspaces.projects.models import HardwareIR
+from blueprint_core.workspaces.projects.objects import namespace_payload
 
 
 VIDEO_PROMPT_NAMESPACES = (

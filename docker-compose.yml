@@ -1,10 +1,20 @@
 name: blueprint
 
 services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: .
-      dockerfile: backend/Dockerfile
+      dockerfile: apps/api/Dockerfile
     image: blueprint-backend:local
     restart: unless-stopped
     environment:
@@ -15,8 +25,14 @@ services:
       BLUEPRINT_DEBUG: ${BLUEPRINT_DEBUG:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
       BACKEND_LOG_FILE: ${BACKEND_LOG_FILE:-}
-      DATABASE_BACKEND: ${DATABASE_BACKEND:-}
-      SQLITE_DATABASE_URL: ${SQLITE_DATABASE_URL:-sqlite:////data/blueprint.db}
+      # Keep host-side database settings from accidentally routing a container
+      # to 127.0.0.1 on itself. Opt into Supabase explicitly with
+      # COMPOSE_DATABASE_BACKEND=supabase and a container-reachable URL.
+      DATABASE_BACKEND: ${COMPOSE_DATABASE_BACKEND:-sqlite}
+      SQLITE_DATABASE_URL: ${COMPOSE_SQLITE_DATABASE_URL:-sqlite:////data/blueprint.db}
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+      REDIS_CACHE_PREFIX: ${REDIS_CACHE_PREFIX:-blueprint-local}
+      PROJECTS_CACHE_TTL_SECONDS: ${PROJECTS_CACHE_TTL_SECONDS:-60}
       SUPABASE_URL: ${SUPABASE_URL:-}
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
@@ -47,6 +63,11 @@ services:
       GEMINI_MODEL: ${GEMINI_MODEL:-}
       STRICT_GEMINI: ${STRICT_GEMINI:-}
       GEMINI_FALLBACK_MODEL: ${GEMINI_FALLBACK_MODEL:-}
+      GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
+      GOOGLE_CLOUD_LOCATION: ${GOOGLE_CLOUD_LOCATION:-global}
+      VERTEX_AI_PROJECT: ${VERTEX_AI_PROJECT:-}
+      VERTEX_AI_LOCATION: ${VERTEX_AI_LOCATION:-}
+      VERTEX_AI_MODEL: ${VERTEX_AI_MODEL:-}
       IMAGE_OUTPUT_ENABLED: ${IMAGE_OUTPUT_ENABLED:-false}
       IMAGE_PROVIDER: ${IMAGE_PROVIDER:-none}
       IMAGE_API_KEY: ${IMAGE_API_KEY:-}
@@ -56,6 +77,10 @@ services:
       OPENAI_IMAGE_SIZE: ${OPENAI_IMAGE_SIZE:-}
       OPENAI_IMAGE_QUALITY: ${OPENAI_IMAGE_QUALITY:-}
       OPENAI_IMAGE_OUTPUT_FORMAT: ${OPENAI_IMAGE_OUTPUT_FORMAT:-}
+      VERTEX_AI_IMAGE_MODEL: ${VERTEX_AI_IMAGE_MODEL:-}
+      VERTEX_AI_IMAGE_RESOLUTION: ${VERTEX_AI_IMAGE_RESOLUTION:-}
+      VERTEX_AI_IMAGE_ASPECT_RATIO: ${VERTEX_AI_IMAGE_ASPECT_RATIO:-}
+      VERTEX_AI_IMAGE_OUTPUT_FORMAT: ${VERTEX_AI_IMAGE_OUTPUT_FORMAT:-}
       SUPABASE_S3_ENDPOINT: ${SUPABASE_S3_ENDPOINT:-}
       SUPABASE_S3_BUCKET: ${SUPABASE_S3_BUCKET:-contents}
       SUPABASE_S3_REGION: ${SUPABASE_S3_REGION:-}
@@ -69,6 +94,8 @@ services:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - blueprint-data:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test:
         [
@@ -81,10 +108,13 @@ services:
       timeout: 5s
       retries: 12
       start_period: 20s
+    depends_on:
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
-      context: ./frontend
+      context: ./apps/web
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}

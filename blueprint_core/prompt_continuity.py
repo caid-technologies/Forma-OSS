@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from blueprint_core.agents.firecrawl_mcp import FirecrawlMCPResearchClient, FirecrawlResearchResult
-from blueprint_core.continuous_agents import JsonlStreamStore
-from blueprint_core.continuous_openai_jobs import (
+from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.jobs.continuous import (
     ContinuousOpenAIJobMetadata,
     ContinuousOpenAIJobQueue,
     ContinuousOpenAIJobResult,
@@ -18,7 +18,7 @@ from blueprint_core.continuous_openai_jobs import (
 )
 
 
-DEFAULT_PROMPT_BATCH_MODEL = "gpt-5.5"
+DEFAULT_PROMPT_BATCH_MODEL = "gpt-5.6-sol"
 DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS = 1600
 DEFAULT_PROMPT_BATCH_OBJECTIVE = (
     "Iterate a buildable blue electromechanical desktop environmental monitor while preserving continuity across design, "

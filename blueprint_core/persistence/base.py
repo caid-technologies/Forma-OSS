@@ -1,7 +1,18 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict
+from dataclasses import dataclass
+from typing import Any, Dict, Tuple
+
+
+@dataclass(frozen=True)
+class TableContract:
+    name: str
+    required_columns: Tuple[str, ...]
+
+    @property
+    def projection(self) -> str:
+        return ",".join(self.required_columns)
 
 
 class DatabaseSchemaError(RuntimeError):

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Optional
+
+from blueprint_core.config import config
 
 
 LOG_SECRET_PATTERNS = [
@@ -28,7 +29,7 @@ def resolve_backend_log_path(
     cwd: Optional[Path] = None,
 ) -> Optional[Path]:
     """Resolve BACKEND_LOG_FILE using the same semantics across API and scripts."""
-    values = env if env is not None else os.environ
+    values = env if env is not None else config.snapshot()
     raw_path = (values.get("BACKEND_LOG_FILE") or "").strip()
     if not raw_path:
         return None
@@ -75,7 +76,7 @@ def backend_log_payload(
     env: Optional[Mapping[str, str]] = None,
     cwd: Optional[Path] = None,
 ) -> dict[str, Any]:
-    """Return the frontend/API payload for recent backend logs."""
+    """Return the API payload used to show recent backend logs in the frontend."""
     path = log_path or resolve_backend_log_path(env=env, cwd=cwd)
     if not path:
         return {

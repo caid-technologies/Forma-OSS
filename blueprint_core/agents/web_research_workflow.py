@@ -16,15 +16,22 @@ from blueprint_core.agents.orchestrator import (
     extract_buses,
     extract_power_rails,
 )
+from blueprint_core.agents.system_architecture import (
+    compact_component_context,
+    compact_net_context,
+    system_context,
+)
 from blueprint_core.database import delete_generated_project, save_generated_project
-from blueprint_core.job_source_usage import source_usage_for_workflow
+from blueprint_core.jobs.source_usage import source_usage_for_workflow
 from blueprint_core.llm import (
     LLMProviderConfigError,
+    LLMProviderValidation,
     LLMRuntimeConfig,
     build_llm_provider,
+    enforce_production_llm_preflight,
     resolve_llm_runtime_config,
 )
-from blueprint_core.models import (
+from blueprint_core.workspaces.projects.models import (
     AssemblyStep,
     ComponentInstance,
     ConnectionNet,
@@ -33,10 +40,11 @@ from blueprint_core.models import (
     MechanicalNotes,
     PinMappingEntry,
     ProjectOverview,
+    SystemArchitecture,
     ValidationIssue,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
-from blueprint_core.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
 from blueprint_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -55,6 +63,7 @@ logger = logging.getLogger(__name__)
 class WebProjectPlan(BaseModel):
     overview: ProjectOverview
     requirements: FunctionalRequirements
+    system_architecture: SystemArchitecture
     architecture_notes: List[str] = Field(default_factory=list)
     recommended_component_roles: List[str] = Field(default_factory=list)
     research_keywords: List[str] = Field(default_factory=list)
@@ -107,7 +116,7 @@ class WebResearchHardwarePipeline:
         self._active_generation_metadata: Dict[str, Any] = {}
 
     def get_debug_config(self) -> Dict[str, Any]:
-        validation = self.llm_provider.validate_configured_model(raise_on_strict=False)
+        validation = self.validate_configured_model(raise_on_strict=False)
         self.model_name = validation.actual_model or self.llm_provider.model_name
         return {
             **validation.as_debug_dict(),
@@ -115,6 +124,10 @@ class WebResearchHardwarePipeline:
             "workflow": self.workflow_id,
             "external_sources": self.research_client.get_debug_config(),
         }
+
+    def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
+        validation = self.llm_provider.validate_configured_model(raise_on_strict=raise_on_strict)
+        return enforce_production_llm_preflight(validation)
 
     def _call_llm_structured(
         self,
@@ -207,13 +220,15 @@ class WebResearchHardwarePipeline:
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
     ) -> HardwareIR:
+        self.validate_configured_model()
         self._active_generation_metadata = {
             key: value
             for key, value in (generation_metadata or {}).items()
             if value is not None and value != ""
         }
         emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "started")
-        safety_error = check_safety_violations(user_prompt)
+        safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
+        safety_error = check_safety_violations(safety_prompt)
         if safety_error:
             emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "failed", details={"reason": safety_error})
             logger.info("Web research workflow safety guardrail blocked request; delegating to safety response.")
@@ -251,7 +266,7 @@ class WebResearchHardwarePipeline:
             return ir
 
         try:
-            model_validation = self.llm_provider.validate_configured_model()
+            model_validation = self.validate_configured_model()
             self.model_name = model_validation.actual_model or self.llm_provider.model_name
             if image_bytes:
                 self.llm_provider.validate_image_input()
@@ -268,7 +283,10 @@ class WebResearchHardwarePipeline:
             pass
         logger.info("Starting Web Research Pipeline Execution...")
         logger.info("Invoking External Source Research Agent...")
-        research_queries = self._research_queries(user_prompt)
+        # Past-job context belongs in the architecture prompts, not in external
+        # search queries where it would create oversized or overly specific requests.
+        research_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
+        research_queries = self._research_queries(research_prompt)
         with agent_pipeline_step(self.workflow_id, "external_research", details={
             "provider": self.research_client.provider_name,
             "query_count": len(research_queries),
@@ -294,14 +312,14 @@ class WebResearchHardwarePipeline:
 
         logger.info("Running circuit validation checks on web-researched netlist...")
         with agent_pipeline_step(self.workflow_id, "validation_repair"):
-            validation_issues = validate_circuit(components, nets)
+            validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
             if not is_valid:
                 logger.info("Invoking Validation + Auto-Correction Agent...")
                 corrected = self._repair_wiring(plan, components_json, nets, validation_issues)
                 nets = corrected.nets
                 pin_mappings = corrected.pin_mappings
-                validation_issues = validate_circuit(components, nets)
+                validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
 
         total_cost = sum(component.unit_price * component.quantity for component in components)
@@ -331,6 +349,7 @@ class WebResearchHardwarePipeline:
                 hardware_ir_version="0.1",
                 overview=plan.overview,
                 requirements=plan.requirements,
+                system_architecture=plan.system_architecture,
                 components=components,
                 nets=nets,
                 buses=buses,
@@ -435,6 +454,9 @@ class WebResearchHardwarePipeline:
         {research_context}
 
         Return WebProjectPlan. Prefer concrete component roles that are supported by the research context.
+        Build system_architecture as a purpose-driven hierarchy with a product root and applicable electrical,
+        mechanical, and firmware branches. Include nested systems such as electrical.power and
+        mechanical.enclosure. Keep this tree free of exact parts, nets, and pins; specialists add those later.
         Keep the design in safe low-voltage DC maker-electronics scope.
         """
         return self._call_llm_structured(prompt, WebProjectPlan, image_bytes, image_mime_type, pipeline_step_id="web_architect")
@@ -537,15 +559,20 @@ class WebResearchHardwarePipeline:
         components_json: str,
         research_context: str,
     ) -> MechanicalNotes:
+        mechanical_context = system_context(plan.system_architecture, "mechanical")
+        components = [ComponentInstance.model_validate(item) for item in json.loads(components_json)]
         prompt = f"""
         You are a Mechanical/Fabrication and CAD Sourcing Agent.
         Produce enclosure, mounting, fabrication, CAD source, and 3D render placement details.
 
-        Project plan:
-        {plan.model_dump_json()}
+        Project overview and requirements:
+        {json.dumps({"overview": plan.overview.model_dump(), "requirements": plan.requirements.model_dump()}, indent=2)}
 
-        Components:
-        {components_json}
+        Mechanical system branch:
+        {json.dumps(mechanical_context, indent=2)}
+
+        Components (pin definitions intentionally omitted):
+        {json.dumps(compact_component_context(components), indent=2)}
 
         Research context:
         {research_context}
@@ -562,6 +589,7 @@ class WebResearchHardwarePipeline:
         nets: List[ConnectionNet],
         mechanical: MechanicalNotes,
     ) -> List[AssemblyStep]:
+        components = [ComponentInstance.model_validate(item) for item in json.loads(components_json)]
         prompt = f"""
         You are an Assembly Instruction Agent.
         Produce concrete step-by-step build instructions.
@@ -569,11 +597,14 @@ class WebResearchHardwarePipeline:
         Project:
         {plan.overview.model_dump_json()}
 
-        Components:
-        {components_json}
+        System hierarchy:
+        {json.dumps(system_context(plan.system_architecture), indent=2)}
 
-        Nets:
-        {json.dumps([net.model_dump() for net in nets], indent=2)}
+        Components (pin definitions intentionally omitted):
+        {json.dumps(compact_component_context(components), indent=2)}
+
+        Nets (system connectivity without individual pin IDs):
+        {json.dumps(compact_net_context(nets), indent=2)}
 
         Mechanical guide:
         {mechanical.model_dump_json()}
@@ -695,7 +726,7 @@ class WebResearchHardwarePipeline:
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
-            if key != "owner_user_id"
+            if key not in {"owner_user_id", "project_prompt"}
         }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
@@ -706,7 +737,7 @@ class WebResearchHardwarePipeline:
             save_generated_project(
                 project_id=project_id,
                 title=ir.overview.title if ir.overview else "Untitled Forma Project",
-                prompt=prompt,
+                prompt=str(generation_metadata.get("project_prompt") or prompt),
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
                 chat_id=generation_metadata.get("chat_id"),

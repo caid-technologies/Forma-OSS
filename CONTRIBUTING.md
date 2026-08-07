@@ -19,7 +19,7 @@ You can contribute by:
 * Adding supported LLM or image providers
 * Improving project iteration and self-correction
 * Improving observability, persistence, or deployment support
-* Adding examples or benchmarks
+* Adding examples or evaluations
 * Reviewing issues and pull requests
 
 Small, focused contributions are welcome.
@@ -150,13 +150,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 
 python -m pip install --upgrade pip
-pip install -r backend/requirements.txt
+pip install -r apps/api/requirements.txt
 ```
 
 Run the backend:
 
 ```bash
-uvicorn backend.main:app --reload --port 8000
+uvicorn apps.api.main:app --reload --port 8000
 ```
 
 The API documentation will be available at:
@@ -176,7 +176,7 @@ pip install -e ".[dev]"
 In a separate terminal:
 
 ```bash
-cd frontend
+cd apps/web
 npm install
 npm run dev
 ```
@@ -192,7 +192,7 @@ http://localhost:3000
 From the repository root:
 
 ```bash
-./scripts/dev.sh
+./scripts/development/dev.sh
 ```
 
 This starts the FastAPI backend and Next.js frontend together.
@@ -212,13 +212,13 @@ By default, the backend runs on port `8000` and the frontend runs on port `3000`
 Important directories include:
 
 ```text
-backend/          FastAPI application and service integrations
+apps/api/          FastAPI application and service integrations
 blueprint_core/   Reusable generation, validation, provider, and project logic
-frontend/         Next.js frontend
-tests/            Offline Python unit tests
-benchmarks/       Model and pipeline benchmarks
+apps/web/         Next.js frontend
+tests/            Concern-grouped offline Python unit tests (see tests/README.md)
+evals/            Performance benchmarks, quality evaluations, datasets, and reports
 docs/             Architecture and development documentation
-scripts/          Development, testing, verification, and operational scripts
+scripts/          Concern-grouped developer and operational tools (see scripts/README.md)
 supabase/         Supabase schema and migration resources
 examples/         Example inputs and generated outputs
 ```
@@ -313,7 +313,7 @@ Do not assume that every developer has a configured Supabase project. Local SQLi
 Run the offline Python test suite from the repository root:
 
 ```bash
-./scripts/test.sh
+./scripts/quality/test.sh
 ```
 
 This performs Python compilation checks and runs the unit tests under `tests/`.
@@ -321,7 +321,7 @@ This performs Python compilation checks and runs the unit tests under `tests/`.
 For frontend changes, run:
 
 ```bash
-cd frontend
+cd apps/web
 npm run lint
 npm run build
 ```
@@ -403,7 +403,7 @@ Before requesting review, confirm that:
 * [ ] Python code is typed
 * [ ] Public classes and functions are documented
 * [ ] Relevant tests were added or updated
-* [ ] `./scripts/test.sh` passes
+* [ ] `./scripts/quality/test.sh` passes
 * [ ] Frontend lint and build checks pass when applicable
 * [ ] Documentation was updated when applicable
 * [ ] No secrets or credentials were committed

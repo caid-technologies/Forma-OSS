@@ -9,11 +9,12 @@ from blueprint_core.openai_streams import (
     DEFAULT_BASETEN_STREAM_MODEL,
     DEFAULT_GMI_BASE_URL,
     DEFAULT_GMI_STREAM_MODEL,
-    DEFAULT_NEBIUS_BASE_URL,
-    DEFAULT_NEBIUS_STREAM_MODEL,
+    DEFAULT_CLOUDFLARE_BASE_URL,
+    DEFAULT_CLOUDFLARE_STREAM_MODEL,
     OpenAICompatibleChatCompletionsStreamer,
     OpenAICompatibleChatConfig,
     OpenAITextStreamChunk,
+    cloudflare_base_url,
     first_env,
     merged_env,
 )
@@ -100,21 +101,21 @@ class OpenAICompatibleChatProviderClient:
         )
 
     @classmethod
-    def nebius(
+    def cloudflare(
         cls,
         *,
         env_file: Path,
         streamer_factory: OpenAICompatibleStreamerFactory | None = None,
     ) -> "OpenAICompatibleChatProviderClient":
         return cls(
-            provider_name="nebius",
-            display_name="Nebius Token Factory",
+            provider_name="cloudflare",
+            display_name="Cloudflare AI",
             env_file=env_file,
-            default_model=DEFAULT_NEBIUS_STREAM_MODEL,
-            default_base_url=DEFAULT_NEBIUS_BASE_URL,
-            api_key_env_names=("NEBIUS_API_KEY", "LLM_API_KEY"),
-            base_url_env_names=("NEBIUS_BASE_URL",),
-            model_env_names=("NEBIUS_STREAM_MODEL", "NEBIUS_MODEL", "LLM_MODEL"),
+            default_model=DEFAULT_CLOUDFLARE_STREAM_MODEL,
+            default_base_url=DEFAULT_CLOUDFLARE_BASE_URL,
+            api_key_env_names=("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY", "LLM_API_KEY"),
+            base_url_env_names=("CLOUDFLARE_BASE_URL",),
+            model_env_names=("CLOUDFLARE_STREAM_MODEL", "CLOUDFLARE_MODEL", "LLM_MODEL"),
             streamer_factory=streamer_factory,
         )
 
@@ -126,7 +127,10 @@ class OpenAICompatibleChatProviderClient:
         env = merged_env(self.env_file)
         api_key_source = next((name for name in self.api_key_env_names if first_env(env, name)), self.api_key_env_names[0])
         api_key = first_env(env, *self.api_key_env_names) or ""
-        base_url = first_env(env, *self.base_url_env_names) or self.default_base_url
+        if self.provider_name == "cloudflare":
+            base_url = cloudflare_base_url(env)
+        else:
+            base_url = first_env(env, *self.base_url_env_names) or self.default_base_url
         model = first_env(env, *self.model_env_names) or self.default_model
         return ProviderSpec(
             name=self.provider_name,

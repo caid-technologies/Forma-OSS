@@ -4,6 +4,7 @@ import io
 import json
 import logging
 from blueprint_core.config import config
+from blueprint_core.vertex_auth import build_vertex_credentials
 import time
 import uuid
 import urllib.error
@@ -610,12 +611,16 @@ class VertexAIImageProvider(OpenAIImageProvider):
 
         if self.enabled and self.project and genai:
             try:
-                self.client = genai.Client(
-                    vertexai=True,
-                    project=self.project,
-                    location=self.location,
-                    http_options=genai_types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
-                )
+                client_config: Dict[str, Any] = {
+                    "vertexai": True,
+                    "project": self.project,
+                    "location": self.location,
+                    "http_options": genai_types.HttpOptions(timeout=int(self.timeout_seconds * 1000)),
+                }
+                credentials = build_vertex_credentials()
+                if credentials is not None:
+                    client_config["credentials"] = credentials
+                self.client = genai.Client(**client_config)
             except Exception as exc:
                 self.init_error = f"Error initializing Vertex AI image provider: {exc}"
                 logger.error(self.init_error)

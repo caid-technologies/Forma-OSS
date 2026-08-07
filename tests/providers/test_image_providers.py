@@ -118,6 +118,25 @@ class ImageProviderRoutingTests(unittest.TestCase):
         self.assertEqual("gemini-3.1-flash-image", provider.model_name)
         self.assertTrue(provider.is_configured)
 
+    def test_vertex_image_provider_uses_vercel_workload_identity_credentials(self) -> None:
+        credentials = object()
+        fake_genai = SimpleNamespace(Client=Mock(return_value=Mock()))
+        with patch.dict(
+            os.environ,
+            {
+                "IMAGE_PROVIDER": "vertex",
+                "GOOGLE_CLOUD_PROJECT": "forma-image-test",
+            },
+            clear=True,
+        ), patch("blueprint_core.image_providers.genai", fake_genai), patch(
+            "blueprint_core.image_providers.build_vertex_credentials",
+            return_value=credentials,
+        ):
+            provider = build_image_provider(force_enabled=True)
+
+        self.assertTrue(provider.is_configured)
+        self.assertIs(credentials, fake_genai.Client.call_args.kwargs["credentials"])
+
     def test_gmi_image_provider_routes_from_image_provider(self) -> None:
         with patch.dict(
             os.environ,

@@ -218,6 +218,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 - Set `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT` (or `VERTEX_AI_PROJECT`), and `GOOGLE_CLOUD_LOCATION` (or `VERTEX_AI_LOCATION`, default `global`).
 - `VERTEX_AI_MODEL` selects the Gemini model and `VERTEX_AI_FALLBACK_MODEL` configures the optional non-strict fallback.
 - Authentication uses Google Cloud Application Default Credentials. Run `gcloud auth application-default login` locally; in production, attach a service account with Vertex AI access. `GOOGLE_APPLICATION_CREDENTIALS` may point to a mounted credential file.
+- Vercel deployments can use keyless workload identity federation. Configure Vercel OIDC in a Google Workload Identity Pool, then set `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`. Forma exchanges the request's short-lived Vercel OIDC token and does not store a service-account key.
 
 </details>
 

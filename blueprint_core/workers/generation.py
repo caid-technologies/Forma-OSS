@@ -442,7 +442,7 @@ def _worker_context(request: WorkerRequest) -> dict[str, Any]:
 
 def _failure_result(request: WorkerRequest, exc: Exception, *, retryable: bool) -> WorkerResult:
     context = _worker_context(request)
-    code = getattr(exc, "code", "generation_failed")
+    code = str(getattr(exc, "code", "generation_failed"))
     message = str(getattr(exc, "message", "") or str(exc) or exc.__class__.__name__)
     details = {
         "exception_type": exc.__class__.__name__,

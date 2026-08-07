@@ -102,6 +102,16 @@ class FakeGenerationEngine:
         )
 
 
+class ProviderDeadlineError(RuntimeError):
+    code = 504
+
+
+class ProviderDeadlineGenerationEngine(FakeGenerationEngine):
+    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+        del design_brief
+        raise ProviderDeadlineError("504 DEADLINE_EXCEEDED: Deadline expired before operation could complete.")
+
+
 class ObservableGenerationEngine(HardwareIRGenerationEngine):
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
         emit_agent_pipeline_event(None, "intent_parser", "started")
@@ -352,6 +362,20 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ProjectStateError) as missing:
             self.state.get_latest(self.project_id, OWNER)
         self.assertEqual("project_revision_not_found", missing.exception.code)
+
+    async def test_numeric_provider_status_is_preserved_as_a_retryable_worker_error(self) -> None:
+        worker = GenerationWorker(self.state, ProviderDeadlineGenerationEngine())
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        result = completed.jobs["job-generation-initial"].result
+
+        self.assertEqual(WorkerPlanStatus.FAILED, completed.status)
+        self.assertEqual("504", result.error.code)
+        self.assertTrue(result.error.retryable)
+        self.assertIn("DEADLINE_EXCEEDED", result.error.message)
+        self.assertEqual("ProviderDeadlineError", result.error.details["exception_type"])
 
     async def test_extra_conversation_input_is_rejected_before_generation(self) -> None:
         engine = FakeGenerationEngine()

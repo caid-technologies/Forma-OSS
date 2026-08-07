@@ -13,7 +13,10 @@ from blueprint_core.llm import (
     LLMProviderConfigError,
     LLMProviderInputError,
     LLMProviderOutputError,
+    LLMProviderPreflightError,
+    LLMProviderValidation,
     build_llm_provider,
+    enforce_production_llm_preflight,
     model_image_input_support,
     resolve_llm_runtime_config,
 )
@@ -41,6 +44,7 @@ LLM_ENV_KEYS = {
     "BASETEN_MODEL",
     "BLUEPRINT_DEPLOYMENT",
     "BLUEPRINT_DEPLOYMENT_MODE",
+    "BLUEPRINT_DEV_MODE",
     "CLAUDE_API_KEY",
     "CLAUDE_API_VERSION",
     "CLAUDE_BASE_URL",
@@ -117,6 +121,7 @@ LLM_ENV_KEYS = {
     "CLOUDFLARE_API_KEY",
     "CLOUDFLARE_API_TOKEN",
     "CLOUDFLARE_BASE_URL",
+    "CLOUDFLARE_ENABLE_THINKING",
     "CLOUDFLARE_FALLBACK_MODEL",
     "CLOUDFLARE_MAX_TOKENS",
     "CLOUDFLARE_MODEL",
@@ -180,7 +185,7 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
     try:
         for key in LLM_ENV_KEYS:
             os.environ.pop(key, None)
-        os.environ.update(overrides)
+        os.environ.update({"BLUEPRINT_DEV_MODE": "true", **overrides})
         yield
     finally:
         for key in LLM_ENV_KEYS:
@@ -190,6 +195,76 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
 
 
 class LLMRuntimeTests(unittest.TestCase):
+    def test_production_preflight_rejects_provider_without_live_model_check(self) -> None:
+        validation = LLMProviderValidation(
+            provider="openai",
+            requested_model="gpt-test",
+            actual_model="gpt-test",
+            requested_model_available=True,
+            strict_mode=True,
+            fallback_active=False,
+            model_availability_checked=False,
+        )
+
+        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+            with self.assertRaisesRegex(LLMProviderPreflightError, "did not perform a live model-availability check"):
+                enforce_production_llm_preflight(validation)
+
+    def test_production_preflight_accepts_selected_model_after_live_check(self) -> None:
+        validation = LLMProviderValidation(
+            provider="vertex",
+            requested_model="gemini-test",
+            actual_model="gemini-test",
+            requested_model_available=True,
+            strict_mode=True,
+            fallback_active=False,
+            model_availability_checked=True,
+        )
+
+        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+            self.assertIs(validation, enforce_production_llm_preflight(validation))
+
+    def test_production_preflight_rejects_model_fallback(self) -> None:
+        validation = LLMProviderValidation(
+            provider="vertex",
+            requested_model="gemini-primary",
+            actual_model="gemini-fallback",
+            requested_model_available=False,
+            strict_mode=False,
+            fallback_active=True,
+            fallback_model="gemini-fallback",
+            model_availability_checked=True,
+        )
+
+        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+            with self.assertRaisesRegex(LLMProviderPreflightError, "fell back to a different model"):
+                enforce_production_llm_preflight(validation)
+
+    def test_development_preflight_allows_unchecked_provider(self) -> None:
+        validation = LLMProviderValidation(
+            provider="openai",
+            requested_model="gpt-test",
+            actual_model="gpt-test",
+            requested_model_available=True,
+            strict_mode=True,
+            fallback_active=False,
+            model_availability_checked=False,
+        )
+
+        with isolated_llm_env(BLUEPRINT_DEV_MODE="true"):
+            self.assertIs(validation, enforce_production_llm_preflight(validation))
+
+    def test_production_forces_openai_compatible_model_validation(self) -> None:
+        with isolated_llm_env(
+            BLUEPRINT_DEV_MODE="false",
+            LLM_PROVIDER="openai",
+            OPENAI_API_KEY="test-key",
+            OPENAI_MODEL="gpt-test",
+        ):
+            provider = OpenAICompatibleProvider(provider_name="openai")
+
+        self.assertTrue(provider.validate_models)
+
     def test_local_ollama_uses_native_schema_api_with_request_context(self) -> None:
         captured = {}
 

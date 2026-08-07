@@ -14,6 +14,7 @@ from blueprint_core.llm import (
     LLMRuntimeConfig,
     StructuredLLMProvider,
     build_llm_provider,
+    enforce_production_llm_preflight,
     resolve_llm_runtime_config,
 )
 from blueprint_core.workspaces.projects.models import HardwareIR
@@ -535,7 +536,8 @@ class ProjectIterator:
         self.require_live_generation = require_live_generation
 
     def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
-        return self.llm_provider.validate_configured_model(raise_on_strict=raise_on_strict)
+        validation = self.llm_provider.validate_configured_model(raise_on_strict=raise_on_strict)
+        return enforce_production_llm_preflight(validation)
 
     def get_debug_config(self) -> Dict[str, Any]:
         return {

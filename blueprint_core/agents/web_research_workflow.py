@@ -25,8 +25,10 @@ from blueprint_core.database import delete_generated_project, save_generated_pro
 from blueprint_core.jobs.source_usage import source_usage_for_workflow
 from blueprint_core.llm import (
     LLMProviderConfigError,
+    LLMProviderValidation,
     LLMRuntimeConfig,
     build_llm_provider,
+    enforce_production_llm_preflight,
     resolve_llm_runtime_config,
 )
 from blueprint_core.workspaces.projects.models import (
@@ -114,7 +116,7 @@ class WebResearchHardwarePipeline:
         self._active_generation_metadata: Dict[str, Any] = {}
 
     def get_debug_config(self) -> Dict[str, Any]:
-        validation = self.llm_provider.validate_configured_model(raise_on_strict=False)
+        validation = self.validate_configured_model(raise_on_strict=False)
         self.model_name = validation.actual_model or self.llm_provider.model_name
         return {
             **validation.as_debug_dict(),
@@ -122,6 +124,10 @@ class WebResearchHardwarePipeline:
             "workflow": self.workflow_id,
             "external_sources": self.research_client.get_debug_config(),
         }
+
+    def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
+        validation = self.llm_provider.validate_configured_model(raise_on_strict=raise_on_strict)
+        return enforce_production_llm_preflight(validation)
 
     def _call_llm_structured(
         self,
@@ -214,6 +220,7 @@ class WebResearchHardwarePipeline:
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
     ) -> HardwareIR:
+        self.validate_configured_model()
         self._active_generation_metadata = {
             key: value
             for key, value in (generation_metadata or {}).items()
@@ -259,7 +266,7 @@ class WebResearchHardwarePipeline:
             return ir
 
         try:
-            model_validation = self.llm_provider.validate_configured_model()
+            model_validation = self.validate_configured_model()
             self.model_name = model_validation.actual_model or self.llm_provider.model_name
             if image_bytes:
                 self.llm_provider.validate_image_input()

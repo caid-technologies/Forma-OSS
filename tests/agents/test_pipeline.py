@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import unittest
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.llm import LLMProviderPreflightError
 from blueprint_core.agents.pipeline import (
     PipelineCancelledError,
     agent_pipeline_step,
@@ -16,6 +17,18 @@ from blueprint_core.agents.pipeline import (
 
 
 class PipelineMetadataTests(unittest.TestCase):
+    def test_production_preflight_fails_before_pipeline_events(self) -> None:
+        orchestrator = HardwarePipelineOrchestrator.__new__(HardwarePipelineOrchestrator)
+        orchestrator.validate_configured_model = Mock(
+            side_effect=LLMProviderPreflightError("production provider unavailable")
+        )
+
+        with patch("blueprint_core.agents.orchestrator.emit_agent_pipeline_event") as emit_event:
+            with self.assertRaises(LLMProviderPreflightError):
+                orchestrator.generate_project("environment monitor")
+
+        emit_event.assert_not_called()
+
     def test_default_pipeline_exposes_public_agent_steps(self) -> None:
         steps = list_agent_pipeline_steps("default")
 

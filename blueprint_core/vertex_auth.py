@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from contextvars import ContextVar, Token
 from typing import Any
 
 from google.auth import identity_pool
 from google.auth.exceptions import RefreshError
+
+from blueprint_core.config import config
 
 
 _VERTEX_OIDC_TOKEN: ContextVar[str | None] = ContextVar("vertex_oidc_token", default=None)
@@ -28,7 +29,7 @@ def reset_vertex_oidc_token(token: Token[str | None]) -> None:
 def current_vertex_oidc_token() -> str | None:
     """Return a request token, falling back to Vercel's local/build-time variable."""
 
-    return _VERTEX_OIDC_TOKEN.get() or str(os.getenv("VERCEL_OIDC_TOKEN") or "").strip() or None
+    return _VERTEX_OIDC_TOKEN.get() or str(config.get("VERCEL_OIDC_TOKEN") or "").strip() or None
 
 
 class VercelOidcContextMiddleware:
@@ -67,10 +68,10 @@ class _VercelOidcTokenSupplier(identity_pool.SubjectTokenSupplier):
 def build_vertex_credentials() -> identity_pool.Credentials | None:
     """Build short-lived GCP credentials when Vercel workload identity is configured."""
 
-    project_number = str(os.getenv("GCP_PROJECT_NUMBER") or "").strip()
-    service_account_email = str(os.getenv("GCP_SERVICE_ACCOUNT_EMAIL") or "").strip()
-    pool_id = str(os.getenv("GCP_WORKLOAD_IDENTITY_POOL_ID") or "").strip()
-    provider_id = str(os.getenv("GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID") or "").strip()
+    project_number = str(config.get("GCP_PROJECT_NUMBER") or "").strip()
+    service_account_email = str(config.get("GCP_SERVICE_ACCOUNT_EMAIL") or "").strip()
+    pool_id = str(config.get("GCP_WORKLOAD_IDENTITY_POOL_ID") or "").strip()
+    provider_id = str(config.get("GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID") or "").strip()
     if not all((project_number, service_account_email, pool_id, provider_id, current_vertex_oidc_token())):
         return None
 

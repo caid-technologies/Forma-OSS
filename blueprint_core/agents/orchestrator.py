@@ -23,6 +23,7 @@ from blueprint_core.llm import (
     LLMProviderValidation,
     LLMRuntimeConfig,
     build_llm_provider,
+    enforce_production_llm_preflight,
     resolve_llm_runtime_config,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
@@ -592,6 +593,7 @@ class HardwarePipelineOrchestrator:
     def validate_configured_model(self, *, raise_on_strict: bool = True) -> LLMProviderValidation:
         """Resolve and validate the configured LLM provider/model."""
         validation = self.llm_provider.validate_configured_model(raise_on_strict=raise_on_strict)
+        enforce_production_llm_preflight(validation)
         self.model_name = validation.actual_model or self.llm_provider.model_name
         return validation
 
@@ -649,6 +651,7 @@ class HardwarePipelineOrchestrator:
         generation_metadata: Optional[Dict[str, Any]] = None,
     ) -> HardwareIR:
         """Orchestrates the 7-agent hardware compilation pipeline with verification loop."""
+        self.validate_configured_model()
         self._active_generation_metadata = {
             key: value
             for key, value in (generation_metadata or {}).items()

@@ -317,6 +317,25 @@ class SqlAlchemyRepository:
                 .first()
             )
 
+    def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            rows = (
+                session.query(DBProjectRevision)
+                .filter(DBProjectRevision.owner_user_id == owner_user_id)
+                .order_by(DBProjectRevision.created_at.desc())
+                .all()
+            )
+            latest_by_project: Dict[str, Any] = {}
+            for row in rows:
+                current = latest_by_project.get(row.project_id)
+                if current is None or row.revision > current.revision:
+                    latest_by_project[row.project_id] = row
+            return sorted(
+                latest_by_project.values(),
+                key=lambda row: str(row.created_at or ""),
+                reverse=True,
+            )
+
     def get_project_revision(
         self,
         project_id: str,

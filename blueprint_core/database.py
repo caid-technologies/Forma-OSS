@@ -701,6 +701,31 @@ def get_latest_project_revision(project_id: str, owner_user_id: str) -> ProjectR
     return ProjectStateService(_DATABASE_REPOSITORY).get_latest(project_id, owner_user_id)
 
 
+def list_latest_project_revisions(owner_user_id: str) -> List[ProjectRevision]:
+    """List each owned project's latest immutable canonical revision."""
+
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    revisions: List[ProjectRevision] = []
+    for record in _DATABASE_REPOSITORY.list_latest_project_revisions(owner):
+        payload = getattr(record, "payload_json", None)
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Skipping project revision with invalid payload while listing owner projects: project_id=%s",
+                getattr(record, "project_id", "unknown"),
+            )
+            continue
+        try:
+            revisions.append(ProjectRevision.model_validate(payload))
+        except Exception:
+            logger.exception(
+                "Skipping invalid canonical project revision while listing owner projects: project_id=%s",
+                getattr(record, "project_id", "unknown"),
+            )
+    return revisions
+
+
 def append_project_revision(
     project_id: str,
     owner_user_id: str,
@@ -722,12 +747,14 @@ def append_project_revision(
         parent.design_brief_version,
     )
     draft = build_generation_draft(brief, HardwareIR.model_validate(state))
-    return service.create_revision(
+    revision = service.create_revision(
         draft,
         project_id=project_id,
         owner_user_id=owner_user_id,
         source_job_id=source_job_id,
     ).revision
+    invalidate_project_lists()
+    return revision
 
 
 def create_project_generation_plan(
@@ -820,7 +847,9 @@ async def execute_project_generation_plan(
         workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
         cancellation_check=cancellation_check,
     )
-    return await orchestrator.execute(plan_id, owner)
+    plan = await orchestrator.execute(plan_id, owner)
+    invalidate_project_lists()
+    return plan
 
 
 async def cancel_project_generation_plan(plan_id: str, owner_user_id: str):

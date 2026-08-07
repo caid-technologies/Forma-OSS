@@ -274,6 +274,31 @@ class SupabaseRepository:
         )
         return _record(rows[0]) if rows else None
 
+    def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("project_revisions")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        latest_by_project: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            project_id = str(row.get("project_id") or "").strip()
+            if not project_id:
+                continue
+            current = latest_by_project.get(project_id)
+            if current is None or int(row.get("revision") or 0) > int(current.get("revision") or 0):
+                latest_by_project[project_id] = row
+        latest = sorted(
+            latest_by_project.values(),
+            key=lambda row: str(row.get("created_at") or ""),
+            reverse=True,
+        )
+        return [_record(row) for row in latest]
+
     def get_project_revision(
         self,
         project_id: str,

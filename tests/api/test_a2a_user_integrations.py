@@ -215,6 +215,10 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     "image_inference_provider": "fal-ai",
                 },
             )
+            store.update_integration(
+                "image",
+                field_values={"provider": "huggingface"},
+            )
 
             with patch.dict(
                 os.environ,

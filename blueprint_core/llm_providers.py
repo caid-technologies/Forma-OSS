@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
-from blueprint_core.runtime import deployment_mode_enabled
+from blueprint_core.runtime import blueprint_dev_mode_enabled, deployment_mode_enabled
 
 load_dotenv()
 
@@ -73,6 +73,10 @@ class LLMProviderConfigError(RuntimeError):
 
 class LLMProviderOutputError(RuntimeError):
     """Raised when a live provider returns unusable structured output."""
+
+
+class LLMProviderPreflightError(LLMProviderConfigError):
+    """Raised when a production provider/model has not passed a live preflight."""
 
 
 class LLMProviderInputError(ValueError):
@@ -209,6 +213,33 @@ class LLMProviderValidation:
             "live_generation_enabled": self.live_generation_enabled,
             "supports_image_input": model_image_input_support(self.provider, image_support_model),
         }
+
+
+def enforce_production_llm_preflight(validation: LLMProviderValidation) -> LLMProviderValidation:
+    """Require a successful live model-availability check outside development."""
+
+    if blueprint_dev_mode_enabled():
+        return validation
+
+    provider_model = f"{validation.provider}/{validation.requested_model}"
+    reason = validation.validation_error
+    if not reason and not validation.live_generation_enabled:
+        reason = "live generation is disabled"
+    if not reason and not validation.model_availability_checked:
+        reason = "the provider did not perform a live model-availability check"
+    if not reason and validation.fallback_active:
+        reason = "the selected model fell back to a different model"
+    if not reason and not validation.requested_model_available:
+        reason = "the selected model was not reported as available"
+    if not reason and not validation.actual_model:
+        reason = "the provider did not resolve an executable model"
+
+    if reason:
+        raise LLMProviderPreflightError(
+            f"Production LLM preflight failed for {provider_model}: {reason}. "
+            "BLUEPRINT_DEV_MODE=false forbids simulation, unchecked providers, and model fallback."
+        )
+    return validation
 
 
 @dataclass(frozen=True)
@@ -887,7 +918,8 @@ class StructuredLLMProvider:
         raise NotImplementedError
 
     def get_debug_config(self) -> Dict[str, Any]:
-        return self.validate_configured_model(raise_on_strict=False).as_debug_dict()
+        validation = self.validate_configured_model(raise_on_strict=False)
+        return enforce_production_llm_preflight(validation).as_debug_dict()
 
     def validate_image_input(self) -> None:
         if model_image_input_support(self.provider_name, self.model_name) is False:
@@ -1213,7 +1245,10 @@ class AnthropicProvider(StructuredLLMProvider):
         ) or DEFAULT_ANTHROPIC_MODEL
         self.fallback_model = _first_env(["ANTHROPIC_FALLBACK_MODEL", "CLAUDE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
         self.strict_mode = _first_env_bool(["STRICT_ANTHROPIC", "STRICT_CLAUDE", "STRICT_LLM"], default=True)
-        self.validate_models = _first_env_bool(["ANTHROPIC_VALIDATE_MODELS", "CLAUDE_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"], default=False)
+        self.validate_models = not blueprint_dev_mode_enabled() or _first_env_bool(
+            ["ANTHROPIC_VALIDATE_MODELS", "CLAUDE_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"],
+            default=False,
+        )
         self.timeout_seconds = _first_env_float(["ANTHROPIC_TIMEOUT_SECONDS", "CLAUDE_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"], DEFAULT_OPENAI_TIMEOUT_SECONDS)
         self.max_tokens = _first_env_int(["ANTHROPIC_MAX_TOKENS", "CLAUDE_MAX_TOKENS", "LLM_MAX_TOKENS"])
         self.temperature = _first_env_optional_float(["ANTHROPIC_TEMPERATURE", "CLAUDE_TEMPERATURE", "LLM_TEMPERATURE"], default=None)
@@ -1692,7 +1727,10 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
         raw_fallback_model = _first_env(fallback_model_names)
         self.fallback_model = _normalize_model_for_provider(self.provider_name, raw_fallback_model) if raw_fallback_model else None
         self.strict_mode = _first_env_bool(strict_names, default=True)
-        self.validate_models = _first_env_bool(validate_model_names, default=False)
+        self.validate_models = not blueprint_dev_mode_enabled() or _first_env_bool(
+            validate_model_names,
+            default=False,
+        )
         default_response_format = "json_schema" if self.provider_name in {"cloudflare", "openai"} else "json_object"
         self.response_format = (
             _first_env(response_format_names, default_response_format)

@@ -30,7 +30,7 @@ from blueprint_core.agents.contracts import (
     LatticeRunRecord,
     LatticeSchemaContract,
 )
-from blueprint_core.llm import build_llm_provider
+from blueprint_core.llm import build_llm_provider, enforce_production_llm_preflight
 
 
 DEFAULT_MATERIAL = "cellulose fiber and mycelium biomass"
@@ -284,7 +284,9 @@ def generate_live_plan(
     question: FabricatorQuestion,
 ) -> tuple[FabricatorPlan, dict[str, Any], list[str]]:
     provider = build_llm_provider(provider_name=args.provider, model_name=args.model)
-    validation = provider.validate_configured_model(raise_on_strict=False)
+    validation = enforce_production_llm_preflight(
+        provider.validate_configured_model(raise_on_strict=False)
+    )
     debug_config = validation.as_debug_dict()
     if not validation.live_generation_enabled:
         raise RuntimeError(f"Forma live LLM is unavailable: {validation.validation_error}")

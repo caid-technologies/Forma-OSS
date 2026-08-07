@@ -13,6 +13,11 @@ from blueprint_core.database import (
 from blueprint_core.workspaces.context import ContextBuildExecution
 from blueprint_core.workspaces.readiness import BuildMode, ReadinessStatus
 from blueprint_core.workspaces.workflow import ProjectWorkflow
+from blueprint_core.vertex_auth import (
+    bind_vertex_oidc_token,
+    current_vertex_oidc_token,
+    reset_vertex_oidc_token,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -67,10 +72,12 @@ class ContextBuildDispatcher:
         """Run independently of the HTTP response lifecycle so the UI can begin polling immediately."""
 
         cancellation_event = Event()
+        oidc_token = current_vertex_oidc_token()
         with cls._cancellation_lock:
             cls._cancellation_events[plan_id] = cancellation_event
 
         def run() -> None:
+            context_token = bind_vertex_oidc_token(oidc_token)
             try:
                 asyncio.run(execute_project_generation_plan(
                     plan_id,
@@ -80,6 +87,7 @@ class ContextBuildDispatcher:
             except Exception:
                 logger.exception("Detached generation plan failed: plan_id=%s", plan_id)
             finally:
+                reset_vertex_oidc_token(context_token)
                 with cls._cancellation_lock:
                     if cls._cancellation_events.get(plan_id) is cancellation_event:
                         cls._cancellation_events.pop(plan_id, None)

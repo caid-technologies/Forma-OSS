@@ -6,6 +6,7 @@ import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
+from threading import Event
 from typing import Iterator
 from unittest.mock import AsyncMock, patch
 
@@ -15,7 +16,7 @@ from fastapi.testclient import TestClient
 from apps.api import a2a, main
 from apps.api.a2a import A2AMessage
 from apps.api.auth import UserContext, require_user_context
-from apps.api.context_builds import context_build_dispatcher
+from apps.api.context_builds import ContextBuildDispatcher, context_build_dispatcher
 from apps.api.context_gathering_api import context_gathering_agent, router
 from apps.api.worker_plans_api import router as worker_plans_router
 from blueprint_core.agents.context_gathering import ContextGatheringAgent
@@ -25,6 +26,11 @@ from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workspaces.projects.models import GenerateProjectRequest
 from blueprint_core.workspaces.context import ContextBuildExecution
 from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
+from blueprint_core.vertex_auth import (
+    bind_vertex_oidc_token,
+    current_vertex_oidc_token,
+    reset_vertex_oidc_token,
+)
 
 
 OWNER = "context-user"
@@ -189,6 +195,24 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(str(frozen.build_id), execution["build_id"])
         self.assertEqual([execution["job_id"]], list(plan.jobs))
         launch_plan.assert_called_once_with(execution["plan_id"], OWNER)
+
+    def test_detached_build_worker_inherits_request_vertex_oidc_token(self) -> None:
+        observed: list[str | None] = []
+        completed = Event()
+
+        async def execute_plan(*_args, **_kwargs):
+            observed.append(current_vertex_oidc_token())
+            completed.set()
+
+        request_context = bind_vertex_oidc_token("runtime-vercel-token")
+        try:
+            with patch("apps.api.context_builds.execute_project_generation_plan", side_effect=execute_plan):
+                ContextBuildDispatcher._launch("build-plan-oidc", OWNER)
+                self.assertTrue(completed.wait(timeout=2), "Detached build worker did not finish.")
+        finally:
+            reset_vertex_oidc_token(request_context)
+
+        self.assertEqual(["runtime-vercel-token"], observed)
 
     def test_worker_plan_cancel_endpoint_stops_the_durable_build(self) -> None:
         project_id = str(uuid.uuid4())

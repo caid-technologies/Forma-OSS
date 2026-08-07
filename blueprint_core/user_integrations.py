@@ -1602,7 +1602,15 @@ def _desired_environment(config: UserIntegrationConfig) -> dict[str, str]:
         desired["IMAGE_PROVIDER"] = generic_image_provider
     elif runtime_image_provider and not desired.get("IMAGE_PROVIDER"):
         desired["IMAGE_PROVIDER"] = runtime_image_provider
-    elif inferred_image_provider and not desired.get("IMAGE_PROVIDER"):
+    # Provider credentials advertise an available fallback; they are not an
+    # explicit image-provider selection. Keep a platform-selected provider
+    # (for example production Vertex AI) unless the user chose a provider in
+    # the runtime or image integration.
+    elif (
+        inferred_image_provider
+        and not desired.get("IMAGE_PROVIDER")
+        and not _ORIGINAL_ENV_VALUES.get("IMAGE_PROVIDER")
+    ):
         desired["IMAGE_PROVIDER"] = inferred_image_provider
 
     if allowed_providers and not desired.get("LLM_ALLOWED_PROVIDERS"):

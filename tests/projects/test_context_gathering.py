@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import tempfile
 import unittest
 import uuid
@@ -196,6 +197,26 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual([execution["job_id"]], list(plan.jobs))
         launch_plan.assert_called_once_with(execution["plan_id"], OWNER)
 
+    def test_vercel_dispatcher_leaves_plan_for_request_bound_execution(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-vercel-dispatch"
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch.dict(os.environ, {"VERCEL": "1"}), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ) as launch_plan:
+            self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a relay controller."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+
+        self.assertEqual(201, started.status_code, started.text)
+        self.assertEqual("planned", started.json()["build_execution"]["status"])
+        launch_plan.assert_not_called()
+
     def test_detached_build_worker_inherits_request_vertex_oidc_token(self) -> None:
         observed: list[str | None] = []
         completed = Event()
@@ -239,6 +260,36 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual("cancelled", stopped.json()["status"])
         self.assertEqual("cancelled", stopped.json()["jobs"][execution["job_id"]]["status"])
         self.assertEqual("cancelled", persisted.status.value)
+
+    def test_worker_plan_execute_endpoint_keeps_generation_in_request_lifecycle(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-request-bound-build"
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a relay controller."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            execution = started.json()["build_execution"]
+            plan = database.get_project_generation_plan(execution["plan_id"], OWNER)
+            with patch.object(
+                ContextBuildDispatcher,
+                "execute",
+                new=AsyncMock(return_value=plan),
+            ) as execute_plan:
+                response = self.client.post(
+                    f"/projects/{project_id}/build/plans/{execution['plan_id']}/execute",
+                )
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(execution["plan_id"], response.json()["plan_id"])
+        execute_plan.assert_awaited_once_with(execution["plan_id"], OWNER)
 
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())

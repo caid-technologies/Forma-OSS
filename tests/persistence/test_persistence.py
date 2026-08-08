@@ -4,17 +4,74 @@ import sqlite3
 import tempfile
 import unittest
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
+from unittest.mock import patch
 
 from blueprint_core.jobs.store import JobMetadataStore
 from blueprint_core import database
 from blueprint_core.persistence import APPLICATION_SCHEMA
+from blueprint_core.persistence.models import DBProjectRevision
 from blueprint_core.jobs.migrations import import_legacy_job_database
 from blueprint_core.persistence.providers import SupabaseProvider, create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
+from blueprint_core.workspaces.projects import ProjectRevision
+from blueprint_core.workspaces.projects.models import HardwareIR, ProjectOverview
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
+    def test_canonical_revision_publication_creates_public_gallery_projection_without_replacing_chat(self) -> None:
+        project_id = uuid.uuid4()
+        design_brief_id = uuid.uuid4()
+        brief = DesignBrief(
+            schema_version=DESIGN_BRIEF_SCHEMA_VERSION,
+            conversation_id="conversation-publication",
+            intent="Build a sensor",
+            summary="Build a compact sensor controller.",
+            requirements=["Read a sensor"],
+            constraints=["Use low voltage"],
+            readiness="ready",
+            design_brief_id=design_brief_id,
+            project_id=project_id,
+            brief_version=1,
+            created_at=datetime.now(timezone.utc),
+        )
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Published Sensor",
+                description="A compact sensor controller.",
+                difficulty="Beginner",
+                category="Sensors",
+            ),
+            assembly_metadata={"project_id": str(project_id)},
+        )
+        revision = ProjectRevision(
+            revision_id=uuid.uuid4(),
+            project_id=project_id,
+            owner_user_id="publication-owner",
+            revision=1,
+            design_brief_id=design_brief_id,
+            design_brief_version=1,
+            source_job_id="publication-job",
+            state=state,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        with patch.object(database, "get_generated_project", return_value=None), patch.object(
+            database,
+            "save_generated_project",
+        ) as save_project:
+            published_id = database.publish_project_revision(revision, brief, "publication-owner")
+
+        self.assertEqual(str(project_id), published_id)
+        save_project.assert_called_once()
+        saved = save_project.call_args.kwargs
+        self.assertEqual("public", saved["visibility"])
+        self.assertFalse(saved["create_chat_record"])
+        self.assertEqual("conversation-publication", saved["chat_id"])
+        self.assertEqual("conversation-publication", saved["hardware_ir"]["assembly_metadata"]["chat_id"])
+
     def test_supabase_provider_checks_complete_schema_contract(self) -> None:
         client = _SchemaClient()
         provider = SupabaseProvider(source="test", url="https://example.supabase.co", client=client)
@@ -117,6 +174,63 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIsNotNone(chat)
         self.assertTrue(deleted)
         self.assertIsNone(project_after_chat_delete.chat_id)
+
+    def test_sqlite_repository_lists_only_each_projects_latest_revision(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            with provider.session_factory() as session, session.begin():
+                session.add_all([
+                    DBProjectRevision(
+                        id="revision-a1",
+                        project_id="project-a",
+                        owner_user_id="user-a",
+                        revision=1,
+                        parent_revision=None,
+                        design_brief_id="brief-a",
+                        design_brief_version=1,
+                        source_job_id="job-a1",
+                        payload_json={},
+                        created_at="2026-08-07T12:00:00Z",
+                    ),
+                    DBProjectRevision(
+                        id="revision-a2",
+                        project_id="project-a",
+                        owner_user_id="user-a",
+                        revision=2,
+                        parent_revision=1,
+                        design_brief_id="brief-a",
+                        design_brief_version=1,
+                        source_job_id="job-a2",
+                        payload_json={},
+                        created_at="2026-08-07T12:02:00Z",
+                    ),
+                    DBProjectRevision(
+                        id="revision-b1",
+                        project_id="project-b",
+                        owner_user_id="user-a",
+                        revision=1,
+                        parent_revision=None,
+                        design_brief_id="brief-b",
+                        design_brief_version=1,
+                        source_job_id="job-b1",
+                        payload_json={},
+                        created_at="2026-08-07T12:01:00Z",
+                    ),
+                ])
+
+            revisions = repository.list_latest_project_revisions("user-a")
+
+        self.assertEqual(
+            [("project-a", 2), ("project-b", 1)],
+            [(revision.project_id, revision.revision) for revision in revisions],
+        )
 
     def test_legacy_job_import_is_idempotent_and_does_not_overwrite_primary_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

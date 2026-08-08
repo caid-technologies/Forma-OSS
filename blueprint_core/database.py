@@ -364,6 +364,7 @@ def save_generated_project(
     chat_id: Optional[str] = None,
     owner_user_id: Optional[str] = None,
     visibility: Optional[str] = "public",
+    create_chat_record: bool = True,
 ) -> None:
     project_id = _canonical_project_id(project_id)
     source_project_id = (hardware_ir.get("assembly_metadata") or {}).get("source_project_id") if isinstance(hardware_ir, dict) else None
@@ -394,7 +395,7 @@ def save_generated_project(
         "status": "active",
     }
     chat_record = None
-    if normalized_chat_id and normalized_owner_user_id:
+    if create_chat_record and normalized_chat_id and normalized_owner_user_id:
         chat_record = {
             "chat_id": normalized_chat_id,
             "owner_user_id": normalized_owner_user_id,
@@ -405,6 +406,55 @@ def save_generated_project(
         }
     _DATABASE_REPOSITORY.save_generated_project(record, chat_record)
     invalidate_project_lists()
+
+
+def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> str:
+    """Project canonical state into the public gallery's generated-project store."""
+
+    project_id = _canonical_project_id(str(revision.project_id))
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id or normalized_owner_user_id != revision.owner_user_id:
+        raise ValueError("Project revision owner must match owner_user_id.")
+    if revision.project_id != brief.project_id or revision.design_brief_id != brief.design_brief_id:
+        raise ValueError("Project revision and DesignBrief identities must match.")
+
+    ir = revision.state.model_copy(deep=True)
+    ir.assembly_metadata = {
+        **(ir.assembly_metadata or {}),
+        "project_id": project_id,
+        "chat_id": brief.conversation_id,
+        "project_revision": revision.revision,
+        "design_brief_version": revision.design_brief_version,
+    }
+    hardware_ir = ir.model_dump(mode="json")
+    existing = get_generated_project(project_id, include_deleted=True)
+    if existing is not None:
+        if getattr(existing, "owner_user_id", None) != normalized_owner_user_id:
+            raise DesignBriefAccessError("Project is not owned by the revision owner.")
+        if getattr(existing, "status", "active") != "active":
+            raise RuntimeError("Cannot publish a deleted project revision.")
+        if not update_generated_project_hardware_ir(
+            project_id,
+            hardware_ir,
+            owner_user_id=normalized_owner_user_id,
+        ):
+            raise RuntimeError("Could not refresh the generated-project gallery projection.")
+        return project_id
+
+    save_generated_project(
+        project_id=project_id,
+        title=(ir.overview.title if ir.overview else brief.summary) or "Untitled Forma Project",
+        prompt=brief.summary,
+        hardware_ir=hardware_ir,
+        created_at=revision.created_at.isoformat().replace("+00:00", "Z"),
+        chat_id=brief.conversation_id,
+        owner_user_id=normalized_owner_user_id,
+        visibility="public",
+        # Context gathering already owns the chat and its messages. Publishing
+        # the gallery projection must not replace that thread with an empty one.
+        create_chat_record=False,
+    )
+    return project_id
 
 
 def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
@@ -701,6 +751,31 @@ def get_latest_project_revision(project_id: str, owner_user_id: str) -> ProjectR
     return ProjectStateService(_DATABASE_REPOSITORY).get_latest(project_id, owner_user_id)
 
 
+def list_latest_project_revisions(owner_user_id: str) -> List[ProjectRevision]:
+    """List each owned project's latest immutable canonical revision."""
+
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    revisions: List[ProjectRevision] = []
+    for record in _DATABASE_REPOSITORY.list_latest_project_revisions(owner):
+        payload = getattr(record, "payload_json", None)
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Skipping project revision with invalid payload while listing owner projects: project_id=%s",
+                getattr(record, "project_id", "unknown"),
+            )
+            continue
+        try:
+            revisions.append(ProjectRevision.model_validate(payload))
+        except Exception:
+            logger.exception(
+                "Skipping invalid canonical project revision while listing owner projects: project_id=%s",
+                getattr(record, "project_id", "unknown"),
+            )
+    return revisions
+
+
 def append_project_revision(
     project_id: str,
     owner_user_id: str,
@@ -722,12 +797,14 @@ def append_project_revision(
         parent.design_brief_version,
     )
     draft = build_generation_draft(brief, HardwareIR.model_validate(state))
-    return service.create_revision(
+    revision = service.create_revision(
         draft,
         project_id=project_id,
         owner_user_id=owner_user_id,
         source_job_id=source_job_id,
     ).revision
+    invalidate_project_lists()
+    return revision
 
 
 def create_project_generation_plan(
@@ -813,6 +890,7 @@ async def execute_project_generation_plan(
     worker = GenerationWorker(
         ProjectStateService(_DATABASE_REPOSITORY),
         HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name),
+        project_publisher=publish_project_revision,
     )
     orchestrator = WorkerOrchestrator(
         _DATABASE_REPOSITORY,
@@ -820,7 +898,9 @@ async def execute_project_generation_plan(
         workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
         cancellation_check=cancellation_check,
     )
-    return await orchestrator.execute(plan_id, owner)
+    plan = await orchestrator.execute(plan_id, owner)
+    invalidate_project_lists()
+    return plan
 
 
 async def cancel_project_generation_plan(plan_id: str, owner_user_id: str):

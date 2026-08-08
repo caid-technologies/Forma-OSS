@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.agents.pipeline import emit_agent_pipeline_event
@@ -237,7 +237,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registered_worker_persists_initial_revision_through_orchestrator(self) -> None:
         engine = FakeGenerationEngine()
-        worker = GenerationWorker(self.state, engine)
+        publisher = Mock(return_value=str(self.project_id))
+        worker = GenerationWorker(self.state, engine, project_publisher=publisher)
         registry = WorkerRegistry([worker])
         orchestrator = WorkerOrchestrator(
             self.repository,
@@ -270,6 +271,27 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(self.project_id), OWNER).state)
         self.assertEqual(self.brief, engine.received[0])
         self.assertEqual(["ref-datasheet"], [item.reference_id for item in engine.received[0].references])
+        publisher.assert_called_once_with(revision, self.brief, OWNER)
+
+    async def test_idempotent_replay_retries_the_gallery_projection(self) -> None:
+        engine = FakeGenerationEngine()
+        publisher = Mock(side_effect=[RuntimeError("gallery unavailable"), str(self.project_id)])
+        worker = GenerationWorker(self.state, engine, project_publisher=publisher)
+        request = self.request().model_copy(update={"metadata": {"execution_owner_user_id": OWNER}})
+
+        async def progress(_: Any) -> None:
+            return None
+
+        first = await worker.execute(request, progress)
+        second = await worker.execute(request, progress)
+
+        self.assertEqual("failed", first.status.value)
+        self.assertTrue(first.error.retryable)
+        self.assertIn("gallery unavailable", first.error.message)
+        self.assertEqual("succeeded", second.status.value)
+        self.assertTrue(second.output["idempotent_replay"])
+        self.assertEqual(2, publisher.call_count)
+        self.assertEqual(1, len(engine.received))
 
     async def test_project_chat_iteration_appends_an_immutable_revision(self) -> None:
         engine = FakeGenerationEngine()

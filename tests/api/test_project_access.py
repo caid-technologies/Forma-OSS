@@ -156,6 +156,104 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertNotIn(main._CACHE_OWNER_DIGEST_FIELD, owner_response[0])
         self.assertNotIn(main._CACHE_OWNER_CHAT_FIELD, owner_response[0])
 
+    def test_owner_list_includes_canonical_project_without_legacy_row(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Canonical controller",
+                description="A canonical-only generated project.",
+                difficulty="Intermediate",
+                category="Automation",
+            ),
+            assembly_metadata={
+                "project_id": project_id,
+                "product_image_url": "https://images.example.test/controller.png",
+                "image_output_status": "succeeded",
+            },
+        )
+        revision = SimpleNamespace(
+            project_id=project_id,
+            owner_user_id="user-a",
+            revision=1,
+            created_at="2026-08-07T17:03:57Z",
+            state=state,
+        )
+        brief = SimpleNamespace(
+            conversation_id="chat-canonical-controller",
+            summary="Build a canonical controller.",
+        )
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects",
+            return_value=[],
+        ), patch.object(
+            main,
+            "list_latest_project_revisions",
+            return_value=[revision],
+        ), patch.object(
+            main,
+            "get_latest_design_brief",
+            return_value=brief,
+        ), patch.object(
+            main,
+            "get_generated_project",
+            return_value=None,
+        ):
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([project_id], [item["project_id"] for item in response])
+        self.assertEqual("Canonical controller", response[0]["title"])
+        self.assertEqual("chat-canonical-controller", response[0]["chat_id"])
+        self.assertTrue(response[0]["can_chat"])
+        self.assertTrue(response[0]["has_product_image"])
+
+    def test_owner_list_deduplicates_legacy_and_canonical_project_records(self) -> None:
+        project_id = "legacy-and-canonical"
+        legacy_project = _project(
+            project_id,
+            owner_user_id="user-a",
+            visibility="private",
+        )
+        revision = SimpleNamespace(project_id=project_id)
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects",
+            return_value=[legacy_project],
+        ), patch.object(
+            main,
+            "list_latest_project_revisions",
+            return_value=[revision],
+        ), patch.object(main, "get_latest_design_brief") as get_brief:
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([project_id], [item["project_id"] for item in response])
+        get_brief.assert_not_called()
+
+    def test_owner_list_does_not_resurrect_soft_deleted_legacy_project(self) -> None:
+        project_id = "deleted-legacy-project"
+        revision = SimpleNamespace(project_id=project_id)
+        deleted_project = SimpleNamespace(project_id=project_id, status="pending_purge")
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects",
+            return_value=[],
+        ), patch.object(
+            main,
+            "list_latest_project_revisions",
+            return_value=[revision],
+        ), patch.object(
+            main,
+            "get_generated_project",
+            return_value=deleted_project,
+        ), patch.object(main, "get_latest_design_brief") as get_brief:
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([], response)
+        get_brief.assert_not_called()
+
     def test_owner_can_read_own_private_project(self) -> None:
         private_project = _project(
             "private-project",

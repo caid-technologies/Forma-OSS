@@ -86,6 +86,7 @@ from blueprint_core.database import (
     list_project_chats,
     list_component_templates,
     list_generated_projects,
+    list_latest_project_revisions,
     list_project_deletion_audits,
     save_alpha_signup,
     update_generated_project_metadata,
@@ -1563,6 +1564,30 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
     }
 
 
+def _canonical_project_summary_response(
+    revision: Any,
+    brief: Any,
+    *,
+    owner_user_id: str,
+) -> Dict[str, Any]:
+    """Adapt canonical project state to the established gallery response."""
+
+    state = revision.state
+    overview = getattr(state, "overview", None)
+    title = str(getattr(overview, "title", "") or getattr(brief, "summary", "") or "Untitled project")
+    project = types.SimpleNamespace(
+        project_id=str(revision.project_id),
+        chat_id=brief.conversation_id,
+        owner_user_id=owner_user_id,
+        visibility="private",
+        title=title,
+        prompt=brief.summary,
+        created_at=revision.created_at,
+        hardware_ir=state.model_dump(mode="json"),
+    )
+    return _project_summary_response(project, current_user_id=owner_user_id)
+
+
 def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
     if not isinstance(owner_user_id, str) or not owner_user_id.strip():
         return None
@@ -1664,9 +1689,37 @@ def list_my_projects_endpoint(user: UserContext = Depends(require_user_context))
         if cached is not None:
             return cached
         projects = list_generated_projects(owner_user_id=owner_user_id)
-        response = jsonable_encoder(
-            [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
-        )
+        response = [
+            _project_summary_response(project, current_user_id=owner_user_id)
+            for project in projects
+        ]
+        legacy_project_ids = {str(project.project_id) for project in projects}
+        for revision in list_latest_project_revisions(owner_user_id):
+            project_id = str(revision.project_id)
+            if project_id in legacy_project_ids:
+                continue
+            legacy_record = get_generated_project(project_id, include_deleted=True)
+            if legacy_record is not None:
+                # A soft-deleted legacy projection must not be resurrected by
+                # its retained canonical revisions during the recovery window.
+                continue
+            try:
+                brief = get_latest_design_brief(project_id, owner_user_id)
+            except DesignBriefNotFoundError:
+                logger.warning(
+                    "Skipping canonical project without a design brief in owner listing: project_id=%s",
+                    project_id,
+                )
+                continue
+            response.append(
+                _canonical_project_summary_response(
+                    revision,
+                    brief,
+                    owner_user_id=owner_user_id,
+                )
+            )
+        response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
         return response
     except Exception as e:

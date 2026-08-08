@@ -87,6 +87,8 @@ class ApplicationRepository(Protocol):
 
     def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
 
+    def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]: ...
+
     def get_project_revision(
         self,
         project_id: str,

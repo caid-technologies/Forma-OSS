@@ -25,6 +25,7 @@ from blueprint_core.workers import (
     WorkerPlanStatus,
     WorkerRegistry,
     WorkerRequest,
+    build_generation_draft,
 )
 from blueprint_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
@@ -38,7 +39,15 @@ from blueprint_core.workspaces.projects import (
     ProjectStateService,
     ProjectSystem,
 )
-from blueprint_core.workspaces.projects.models import ComponentInstance, HardwareIR, ProjectOverview
+from blueprint_core.workspaces.projects.models import (
+    BusConnection,
+    ComponentInstance,
+    ConnectionNet,
+    HardwareIR,
+    PinReference,
+    PowerRail,
+    ProjectOverview,
+)
 from blueprint_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
@@ -176,6 +185,47 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         attach_image.assert_called_once()
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
         self.assertEqual("Vertex Image Project", draft.state.overview.title)
+
+    def test_generation_draft_preserves_dangling_ir_refs_without_invalid_system_refs(self) -> None:
+        component = ComponentInstance(
+            ref_des="U1",
+            part_number="ESP32-DEVKIT",
+            name="ESP32 controller",
+            category="Microcontroller",
+            rationale="Provides processing and connectivity.",
+        )
+        state = HardwareIR(
+            components=[component],
+            nets=[
+                ConnectionNet(
+                    net_id="NET_I2C_SDA",
+                    name="I2C data",
+                    net_type="I2C",
+                    pins=[
+                        PinReference(ref_des="U1", pin_id="SDA"),
+                        PinReference(ref_des="R2", pin_id="1"),
+                    ],
+                )
+            ],
+            buses=[BusConnection(bus_id="I2C_1", bus_type="I2C", nets=["NET_I2C_SDA"])],
+            power_rails=[
+                PowerRail(
+                    rail_id="3V3",
+                    voltage=3.3,
+                    max_current_capacity_ma=500,
+                    source_component="R2",
+                )
+            ],
+        )
+
+        draft = build_generation_draft(self.brief, state)
+
+        power_system = next(system for system in draft.systems if system.kind == "power")
+        bus_system = next(system for system in draft.systems if system.kind == "bus")
+        self.assertEqual([], power_system.component_refs)
+        self.assertEqual(["R2"], power_system.metadata["unresolved_component_refs"])
+        self.assertEqual(["U1"], bus_system.component_refs)
+        self.assertEqual(["R2"], bus_system.metadata["unresolved_component_refs"])
 
     def tearDown(self) -> None:
         self.directory.cleanup()

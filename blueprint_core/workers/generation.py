@@ -122,6 +122,7 @@ class HardwareIRGenerationEngine:
 
 def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> ProjectRevisionDraft:
     component_refs = [component.ref_des for component in state.components]
+    known_component_refs = set(component_refs)
     systems = [
         ProjectSystem(
             system_id="system-primary",
@@ -131,26 +132,39 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
         )
     ]
     for rail in state.power_rails:
+        rail_refs = [rail.source_component] if rail.source_component in known_component_refs else []
+        rail_metadata: dict[str, Any] = {
+            "voltage": rail.voltage,
+            "max_current_capacity_ma": rail.max_current_capacity_ma,
+            "source_component": rail.source_component,
+        }
+        if not rail_refs:
+            rail_metadata["unresolved_component_refs"] = [rail.source_component]
         systems.append(ProjectSystem(
             system_id=f"power-{rail.rail_id}",
             kind="power",
             name=rail.rail_id,
-            component_refs=[rail.source_component],
-            metadata={"voltage": rail.voltage, "max_current_capacity_ma": rail.max_current_capacity_ma},
+            component_refs=rail_refs,
+            metadata=rail_metadata,
         ))
     for bus in state.buses:
-        bus_components = sorted({
+        declared_bus_components = {
             pin.ref_des
             for net in state.nets
             if net.net_id in bus.nets
             for pin in net.pins
-        })
+        }
+        bus_components = sorted(declared_bus_components.intersection(known_component_refs))
+        unresolved_bus_components = sorted(declared_bus_components.difference(known_component_refs))
+        bus_metadata: dict[str, Any] = {"bus_type": bus.bus_type, "net_ids": list(bus.nets)}
+        if unresolved_bus_components:
+            bus_metadata["unresolved_component_refs"] = unresolved_bus_components
         systems.append(ProjectSystem(
             system_id=f"bus-{bus.bus_id}",
             kind="bus",
             name=bus.bus_id,
             component_refs=bus_components,
-            metadata={"bus_type": bus.bus_type, "net_ids": list(bus.nets)},
+            metadata=bus_metadata,
         ))
 
     revision_base = f"forma://projects/{design_brief.project_id}/revisions/1"

@@ -1445,7 +1445,7 @@ const workspaceTabs = [
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
   { id: "assembly", label: "DOCS", icon: Info },
-  { id: "video", label: "VIDEO", icon: Film },
+  { id: "video", label: "MEDIA", icon: Film },
 ];
 
 const workspaceTabNamespaces: Record<string, string> = {

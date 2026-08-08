@@ -26,6 +26,7 @@ from blueprint_core.workers.registry import WorkerCapability, WorkerDefinition
 from blueprint_core.workspaces.design_briefs import DesignBrief
 from blueprint_core.workspaces.projects import (
     ProjectArtifact,
+    ProjectRevision,
     ProjectRevisionOutcome,
     ProjectRevisionDraft,
     ProjectStateError,
@@ -204,6 +205,7 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
 
 
 ProgressReporter = Callable[[WorkerProgress], Awaitable[None]]
+ProjectPublisher = Callable[[ProjectRevision, DesignBrief, str], str]
 
 
 class GenerationWorker:
@@ -213,9 +215,11 @@ class GenerationWorker:
         self,
         state_service: ProjectStateService,
         engine: GenerationEngine | None = None,
+        project_publisher: ProjectPublisher | None = None,
     ) -> None:
         self._state = state_service
         self._engine = engine or HardwareIRGenerationEngine()
+        self._project_publisher = project_publisher
 
     def worker_definition(self) -> WorkerDefinition:
         return WorkerDefinition(
@@ -270,6 +274,10 @@ class GenerationWorker:
                     ),
                     retryable=False,
                 )
+            try:
+                self._publish(replay, payload.design_brief, owner_user_id)
+            except Exception as exc:
+                return _failure_result(request, exc, retryable=True)
             return _success_result(request, ProjectRevisionOutcome(revision=replay, idempotent_replay=True))
 
         cancellation_check = request.metadata.get("pipeline_cancellation_check")
@@ -336,6 +344,7 @@ class GenerationWorker:
                 design_brief_version=request.design_brief_version,
                 source_job_id=request.job_id,
             )
+            self._publish(outcome.revision, payload.design_brief, owner_user_id)
         except PipelineCancelledError:
             return _cancelled_result(request)
         except ProjectStateError as exc:
@@ -344,6 +353,10 @@ class GenerationWorker:
             return _failure_result(request, exc, retryable=True)
 
         return _success_result(request, outcome)
+
+    def _publish(self, revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> None:
+        if self._project_publisher is not None:
+            self._project_publisher(revision, brief, owner_user_id)
 
 
 def _pipeline_event_percent(event: AgentPipelineEvent) -> float:

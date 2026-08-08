@@ -625,37 +625,60 @@ function Envelope({ dimensions, scale, selected }: { dimensions: Dimensions; sca
 }
 
 function AxisTriad({ dimensions, scale }: { dimensions: Dimensions; scale: number }) {
+  const width = dimensions.x_mm / scale;
+  const height = dimensions.z_mm / scale;
+  const depth = dimensions.y_mm / scale;
+  const originX = -width / 2;
+  const originY = -height / 2;
+  const originZ = depth / 2;
+  const overshoot = 1.16;
+  const tick = Math.max(Math.min(width, height, depth) * 0.06, 0.08);
+  const labelOffset = Math.max(Math.min(width, height, depth) * 0.08, 0.12);
   const geometry = useDisposableGeometry(() => {
-    const width = dimensions.x_mm / scale;
-    const height = dimensions.z_mm / scale;
-    const depth = dimensions.y_mm / scale;
-    const originX = -width / 2;
-    const originY = -height / 2;
-    const originZ = depth / 2;
-    const overshoot = 1.16;
-    const tick = Math.max(Math.min(width, height, depth) * 0.06, 0.08);
     const points: number[] = [];
-    const segment = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const colors: number[] = [];
+    const segment = (axis: "X" | "Y" | "Z", ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+      const color = new THREE.Color(axisColor(axis));
       points.push(ax, ay, az, bx, by, bz);
+      colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
     };
 
-    segment(originX, originY, originZ, originX + width * overshoot, originY, originZ);
-    segment(originX, originY, originZ, originX, originY, originZ - depth * overshoot);
-    segment(originX, originY, originZ, originX, originY + height * overshoot, originZ);
+    segment("X", originX, originY, originZ, originX + width * overshoot, originY, originZ);
+    segment("Y", originX, originY, originZ, originX, originY, originZ - depth * overshoot);
+    segment("Z", originX, originY, originZ, originX, originY + height * overshoot, originZ);
 
-    segment(originX + width / 2, originY - tick, originZ, originX + width / 2, originY + tick, originZ);
-    segment(originX, originY - tick, originZ - depth / 2, originX, originY + tick, originZ - depth / 2);
-    segment(originX - tick, originY + height / 2, originZ, originX + tick, originY + height / 2, originZ);
+    segment("X", originX + width / 2, originY - tick, originZ, originX + width / 2, originY + tick, originZ);
+    segment("Y", originX, originY - tick, originZ - depth / 2, originX, originY + tick, originZ - depth / 2);
+    segment("Z", originX - tick, originY + height / 2, originZ, originX + tick, originY + height / 2, originZ);
 
     const buffer = new THREE.BufferGeometry();
     buffer.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    buffer.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     return buffer;
-  }, [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm, scale]);
+  }, [depth, height, originX, originY, originZ, tick, width]);
+  const labels: { axis: "X" | "Y" | "Z"; position: [number, number, number] }[] = [
+    { axis: "X", position: [originX + width * overshoot + labelOffset, originY, originZ] },
+    { axis: "Y", position: [originX, originY, originZ - depth * overshoot - labelOffset] },
+    { axis: "Z", position: [originX, originY + height * overshoot + labelOffset, originZ] },
+  ];
 
   return (
-    <lineSegments geometry={geometry}>
-      <lineBasicMaterial color="#e2e8f0" transparent opacity={0.42} />
-    </lineSegments>
+    <group>
+      <lineSegments geometry={geometry}>
+        <lineBasicMaterial vertexColors transparent opacity={0.72} />
+      </lineSegments>
+      {labels.map(({ axis, position }) => (
+        <Html key={axis} center position={position} zIndexRange={[12, 0]}>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none flex h-5 w-5 items-center justify-center border bg-black/90 font-mono text-[10px] font-black shadow-lg"
+            style={{ borderColor: `${axisColor(axis)}99`, color: axisColor(axis) }}
+          >
+            {axis}
+          </span>
+        </Html>
+      ))}
+    </group>
   );
 }
 

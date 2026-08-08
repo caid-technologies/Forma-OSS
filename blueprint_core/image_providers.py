@@ -1449,7 +1449,8 @@ def build_project_image_prompt(user_prompt: str, ir: Any) -> str:
     prompt_parts = [
         "Create a clean realistic product concept render for a safe low-voltage maker electronics build.",
         "Show the assembled physical device, enclosure, visible controls, display openings, ports, and any exposed low-voltage modules that belong in the design.",
-        "Do not include text, labels, watermarks, logos, hands, people, wiring diagrams, schematic symbols, high-voltage equipment, medical devices, or weapons.",
+        "The rendered pixels must contain no text: no dimension lines or values, labels, annotations, captions, legends, watermarks, or logos.",
+        "Do not include hands, people, wiring diagrams, schematic symbols, high-voltage equipment, medical devices, or weapons.",
         "Use a neutral studio background, believable materials, and a three-quarter product view.",
         f"Project title: {_truncate(title, 120)}",
         f"Project description: {_truncate(description, 300)}",
@@ -1463,7 +1464,9 @@ def build_project_image_prompt(user_prompt: str, ir: Any) -> str:
     if fabrication_notes:
         prompt_parts.append("Fabrication notes: " + "; ".join(_limit_list(fabrication_notes, 5)))
     if dimensions:
-        prompt_parts.append(f"Approximate device envelope: {dimensions}.")
+        prompt_parts.append(
+            f"Private proportion reference only (never print or annotate this in the image): {dimensions}."
+        )
 
     return "\n".join(prompt_parts)
 
@@ -1809,7 +1812,7 @@ def _control_loop_visual_requirements(user_prompt: str, ir: Any, nets: List[Dict
         "Closed-loop visuals must separate the measured feedback path from the control output path.",
         "Show the measured variable sensor or feedback signal returning to the controller when present in the IR.",
         "Show the controller output path to the actuator or driver stage, such as PWM to a fan or motor driver, when present in the IR.",
-        "Do not imply closed-loop speed control unless a feedback sensor, tach signal, or measured output path is visible or explicitly labeled from the spec.",
+        "Do not imply closed-loop speed control unless a feedback sensor, tach signal, or measured output path from the spec is physically visible.",
     ]
 
 
@@ -2114,7 +2117,10 @@ def _assembly_state_records() -> List[Dict[str, Any]]:
             "purpose": "Product-like exterior validation.",
             "visible": ["opaque exterior enclosure", "external controls", "ports", "vents", "fasteners"],
             "hidden": ["internal boards and wiring"],
-            "verification_checks": ["dimensions shown from spec", "no internals visible through opaque shell"],
+            "verification_checks": [
+                "proportions match dimensions from spec without visible dimension annotations",
+                "no internals visible through opaque shell",
+            ],
         },
         {
             "id": "transparent_top_down_inspection",
@@ -2274,13 +2280,13 @@ def build_project_visual_spec(user_prompt: str, ir: Any) -> Dict[str, Any]:
         "constraints": _limit_list(getattr(ir, "constraints", []) or [], 10),
         "allowed_visual_labels": allowed_labels,
         "truth_rules": [
-            "Use only these dimensions for all numeric dimension callouts.",
+            "Use dimensions only to establish physical proportions; never render dimension lines, arrows, or values.",
             "Use only listed component refs, names, part numbers, CAD sources, and placements.",
             "Use the design_assembly_model as the source of truth for orientation, part visibility, and component mounting zones.",
             "Preserve every component's subsystem, mounted_on plane, and facing_normal metadata in generated physical layouts.",
             "Preserve subsystem contracts: purpose, inputs, outputs, physical interfaces, placement constraints, dependencies, and verification checks.",
             "Do not invent vendor part numbers, enclosure models, tolerances, wall thickness, mounting hardware, or dimensions.",
-            "If a detail is not present in this spec, show it generically or omit the label.",
+            "Render no text, labels, annotations, captions, legends, watermarks, or logos in the image.",
         ],
     }
 
@@ -2317,7 +2323,6 @@ def _spec_prompt_text(spec: Dict[str, Any]) -> str:
         "cad_sources": spec["cad_sources"],
         "fabrication_notes": spec["fabrication_notes"],
         "constraints": spec["constraints"],
-        "allowed_visual_labels": spec["allowed_visual_labels"],
         "truth_rules": spec["truth_rules"],
     }
     return json.dumps(compact_spec, separators=(",", ":"))
@@ -2329,7 +2334,7 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
     shared = [
         "Canonical Visual Design Spec, generated from the Hardware IR:",
         spec_text,
-        f"Fixed dimensions for every view: {spec['external_dimensions_text']}; {spec['internal_dimensions_text']}.",
+        f"Private geometry guidance for proportions only: {spec['external_dimensions_text']}; {spec['internal_dimensions_text']}. Never depict these measurements.",
         "Traditional design rule: this is one assembly model with derived view states, not three independent product concepts.",
         "Keep the same object identity, proportions, port positions, display/control layout, material, and scale across all images.",
         "Only the camera angle and part visibility state may change between stages.",
@@ -2342,7 +2347,7 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
         "Preserve each component's mounted_on plane and facing_normal; do not rotate electronics to face the camera for aesthetics.",
         "Prefer top-down transparent or ghosted enclosure views for internal inspection rather than dramatic perspective views.",
         "Do not fuse an exterior lid/top surface with internal electronics, and do not place internals under an opaque closed lid.",
-        "Do not add labels, dimensions, enclosure models, hardware kit contents, tolerances, or component names unless they appear in the spec.",
+        "The rendered pixels must contain no text: no dimension lines or values, measurement arrows, labels, annotations, captions, legends, component names, part numbers, watermarks, or logos.",
         "Safe low-voltage maker electronics only. No hands, people, watermarks, brand logos, weapons, medical equipment, or mains-voltage hazards.",
     ]
 
@@ -2359,7 +2364,7 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
                     "Render a realistic closed enclosure/case only: visible screen/window openings, buttons, knobs, ports, seams, fillets, screw bosses if visible, and panel cutouts.",
                     "The lid/operator panel is installed and opaque except for display windows, cutouts, ports, vents, or controls that are explicitly visible externally.",
                     "Use consistent orientation landmarks: front wall remains front, right wall remains right, and top/lid controls stay on the top/lid.",
-                    "Dimension callouts must exactly match the external_dimensions_mm values in the spec. If external_dimensions_mm is null, do not draw numeric dimension callouts.",
+                    "Use external_dimensions_mm only to guide proportions. Do not draw dimension lines, measurement arrows, numeric values, or any other text.",
                     "Use a clean neutral studio background and a three-quarter view. Do not show internal electronics in this stage.",
                 ]
             ),
@@ -2379,14 +2384,14 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
                     "Do not show the case exterior underside facing upward while the electronics face upward. The visible cavity, side walls, standoffs, and electronics must all agree on one coordinate frame.",
                     "Use each component's mounted_on, facing_normal, visible_side, view_preference, and render_rule metadata. Floor boards face +Z, lid controls remain on the lid plane, wall components remain on side-wall planes.",
                     "Do not rotate wall-mounted fans, ports, or lid-mounted displays to face the camera; use transparent shell visibility, ghosting, or small true-plane insets instead.",
-                    "Show subtle subsystem grouping cues for UI, control, power/driver, sensing, airflow, and mechanical subsystems without adding unsupported labels.",
+                    "Show subtle subsystem grouping through placement and color cues only, with no written labels.",
                     "Respect subsystem placement constraints: sensors stay exposed to the intended medium, hot drivers stay away from sensors, ports align with wall cutouts, airflow paths remain unblocked, and service loops remain plausible.",
                     "For behavior/control systems, preserve the measured variable source, controller, driver/output path, actuator, and feedback path from behavior_control_model.",
                     "The opaque lid/top surface must not cover or blend into internal electronics.",
                     "Keep lid-mounted display, knob, button, and switch parts attached to the separate lid/operator panel or show their underside/cables clearly; do not relocate them onto the bottom shell unless their mounting_zone says so.",
                     "Keep floor-mounted boards, drivers, power modules, terminals, standoffs, and wiring on the bottom shell floor.",
                     "Show only the electronics and placements listed in the spec: mounted boards, display module, buttons, encoder/knob, power board, connectors, wiring harnesses, standoffs, screws, cable routing, and clearance.",
-                    "Dimension callouts must exactly match external_dimensions_mm and internal_usable_dimensions_mm. Preserve exterior port, vent, fan, and control positions from the case render.",
+                    "Use external_dimensions_mm and internal_usable_dimensions_mm only to guide proportions. Do not draw dimension lines, measurement arrows, numeric values, or any other text. Preserve exterior port, vent, fan, and control positions from the case render.",
                     "Use a realistic three-quarter product view with the internal electronics clearly visible.",
                 ]
             ),

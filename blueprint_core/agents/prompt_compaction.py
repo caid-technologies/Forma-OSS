@@ -419,7 +419,7 @@ class PromptCompactionAgent:
         return "\n".join(shortened)
 
     def _emergency_fit(self, prompt: str, max_chars: int) -> str:
-        notice = "\n[Prompt compacted to provider limit: middle detail removed, preserve visible dimensions, components, mounting planes, and stage rules.]\n"
+        notice = "\n[Prompt compacted to provider limit: middle detail removed; preserve text-free rendering, physical proportions, components, mounting planes, and stage rules.]\n"
         budget = max_chars - len(notice) - 1
         if budget <= 0:
             return prompt[:max_chars]

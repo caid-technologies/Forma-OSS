@@ -1107,7 +1107,7 @@ export default function MechanicalScene({
         )}
 
         <div className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-[0.18em] text-slate-700 sm:bottom-4 sm:right-4">
-          Live 3D <span className="mx-1 text-slate-800">/</span> Three.js + R3F
+          Live 3D <span className="mx-1 text-slate-800">/</span>
         </div>
       </div>
     </div>

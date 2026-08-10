@@ -46,6 +46,7 @@ import {
   statusTone,
 } from "./blueprint-workspace/admin-panels";
 import HomeChatView from "./blueprint-workspace/home-chat-view";
+import useChatAutoScroll from "./blueprint-workspace/use-chat-auto-scroll";
 import {
   ProjectGallery,
   PROJECT_GALLERY_PAGE_SIZE,
@@ -1685,8 +1686,6 @@ export function FormaWorkspace({
   const fileInputRefSidebar = useRef<HTMLInputElement>(null);
   const fileInputRefCenter = useRef<HTMLInputElement>(null);
   const projectsSectionRef = useRef<HTMLElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const projectChatEndRef = useRef<HTMLDivElement>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
   const projectHistoryRequestIdRef = useRef(0);
   const myProjectHistoryRequestIdRef = useRef(0);
@@ -1749,16 +1748,6 @@ export function FormaWorkspace({
     setVisibleProjectGalleryIds([]);
     setMyProjectHistoryPage(page);
   }, []);
-  const chatMessageScrollKey = useMemo(
-    () => `${activeChatId || ""}:${chatMessageIdentityKey(chatMessages)}`,
-    [activeChatId, chatMessages]
-  );
-  const projectChatMessageScrollKey = useMemo(() => {
-    if (currentRouteProjectId) return "project-detail";
-    const chatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
-    const messages = chatId ? chatThreads[chatId] || [] : [];
-    return `${chatId || ""}:${chatMessageIdentityKey(messages)}`;
-  }, [activeChatId, chatThreads, currentRouteProjectId, projectIR]);
   const inlineChatProjectId = useMemo(() => {
     const activeThread = activeChatId ? chatThreads[activeChatId] || [] : [];
     const messages = activeThread.length ? activeThread : chatMessages;
@@ -2451,14 +2440,6 @@ export function FormaWorkspace({
       window.clearInterval(intervalId);
     };
   }, [isLoading]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chatMessageScrollKey]);
-
-  useEffect(() => {
-    projectChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [projectChatMessageScrollKey]);
 
   const checkServerStatus = async () => {
     try {
@@ -4869,8 +4850,8 @@ export function FormaWorkspace({
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
+              conversationKey={activeChatId || "new-chat"}
               messages={chatMessages}
-              endRef={chatEndRef}
               renderPipelineProgress={(message) => (
                 <AgentPipelineProgressView
                   progress={message.pipelineProgress as AgentPipelineProgress | null}
@@ -5041,7 +5022,6 @@ export function FormaWorkspace({
                 canStop={activeGeneration?.kind === "project-chat"}
                 onStop={stopActiveGeneration}
                 canChat={currentUserOwnsProject}
-                endRef={projectChatEndRef}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
                 activeNamespaceLabel={activeWorkspaceTab.label}
@@ -6354,7 +6334,6 @@ function ChatWorkspace({
   canStop,
   onStop,
   canChat,
-  endRef,
   namespaceTabs,
   activeNamespace,
   activeNamespaceLabel,
@@ -6374,7 +6353,6 @@ function ChatWorkspace({
   canStop: boolean;
   onStop: () => void;
   canChat: boolean;
-  endRef: React.RefObject<HTMLDivElement | null>;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceLabel: string;
@@ -6382,6 +6360,8 @@ function ChatWorkspace({
   onNamespaceChange: (value: string) => void;
   projectContent: React.ReactNode;
 }) {
+  const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
       <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
@@ -6403,7 +6383,11 @@ function ChatWorkspace({
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {canChat && (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6">
+            <div
+              ref={containerRef}
+              onScroll={handleScroll}
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6"
+            >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
                 {messages.length ? (
                   messages.map((message) => {
@@ -6449,7 +6433,6 @@ function ChatWorkspace({
                     This chat has no project messages yet.
                   </div>
                 )}
-
                 <div ref={endRef} />
                 <ChatProjectArtifact
                   projectId={projectId}

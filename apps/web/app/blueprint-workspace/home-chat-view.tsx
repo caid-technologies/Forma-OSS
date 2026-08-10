@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import CopyButton from "../../components/copy-button";
+import useChatAutoScroll from "./use-chat-auto-scroll";
 
 type HomeChatMessage = {
   id: string;
@@ -35,8 +36,8 @@ type HomeChatMessage = {
 
 type HomeChatViewProps = {
   started: boolean;
+  conversationKey: string;
   messages: HomeChatMessage[];
-  endRef: RefObject<HTMLDivElement | null>;
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
   projectArtifact?: ReactNode;
   examples: string[];
@@ -71,8 +72,8 @@ function formatTimestamp(value: string) {
 
 export default function HomeChatView({
   started,
+  conversationKey,
   messages,
-  endRef,
   renderPipelineProgress,
   projectArtifact,
   examples,
@@ -98,6 +99,7 @@ export default function HomeChatView({
   onImageChange,
   onImagePaste,
 }: HomeChatViewProps) {
+  const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
   const latestContextMessageId = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && message.workflowState === "gathering_context")?.id;
@@ -129,7 +131,11 @@ export default function HomeChatView({
         } flex min-h-0 flex-col border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}
       >
         {started && (
-          <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
+          >
             {messages.map((message) => {
               const isUser = message.role === "user";
               const statusTone =

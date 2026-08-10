@@ -22,6 +22,12 @@ import {
   type JobMetricBucket,
   type JobMetrics,
 } from "./use-admin-data";
+import {
+  ADMIN_JOB_SORT_OPTIONS,
+  adminJobLastOccurredAt,
+  sortAdminJobs,
+  type AdminJobSortMode,
+} from "../../lib/admin-job-sort";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
 
@@ -214,6 +220,7 @@ export function JobsPanel({
 }) {
   const [userFilter, setUserFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
+  const [sortMode, setSortMode] = useState<AdminJobSortMode>("last_occurred_desc");
   const userOptions = useMemo(() => {
     const users = new Map<string, { id: string; label: string }>();
     jobs.forEach((job) => {
@@ -243,7 +250,8 @@ export function JobsPanel({
       return searchable.some((value) => String(value || "").toLowerCase().includes(query));
     });
   }, [jobs, searchQuery, userFilter]);
-  const visibleJobs = compact ? filteredJobs.slice(0, 2) : filteredJobs;
+  const sortedJobs = useMemo(() => sortAdminJobs(filteredJobs, sortMode), [filteredJobs, sortMode]);
+  const visibleJobs = compact ? sortedJobs.slice(0, 2) : sortedJobs;
   const filters = ["all", "queued", "running", "succeeded", "failed"];
   const panelDescription = description || `Generation and example job metadata. Polling every ${Math.round(pollIntervalMs / 1000)}s.`;
 
@@ -295,7 +303,7 @@ export function JobsPanel({
               </button>
             ))}
           </div>
-          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(190px,0.35fr)_minmax(190px,0.35fr)]">
             <label className="min-w-0">
               <span className="sr-only">Search jobs and prompts</span>
               <input
@@ -316,6 +324,18 @@ export function JobsPanel({
                 <option value="all">All users ({userOptions.length})</option>
                 {userOptions.map((user) => (
                   <option key={user.id} value={user.id}>{user.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="sr-only">Sort jobs</span>
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as AdminJobSortMode)}
+                className="h-10 w-full border border-[#2a2c33] bg-[#141519] px-3 text-xs font-bold text-slate-300 outline-none focus:border-cyan-400"
+              >
+                {ADMIN_JOB_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </label>
@@ -502,6 +522,7 @@ export function JobRow({
   const operations = getJobOperations(summary);
   const ownerUserId = job.owner_user_id || job.payload?.owner_user_id || "";
   const ownerLabel = formatJobOwnerUsername(job) || ownerUserId || "Unknown user";
+  const lastOccurredAt = adminJobLastOccurredAt(job);
 
   return (
     <article className={`border border-[#2a2c33] bg-[#141519] ${compact ? "p-3" : "p-4"}`}>
@@ -547,10 +568,11 @@ export function JobRow({
       </div>
 
       {!compact && (
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-10">
           <JobMetric label="User" value={ownerLabel} />
           <JobMetric label="Job" value={job.job_id} />
           <JobMetric label="Created" value={formatJobTime(job.created_at)} />
+          <JobMetric label="Last occurred" value={formatJobTime(lastOccurredAt)} />
           <JobMetric label="Duration" value={formatJobDuration(job)} />
           <JobMetric label="Source" value={sourceLabel} />
           <JobMetric label="LLM" value={llmInfo.label} />

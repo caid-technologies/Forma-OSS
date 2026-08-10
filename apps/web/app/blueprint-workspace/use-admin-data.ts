@@ -33,8 +33,10 @@ export type A2AJob = {
   error?: string | null;
   error_debug?: Record<string, any> | null;
   owner_user_id?: string | null;
+  owner_username?: string | null;
   owner_display_name?: string | null;
   owner_email?: string | null;
+  owner_github_username?: string | null;
 };
 
 export type BackendLogs = {

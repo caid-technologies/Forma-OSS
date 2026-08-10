@@ -214,7 +214,7 @@ export function JobsPanel({
       const id = job.owner_user_id || job.payload?.owner_user_id;
       if (typeof id !== "string" || !id.trim()) return;
       const normalizedId = id.trim();
-      const label = job.owner_email || job.owner_display_name || normalizedId;
+      const label = formatJobOwnerUsername(job) || normalizedId;
       users.set(normalizedId, { id: normalizedId, label });
     });
     return Array.from(users.values()).sort((left, right) => left.label.localeCompare(right.label));
@@ -231,6 +231,7 @@ export function JobsPanel({
         job.job_id,
         job.owner_display_name,
         job.owner_email,
+        job.owner_github_username,
         ownerUserId,
       ];
       return searchable.some((value) => String(value || "").toLowerCase().includes(query));
@@ -384,7 +385,7 @@ export function JobRow({
   const imageStatusLabel = formatJobImageStatus(summary);
   const operations = getJobOperations(summary);
   const ownerUserId = job.owner_user_id || job.payload?.owner_user_id || "";
-  const ownerLabel = job.owner_email || job.owner_display_name || ownerUserId || "Unknown user";
+  const ownerLabel = formatJobOwnerUsername(job) || ownerUserId || "Unknown user";
 
   return (
     <article className={`border border-[#2a2c33] bg-[#141519] ${compact ? "p-3" : "p-4"}`}>
@@ -500,6 +501,12 @@ export function JobRow({
       )}
     </article>
   );
+}
+
+function formatJobOwnerUsername(job: A2AJob) {
+  const githubUsername = String(job.owner_github_username || "").trim().replace(/^@+/, "");
+  if (githubUsername) return `@${githubUsername}`;
+  return String(job.owner_username || job.owner_email || job.owner_display_name || "").trim();
 }
 
 function getJobOperations(summary: Record<string, any>) {

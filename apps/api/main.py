@@ -362,8 +362,13 @@ def _admin_job_records(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     for record in records:
         owner_user_id = record.get("owner_user_id")
         profile = profiles.get(owner_user_id) if isinstance(owner_user_id, str) else None
-        record["owner_display_name"] = profile.get("display_name") if profile else None
-        record["owner_email"] = profile.get("email") if profile else None
+        display_name = profile.get("display_name") if profile else None
+        email = profile.get("email") if profile else None
+        github_username = profile.get("github_username") if profile else None
+        record["owner_display_name"] = display_name
+        record["owner_email"] = email
+        record["owner_github_username"] = github_username
+        record["owner_username"] = github_username or email or display_name or owner_user_id
 
     return records
 

@@ -26,15 +26,38 @@ class AdminJobsTests(unittest.TestCase):
 
         with patch(
             "apps.api.main.clerk_user_profile",
-            return_value={"display_name": "Ada", "email": "ada@example.com", "image_url": None},
+            return_value={
+                "display_name": "Ada Lovelace",
+                "email": "ada@example.com",
+                "github_username": "ada-l",
+                "image_url": None,
+            },
         ):
             records = _admin_job_records([job])
 
         self.assertNotIn("owner_user_id", job)
         self.assertEqual("user_1", records[0]["owner_user_id"])
-        self.assertEqual("Ada", records[0]["owner_display_name"])
+        self.assertEqual("Ada Lovelace", records[0]["owner_display_name"])
         self.assertEqual("ada@example.com", records[0]["owner_email"])
+        self.assertEqual("ada-l", records[0]["owner_github_username"])
+        self.assertEqual("ada-l", records[0]["owner_username"])
         self.assertEqual("Build a weather station", records[0]["payload"]["prompt"])
+
+    def test_admin_job_records_use_email_as_username_without_github(self) -> None:
+        job = {"job_id": "job_email", "payload": {"owner_user_id": "user_email"}}
+
+        with patch(
+            "apps.api.main.clerk_user_profile",
+            return_value={
+                "display_name": "Grace Hopper",
+                "email": "grace@example.com",
+                "github_username": None,
+                "image_url": None,
+            },
+        ):
+            records = _admin_job_records([job])
+
+        self.assertEqual("grace@example.com", records[0]["owner_username"])
 
     def test_admin_job_records_keep_unowned_jobs_visible(self) -> None:
         records = _admin_job_records([{"job_id": "job_script", "payload": {"prompt": "Example"}}])
@@ -42,6 +65,8 @@ class AdminJobsTests(unittest.TestCase):
         self.assertIsNone(records[0]["owner_user_id"])
         self.assertIsNone(records[0]["owner_display_name"])
         self.assertIsNone(records[0]["owner_email"])
+        self.assertIsNone(records[0]["owner_github_username"])
+        self.assertIsNone(records[0]["owner_username"])
 
     def test_admin_jobs_endpoint_returns_enriched_records(self) -> None:
         jobs = [{"job_id": "job_2", "payload": {"owner_user_id": "user_2", "prompt": "Make an alarm"}}]

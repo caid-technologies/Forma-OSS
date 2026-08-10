@@ -29,6 +29,7 @@ class ApplicationRepository(Protocol):
         visibility: Optional[str],
         limit: int,
         offset: int,
+        search: Optional[str] = None,
     ) -> tuple[List[Any], int]: ...
 
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]: ...

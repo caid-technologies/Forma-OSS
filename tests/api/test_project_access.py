@@ -142,7 +142,7 @@ class ProjectReadAccessTests(unittest.TestCase):
         ) as list_page, patch.object(main, "list_generated_projects") as list_all:
             response = main.list_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
 
-        list_page.assert_called_once_with(visibility="public", limit=2, offset=6)
+        list_page.assert_called_once_with(visibility="public", limit=2, offset=6, search=None)
         list_all.assert_not_called()
         self.assertEqual(14, response["total"])
         self.assertEqual(2, response["limit"])
@@ -154,6 +154,28 @@ class ProjectReadAccessTests(unittest.TestCase):
         )
         self.assertFalse(response["items"][0]["can_chat"])
         self.assertTrue(response["items"][1]["can_chat"])
+
+    def test_public_list_passes_search_to_the_paginated_query(self) -> None:
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects_page",
+            return_value=([], 0),
+        ) as list_page:
+            response = main.list_projects_endpoint(
+                _user_context("user-a"),
+                limit=6,
+                offset=0,
+                q="motor controller",
+            )
+
+        list_page.assert_called_once_with(
+            visibility="public",
+            limit=6,
+            offset=0,
+            search="motor controller",
+        )
+        self.assertEqual([], response["items"])
+        self.assertEqual(0, response["total"])
 
     def test_public_list_cache_is_shared_but_restores_owner_capabilities(self) -> None:
         owner_digest = main._project_owner_digest("user-a")

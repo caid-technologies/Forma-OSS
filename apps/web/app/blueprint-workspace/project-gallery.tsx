@@ -7,8 +7,10 @@ import {
   Clock3,
   Cpu,
   MessageSquare,
+  Search,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 
 export type ProjectGalleryItem = {
@@ -225,6 +227,8 @@ export function ProjectGallery({
   totalItems,
   currentPage: controlledPage,
   onPageChange,
+  searchValue,
+  onSearchValueChange,
   standalone = false,
 }: {
   sectionRef: React.RefObject<HTMLElement | null>;
@@ -237,6 +241,8 @@ export function ProjectGallery({
   totalItems?: number;
   currentPage?: number;
   onPageChange?: (page: number) => void;
+  searchValue?: string;
+  onSearchValueChange?: (value: string) => void;
   standalone?: boolean;
 }) {
   const pageSize = PROJECT_GALLERY_PAGE_SIZE;
@@ -258,6 +264,8 @@ export function ProjectGallery({
   const showingStart = total ? firstVisibleItem + 1 : 0;
   const showingEnd = Math.min(total, firstVisibleItem + visibleItems.length);
   const pageMarkers = buildProjectGalleryPageMarkers(safePage, pageCount);
+  const searchable = typeof searchValue === "string" && Boolean(onSearchValueChange);
+  const hasSearch = Boolean(searchValue?.trim());
 
   useEffect(() => {
     if (!serverPaginated) setLocalPage(0);
@@ -282,7 +290,7 @@ export function ProjectGallery({
 
   return (
     <section ref={sectionRef} id="all-projects" className={standalone ? "" : "mt-16 border-t border-[#292b31] pt-12"}>
-      <div className="mb-6 flex flex-col gap-3">
+      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center border border-[#2c2f37] bg-black text-white">
@@ -291,9 +299,34 @@ export function ProjectGallery({
             <h2 className="text-2xl font-black uppercase tracking-[0.22em] text-white">{title}</h2>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-500">
-            {loading ? "Loading projects..." : `${total} saved projects.`}
+            {loading
+              ? hasSearch ? "Searching projects..." : "Loading projects..."
+              : hasSearch ? `${total} matching projects.` : `${total} saved projects.`}
           </p>
         </div>
+        {searchable && (
+          <label className="relative block w-full sm:max-w-sm">
+            <span className="sr-only">Search community projects</span>
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <input
+              type="search"
+              value={searchValue}
+              onChange={(event) => onSearchValueChange?.(event.target.value)}
+              placeholder="Search projects"
+              className="h-11 w-full border border-[#2c2f37] bg-[#17181d] pl-10 pr-10 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300"
+            />
+            {hasSearch && (
+              <button
+                type="button"
+                onClick={() => onSearchValueChange?.("")}
+                className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center text-slate-500 transition hover:text-white"
+                aria-label="Clear project search"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </label>
+        )}
       </div>
 
       {loading ? (
@@ -374,7 +407,7 @@ export function ProjectGallery({
         </>
       ) : (
         <div className="border border-[#2c2f37] bg-[#17181d] p-8 text-sm leading-6 text-slate-500">
-          No saved projects yet.
+          {hasSearch ? `No projects match “${searchValue?.trim()}”.` : "No saved projects yet."}
         </div>
       )}
     </section>

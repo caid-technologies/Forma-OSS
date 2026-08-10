@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -84,6 +85,7 @@ class SqlAlchemyRepository:
         visibility: Optional[str],
         limit: int,
         offset: int,
+        search: Optional[str] = None,
     ) -> tuple[List[Any], int]:
         with self._session() as session:
             query = session.query(DBGeneratedProject).filter(DBGeneratedProject.status == "active")
@@ -91,6 +93,12 @@ class SqlAlchemyRepository:
                 query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
             if visibility:
                 query = query.filter(DBGeneratedProject.visibility == visibility)
+            if search:
+                pattern = f"%{search}%"
+                query = query.filter(or_(
+                    DBGeneratedProject.title.ilike(pattern),
+                    DBGeneratedProject.prompt.ilike(pattern),
+                ))
             total = query.count()
             rows = (
                 query.order_by(DBGeneratedProject.created_at.desc(), DBGeneratedProject.id.desc())

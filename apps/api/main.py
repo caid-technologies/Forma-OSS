@@ -1727,6 +1727,7 @@ def list_projects_endpoint(
     user: UserContext = Depends(optional_user_context),
     limit: Optional[int] = None,
     offset: int = 0,
+    q: Optional[str] = None,
 ):
     """Lists public compiled hardware projects."""
     try:
@@ -1735,6 +1736,7 @@ def list_projects_endpoint(
                 visibility="public",
                 limit=limit,
                 offset=offset,
+                search=q,
             )
             items = [_public_project_cache_record(project) for project in projects]
             return {

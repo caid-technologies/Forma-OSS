@@ -8,6 +8,17 @@ def _record(row: Dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**row)
 
 
+def _postgrest_ilike_pattern(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+    )
+    return f'"*{escaped}*"'
+
+
 class SupabaseRepository:
     """Application repository implemented through Supabase PostgREST."""
 
@@ -63,6 +74,7 @@ class SupabaseRepository:
         visibility: Optional[str],
         limit: int,
         offset: int,
+        search: Optional[str] = None,
     ) -> tuple[List[Any], int]:
         query = self._client.table("generated_projects").select(
             "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
@@ -73,6 +85,9 @@ class SupabaseRepository:
             query = query.eq("owner_user_id", owner_user_id)
         if visibility:
             query = query.eq("visibility", visibility)
+        if search:
+            pattern = _postgrest_ilike_pattern(search)
+            query = query.or_(f"title.ilike.{pattern},prompt.ilike.{pattern}")
         response = (
             query.order("created_at", desc=True)
             .order("id", desc=True)

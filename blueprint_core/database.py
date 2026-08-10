@@ -462,6 +462,27 @@ def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
     return _DATABASE_REPOSITORY.list_generated_projects(normalized_owner_user_id)
 
 
+def list_generated_projects_page(
+    owner_user_id: Optional[str] = None,
+    *,
+    visibility: Optional[str] = None,
+    limit: int = 6,
+    offset: int = 0,
+) -> tuple[List[Any], int]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    normalized_visibility = str(visibility or "").strip().lower() or None
+    if normalized_visibility not in {None, "public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    normalized_limit = max(1, min(int(limit), 50))
+    normalized_offset = max(0, int(offset))
+    return _DATABASE_REPOSITORY.list_generated_projects_page(
+        normalized_owner_user_id,
+        visibility=normalized_visibility,
+        limit=normalized_limit,
+        offset=normalized_offset,
+    )
+
+
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
     return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
 

@@ -129,6 +129,32 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(response[0]["chat_id"])
         self.assertFalse(response[0]["can_chat"])
 
+    def test_public_list_paginates_before_building_gallery_summaries(self) -> None:
+        page_projects = [
+            _project("public-project-7", owner_user_id="user-b", visibility="public"),
+            _project("public-project-8", owner_user_id="user-a", visibility="public"),
+        ]
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects_page",
+            return_value=(page_projects, 14),
+        ) as list_page, patch.object(main, "list_generated_projects") as list_all:
+            response = main.list_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
+
+        list_page.assert_called_once_with(visibility="public", limit=2, offset=6)
+        list_all.assert_not_called()
+        self.assertEqual(14, response["total"])
+        self.assertEqual(2, response["limit"])
+        self.assertEqual(6, response["offset"])
+        self.assertTrue(response["has_more"])
+        self.assertEqual(
+            ["public-project-7", "public-project-8"],
+            [item["project_id"] for item in response["items"]],
+        )
+        self.assertFalse(response["items"][0]["can_chat"])
+        self.assertTrue(response["items"][1]["can_chat"])
+
     def test_public_list_cache_is_shared_but_restores_owner_capabilities(self) -> None:
         owner_digest = main._project_owner_digest("user-a")
         cached_record = {
@@ -207,6 +233,30 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertEqual("chat-canonical-controller", response[0]["chat_id"])
         self.assertTrue(response[0]["can_chat"])
         self.assertTrue(response[0]["has_product_image"])
+
+    def test_owner_list_uses_bounded_projection_page(self) -> None:
+        page_projects = [
+            _project("private-project-7", owner_user_id="user-a", visibility="private"),
+            _project("private-project-8", owner_user_id="user-a", visibility="private"),
+        ]
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects_page",
+            return_value=(page_projects, 9),
+        ) as list_page, patch.object(main, "list_latest_project_revisions") as list_revisions:
+            response = main.list_my_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
+
+        list_page.assert_called_once_with(owner_user_id="user-a", limit=2, offset=6)
+        list_revisions.assert_not_called()
+        self.assertEqual(9, response["total"])
+        self.assertEqual(2, response["limit"])
+        self.assertEqual(6, response["offset"])
+        self.assertTrue(response["has_more"])
+        self.assertEqual(
+            ["private-project-7", "private-project-8"],
+            [item["project_id"] for item in response["items"]],
+        )
 
     def test_owner_list_deduplicates_legacy_and_canonical_project_records(self) -> None:
         project_id = "legacy-and-canonical"

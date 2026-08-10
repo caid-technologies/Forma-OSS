@@ -22,6 +22,15 @@ class ApplicationRepository(Protocol):
 
     def list_generated_projects(self, owner_user_id: Optional[str]) -> List[Any]: ...
 
+    def list_generated_projects_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+    ) -> tuple[List[Any], int]: ...
+
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]: ...
 
     def insert_design_brief_version(self, record: Dict[str, Any]) -> Any: ...

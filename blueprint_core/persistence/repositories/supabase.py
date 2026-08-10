@@ -56,6 +56,34 @@ class SupabaseRepository:
         rows = query.order("id", desc=True).execute().data or []
         return [_record(row) for row in rows]
 
+    def list_generated_projects_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+    ) -> tuple[List[Any], int]:
+        query = self._client.table("generated_projects").select(
+            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
+            "deleted_at,deletion_requested_by,purge_after,purge_started_at,purge_completed_at,deletion_error",
+            count="exact",
+        ).eq("status", "active")
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        if visibility:
+            query = query.eq("visibility", visibility)
+        response = (
+            query.order("created_at", desc=True)
+            .order("id", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        rows = response.data or []
+        response_count = getattr(response, "count", None)
+        total = response_count if isinstance(response_count, int) else len(rows)
+        return [_record(row) for row in rows], total
+
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]:
         query = self._client.table("generated_projects").select("*").eq("project_id", project_id)
         if not include_deleted:

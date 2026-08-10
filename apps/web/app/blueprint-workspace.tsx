@@ -2257,7 +2257,7 @@ export function FormaWorkspace({
   };
 
   const startNewProjectChat = () => {
-    if (!currentProjectChatHasStarted()) return;
+    if (homeView === "chat" && !currentRouteProjectId && !currentProjectChatHasStarted()) return;
     const nextChatId = resetToNewProjectChat();
     router.push(chatRoute(nextChatId));
   };
@@ -4407,6 +4407,7 @@ export function FormaWorkspace({
     activeSidebarChatItem?.projectId ||
     activeSidebarChatItem?.projectCount
   );
+  const newChatDisabled = homeView === "chat" && !routedProjectId && !activeSidebarChatStarted;
   const waitingChatIds = useMemo(() => {
     const ids = new Set<string>();
     Object.entries(chatThreads).forEach(([chatId, messages]) => {
@@ -4575,7 +4576,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4594,7 +4595,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4629,7 +4630,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={null}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4648,7 +4649,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={null}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4685,7 +4686,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4704,7 +4705,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4916,7 +4917,7 @@ export function FormaWorkspace({
           chats={chatListItems}
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
-          newChatDisabled={!activeSidebarChatStarted}
+          newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
@@ -4935,7 +4936,7 @@ export function FormaWorkspace({
           chats={chatListItems}
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
-          newChatDisabled={!activeSidebarChatStarted}
+          newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}

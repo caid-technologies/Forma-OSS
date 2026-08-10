@@ -163,7 +163,7 @@ test("the Arctic block preserves the slate theme Forma shipped before Solarized"
   assert.match(block, new RegExp(`--forma-text-body: ${arcticLight.textBody};`));
   assert.match(block, new RegExp(`--forma-text-secondary: ${arcticLight.textSecondary};`));
   assert.match(block, new RegExp(`--forma-text-muted: ${arcticLight.textMuted};`));
-  assert.match(block, /--forma-selected-wash-alpha: 0\.1;/);
+  assert.match(block, /--forma-selected-wash-alpha: 0\.18;/);
   for (const [name, hex] of Object.entries({
     cyan: arcticLight.cyan,
     green: arcticLight.green,

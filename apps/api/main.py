@@ -89,6 +89,7 @@ from blueprint_core.database import (
     list_generated_projects,
     list_latest_project_revisions,
     list_project_deletion_audits,
+    list_project_generation_jobs,
     save_alpha_signup,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
@@ -1305,7 +1306,11 @@ def list_a2a_jobs(
     _user: UserContext = Depends(require_admin_user_context),
 ):
     """Lists persisted A2A job metadata."""
-    return _admin_job_records(JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit))
+    jobs = JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
+    if sender in {None, "conversation"}:
+        jobs.extend(list_project_generation_jobs(status=job_status, limit=limit))
+    jobs.sort(key=lambda item: str(item.get("created_at") or item.get("updated_at") or ""), reverse=True)
+    return _admin_job_records(jobs[:limit])
 
 
 @app.get("/a2a/jobs/metrics")
@@ -1315,7 +1320,11 @@ def get_a2a_job_metrics(
     _user: UserContext = Depends(require_admin_user_context),
 ):
     """Returns aggregate job volume and failure metrics for administrators."""
-    return JOB_STORE.get_metrics(days=days, hours=hours)
+    return JOB_STORE.get_metrics(
+        days=days,
+        hours=hours,
+        additional_rows=list_project_generation_jobs(limit=1000),
+    )
 
 
 @app.get("/a2a/jobs/{job_id}")

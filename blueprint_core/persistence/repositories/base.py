@@ -78,6 +78,8 @@ class ApplicationRepository(Protocol):
 
     def get_worker_execution_plan(self, plan_id: str, owner_user_id: str) -> Optional[Any]: ...
 
+    def list_worker_execution_plans(self, limit: int = 200) -> List[Any]: ...
+
     def update_worker_execution_plan(
         self,
         plan_id: str,

@@ -337,7 +337,13 @@ class JobMetadataStore:
         assert self._repository is not None
         return self._repository.list(sender=sender, status=status, limit=limit)
 
-    def get_metrics(self, *, days: int = 7, hours: int = 24) -> Dict[str, Any]:
+    def get_metrics(
+        self,
+        *,
+        days: int = 7,
+        hours: int = 24,
+        additional_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Return UTC job-volume and failure metrics for the admin dashboard."""
         self.init_db()
         now = datetime.now(timezone.utc)
@@ -345,6 +351,13 @@ class JobMetadataStore:
         created_since = (now - timedelta(days=lookback_days + 1)).isoformat().replace("+00:00", "Z")
         assert self._repository is not None
         rows = self._repository.list_metric_rows(created_since=created_since)
+        if additional_rows:
+            existing_job_ids = {str(row.get("job_id") or "") for row in rows}
+            rows.extend(
+                row
+                for row in additional_rows
+                if str(row.get("job_id") or "") not in existing_job_ids
+            )
         return summarize_job_metrics(rows, now=now, days=days, hours=hours)
 
     def list_project_jobs(self, project_id: str) -> List[Dict[str, Any]]:

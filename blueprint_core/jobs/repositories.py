@@ -196,7 +196,7 @@ class SupabaseJobRepository:
         while True:
             rows = (
                 self._client.table("a2a_jobs")
-                .select("status,created_at")
+                .select("job_id,status,created_at")
                 .gte("created_at", created_since)
                 .order("created_at")
                 .range(offset, offset + batch_size - 1)
@@ -365,7 +365,7 @@ class SQLiteJobRepository:
     def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]:
         with closing(self._provider.connect_dbapi()) as connection:
             rows = connection.execute(
-                "SELECT status, created_at FROM a2a_jobs WHERE created_at >= ? ORDER BY created_at",
+                "SELECT job_id, status, created_at FROM a2a_jobs WHERE created_at >= ? ORDER BY created_at",
                 (created_since,),
             ).fetchall()
         return [dict(row) for row in rows]

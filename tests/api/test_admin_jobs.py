@@ -72,21 +72,40 @@ class AdminJobsTests(unittest.TestCase):
         jobs = [{"job_id": "job_2", "payload": {"owner_user_id": "user_2", "prompt": "Make an alarm"}}]
 
         with patch("apps.api.main.JOB_STORE.list_jobs", return_value=jobs) as list_jobs, patch(
-            "apps.api.main.clerk_user_profile", return_value=None
-        ):
+            "apps.api.main.list_project_generation_jobs", return_value=[]
+        ), patch("apps.api.main.clerk_user_profile", return_value=None):
             response = list_a2a_jobs(sender=None, job_status="running", limit=25, _user=ADMIN)
 
         list_jobs.assert_called_once_with(sender=None, status="running", limit=25)
         self.assertEqual("user_2", response[0]["owner_user_id"])
         self.assertEqual("Make an alarm", response[0]["payload"]["prompt"])
 
+    def test_admin_jobs_endpoint_includes_durable_generation_plan_jobs(self) -> None:
+        plan_job = {
+            "job_id": "generation-build-1",
+            "created_at": "2026-08-10T12:00:00Z",
+            "payload": {"owner_user_id": "user_3", "prompt": "Build a monitor"},
+        }
+
+        with patch("apps.api.main.JOB_STORE.list_jobs", return_value=[]), patch(
+            "apps.api.main.list_project_generation_jobs", return_value=[plan_job]
+        ) as list_plan_jobs, patch("apps.api.main.clerk_user_profile", return_value=None):
+            response = list_a2a_jobs(sender=None, job_status=None, limit=25, _user=ADMIN)
+
+        list_plan_jobs.assert_called_once_with(status=None, limit=25)
+        self.assertEqual("generation-build-1", response[0]["job_id"])
+        self.assertEqual("user_3", response[0]["owner_user_id"])
+
     def test_admin_job_metrics_endpoint_delegates_bounded_windows(self) -> None:
         metrics = {"jobs_today": 3, "jobs_last_hour": 1, "failure_rate": 25.0}
 
-        with patch("apps.api.main.JOB_STORE.get_metrics", return_value=metrics) as get_metrics:
+        plan_jobs = [{"job_id": "generation-build-2", "status": "failed"}]
+        with patch("apps.api.main.list_project_generation_jobs", return_value=plan_jobs), patch(
+            "apps.api.main.JOB_STORE.get_metrics", return_value=metrics
+        ) as get_metrics:
             response = get_a2a_job_metrics(days=7, hours=24, _user=ADMIN)
 
-        get_metrics.assert_called_once_with(days=7, hours=24)
+        get_metrics.assert_called_once_with(days=7, hours=24, additional_rows=plan_jobs)
         self.assertEqual(metrics, response)
 
 

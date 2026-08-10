@@ -2242,6 +2242,7 @@ export function FormaWorkspace({
     setChatRouteTransition(null);
     setProjectIR(null);
     setActiveTab("overview");
+    return nextChatId;
   };
 
   const goHome = () => {
@@ -2257,8 +2258,8 @@ export function FormaWorkspace({
 
   const startNewProjectChat = () => {
     if (!currentProjectChatHasStarted()) return;
-    resetToNewProjectChat();
-    router.push("/");
+    const nextChatId = resetToNewProjectChat();
+    router.push(chatRoute(nextChatId));
   };
 
   const openChatItem = (item: ChatListItem) => {

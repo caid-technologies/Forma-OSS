@@ -137,6 +137,7 @@ test("the Solarized block declares the exported palette", () => {
   assert.match(block, new RegExp(`--forma-text: ${solarizedLight.base01};`));
   assert.match(block, new RegExp(`--forma-text-strong: ${solarizedLight.base02};`));
   assert.match(block, new RegExp(`--forma-text-muted: ${solarizedLight.base00};`));
+  assert.match(block, /--forma-selected-wash-alpha: 0\.07;/);
   // Rules and wells are base1 at low alpha so they track whatever sits behind them.
   const [red, green, blue] = channels(solarizedLight.base1);
   assert.match(block, new RegExp(`--forma-surface-muted: rgb\\(${red} ${green} ${blue} / 0\\.18\\);`));
@@ -162,6 +163,7 @@ test("the Arctic block preserves the slate theme Forma shipped before Solarized"
   assert.match(block, new RegExp(`--forma-text-body: ${arcticLight.textBody};`));
   assert.match(block, new RegExp(`--forma-text-secondary: ${arcticLight.textSecondary};`));
   assert.match(block, new RegExp(`--forma-text-muted: ${arcticLight.textMuted};`));
+  assert.match(block, /--forma-selected-wash-alpha: 0\.18;/);
   for (const [name, hex] of Object.entries({
     cyan: arcticLight.cyan,
     green: arcticLight.green,
@@ -203,4 +205,15 @@ test("shared rules resolve their colours through variables, not literals", () =>
       `a literal colour leaked into a shared rule:\n${selector.trim()}\n{${declarations}}`,
     );
   }
+});
+
+test("light-theme interaction states use theme tokens instead of dark utilities", () => {
+  const rules = scopedRules();
+  const sidebarHover = rules.find(({ selector }) => selector.includes("hover:bg-[#17181d]"));
+  assert.ok(sidebarHover, "the sidebar hover utility is not translated for light themes");
+  assert.match(sidebarHover.declarations, /background-color: var\(--forma-surface-muted\)/);
+
+  const selectedWash = rules.find(({ selector }) => selector.includes("bg-cyan-300/10"));
+  assert.ok(selectedWash, "the selected-state wash rule is missing");
+  assert.match(selectedWash.declarations, /var\(--forma-selected-wash-alpha\)/);
 });

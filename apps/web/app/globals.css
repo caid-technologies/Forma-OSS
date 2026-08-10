@@ -70,6 +70,7 @@
   --forma-scrim-rgb: 238 232 213;
   --forma-scroll-thumb: #93a1a1;
   --forma-card-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
+  --forma-selected-wash-alpha: 0.07;
 }
 
 /*
@@ -107,6 +108,7 @@
   --forma-scrim-rgb: 238 242 247;
   --forma-scroll-thumb: #94a3b8;
   --forma-card-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
+  --forma-selected-wash-alpha: 0.18;
 }
 
 * {
@@ -429,6 +431,19 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
 }
 
 /*
+ * Sidebar links use this dark-theme utility for hover feedback. Translate the
+ * state as well as the static fill so it cannot flash a near-black rectangle
+ * in either light theme. Keep the text on the theme's strong foreground.
+ */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-[#17181d]']:hover {
+  background-color: var(--forma-surface-muted);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-white"]:hover {
+  color: var(--forma-text-strong);
+}
+
+/*
  * Status washes. The interface tints panels with dark 950 shades, which land as
  * muddy blocks once the surface below them is light. Matching on the class
  * prefix covers every alpha step in one rule.
@@ -477,7 +492,7 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/30"] {
  */
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/5"],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/10"] {
-  background-color: rgb(var(--forma-cyan-rgb) / 0.1);
+  background-color: rgb(var(--forma-cyan-rgb) / var(--forma-selected-wash-alpha));
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"] {

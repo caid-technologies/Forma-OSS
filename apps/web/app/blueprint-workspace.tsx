@@ -4798,7 +4798,7 @@ export function FormaWorkspace({
                 />
               ) : (
                 <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
-                  {adminSessionLoaded ? "Admin access is required to view deployment jobs." : "Checking admin access..."}
+                  {adminSessionLoaded ? "Admin access is required to view jobs." : "Checking admin access..."}
                 </div>
               )}
             </>

@@ -32,6 +32,9 @@ export type A2AJob = {
   progress_events?: AgentPipelineEvent[];
   error?: string | null;
   error_debug?: Record<string, any> | null;
+  owner_user_id?: string | null;
+  owner_display_name?: string | null;
+  owner_email?: string | null;
 };
 
 export type BackendLogs = {
@@ -234,7 +237,7 @@ export function useJobs({
     setError(null);
 
     try {
-      const params = new URLSearchParams({ limit: "100" });
+      const params = new URLSearchParams({ limit: "200" });
       if (status !== "all") params.set("status", status);
       const nextJobs: A2AJob[] = [];
       const errors: string[] = [];

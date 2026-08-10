@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import {
   AlertTriangle,
   CheckCircle,
@@ -204,7 +206,37 @@ export function JobsPanel({
   compactActionLabel?: string;
   formatLlmLabel: (provider: string, model: string) => string;
 }) {
-  const visibleJobs = compact ? jobs.slice(0, 2) : jobs;
+  const [userFilter, setUserFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const userOptions = useMemo(() => {
+    const users = new Map<string, { id: string; label: string }>();
+    jobs.forEach((job) => {
+      const id = job.owner_user_id || job.payload?.owner_user_id;
+      if (typeof id !== "string" || !id.trim()) return;
+      const normalizedId = id.trim();
+      const label = job.owner_email || job.owner_display_name || normalizedId;
+      users.set(normalizedId, { id: normalizedId, label });
+    });
+    return Array.from(users.values()).sort((left, right) => left.label.localeCompare(right.label));
+  }, [jobs]);
+  const filteredJobs = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return jobs.filter((job) => {
+      const ownerUserId = String(job.owner_user_id || job.payload?.owner_user_id || "");
+      if (userFilter !== "all" && ownerUserId !== userFilter) return false;
+      if (!query) return true;
+      const searchable = [
+        job.payload?.prompt,
+        job.result_summary?.title,
+        job.job_id,
+        job.owner_display_name,
+        job.owner_email,
+        ownerUserId,
+      ];
+      return searchable.some((value) => String(value || "").toLowerCase().includes(query));
+    });
+  }, [jobs, searchQuery, userFilter]);
+  const visibleJobs = compact ? filteredJobs.slice(0, 2) : filteredJobs;
   const filters = ["all", "queued", "running", "succeeded", "failed"];
   const panelDescription = description || `Generation and example job metadata. Polling every ${Math.round(pollIntervalMs / 1000)}s.`;
 
@@ -237,21 +269,48 @@ export function JobsPanel({
       </div>
 
       {!compact && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {filters.map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              onClick={() => onStatusFilterChange(filter)}
-              className={`border px-3 py-2 text-xs font-bold uppercase ${
-                statusFilter === filter
-                  ? "border-white bg-white text-black"
-                  : "border-[#2a2c33] bg-[#141519] text-slate-500 hover:border-slate-500 hover:text-white"
-              }`}
-            >
-              {filter}
-            </button>
-          ))}
+        <div className="mb-4 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {filters.map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => onStatusFilterChange(filter)}
+                className={`border px-3 py-2 text-xs font-bold uppercase ${
+                  statusFilter === filter
+                    ? "border-white bg-white text-black"
+                    : "border-[#2a2c33] bg-[#141519] text-slate-500 hover:border-slate-500 hover:text-white"
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(220px,0.45fr)]">
+            <label className="min-w-0">
+              <span className="sr-only">Search jobs and prompts</span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search prompts, users, or job IDs"
+                className="h-10 w-full border border-[#2a2c33] bg-[#141519] px-3 text-xs text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+              />
+            </label>
+            <label className="min-w-0">
+              <span className="sr-only">Filter jobs by user</span>
+              <select
+                value={userFilter}
+                onChange={(event) => setUserFilter(event.target.value)}
+                className="h-10 w-full border border-[#2a2c33] bg-[#141519] px-3 text-xs font-bold text-slate-300 outline-none focus:border-cyan-400"
+              >
+                <option value="all">All users ({userOptions.length})</option>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{user.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       )}
 
@@ -279,7 +338,7 @@ export function JobsPanel({
         </div>
       ) : (
         <div className="border border-[#2a2c33] bg-[#141519] p-5 text-sm leading-6 text-slate-500">
-          {emptyMessage}
+          {jobs.length && (searchQuery || userFilter !== "all") ? "No jobs match these user or prompt filters." : emptyMessage}
         </div>
       )}
 
@@ -324,6 +383,8 @@ export function JobRow({
   const isOpenable = hasChatTarget || hasProjectTarget;
   const imageStatusLabel = formatJobImageStatus(summary);
   const operations = getJobOperations(summary);
+  const ownerUserId = job.owner_user_id || job.payload?.owner_user_id || "";
+  const ownerLabel = job.owner_email || job.owner_display_name || ownerUserId || "Unknown user";
 
   return (
     <article className={`border border-[#2a2c33] bg-[#141519] ${compact ? "p-3" : "p-4"}`}>
@@ -347,6 +408,11 @@ export function JobRow({
               </span>
             )}
             <span className="min-w-0 max-w-full truncate text-[11px] font-bold text-slate-500">{job.sender} {"->"} {job.recipient}</span>
+            {ownerUserId && (
+              <span className="inline-flex max-w-full items-center truncate border border-sky-300/25 bg-sky-300/10 px-2 py-1 text-[11px] font-black text-sky-200" title={ownerUserId}>
+                {ownerLabel}
+              </span>
+            )}
           </div>
           <h3 className="truncate text-sm font-black text-white">{title}</h3>
           <p className="mt-2 line-clamp-2 break-words text-xs leading-5 text-slate-500">{prompt}</p>
@@ -364,7 +430,8 @@ export function JobRow({
       </div>
 
       {!compact && (
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-9">
+          <JobMetric label="User" value={ownerLabel} />
           <JobMetric label="Job" value={job.job_id} />
           <JobMetric label="Created" value={formatJobTime(job.created_at)} />
           <JobMetric label="Duration" value={formatJobDuration(job)} />
@@ -374,6 +441,20 @@ export function JobRow({
           <JobMetric label="Valid" value={summary.is_valid === undefined ? "-" : summary.is_valid ? "yes" : "no"} />
           <JobMetric label="Image" value={imageStatusLabel} />
         </div>
+      )}
+
+      {!compact && prompt && (
+        <details className="mt-3 border border-[#25272e] bg-black/20 p-3">
+          <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.14em] text-cyan-300">
+            View full user prompt
+          </summary>
+          <div className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{prompt}</div>
+          {ownerUserId && (
+            <div className="mt-3 border-t border-white/10 pt-2 font-mono text-[10px] text-slate-600">
+              User ID: {ownerUserId}
+            </div>
+          )}
+        </details>
       )}
 
       <JobPipelineEventList events={job.progress_events || []} jobStatus={job.status} compact={compact} />
@@ -690,4 +771,3 @@ function formatJobDuration(job: A2AJob) {
   if (!job.started_at || !job.completed_at) return job.status === "running" ? "running" : "-";
   return formatDurationSeconds(durationSecondsBetween(job.started_at, job.completed_at));
 }
-

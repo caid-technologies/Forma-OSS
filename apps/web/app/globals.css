@@ -108,7 +108,7 @@
   --forma-scrim-rgb: 238 242 247;
   --forma-scroll-thumb: #94a3b8;
   --forma-card-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
-  --forma-selected-wash-alpha: 0.1;
+  --forma-selected-wash-alpha: 0.18;
 }
 
 * {

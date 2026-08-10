@@ -106,7 +106,7 @@ export default function HomeChatView({
     <section
       className={`${
         !started
-          ? "fixed bottom-[224px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none"
+          ? "fixed bottom-[224px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none md:justify-center md:px-6 md:py-8"
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
@@ -121,7 +121,13 @@ export default function HomeChatView({
         </div>
       )}
 
-      <div className={`${started ? "mt-0" : "mt-4 sm:mt-5"} flex min-h-0 flex-1 flex-col overflow-hidden border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
+      <div
+        className={`${
+          started
+            ? "mt-0 flex-1 overflow-hidden"
+            : "mt-4 flex-1 overflow-hidden sm:mt-5 md:mx-auto md:w-full md:max-w-5xl md:flex-none md:overflow-visible md:border"
+        } flex min-h-0 flex-col border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}
+      >
         {started && (
           <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
             {messages.map((message) => {
@@ -192,7 +198,7 @@ export default function HomeChatView({
         )}
 
         {!started && (
-          <div className="mt-auto shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4">
+          <div className="mt-auto shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4 md:mt-0">
             <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
               {examples.map((example) => (
                 <button
@@ -208,7 +214,10 @@ export default function HomeChatView({
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4">
+        <form
+          onSubmit={onSubmit}
+          className={`${started ? "md:sticky md:bottom-0" : "md:static"} fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4`}
+        >
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 border border-cyan-300/30 bg-cyan-300/5 p-3 text-left sm:p-4" aria-label="Bring your own key setup">
               <div className="flex flex-wrap items-start justify-between gap-3">

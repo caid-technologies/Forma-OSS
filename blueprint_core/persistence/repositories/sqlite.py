@@ -285,6 +285,15 @@ class SqlAlchemyRepository:
                 DBWorkerExecutionPlan.owner_user_id == owner_user_id,
             ).first()
 
+    def list_worker_execution_plans(self, limit: int = 200) -> List[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBWorkerExecutionPlan)
+                .order_by(DBWorkerExecutionPlan.created_at.desc())
+                .limit(max(1, min(int(limit), 1000)))
+                .all()
+            )
+
     def update_worker_execution_plan(
         self,
         plan_id: str,

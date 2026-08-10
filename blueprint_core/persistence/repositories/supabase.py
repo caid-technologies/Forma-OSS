@@ -243,6 +243,18 @@ class SupabaseRepository:
         )
         return _record(rows[0]) if rows else None
 
+    def list_worker_execution_plans(self, limit: int = 200) -> List[Any]:
+        rows = (
+            self._client.table("worker_execution_plans")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(max(1, min(int(limit), 1000)))
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
     def update_worker_execution_plan(
         self,
         plan_id: str,

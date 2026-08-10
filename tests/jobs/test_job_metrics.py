@@ -34,6 +34,36 @@ class JobMetricsTests(unittest.TestCase):
         self.assertEqual(1, metrics["failed_jobs"])
         self.assertEqual(50.0, metrics["failure_rate"])
 
+    def test_sqlite_job_store_merges_durable_worker_plan_rows(self) -> None:
+        with tempfile.NamedTemporaryFile(suffix=".db") as file:
+            store = JobMetadataStore(file.name, backend="sqlite")
+            store.create_job(
+                job_id="a2a_success",
+                message_id="message_success",
+                correlation_id=None,
+                action="blueprint.generate_project",
+                sender="frontend",
+                recipient="blueprint",
+                payload={"prompt": "success"},
+                server_owned=True,
+            )
+            store.mark_succeeded("a2a_success", {"project_ir": {}})
+            now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+            metrics = store.get_metrics(
+                days=7,
+                hours=24,
+                additional_rows=[
+                    {"job_id": "generation-failure", "created_at": now, "status": "failed"},
+                    {"job_id": "a2a_success", "created_at": now, "status": "failed"},
+                ],
+            )
+
+        self.assertEqual(2, metrics["jobs_today"])
+        self.assertEqual(2, metrics["completed_jobs"])
+        self.assertEqual(1, metrics["failed_jobs"])
+        self.assertEqual(50.0, metrics["failure_rate"])
+
     def test_summarizes_daily_hourly_and_failure_metrics(self) -> None:
         now = datetime(2026, 8, 9, 12, 30, tzinfo=timezone.utc)
         rows = [

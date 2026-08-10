@@ -874,6 +874,83 @@ def get_project_generation_plan(plan_id: str, owner_user_id: str):
     return orchestrator.get_plan(plan_id, owner)
 
 
+def list_project_generation_jobs(
+    *,
+    status: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Project durable generation-plan tasks in the admin job record shape."""
+
+    from blueprint_core.workers import OrchestrationTaskStatus, WorkerExecutionPlan
+
+    normalized_status = str(status or "").strip().lower()
+    records = _DATABASE_REPOSITORY.list_worker_execution_plans(limit=limit)
+    jobs: List[Dict[str, Any]] = []
+    for record in records:
+        state = getattr(record, "state_json", None)
+        if not isinstance(state, dict):
+            logger.warning("Skipping worker execution plan with invalid state_json.")
+            continue
+        try:
+            plan = WorkerExecutionPlan.model_validate(state)
+        except Exception:
+            logger.exception("Skipping invalid worker execution plan while listing admin jobs.")
+            continue
+
+        for job_id, task in plan.jobs.items():
+            job_status = task.status.value
+            if task.status == OrchestrationTaskStatus.BLOCKED:
+                job_status = "failed"
+            if normalized_status and normalized_status != "all" and normalized_status != job_status:
+                continue
+
+            brief = task.request.payload.get("design_brief")
+            brief = brief if isinstance(brief, dict) else {}
+            progress_events = [
+                event
+                for progress in task.progress
+                for event in [progress.metadata.get("pipeline_event")]
+                if isinstance(event, dict)
+            ]
+            error = task.error.message if task.error is not None else None
+            completed_at = task.completed_at or (task.result.completed_at if task.result else None)
+            jobs.append(
+                {
+                    "job_id": job_id,
+                    "message_id": plan.plan_id,
+                    "correlation_id": plan.correlation_id,
+                    "action": "blueprint.generate_project",
+                    "sender": "conversation",
+                    "recipient": task.request.worker_id,
+                    "status": job_status,
+                    "server_owned": True,
+                    "created_at": plan.created_at.isoformat(),
+                    "updated_at": plan.updated_at.isoformat(),
+                    "started_at": task.started_at.isoformat() if task.started_at else None,
+                    "completed_at": completed_at.isoformat() if completed_at else None,
+                    "payload": {
+                        "owner_user_id": plan.owner_user_id,
+                        "project_id": plan.project_id,
+                        "prompt": brief.get("intent") or brief.get("summary"),
+                        "design_brief_id": str(task.request.design_brief_id),
+                        "design_brief_version": task.request.design_brief_version,
+                    },
+                    "result_summary": {
+                        "project_id": plan.project_id,
+                        "title": brief.get("summary") or brief.get("intent"),
+                        "workflow": "default",
+                    },
+                    "source_usage": {"workflow": "default", "source_labels": ["Conversation"]},
+                    "progress_events": progress_events,
+                    "error": error,
+                    "error_debug": task.error.model_dump(mode="json") if task.error is not None else None,
+                }
+            )
+            if len(jobs) >= limit:
+                return jobs
+    return jobs
+
+
 async def execute_project_generation_plan(
     plan_id: str,
     owner_user_id: str,

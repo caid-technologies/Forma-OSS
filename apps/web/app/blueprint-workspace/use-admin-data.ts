@@ -51,6 +51,26 @@ export type BackendLogs = {
   updated_at?: string;
 };
 
+export type JobMetricBucket = {
+  period: string;
+  count: number;
+};
+
+export type JobMetrics = {
+  generated_at: string;
+  timezone: string;
+  window_days: number;
+  window_hours: number;
+  total_jobs: number;
+  jobs_today: number;
+  jobs_last_hour: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  failure_rate: number;
+  daily: JobMetricBucket[];
+  hourly: JobMetricBucket[];
+};
+
 export type HeaderFactory = () => HeadersInit | Promise<HeadersInit>;
 export type ApiErrorReader = (response: Response) => Promise<string>;
 
@@ -192,6 +212,8 @@ export type UseJobsOptions = ApiDependencies & {
 
 export type UseJobsResult = {
   jobs: A2AJob[];
+  metrics: JobMetrics | null;
+  metricsError: string | null;
   loading: boolean;
   error: string | null;
   statusFilter: string;
@@ -211,6 +233,8 @@ export function useJobs({
   initialStatusFilter = "all",
 }: UseJobsOptions): UseJobsResult {
   const [jobs, setJobs] = useState<A2AJob[]>([]);
+  const [metrics, setMetrics] = useState<JobMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
@@ -237,6 +261,7 @@ export function useJobs({
     const requestId = ++requestIdRef.current;
     if (!options.silent) setLoading(true);
     setError(null);
+    setMetricsError(null);
 
     try {
       const params = new URLSearchParams({ limit: "200" });
@@ -266,6 +291,20 @@ export function useJobs({
       } catch (requestError) {
         console.error("Error fetching example project object jobs", requestError);
         errors.push("example jobs");
+      }
+
+      try {
+        const response = await fetchWithTimeout(`${apiUrl}/a2a/jobs/metrics?days=7&hours=24`, {
+          headers: await getHeaders(),
+        });
+        if (!response.ok) throw new Error(`Job metrics endpoint returned ${response.status}`);
+        const payload = await response.json() as JobMetrics;
+        if (requestIdRef.current === requestId && enabledRef.current) setMetrics(payload);
+      } catch (requestError) {
+        console.error("Error fetching job metrics", requestError);
+        if (requestIdRef.current === requestId && enabledRef.current) {
+          setMetricsError("Job metrics are unavailable");
+        }
       }
 
       nextJobs.sort((left, right) => {
@@ -354,6 +393,8 @@ export function useJobs({
 
   return {
     jobs,
+    metrics,
+    metricsError,
     loading,
     error,
     statusFilter,

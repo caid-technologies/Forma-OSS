@@ -318,6 +318,15 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertTrue(model_image_input_support("openai", "gpt-5.5"))
         self.assertIsNone(model_image_input_support("cloudflare", "some-new-model"))
 
+    def test_vertex_defaults_to_gemini_3_6_flash(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="vertex",
+            GOOGLE_CLOUD_PROJECT="forma-vertex-test",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("gemini-3.6-flash", runtime.model)
+
     def test_vertex_is_primary_google_cloud_provider_and_uses_adc_client(self) -> None:
         client_calls = []
 

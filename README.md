@@ -172,7 +172,7 @@ both.
 To run with Google Vertex AI as the primary LLM provider:
 ```bash
 gcloud auth application-default login
-LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.5-flash uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.6-flash uvicorn apps.api.main:app --reload --port 8000
 ```
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
@@ -206,7 +206,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 - In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-sonnet-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
 - `LLM_API_KEY`: Generic provider API key alias. For Gemini, `GEMINI_API_KEY` or `GOOGLE_API_KEY` still work.
-- `LLM_MODEL`: Model to use, for example `gemini-3.5-flash` or an OpenAI/OpenAI-compatible model ID.
+- `LLM_MODEL`: Model to use, for example `gemini-3.6-flash` or an OpenAI/OpenAI-compatible model ID.
 - `LLM_FALLBACK_MODEL`: Optional fallback model when `STRICT_LLM=false`.
 - `LLM_BASE_URL`: Optional base URL for OpenAI-compatible providers.
 - `LLM_TIMEOUT_SECONDS`: Generic read timeout. OpenAI-compatible endpoints default to `90`.
@@ -258,7 +258,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>Gemini</strong></summary>
 
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY`: Gemini credentials when `LLM_PROVIDER=gemini` or a request uses `provider=gemini`.
-- `GEMINI_MODEL`: Gemini model ID. The example default is `gemini-3.5-flash`.
+- `GEMINI_MODEL`: Gemini model ID. The example default is `gemini-3.6-flash`.
 
 </details>
 

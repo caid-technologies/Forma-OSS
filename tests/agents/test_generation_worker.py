@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.agents.pipeline import emit_agent_pipeline_event
+from blueprint_core.database import list_project_generation_jobs
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workers import (
@@ -59,9 +60,16 @@ OWNER = "generation-worker-user"
 
 
 class FakeGenerationEngine:
-    def __init__(self, *, fail: bool = False, target_project_id: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        target_project_id: str | None = None,
+        assembly_metadata: dict[str, Any] | None = None,
+    ) -> None:
         self.fail = fail
         self.target_project_id = target_project_id
+        self.assembly_metadata = assembly_metadata or {}
         self.received: list[DesignBrief] = []
 
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
@@ -86,6 +94,7 @@ class FakeGenerationEngine:
             assembly_metadata={
                 "project_id": self.target_project_id or str(design_brief.project_id),
                 "revision": 1,
+                **self.assembly_metadata,
             },
         )
         return ProjectRevisionDraft(
@@ -434,6 +443,31 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ProjectStateError) as missing:
             self.state.get_latest(self.project_id, OWNER)
         self.assertEqual("project_revision_not_found", missing.exception.code)
+
+    async def test_admin_job_projection_includes_image_failure_output(self) -> None:
+        engine = FakeGenerationEngine(assembly_metadata={
+            "image_output_status": "failed",
+            "image_output_failed": True,
+            "image_output_error": "Image provider returned no images.",
+            "image_output_error_type": "empty_response",
+            "operation_statuses": [
+                {"id": "image_generation", "label": "Image generation", "status": "failed"},
+            ],
+        })
+        worker = GenerationWorker(self.state, engine)
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([self.request()], OWNER)
+        await orchestrator.execute(plan.plan_id, OWNER)
+
+        with patch("blueprint_core.database._DATABASE_REPOSITORY", self.repository):
+            jobs = list_project_generation_jobs(limit=10)
+
+        projected = next(job for job in jobs if job["job_id"] == "job-generation-initial")
+        summary = projected["result_summary"]
+        self.assertTrue(summary["image_output_failed"])
+        self.assertEqual("failed", summary["image_output_status"])
+        self.assertEqual("Image provider returned no images.", summary["image_output_error"])
+        self.assertEqual("failed", summary["operation_statuses"][0]["status"])
 
     async def test_numeric_provider_status_is_preserved_as_a_retryable_worker_error(self) -> None:
         worker = GenerationWorker(self.state, ProviderDeadlineGenerationEngine())

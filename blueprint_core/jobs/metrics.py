@@ -30,6 +30,7 @@ def summarize_job_metrics(
     now: Optional[datetime] = None,
     days: int = 7,
     hours: int = 24,
+    interval_hours: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Aggregate persisted job timestamps into UTC admin dashboard metrics."""
     current = now or datetime.now(timezone.utc)
@@ -38,12 +39,22 @@ def summarize_job_metrics(
     current = current.astimezone(timezone.utc)
     days = max(1, min(int(days), 31))
     hours = max(1, min(int(hours), 168))
+    normalized_interval_hours = (
+        max(1, min(int(interval_hours), 31 * 24))
+        if interval_hours is not None
+        else None
+    )
 
     today = current.replace(hour=0, minute=0, second=0, microsecond=0)
     daily_start = today - timedelta(days=days - 1)
     current_hour = current.replace(minute=0, second=0, microsecond=0)
     hourly_start = current_hour - timedelta(hours=hours - 1)
     last_hour_start = current - timedelta(hours=1)
+    interval_start = (
+        current - timedelta(hours=normalized_interval_hours)
+        if normalized_interval_hours is not None
+        else daily_start
+    )
 
     daily_counts = {
         (daily_start + timedelta(days=index)).date().isoformat(): 0
@@ -56,6 +67,7 @@ def summarize_job_metrics(
     failed_jobs = 0
     completed_jobs = 0
     jobs_last_hour = 0
+    total_jobs = 0
 
     for row in rows:
         created_at = _utc_datetime(row.get("created_at"))
@@ -66,6 +78,9 @@ def summarize_job_metrics(
             day_key = created_at.date().isoformat()
             if day_key in daily_counts:
                 daily_counts[day_key] += 1
+
+        if created_at >= interval_start:
+            total_jobs += 1
             status = str(row.get("status") or "").strip().lower()
             if status in SUCCESS_STATUSES:
                 completed_jobs += 1
@@ -88,7 +103,8 @@ def summarize_job_metrics(
         "timezone": "UTC",
         "window_days": days,
         "window_hours": hours,
-        "total_jobs": sum(daily_counts.values()),
+        "interval_hours": normalized_interval_hours,
+        "total_jobs": total_jobs,
         "jobs_today": daily_counts.get(today.date().isoformat(), 0),
         "jobs_last_hour": jobs_last_hour,
         "completed_jobs": completed_jobs,

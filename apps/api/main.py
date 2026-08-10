@@ -1317,12 +1317,14 @@ def list_a2a_jobs(
 def get_a2a_job_metrics(
     days: int = Query(7, ge=1, le=31),
     hours: int = Query(24, ge=1, le=168),
+    interval_hours: int | None = Query(None, ge=1, le=744),
     _user: UserContext = Depends(require_admin_user_context),
 ):
     """Returns aggregate job volume and failure metrics for administrators."""
     return JOB_STORE.get_metrics(
         days=days,
         hours=hours,
+        interval_hours=interval_hours,
         additional_rows=list_project_generation_jobs(limit=1000),
     )
 

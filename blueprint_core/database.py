@@ -914,6 +914,15 @@ def list_project_generation_jobs(
             ]
             error = task.error.message if task.error is not None else None
             completed_at = task.completed_at or (task.result.completed_at if task.result else None)
+            result_output = task.result.output if task.result is not None else {}
+            project_revision = result_output.get("project_revision")
+            project_revision = project_revision if isinstance(project_revision, dict) else {}
+            project_state = project_revision.get("state")
+            project_state = project_state if isinstance(project_state, dict) else {}
+            assembly_metadata = project_state.get("assembly_metadata")
+            assembly_metadata = assembly_metadata if isinstance(assembly_metadata, dict) else {}
+            image_status = assembly_metadata.get("image_output_status")
+            image_error = assembly_metadata.get("image_output_error") or assembly_metadata.get("product_image_error")
             jobs.append(
                 {
                     "job_id": job_id,
@@ -939,6 +948,18 @@ def list_project_generation_jobs(
                         "project_id": plan.project_id,
                         "title": brief.get("summary") or brief.get("intent"),
                         "workflow": "default",
+                        "image_output_status": image_status,
+                        "image_output_failed": bool(
+                            assembly_metadata.get("image_output_failed") or image_status == "failed"
+                        ),
+                        "image_output_error": image_error,
+                        "image_output_error_type": assembly_metadata.get("image_output_error_type"),
+                        "image_output_reason": assembly_metadata.get("image_output_reason"),
+                        "image_output_debug": assembly_metadata.get("image_output_debug"),
+                        "image_output_provider": assembly_metadata.get("image_output_provider"),
+                        "image_output_model": assembly_metadata.get("image_output_model"),
+                        "operation_statuses": assembly_metadata.get("operation_statuses") or [],
+                        "operation_summary": assembly_metadata.get("operation_summary"),
                     },
                     "source_usage": {"workflow": "default", "source_labels": ["Conversation"]},
                     "progress_events": progress_events,

@@ -111,6 +111,13 @@ class MechanicalSpatialRelationship(BaseModel):
     notes: Optional[str] = Field(None, description="Additional placement or clearance rationale")
 
 class MechanicalNotes(BaseModel):
+    physical_form: str = Field(
+        "Unspecified",
+        description=(
+            "Overall product shape and silhouette, such as curved handheld, cylindrical, wearable, folded, "
+            "open-frame, or another explicitly requested form; do not assume a rectangular box"
+        ),
+    )
     enclosure_type: str = Field(..., description="Type of housing: 3D Printed, Off-the-shelf, Custom Acrylic, Waterproof, Acrylic laser cut")
     mounting_guidance: str = Field(..., description="Mounting and standoffs instructions")
     fabrication_details: List[str] = Field(default_factory=list, description="Enclosure dimensions, material recommendations, or printing instructions")

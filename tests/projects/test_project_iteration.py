@@ -278,6 +278,29 @@ class ProjectIterationTests(unittest.TestCase):
         self.assertEqual(1, object_metadata["namespace_versions"]["product.electrical"])
         self.assertTrue(revised.is_valid)
 
+    def test_mechanical_iteration_preserves_bom_and_electrical_connectivity(self) -> None:
+        current = build_sample_ir()
+        model_output = current.model_copy(deep=True)
+        model_output.components = []
+        model_output.nets = []
+        model_output.estimated_current_draw_ma = 999.0
+        fake_provider = FakeProvider(model_output)
+        iterator = ProjectIterator(
+            runtime_config=LLMRuntimeConfig(provider="openai", model="gpt-5.5"),
+            llm_provider=fake_provider,
+        )
+
+        revised = iterator.iterate_project(
+            current,
+            "Change the product to a curved handheld shape without changing its parts.",
+            target_namespace="product.mech",
+        )
+
+        self.assertEqual(current.components, revised.components)
+        self.assertEqual(current.nets, revised.nets)
+        self.assertEqual(current.estimated_current_draw_ma, revised.estimated_current_draw_ma)
+        self.assertIn("Keep the existing BOM/components and all electrical connectivity fixed", fake_provider.prompt)
+
     def test_iteration_preserves_generated_output_metadata_when_model_omits_it(self) -> None:
         current = build_sample_ir()
         current.assembly_metadata.update(

@@ -577,6 +577,7 @@ class WebResearchHardwarePipeline:
         Research context:
         {research_context}
 
+        Populate physical_form with the requested overall shape, silhouette, and form factor. Treat explicit human shape context as authoritative and do not default to a rectangular project box. If the project is exposed, structural, or open-frame, do not invent a closed case.
         Use CAD/enclosure URLs only when present in research or well-known source data. If no source exists, keep cad_sources empty.
         Return MechanicalNotes.
         """

@@ -380,7 +380,8 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
                     "conversation_id": conversation_id,
                     "text": (
                         "Use an ESP32-S3 powered from USB-C 5 V. Show readings on an OLED. "
-                        "It is a bench tool for engineers, must fit within 100 mm, and should include wiring and a BOM. "
+                        "Use a rounded desktop puck shape. It is a bench tool for engineers, must fit within 100 mm, "
+                        "and should include wiring and a BOM. "
                         "Validate that readings remain within the sensor tolerance."
                     ),
                 },

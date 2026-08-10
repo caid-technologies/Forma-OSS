@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import logging
@@ -144,6 +145,7 @@ from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
 from apps.api.auth import (
     UserContext,
+    clerk_user_profile,
     deployed_auth_required,
     optional_user_context,
     require_admin_user_context,
@@ -334,6 +336,36 @@ def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _admin_job_records(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add admin-only owner labels without changing the persisted job shape."""
+    records = [dict(job) for job in jobs]
+    owner_user_ids: List[str] = []
+
+    for record in records:
+        owner_user_id = _job_owner_user_id(record)
+        record["owner_user_id"] = owner_user_id
+        if owner_user_id and owner_user_id not in owner_user_ids:
+            owner_user_ids.append(owner_user_id)
+
+    # Clerk lookups are optional display enrichment. Cap and parallelize cold
+    # lookups so a large job list cannot hold the admin request open.
+    profile_user_ids = owner_user_ids[:16]
+    if profile_user_ids:
+        with ThreadPoolExecutor(max_workers=min(8, len(profile_user_ids))) as executor:
+            resolved_profiles = executor.map(clerk_user_profile, profile_user_ids)
+            profiles = dict(zip(profile_user_ids, resolved_profiles))
+    else:
+        profiles = {}
+
+    for record in records:
+        owner_user_id = record.get("owner_user_id")
+        profile = profiles.get(owner_user_id) if isinstance(owner_user_id, str) else None
+        record["owner_display_name"] = profile.get("display_name") if profile else None
+        record["owner_email"] = profile.get("email") if profile else None
+
+    return records
 
 
 def _require_job_reader(job: Dict[str, Any], user: UserContext) -> None:
@@ -1268,7 +1300,7 @@ def list_a2a_jobs(
     _user: UserContext = Depends(require_admin_user_context),
 ):
     """Lists persisted A2A job metadata."""
-    return JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
+    return _admin_job_records(JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit))
 
 
 @app.get("/a2a/jobs/{job_id}")

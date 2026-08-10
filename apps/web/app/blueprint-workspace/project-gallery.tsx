@@ -28,7 +28,7 @@ export type ProjectGalleryItem = {
 
 // Keep pagination stable across server render and hydration. The grid itself is
 // responsive; changing the item count after mount caused the whole page to jump.
-const PROJECT_GALLERY_PAGE_SIZE = 6;
+export const PROJECT_GALLERY_PAGE_SIZE = 6;
 
 export type ProjectImageCandidate = {
   src: string;
@@ -222,6 +222,9 @@ export function ProjectGallery({
   onOpenProjectPage,
   onDeleteProject,
   onVisibleProjectIdsChange,
+  totalItems,
+  currentPage: controlledPage,
+  onPageChange,
   standalone = false,
 }: {
   sectionRef: React.RefObject<HTMLElement | null>;
@@ -231,41 +234,50 @@ export function ProjectGallery({
   onOpenProjectPage: (projectId: string) => void;
   onDeleteProject?: (item: ProjectGalleryItem) => void;
   onVisibleProjectIdsChange?: (projectIds: string[]) => void;
+  totalItems?: number;
+  currentPage?: number;
+  onPageChange?: (page: number) => void;
   standalone?: boolean;
 }) {
   const pageSize = PROJECT_GALLERY_PAGE_SIZE;
-  const [currentPage, setCurrentPage] = useState(0);
-  const pageCount = Math.max(1, Math.ceil(items.length / pageSize));
+  const [localPage, setLocalPage] = useState(0);
+  const serverPaginated = typeof totalItems === "number" && typeof controlledPage === "number" && Boolean(onPageChange);
+  const currentPage = serverPaginated ? controlledPage : localPage;
+  const total = serverPaginated ? Math.max(0, totalItems) : items.length;
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(currentPage, pageCount - 1);
   const firstVisibleItem = safePage * pageSize;
   const visibleItems = useMemo(
-    () => items.slice(firstVisibleItem, firstVisibleItem + pageSize),
-    [firstVisibleItem, items, pageSize]
+    () => serverPaginated ? items : items.slice(firstVisibleItem, firstVisibleItem + pageSize),
+    [firstVisibleItem, items, pageSize, serverPaginated]
   );
   const visibleProjectIds = useMemo(
     () => visibleItems.map((item) => item.projectId),
     [visibleItems]
   );
-  const showingStart = items.length ? firstVisibleItem + 1 : 0;
-  const showingEnd = Math.min(items.length, firstVisibleItem + visibleItems.length);
+  const showingStart = total ? firstVisibleItem + 1 : 0;
+  const showingEnd = Math.min(total, firstVisibleItem + visibleItems.length);
   const pageMarkers = buildProjectGalleryPageMarkers(safePage, pageCount);
 
   useEffect(() => {
-    setCurrentPage(0);
-  }, [items.length, pageSize]);
+    if (!serverPaginated) setLocalPage(0);
+  }, [items.length, pageSize, serverPaginated]);
 
   useEffect(() => {
     if (safePage !== currentPage) {
-      setCurrentPage(safePage);
+      if (serverPaginated) onPageChange?.(safePage);
+      else setLocalPage(safePage);
     }
-  }, [currentPage, safePage]);
+  }, [currentPage, onPageChange, safePage, serverPaginated]);
 
   useEffect(() => {
     onVisibleProjectIdsChange?.(visibleProjectIds);
   }, [onVisibleProjectIdsChange, visibleProjectIds]);
 
   const goToPage = (page: number) => {
-    setCurrentPage(Math.min(Math.max(page, 0), pageCount - 1));
+    const nextPage = Math.min(Math.max(page, 0), pageCount - 1);
+    if (serverPaginated) onPageChange?.(nextPage);
+    else setLocalPage(nextPage);
   };
 
   return (
@@ -279,14 +291,14 @@ export function ProjectGallery({
             <h2 className="text-2xl font-black uppercase tracking-[0.22em] text-white">{title}</h2>
           </div>
           <p className="mt-4 text-sm leading-6 text-slate-500">
-            {loading ? "Loading projects..." : `${items.length} saved projects.`}
+            {loading ? "Loading projects..." : `${total} saved projects.`}
           </p>
         </div>
       </div>
 
       {loading ? (
         <ProjectGallerySkeleton count={pageSize} />
-      ) : items.length ? (
+      ) : total && visibleItems.length ? (
         <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {visibleItems.map((item) => (
@@ -302,7 +314,7 @@ export function ProjectGallery({
           {pageCount > 1 && (
             <div className="mt-5 flex flex-col gap-3 border border-[#2c2f37] bg-[#17181d] p-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-                Showing {showingStart}-{showingEnd} of {items.length}
+                Showing {showingStart}-{showingEnd} of {total}
               </div>
 
               <div className="grid grid-cols-[44px_minmax(0,1fr)_44px] gap-2 sm:flex sm:items-center">

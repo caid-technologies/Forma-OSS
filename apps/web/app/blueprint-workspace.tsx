@@ -46,8 +46,10 @@ import {
   statusTone,
 } from "./blueprint-workspace/admin-panels";
 import HomeChatView from "./blueprint-workspace/home-chat-view";
+import useChatAutoScroll from "./blueprint-workspace/use-chat-auto-scroll";
 import {
   ProjectGallery,
+  PROJECT_GALLERY_PAGE_SIZE,
   buildProjectGalleryItems,
   previewableImageSrc,
   resolveProjectImageCandidates,
@@ -1610,6 +1612,10 @@ export function FormaWorkspace({
   const [projectIR, setProjectIR] = useState<any>(null);
   const [projectHistory, setProjectHistory] = useState<any[]>([]);
   const [myProjectHistory, setMyProjectHistory] = useState<any[]>([]);
+  const [projectHistoryPage, setProjectHistoryPage] = useState(0);
+  const [myProjectHistoryPage, setMyProjectHistoryPage] = useState(0);
+  const [projectHistoryTotal, setProjectHistoryTotal] = useState(0);
+  const [myProjectHistoryTotal, setMyProjectHistoryTotal] = useState(0);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
   const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
@@ -1680,9 +1686,9 @@ export function FormaWorkspace({
   const fileInputRefSidebar = useRef<HTMLInputElement>(null);
   const fileInputRefCenter = useRef<HTMLInputElement>(null);
   const projectsSectionRef = useRef<HTMLElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const projectChatEndRef = useRef<HTMLDivElement>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
+  const projectHistoryRequestIdRef = useRef(0);
+  const myProjectHistoryRequestIdRef = useRef(0);
   const generationLlmRequestIdRef = useRef(0);
   const pipelineStepsRequestIdRef = useRef(0);
   const pipelineStepsAbortRef = useRef<AbortController | null>(null);
@@ -1714,36 +1720,34 @@ export function FormaWorkspace({
   );
   const myProjectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
-      mergeProjectRecords(myProjectHistory, projectRecordsFromChatItems(chatListItems)),
+      myProjectHistory,
       projectGalleryImages,
       blueprintDevMode,
     ).map((item) => ({
       ...item,
       canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
     })),
-    [authRequired, blueprintDevMode, chatListItems, isSignedIn, myProjectHistory, projectGalleryImages]
+    [authRequired, blueprintDevMode, isSignedIn, myProjectHistory, projectGalleryImages]
   );
   const chatHistoryLoaded = myProjectHistoryLoaded && privateChatsLoaded;
   const projectsPageLoading = !projectHistoryLoaded;
   const myProjectsPageLoading = (authRequired && !authLoaded)
-    || !myProjectHistoryLoaded
-    || !privateChatsLoaded
-    || !chatIndexLoaded;
+    || !myProjectHistoryLoaded;
   const handleVisibleProjectGalleryIdsChange = useCallback((projectIds: string[]) => {
     setVisibleProjectGalleryIds((current) => (
       sameStringList(current, projectIds) ? current : projectIds
     ));
   }, []);
-  const chatMessageScrollKey = useMemo(
-    () => `${activeChatId || ""}:${chatMessageIdentityKey(chatMessages)}`,
-    [activeChatId, chatMessages]
-  );
-  const projectChatMessageScrollKey = useMemo(() => {
-    if (currentRouteProjectId) return "project-detail";
-    const chatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
-    const messages = chatId ? chatThreads[chatId] || [] : [];
-    return `${chatId || ""}:${chatMessageIdentityKey(messages)}`;
-  }, [activeChatId, chatThreads, currentRouteProjectId, projectIR]);
+  const handleProjectHistoryPageChange = useCallback((page: number) => {
+    setProjectHistoryLoaded(false);
+    setVisibleProjectGalleryIds([]);
+    setProjectHistoryPage(page);
+  }, []);
+  const handleMyProjectHistoryPageChange = useCallback((page: number) => {
+    setMyProjectHistoryLoaded(false);
+    setVisibleProjectGalleryIds([]);
+    setMyProjectHistoryPage(page);
+  }, []);
   const inlineChatProjectId = useMemo(() => {
     const activeThread = activeChatId ? chatThreads[activeChatId] || [] : [];
     const messages = activeThread.length ? activeThread : chatMessages;
@@ -2338,17 +2342,17 @@ export function FormaWorkspace({
 
   useEffect(() => {
     if (homeView !== "projects") return;
-    void fetchProjectHistory();
+    void fetchProjectHistory(projectHistoryPage);
     // Public gallery data becomes critical only when its route is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeView]);
+  }, [homeView, projectHistoryPage]);
 
   useDeferredTask(() => {
-    if (!projectHistoryLoaded) void fetchProjectHistory();
+    if (!projectHistoryLoaded) void fetchProjectHistory(projectHistoryPage);
   }, {
     delayMs: 1200,
     enabled: homeView !== "projects" && !projectHistoryLoaded,
-    taskKey: homeView,
+    taskKey: `${homeView}:${projectHistoryPage}`,
     timeoutMs: 1800,
   });
 
@@ -2384,16 +2388,23 @@ export function FormaWorkspace({
 
   useEffect(() => {
     if (authRequired && !authLoaded) {
-      setMyProjectHistoryLoaded(false);
       setPrivateChatsLoaded(false);
       return;
     }
-    setMyProjectHistoryLoaded(false);
+    setMyProjectHistoryPage(0);
     setPrivateChatsLoaded(false);
-    void fetchMyProjectHistory();
     void fetchPrivateChats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authIdentityKey, authLoaded, authRequired, isSignedIn]);
+
+  useEffect(() => {
+    if (authRequired && !authLoaded) {
+      setMyProjectHistoryLoaded(false);
+      return;
+    }
+    void fetchMyProjectHistory(myProjectHistoryPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authIdentityKey, authLoaded, authRequired, isSignedIn, myProjectHistoryPage]);
 
   useDeferredTask(() => {
     void fetchAgentPipelineSteps(generationWorkflow);
@@ -2429,14 +2440,6 @@ export function FormaWorkspace({
       window.clearInterval(intervalId);
     };
   }, [isLoading]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chatMessageScrollKey]);
-
-  useEffect(() => {
-    projectChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [projectChatMessageScrollKey]);
 
   const checkServerStatus = async () => {
     try {
@@ -2541,17 +2544,27 @@ export function FormaWorkspace({
   };
 
 
-  const fetchProjectHistory = async () => {
+  const fetchProjectHistory = async (page: number = projectHistoryPage) => {
+    const requestId = projectHistoryRequestIdRef.current + 1;
+    projectHistoryRequestIdRef.current = requestId;
+    setProjectHistoryLoaded(false);
     try {
-      const res = await fetch(`${API_URL}/projects`, {
+      const params = new URLSearchParams({
+        limit: String(PROJECT_GALLERY_PAGE_SIZE),
+        offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
+      });
+      const res = await fetch(`${API_URL}/projects?${params.toString()}`, {
         headers: await optionalAuthHeaders(),
       });
+      if (projectHistoryRequestIdRef.current !== requestId) return;
       if (res.ok) {
-        const projects = await res.json();
-        setProjectHistory(projects);
+        const result = normalizeProjectListPage(await res.json());
+        if (projectHistoryRequestIdRef.current !== requestId) return;
+        setProjectHistory(result.items);
+        setProjectHistoryTotal(result.total);
         if (!authRequired) {
           setLocalChatItems((current) => {
-            const repairedItems = buildChatListItems(projects, current);
+            const repairedItems = buildChatListItems(result.items, current);
             writeStoredChatIndex(repairedItems, chatStorageScope);
             return repairedItems;
           });
@@ -2560,36 +2573,49 @@ export function FormaWorkspace({
     } catch (e) {
       console.error("Error fetching project history", e);
     } finally {
-      setProjectHistoryLoaded(true);
+      if (projectHistoryRequestIdRef.current === requestId) setProjectHistoryLoaded(true);
     }
   };
 
-  const fetchMyProjectHistory = async () => {
+  const fetchMyProjectHistory = async (page: number = myProjectHistoryPage) => {
+    const requestId = myProjectHistoryRequestIdRef.current + 1;
+    myProjectHistoryRequestIdRef.current = requestId;
     if (authRequired && !authLoaded) {
       setMyProjectHistoryLoaded(false);
       return;
     }
     if (authRequired && !isSignedIn) {
       setMyProjectHistory([]);
+      setMyProjectHistoryTotal(0);
       setMyProjectHistoryLoaded(true);
       return;
     }
 
+    setMyProjectHistoryLoaded(false);
     try {
-      const res = await fetch(`${API_URL}/my/projects`, {
+      const params = new URLSearchParams({
+        limit: String(PROJECT_GALLERY_PAGE_SIZE),
+        offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
+      });
+      const res = await fetch(`${API_URL}/my/projects?${params.toString()}`, {
         headers: await generationRequestHeaders(),
       });
+      if (myProjectHistoryRequestIdRef.current !== requestId) return;
       if (res.ok) {
-        setMyProjectHistory(await res.json());
+        const result = normalizeProjectListPage(await res.json());
+        if (myProjectHistoryRequestIdRef.current !== requestId) return;
+        setMyProjectHistory(result.items);
+        setMyProjectHistoryTotal(result.total);
       } else if (res.status === 401) {
         setMyProjectHistory([]);
+        setMyProjectHistoryTotal(0);
       } else {
         throw new Error(await readApiErrorMessage(res));
       }
     } catch (e) {
       console.error("Error fetching my project history", e);
     } finally {
-      setMyProjectHistoryLoaded(true);
+      if (myProjectHistoryRequestIdRef.current === requestId) setMyProjectHistoryLoaded(true);
     }
   };
 
@@ -4738,6 +4764,9 @@ export function FormaWorkspace({
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
+                totalItems={projectHistoryTotal}
+                currentPage={projectHistoryPage}
+                onPageChange={handleProjectHistoryPageChange}
                 standalone
               />
             </>
@@ -4756,6 +4785,9 @@ export function FormaWorkspace({
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
+                totalItems={myProjectHistoryTotal}
+                currentPage={myProjectHistoryPage}
+                onPageChange={handleMyProjectHistoryPageChange}
                 standalone
               />
             </>
@@ -4818,8 +4850,8 @@ export function FormaWorkspace({
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
+              conversationKey={activeChatId || "new-chat"}
               messages={chatMessages}
-              endRef={chatEndRef}
               renderPipelineProgress={(message) => (
                 <AgentPipelineProgressView
                   progress={message.pipelineProgress as AgentPipelineProgress | null}
@@ -4990,7 +5022,6 @@ export function FormaWorkspace({
                 canStop={activeGeneration?.kind === "project-chat"}
                 onStop={stopActiveGeneration}
                 canChat={currentUserOwnsProject}
-                endRef={projectChatEndRef}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
                 activeNamespaceLabel={activeWorkspaceTab.label}
@@ -5184,6 +5215,16 @@ function normalizePrivateChatItems(value: any): ChatListItem[] {
       };
     })
     .filter((item: ChatListItem | null): item is ChatListItem => Boolean(item));
+}
+
+function normalizeProjectListPage(value: any): { items: any[]; total: number } {
+  if (Array.isArray(value)) return { items: value, total: value.length };
+  const items = Array.isArray(value?.items) ? value.items : [];
+  const parsedTotal = Number(value?.total);
+  return {
+    items,
+    total: Number.isFinite(parsedTotal) ? Math.max(items.length, Math.trunc(parsedTotal)) : items.length,
+  };
 }
 
 function mergeChatListItems(primary: ChatListItem[], secondary: ChatListItem[]): ChatListItem[] {
@@ -6293,7 +6334,6 @@ function ChatWorkspace({
   canStop,
   onStop,
   canChat,
-  endRef,
   namespaceTabs,
   activeNamespace,
   activeNamespaceLabel,
@@ -6313,7 +6353,6 @@ function ChatWorkspace({
   canStop: boolean;
   onStop: () => void;
   canChat: boolean;
-  endRef: React.RefObject<HTMLDivElement | null>;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceLabel: string;
@@ -6321,6 +6360,8 @@ function ChatWorkspace({
   onNamespaceChange: (value: string) => void;
   projectContent: React.ReactNode;
 }) {
+  const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
       <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
@@ -6342,7 +6383,11 @@ function ChatWorkspace({
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {canChat && (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6">
+            <div
+              ref={containerRef}
+              onScroll={handleScroll}
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6"
+            >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
                 {messages.length ? (
                   messages.map((message) => {
@@ -6388,7 +6433,6 @@ function ChatWorkspace({
                     This chat has no project messages yet.
                   </div>
                 )}
-
                 <div ref={endRef} />
                 <ChatProjectArtifact
                   projectId={projectId}

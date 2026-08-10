@@ -87,6 +87,7 @@ from blueprint_core.database import (
     list_project_chats,
     list_component_templates,
     list_generated_projects,
+    list_generated_projects_page,
     list_latest_project_revisions,
     list_project_deletion_audits,
     list_project_generation_jobs,
@@ -1722,9 +1723,27 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 
 
 @app.get("/projects")
-def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
+def list_projects_endpoint(
+    user: UserContext = Depends(optional_user_context),
+    limit: Optional[int] = None,
+    offset: int = 0,
+):
     """Lists public compiled hardware projects."""
     try:
+        if limit is not None:
+            projects, total = list_generated_projects_page(
+                visibility="public",
+                limit=limit,
+                offset=offset,
+            )
+            items = [_public_project_cache_record(project) for project in projects]
+            return {
+                "items": _personalize_public_project_records(items, user.owner_user_id),
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
         cached, generation = get_cached_project_list("public", None)
         if cached is not None:
             return _personalize_public_project_records(cached, user.owner_user_id)
@@ -1739,10 +1758,31 @@ def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
 
 
 @app.get("/my/projects")
-def list_my_projects_endpoint(user: UserContext = Depends(require_user_context)):
+def list_my_projects_endpoint(
+    user: UserContext = Depends(require_user_context),
+    limit: Optional[int] = None,
+    offset: int = 0,
+):
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
+        if limit is not None:
+            projects, total = list_generated_projects_page(
+                owner_user_id=owner_user_id,
+                limit=limit,
+                offset=offset,
+            )
+            items = [
+                _project_summary_response(project, current_user_id=owner_user_id)
+                for project in projects
+            ]
+            return {
+                "items": items,
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
             return cached

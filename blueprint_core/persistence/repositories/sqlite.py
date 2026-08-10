@@ -77,6 +77,29 @@ class SqlAlchemyRepository:
                 query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
             return query.order_by(DBGeneratedProject.id.desc()).all()
 
+    def list_generated_projects_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+    ) -> tuple[List[Any], int]:
+        with self._session() as session:
+            query = session.query(DBGeneratedProject).filter(DBGeneratedProject.status == "active")
+            if owner_user_id:
+                query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
+            if visibility:
+                query = query.filter(DBGeneratedProject.visibility == visibility)
+            total = query.count()
+            rows = (
+                query.order_by(DBGeneratedProject.created_at.desc(), DBGeneratedProject.id.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            return rows, total
+
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]:
         with self._session() as session:
             query = session.query(DBGeneratedProject).filter(

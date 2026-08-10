@@ -11,10 +11,10 @@ from unittest.mock import patch
 from blueprint_core.jobs.store import JobMetadataStore
 from blueprint_core import database
 from blueprint_core.persistence import APPLICATION_SCHEMA
-from blueprint_core.persistence.models import DBProjectRevision
+from blueprint_core.persistence.models import DBGeneratedProject, DBProjectRevision
 from blueprint_core.jobs.migrations import import_legacy_job_database
 from blueprint_core.persistence.providers import SupabaseProvider, create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.persistence.repositories import SqlAlchemyRepository, SupabaseRepository
 from blueprint_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
 from blueprint_core.workspaces.projects import ProjectRevision
 from blueprint_core.workspaces.projects.models import HardwareIR, ProjectOverview
@@ -232,6 +232,60 @@ class PersistenceArchitectureTests(unittest.TestCase):
             [(revision.project_id, revision.revision) for revision in revisions],
         )
 
+    def test_sqlite_repository_pages_filtered_projects_before_loading_records(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            with provider.session_factory() as session, session.begin():
+                session.add_all([
+                    DBGeneratedProject(
+                        project_id=f"project-{index}",
+                        owner_user_id="user-a" if index < 8 else "user-b",
+                        visibility="public" if index % 2 == 0 else "private",
+                        title=f"Project {index}",
+                        prompt="Build a test fixture.",
+                        hardware_ir={},
+                        created_at=f"2026-08-{index + 1:02d}T00:00:00Z",
+                        status="active",
+                    )
+                    for index in range(10)
+                ])
+
+            projects, total = repository.list_generated_projects_page(
+                "user-a",
+                visibility="public",
+                limit=2,
+                offset=1,
+            )
+
+        self.assertEqual(4, total)
+        self.assertEqual(["project-4", "project-2"], [project.project_id for project in projects])
+
+    def test_supabase_repository_requests_an_exact_count_and_bounded_range(self) -> None:
+        client = _ProjectPageClient()
+        repository = SupabaseRepository(client)
+
+        projects, total = repository.list_generated_projects_page(
+            "user-a",
+            visibility="public",
+            limit=6,
+            offset=12,
+        )
+
+        self.assertEqual(37, total)
+        self.assertEqual(["project-13", "project-14"], [project.project_id for project in projects])
+        self.assertEqual("exact", client.query.count_mode)
+        self.assertEqual((12, 17), client.query.requested_range)
+        self.assertIn(("status", "active"), client.query.filters)
+        self.assertIn(("owner_user_id", "user-a"), client.query.filters)
+        self.assertIn(("visibility", "public"), client.query.filters)
+
     def test_legacy_job_import_is_idempotent_and_does_not_overwrite_primary_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             primary_path = Path(directory) / "blueprint.db"
@@ -370,6 +424,48 @@ class _SchemaClient:
 
     def table(self, table: str) -> _SchemaQuery:
         return _SchemaQuery(self, table)
+
+
+class _ProjectPageResponse:
+    data = [
+        {"project_id": "project-13"},
+        {"project_id": "project-14"},
+    ]
+    count = 37
+
+
+class _ProjectPageQuery:
+    def __init__(self) -> None:
+        self.count_mode: str | None = None
+        self.requested_range: tuple[int, int] | None = None
+        self.filters: list[tuple[str, str]] = []
+
+    def select(self, _projection: str, *, count: str | None = None) -> "_ProjectPageQuery":
+        self.count_mode = count
+        return self
+
+    def eq(self, field: str, value: str) -> "_ProjectPageQuery":
+        self.filters.append((field, value))
+        return self
+
+    def order(self, _field: str, *, desc: bool = False) -> "_ProjectPageQuery":
+        return self
+
+    def range(self, start: int, end: int) -> "_ProjectPageQuery":
+        self.requested_range = (start, end)
+        return self
+
+    def execute(self) -> _ProjectPageResponse:
+        return _ProjectPageResponse()
+
+
+class _ProjectPageClient:
+    def __init__(self) -> None:
+        self.query = _ProjectPageQuery()
+
+    def table(self, table: str) -> _ProjectPageQuery:
+        assert table == "generated_projects"
+        return self.query
 
 
 if __name__ == "__main__":

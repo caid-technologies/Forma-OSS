@@ -1308,6 +1308,16 @@ def list_a2a_jobs(
     return _admin_job_records(JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit))
 
 
+@app.get("/a2a/jobs/metrics")
+def get_a2a_job_metrics(
+    days: int = Query(7, ge=1, le=31),
+    hours: int = Query(24, ge=1, le=168),
+    _user: UserContext = Depends(require_admin_user_context),
+):
+    """Returns aggregate job volume and failure metrics for administrators."""
+    return JOB_STORE.get_metrics(days=days, hours=hours)
+
+
 @app.get("/a2a/jobs/{job_id}")
 def get_a2a_job(job_id: str, user: UserContext = Depends(require_user_context)):
     """Fetches persisted metadata for one A2A job."""

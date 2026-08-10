@@ -2127,6 +2127,8 @@ export function FormaWorkspace({
   const logsViewActive = canViewAdminTools && (homeView === "logs" || Boolean(projectIR && activeTab === "logs"));
   const {
     jobs: a2aJobs,
+    metrics: jobMetrics,
+    metricsError: jobMetricsError,
     loading: jobsLoading,
     error: jobsError,
     statusFilter: jobStatusFilter,
@@ -4782,6 +4784,8 @@ export function FormaWorkspace({
               {canViewJobs ? (
                 <JobsPanel
                   jobs={a2aJobs}
+                  metrics={jobMetrics}
+                  metricsError={jobMetricsError}
                   loading={jobsLoading}
                   error={jobsError}
                   statusFilter={jobStatusFilter}

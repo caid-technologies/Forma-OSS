@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from apps.api.main import _admin_job_records, list_a2a_jobs
+from apps.api.main import _admin_job_records, get_a2a_job_metrics, list_a2a_jobs
 from apps.api.auth import UserContext
 
 
@@ -79,6 +79,15 @@ class AdminJobsTests(unittest.TestCase):
         list_jobs.assert_called_once_with(sender=None, status="running", limit=25)
         self.assertEqual("user_2", response[0]["owner_user_id"])
         self.assertEqual("Make an alarm", response[0]["payload"]["prompt"])
+
+    def test_admin_job_metrics_endpoint_delegates_bounded_windows(self) -> None:
+        metrics = {"jobs_today": 3, "jobs_last_hour": 1, "failure_rate": 25.0}
+
+        with patch("apps.api.main.JOB_STORE.get_metrics", return_value=metrics) as get_metrics:
+            response = get_a2a_job_metrics(days=7, hours=24, _user=ADMIN)
+
+        get_metrics.assert_called_once_with(days=7, hours=24)
+        self.assertEqual(metrics, response)
 
 
 if __name__ == "__main__":

@@ -19,6 +19,8 @@ import {
   type A2AJob,
   type AgentPipelineEvent,
   type BackendLogs,
+  type JobMetricBucket,
+  type JobMetrics,
 } from "./use-admin-data";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
@@ -171,6 +173,8 @@ export function LogsPanel({
 
 export function JobsPanel({
   jobs,
+  metrics,
+  metricsError,
   loading,
   error,
   statusFilter,
@@ -189,6 +193,8 @@ export function JobsPanel({
   formatLlmLabel,
 }: {
   jobs: A2AJob[];
+  metrics?: JobMetrics | null;
+  metricsError?: string | null;
   loading: boolean;
   error: string | null;
   statusFilter: string;
@@ -268,6 +274,8 @@ export function JobsPanel({
           <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
         </button>
       </div>
+
+      {!compact && <JobMetricsPanel metrics={metrics || null} error={metricsError || null} />}
 
       {!compact && (
         <div className="mb-4 space-y-3">
@@ -356,6 +364,114 @@ export function JobsPanel({
       )}
     </div>
   );
+}
+
+function JobMetricsPanel({ metrics, error }: { metrics: JobMetrics | null; error: string | null }) {
+  if (error && !metrics) {
+    return (
+      <div className="mb-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200">
+        {error}
+      </div>
+    );
+  }
+  if (!metrics) {
+    return <div className="mb-4 border border-[#2a2c33] bg-[#17181d] p-4 text-xs text-slate-500">Loading job metrics...</div>;
+  }
+
+  return (
+    <section className="mb-5 space-y-3" aria-label="Job metrics">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <JobMetricSummary label="Jobs today" value={metrics.jobs_today} detail="UTC calendar day" />
+        <JobMetricSummary label="Jobs last hour" value={metrics.jobs_last_hour} detail="Rolling 60 minutes" />
+        <JobMetricSummary
+          label={`${metrics.window_days}-day failure rate`}
+          value={`${Number(metrics.failure_rate || 0).toFixed(1)}%`}
+          detail={`${metrics.failed_jobs} failed / ${metrics.completed_jobs} completed`}
+          danger={metrics.failure_rate > 0}
+        />
+      </div>
+      <div className="grid gap-3 xl:grid-cols-2">
+        <JobVolumeChart title="Jobs per day" buckets={metrics.daily} unit="day" />
+        <JobVolumeChart title="Jobs per hour" buckets={metrics.hourly} unit="hour" />
+      </div>
+      {error && <p className="text-[11px] text-amber-300">Showing the last available metrics. {error}</p>}
+    </section>
+  );
+}
+
+function JobMetricSummary({
+  label,
+  value,
+  detail,
+  danger = false,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className={`border bg-[#17181d] p-4 ${danger ? "border-rose-500/30" : "border-[#2a2c33]"}`}>
+      <div className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className={`mt-2 text-2xl font-black ${danger ? "text-rose-300" : "text-white"}`}>{value}</div>
+      <div className="mt-1 text-[11px] text-slate-600">{detail}</div>
+    </div>
+  );
+}
+
+function JobVolumeChart({
+  title,
+  buckets,
+  unit,
+}: {
+  title: string;
+  buckets: JobMetricBucket[];
+  unit: "day" | "hour";
+}) {
+  const maximum = Math.max(1, ...buckets.map((bucket) => Number(bucket.count || 0)));
+  return (
+    <div className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{title}</h3>
+        <span className="text-[10px] text-slate-600">UTC</span>
+      </div>
+      <div className="flex h-28 items-end gap-1" role="img" aria-label={`${title} in UTC`}>
+        {buckets.map((bucket, index) => {
+          const count = Number(bucket.count || 0);
+          const height = count ? Math.max(6, Math.round((count / maximum) * 100)) : 2;
+          const showLabel = unit === "day" || index % 4 === 0 || index === buckets.length - 1;
+          return (
+            <div key={bucket.period} className="flex h-full min-w-0 flex-1 flex-col justify-end" title={`${formatMetricPeriod(bucket.period, unit)}: ${count} jobs`}>
+              <div className="mb-1 text-center text-[9px] font-bold text-slate-500">{count || ""}</div>
+              <div className="w-full bg-cyan-400/80" style={{ height: `${height}%` }} />
+              <div className="mt-2 truncate text-center text-[8px] text-slate-600">
+                {showLabel ? formatMetricAxisLabel(bucket.period, unit) : ""}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatMetricPeriod(value: string, unit: "day" | "hour") {
+  const date = new Date(unit === "day" ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    ...(unit === "hour" ? { hour: "numeric", hour12: true } : {}),
+  });
+}
+
+function formatMetricAxisLabel(value: string, unit: "day" | "hour") {
+  const date = new Date(unit === "day" ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return unit === "day"
+    ? date.toLocaleDateString([], { timeZone: "UTC", weekday: "short" })
+    : date.toLocaleTimeString([], { timeZone: "UTC", hour: "numeric", hour12: true }).replace(" ", "");
 }
 
 export function JobRow({

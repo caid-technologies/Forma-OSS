@@ -2115,6 +2115,8 @@ export function FormaWorkspace({
     jobs: a2aJobs,
     metrics: jobMetrics,
     metricsError: jobMetricsError,
+    metricsWindow: jobMetricsWindow,
+    setMetricsWindow: setJobMetricsWindow,
     loading: jobsLoading,
     error: jobsError,
     statusFilter: jobStatusFilter,
@@ -4767,6 +4769,8 @@ export function FormaWorkspace({
                   jobs={a2aJobs}
                   metrics={jobMetrics}
                   metricsError={jobMetricsError}
+                  metricsWindow={jobMetricsWindow}
+                  onMetricsWindowChange={setJobMetricsWindow}
                   loading={jobsLoading}
                   error={jobsError}
                   statusFilter={jobStatusFilter}

@@ -104,6 +104,24 @@ class JobMetricsTests(unittest.TestCase):
         self.assertEqual(4, len(metrics["hourly"]))
         self.assertTrue(all(bucket["count"] == 0 for bucket in metrics["daily"] + metrics["hourly"]))
 
+    def test_failure_metrics_use_the_selected_rolling_interval(self) -> None:
+        metrics = summarize_job_metrics(
+            [
+                {"created_at": "2026-08-09T12:15:00Z", "status": "failed"},
+                {"created_at": "2026-08-09T10:00:00Z", "status": "succeeded"},
+            ],
+            now=datetime(2026, 8, 9, 12, 30, tzinfo=timezone.utc),
+            days=1,
+            hours=1,
+            interval_hours=1,
+        )
+
+        self.assertEqual(1, metrics["interval_hours"])
+        self.assertEqual(1, metrics["total_jobs"])
+        self.assertEqual(1, metrics["completed_jobs"])
+        self.assertEqual(1, metrics["failed_jobs"])
+        self.assertEqual(100.0, metrics["failure_rate"])
+
     def test_metric_windows_are_bounded(self) -> None:
         metrics = summarize_job_metrics([], days=100, hours=1000)
 

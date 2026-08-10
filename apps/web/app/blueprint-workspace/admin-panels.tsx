@@ -21,6 +21,7 @@ import {
   type BackendLogs,
   type JobMetricBucket,
   type JobMetrics,
+  type JobMetricsWindow,
 } from "./use-admin-data";
 import {
   ADMIN_JOB_SORT_OPTIONS,
@@ -181,6 +182,8 @@ export function JobsPanel({
   jobs,
   metrics,
   metricsError,
+  metricsWindow = "7d",
+  onMetricsWindowChange,
   loading,
   error,
   statusFilter,
@@ -201,6 +204,8 @@ export function JobsPanel({
   jobs: A2AJob[];
   metrics?: JobMetrics | null;
   metricsError?: string | null;
+  metricsWindow?: JobMetricsWindow;
+  onMetricsWindowChange?: (window: JobMetricsWindow) => void;
   loading: boolean;
   error: string | null;
   statusFilter: string;
@@ -283,7 +288,14 @@ export function JobsPanel({
         </button>
       </div>
 
-      {!compact && <JobMetricsPanel metrics={metrics || null} error={metricsError || null} />}
+      {!compact && metrics !== undefined && (
+        <JobMetricsPanel
+          metrics={metrics || null}
+          error={metricsError || null}
+          metricsWindow={metricsWindow}
+          onMetricsWindowChange={onMetricsWindowChange}
+        />
+      )}
 
       {!compact && (
         <div className="mb-4 space-y-3">
@@ -386,7 +398,23 @@ export function JobsPanel({
   );
 }
 
-function JobMetricsPanel({ metrics, error }: { metrics: JobMetrics | null; error: string | null }) {
+const JOB_METRICS_WINDOW_OPTIONS: Array<{ value: JobMetricsWindow; label: string }> = [
+  { value: "1h", label: "1 hour" },
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+];
+
+function JobMetricsPanel({
+  metrics,
+  error,
+  metricsWindow,
+  onMetricsWindowChange,
+}: {
+  metrics: JobMetrics | null;
+  error: string | null;
+  metricsWindow: JobMetricsWindow;
+  onMetricsWindowChange?: (window: JobMetricsWindow) => void;
+}) {
   if (error && !metrics) {
     return (
       <div className="mb-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200">
@@ -398,22 +426,51 @@ function JobMetricsPanel({ metrics, error }: { metrics: JobMetrics | null; error
     return <div className="mb-4 border border-[#2a2c33] bg-[#17181d] p-4 text-xs text-slate-500">Loading job metrics...</div>;
   }
 
+  const intervalLabel = JOB_METRICS_WINDOW_OPTIONS.find((option) => option.value === metricsWindow)?.label || metricsWindow;
+  const chartUsesDays = metricsWindow === "7d";
+
   return (
     <section className="mb-5 space-y-3" aria-label="Job metrics">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Metrics interval</span>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Job metrics interval">
+          {JOB_METRICS_WINDOW_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onMetricsWindowChange?.(option.value)}
+              aria-pressed={metricsWindow === option.value}
+              className={`border px-3 py-1.5 text-[10px] font-black uppercase ${
+                metricsWindow === option.value
+                  ? "border-white bg-white text-black"
+                  : "border-[#2a2c33] text-slate-500 hover:border-slate-500 hover:text-white"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
       <div className="grid gap-2 sm:grid-cols-3">
-        <JobMetricSummary label="Jobs today" value={metrics.jobs_today} detail="UTC calendar day" />
-        <JobMetricSummary label="Jobs last hour" value={metrics.jobs_last_hour} detail="Rolling 60 minutes" />
+        <JobMetricSummary label={`Jobs · ${intervalLabel}`} value={metrics.total_jobs} detail="Created in selected interval" />
         <JobMetricSummary
-          label={`${metrics.window_days}-day failure rate`}
+          label="Completed"
+          value={metrics.completed_jobs}
+          detail={`${metrics.failed_jobs} failed`}
+          danger={metrics.failed_jobs > 0}
+        />
+        <JobMetricSummary
+          label={`${intervalLabel} failure rate`}
           value={`${Number(metrics.failure_rate || 0).toFixed(1)}%`}
           detail={`${metrics.failed_jobs} failed / ${metrics.completed_jobs} completed`}
           danger={metrics.failure_rate > 0}
         />
       </div>
-      <div className="grid gap-3 xl:grid-cols-2">
-        <JobVolumeChart title="Jobs per day" buckets={metrics.daily} unit="day" />
-        <JobVolumeChart title="Jobs per hour" buckets={metrics.hourly} unit="hour" />
-      </div>
+      <JobVolumeChart
+        title={chartUsesDays ? "Jobs per day" : "Jobs per hour"}
+        buckets={chartUsesDays ? metrics.daily : metrics.hourly}
+        unit={chartUsesDays ? "day" : "hour"}
+      />
       {error && <p className="text-[11px] text-amber-300">Showing the last available metrics. {error}</p>}
     </section>
   );
@@ -520,6 +577,19 @@ export function JobRow({
   const isOpenable = hasChatTarget || hasProjectTarget;
   const imageStatusLabel = formatJobImageStatus(summary);
   const operations = getJobOperations(summary);
+  const imageOperation = operations.find((operation) => operation.id === "image_generation") || {};
+  const imageFailed = Boolean(
+    summary.image_output_failed
+    || summary.image_output_status === "failed"
+    || imageOperation.status === "failed"
+  );
+  const imageFailureOutput = firstString(
+    summary.image_output_error,
+    summary.product_image_error,
+    imageOperation.error,
+    summary.image_output_reason,
+    imageOperation.reason,
+  ) || "Image generation failed without an error message.";
   const ownerUserId = job.owner_user_id || job.payload?.owner_user_id || "";
   const ownerLabel = formatJobOwnerUsername(job) || ownerUserId || "Unknown user";
   const lastOccurredAt = adminJobLastOccurredAt(job);
@@ -600,9 +670,9 @@ export function JobRow({
 
       <OperationStatusList operations={operations} compact={compact} />
 
-      {summary.image_output_failed && summary.image_output_error && (
+      {imageFailed && (
         <div className="break-anywhere mt-3 border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
-          Image generation failed: {summary.image_output_error}
+          Image generation failed: {imageFailureOutput}
           {summary.image_output_debug && (
             <pre className="break-anywhere mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-amber-500/20 bg-black/25 p-2 font-mono text-[10px] leading-4 text-amber-100">
               {JSON.stringify(summary.image_output_debug, null, 2)}

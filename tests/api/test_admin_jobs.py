@@ -103,9 +103,14 @@ class AdminJobsTests(unittest.TestCase):
         with patch("apps.api.main.list_project_generation_jobs", return_value=plan_jobs), patch(
             "apps.api.main.JOB_STORE.get_metrics", return_value=metrics
         ) as get_metrics:
-            response = get_a2a_job_metrics(days=7, hours=24, _user=ADMIN)
+            response = get_a2a_job_metrics(days=7, hours=24, interval_hours=24, _user=ADMIN)
 
-        get_metrics.assert_called_once_with(days=7, hours=24, additional_rows=plan_jobs)
+        get_metrics.assert_called_once_with(
+            days=7,
+            hours=24,
+            interval_hours=24,
+            additional_rows=plan_jobs,
+        )
         self.assertEqual(metrics, response)
 
 

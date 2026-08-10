@@ -1616,6 +1616,7 @@ export function FormaWorkspace({
   const contextBuildWatchersRef = useRef<Set<string>>(new Set());
   const [contextWorkflowStates, setContextWorkflowStates] = useState<Record<string, string>>({});
   const [contextSkipping, setContextSkipping] = useState(false);
+  const [contextSubmitting, setContextSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -3214,7 +3215,7 @@ export function FormaWorkspace({
 
   const handleGatherContext = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (isLoading || activeGenerationRef.current) return;
+    if (contextSubmitting || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
 
     const validation = validateGenerationInput(prompt, Boolean(selectedImage));
@@ -3253,8 +3254,7 @@ export function FormaWorkspace({
     setSelectedImage(null);
     setSelectedImageSource("upload");
     setGenerationInputNotice(null);
-    setIsLoading(true);
-    let contextBuildStarted = false;
+    setContextSubmitting(true);
 
     try {
       const res = await fetch(`${API_URL}/projects/${encodeURIComponent(requestProjectId)}/context/messages`, {
@@ -3332,7 +3332,6 @@ export function FormaWorkspace({
             : null,
       );
       if (buildPlanId && buildJobId && persistedProjectId) {
-        contextBuildStarted = true;
         const run = beginContextBuildRun(
           persistedProjectId,
           buildPlanId,
@@ -3355,12 +3354,12 @@ export function FormaWorkspace({
       updateThreadMessage(requestChatId, assistantMessageId, { content: message, status: "error" });
       setGenerationInputNotice(message);
     } finally {
-      if (!contextBuildStarted) setIsLoading(false);
+      setContextSubmitting(false);
     }
   };
 
   const handleSkipContextGathering = async () => {
-    if (contextSkipping || isLoading) return;
+    if (contextSkipping || contextSubmitting || activeGenerationRef.current) return;
     const requestChatId = activeChatId;
     const availableMessages = requestChatId
       ? chatThreads[requestChatId] || chatMessages
@@ -3378,7 +3377,6 @@ export function FormaWorkspace({
 
     setContextSkipping(true);
     setGenerationInputNotice(null);
-    let contextBuildStarted = false;
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/context/messages`, {
         method: "POST",
@@ -3430,7 +3428,6 @@ export function FormaWorkspace({
         buildIsActive ? "Build started. Live agent progress is shown above." : "Design ready for review.",
       );
       if (buildPlanId && buildJobId) {
-        contextBuildStarted = true;
         const run = beginContextBuildRun(projectId, buildPlanId, buildJobId, requestChatId, message.id);
         watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id, run);
       }
@@ -3438,7 +3435,6 @@ export function FormaWorkspace({
       setGenerationInputNotice(error instanceof Error ? error.message : "Could not skip context gathering.");
     } finally {
       setContextSkipping(false);
-      if (!contextBuildStarted) setIsLoading(false);
     }
   };
 
@@ -4877,7 +4873,7 @@ export function FormaWorkspace({
               })()}
               contextSkipping={contextSkipping}
               onSkipContext={handleSkipContextGathering}
-              isLoading={isLoading}
+              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage)}
               generationReady
               needsGenerationProvider={false}
               needsImageProvider={false}

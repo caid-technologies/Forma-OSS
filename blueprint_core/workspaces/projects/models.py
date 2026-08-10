@@ -181,6 +181,8 @@ class SystemNode(BaseModel):
         items = value if isinstance(value, list) else [value]
         normalized: List[Any] = []
         for item in items:
+            if item is None:
+                continue
             if not isinstance(item, str):
                 normalized.append(item)
                 continue
@@ -203,6 +205,8 @@ class SystemNode(BaseModel):
         items = value if isinstance(value, list) else [value]
         normalized: List[Any] = []
         for item in items:
+            if item is None:
+                continue
             if not isinstance(item, str):
                 normalized.append(item)
                 continue

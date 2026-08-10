@@ -137,6 +137,62 @@ class SystemArchitectureTests(unittest.TestCase):
         ])
         self.assertEqual(["electrical", "firmware"], [child.domain for child in architecture.root.children])
 
+    def test_null_recursive_entries_are_removed_without_replacing_valid_nodes(self) -> None:
+        architecture = SystemArchitecture.model_validate({
+            "summary": "Provider output contains null array placeholders.",
+            "root": {
+                "system_id": "product",
+                "name": "Product",
+                "domain": "product",
+                "purpose": "Coordinates the complete product.",
+                "interfaces": [
+                    None,
+                    {
+                        "name": "Enclosure boundary",
+                        "connects_to": "mechanical.enclosure",
+                        "purpose": "Coordinates packaging constraints.",
+                    },
+                ],
+                "children": [
+                    {
+                        "system_id": "electrical",
+                        "name": "Electrical",
+                        "domain": "electrical",
+                        "purpose": "Owns electronics.",
+                        "children": [
+                            {
+                                "system_id": "electrical.power",
+                                "name": "Power",
+                                "domain": "electrical",
+                                "purpose": "Owns power delivery.",
+                            },
+                            None,
+                            {
+                                "system_id": "electrical.control",
+                                "name": "Control",
+                                "domain": "electrical",
+                                "purpose": "Owns control electronics.",
+                                "interfaces": [None],
+                            },
+                            None,
+                        ],
+                    },
+                    None,
+                ],
+            },
+        })
+
+        self.assertEqual(["electrical"], [child.system_id for child in architecture.root.children])
+        self.assertEqual(
+            ["electrical.power", "electrical.control"],
+            [child.system_id for child in architecture.root.children[0].children],
+        )
+        self.assertEqual(
+            ["mechanical.enclosure"],
+            [interface.connects_to for interface in architecture.root.interfaces],
+        )
+        self.assertEqual([], architecture.root.children[0].children[1].interfaces)
+
     def test_flattened_recursive_fields_are_rejected_as_an_architecture_tree(self) -> None:
         architecture = SystemArchitecture.model_validate({
             "summary": "Provider output flattened a nested object.",

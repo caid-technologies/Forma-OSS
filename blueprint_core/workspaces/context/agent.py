@@ -86,6 +86,10 @@ def _question_answered(question: str, context: str) -> bool:
     context_lower = context.casefold()
     answer_patterns: tuple[tuple[tuple[str, ...], str], ...] = (
         (("controller", "major modules"), r"\b(esp32|arduino|raspberry|stm32|rp2040|controller|module)\b"),
+        (
+            ("overall shape", "silhouette", "form factor"),
+            r"\b(rectangular|square|box|round|rounded|circular|cylindrical|cylinder|radial|curved|handheld|wearable|folded|open[-\s]?frame|exposed|puck|pod|tower|wall[-\s]?mounted)\b",
+        ),
         (("power", "battery", "adapter", "rail"), r"(?:\b\d+(?:\.\d+)?\s*v\b|\busb(?:-c)?\b|\bbattery\b|\badapter\b|\bno mains\b)"),
         (("control or display", "system control", "outputs"), r"\b(display|oled|screen|relay|motor|pump|fan|led|buzzer|actuator|log|control)\b"),
         (("weather", "environment", "where will"), r"\b(indoor|outdoor|field|bench|lab|rain|wind|weather|temperature)\b"),
@@ -170,7 +174,7 @@ class ContextBriefUpdater:
         ]
         requirements = _unique([*prior_requirements, *update_sentences])
         constraint_markers = re.compile(
-            r"\b(must|only|under|maximum|max\b|minimum|min\b|budget|fit|within|voltage|battery|usb|no\s+|without|weatherproof|waterproof|material)\b",
+            r"\b(must|only|under|maximum|max\b|minimum|min\b|budget|fit|within|voltage|battery|usb|no\s+|without|weatherproof|waterproof|material|shape|silhouette|form factor|rectangular|square|round|rounded|circular|cylindrical|radial|curved|handheld|wearable|folded|open[-\s]?frame|puck|pod)\b",
             re.IGNORECASE,
         )
         constraints = _unique([

@@ -1129,8 +1129,17 @@ function messagesWithoutMissingProject(messages: ChatMessage[], projectId: strin
   return [...normalizedMessages, noticeMessage].slice(-MAX_PROJECT_CHAT_MESSAGES);
 }
 
-function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestion[] {
+function humanContextQuestionsForPrompt(promptText: string, hasImage = false): HumanContextQuestion[] {
   const lower = promptText.toLowerCase();
+  const physicalFormQuestion: HumanContextQuestion = {
+    id: "physical_form",
+    label: "Shape / Form Factor",
+    question: "What overall shape, silhouette, or form factor should the system have?",
+    placeholder: hasImage
+      ? "Example: preserve the reference silhouette, but make it handheld with a curved grip..."
+      : "Example: curved handheld pod, cylindrical wearable, folded frame, or exposed open assembly...",
+    suggestions: ["Curved handheld", "Cylindrical / radial", "Open frame"],
+  };
   if (/(lab[-\s]?on[-\s]?a[-\s]?chip|microfluid|assay|cartridge|diagnostic|reagent|sample)/.test(lower)) {
     return [
       {
@@ -1140,19 +1149,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
         placeholder: "Example: water sample, colorimetric nitrate assay, 3 reagent chambers...",
         suggestions: ["Water quality", "Colorimetric assay", "Fluorescence readout"],
       },
+      physicalFormQuestion,
       {
         id: "instrumentation",
         label: "Reader / Detection",
         question: "What detection and control method should the reader use?",
         placeholder: "Example: LED + photodiode absorbance, heater, pressure sensor, peristaltic pump...",
         suggestions: ["Optical absorbance", "Fluorescence", "Pressure-driven flow"],
-      },
-      {
-        id: "validation",
-        label: "Validation",
-        question: "What needs to be validated first?",
-        placeholder: "Example: leak test, limit of detection, repeatability, contamination control...",
-        suggestions: ["Leak testing", "Repeatability", "Research-only prototype"],
       },
     ];
   }
@@ -1166,19 +1169,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
         placeholder: "Example: camping rain/wind, sandy soil, one-person field setup, 35 mph gust target...",
         suggestions: ["Rain and wind", "Field work", "Portable camping"],
       },
+      physicalFormQuestion,
       {
         id: "motion_power",
         label: "Motion / Power",
         question: "How should deployment be powered and limited for safety?",
         placeholder: "Example: 12V battery, low-force servos, clutch release, manual crank fallback...",
         suggestions: ["12V battery", "Low-force actuators", "Manual release"],
-      },
-      {
-        id: "success",
-        label: "Success Criteria",
-        question: "What makes version one successful?",
-        placeholder: "Example: deploys in under 2 minutes, self-tensions guy lines, never pinches fabric or fingers...",
-        suggestions: ["Fast deployment", "Self-tensioning", "Emergency release"],
       },
     ];
   }
@@ -1192,19 +1189,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
         placeholder: "Example: ESP32-S3, SSD1306 OLED, SHT41, 5V relay module...",
         suggestions: ["ESP32", "Arduino", "Use generated choice"],
       },
+      physicalFormQuestion,
       {
         id: "power",
         label: "Power",
         question: "What power rails, battery, or adapter constraints matter?",
         placeholder: "Example: USB-C 5V only, 3S LiPo, no mains, separate motor rail...",
         suggestions: ["USB-C 5V", "Battery powered", "No mains"],
-      },
-      {
-        id: "outputs",
-        label: "Outputs",
-        question: "What should the system control or display?",
-        placeholder: "Example: fan PWM, warning LED, buzzer, OLED status, pump relay...",
-        suggestions: ["Display status", "Drive actuator", "Log sensor data"],
       },
     ];
   }
@@ -1217,19 +1208,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
       placeholder: "Example: bench prototype, outdoor field tool, wearable, classroom demo...",
       suggestions: ["Bench prototype", "Field tool", "Consumer device"],
     },
+    physicalFormQuestion,
     {
       id: "constraints",
       label: "Constraints",
       question: "What hard constraints should the design preserve?",
       placeholder: "Example: USB-C only, under $100, waterproof, no enclosure, safe low voltage...",
       suggestions: ["Low voltage", "Low cost", "Weatherproof"],
-    },
-    {
-      id: "outputs",
-      label: "Artifacts",
-      question: "What should Forma optimize in the first version?",
-      placeholder: "Example: wiring accuracy, mechanical concept, product images, validation, BOM...",
-      suggestions: ["Wiring accuracy", "Mechanical design", "Product images"],
     },
   ];
 }
@@ -1281,7 +1266,7 @@ async function requestHumanContextQuestions(promptText: string, workflow: string
   } catch (error) {
     if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
     console.warn("Context Clarifier Agent unavailable; using local fallback questions.", error);
-    const questions = humanContextQuestionsForPrompt(promptText);
+    const questions = humanContextQuestionsForPrompt(promptText, hasImage);
     return {
       shouldAsk: questions.length > 0,
       reason: "Context Clarifier Agent is using local fallback questions.",

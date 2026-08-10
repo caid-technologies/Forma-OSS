@@ -955,11 +955,15 @@ class HardwarePipelineOrchestrator:
                 mech_prompt = f"""
             You are a Mechanical/Fabrication and CAD Sourcing Agent. Provide enclosure, mounting, material, and 3D printing/laser cutting details for this project.
             Project: "{overview.title}" - Description: "{overview.description}"
+            Original user request (including explicit shape/form-factor context):
+            {user_prompt}
             Mechanical system branch:
             {mechanical_architecture_json}
             Components Selected (identity and envelope purpose only; electrical pins are intentionally omitted):
             {mechanical_components_json}
             Populate the MechanicalNotes schema, including:
+            - physical_form: the requested overall shape, silhouette, and form factor. Treat explicit human shape context as authoritative. Do not default to a rectangular project box; enclosed, curved, cylindrical, wearable, folded, structural, and open-frame designs are all valid.
+            - enclosure_type: the housing approach when the design needs a housing. For an exposed or open-frame design, say so instead of inventing a closed case.
             - fabrication_cost_estimate_usd: realistic mechanical-only print/cut/enclosure cost, excluding electrical components.
             - cad_sources: CAD/enclosure/fabrication records with name, source_type, url, file_formats, license, estimated_unit_price_usd, and adaptation notes.
             - render_dimensions: overall X/Y/Z envelope dimensions in millimeters.

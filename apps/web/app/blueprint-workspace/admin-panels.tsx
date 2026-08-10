@@ -29,6 +29,7 @@ import {
   sortAdminJobs,
   type AdminJobSortMode,
 } from "../../lib/admin-job-sort";
+import CopyButton from "../../components/copy-button";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
 
@@ -567,7 +568,8 @@ export function JobRow({
   const tone = statusTone(job.status);
   const summary = job.result_summary || {};
   const title = summary.title || job.payload?.prompt || job.action;
-  const prompt = job.payload?.prompt || job.correlation_id || job.job_id;
+  const userPrompt = typeof job.payload?.prompt === "string" ? job.payload.prompt : "";
+  const prompt = userPrompt || job.correlation_id || job.job_id;
   const sourceUsage = getJobSourceUsage(job);
   const sourceLabel = formatSourceUsageLabel(sourceUsage);
   const SourceIcon = sourceUsage.web_research || sourceUsage.firecrawl ? Sparkles : Database;
@@ -623,7 +625,10 @@ export function JobRow({
             )}
           </div>
           <h3 className="truncate text-sm font-black text-white">{title}</h3>
-          <p className="mt-2 line-clamp-2 break-words text-xs leading-5 text-slate-500">{prompt}</p>
+          <div className="mt-2 flex min-w-0 items-start gap-2">
+            <p className="min-w-0 flex-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">{prompt}</p>
+            <CopyButton value={userPrompt} label="Copy user prompt" className="shrink-0" />
+          </div>
         </div>
 
         <button
@@ -652,12 +657,12 @@ export function JobRow({
         </div>
       )}
 
-      {!compact && prompt && (
+      {!compact && userPrompt && (
         <details className="mt-3 border border-[#25272e] bg-black/20 p-3">
           <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.14em] text-cyan-300">
             View full user prompt
           </summary>
-          <div className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{prompt}</div>
+          <div className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{userPrompt}</div>
           {ownerUserId && (
             <div className="mt-3 border-t border-white/10 pt-2 font-mono text-[10px] text-slate-600">
               User ID: {ownerUserId}

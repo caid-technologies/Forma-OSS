@@ -1249,30 +1249,9 @@ def purge_project_contribution_snapshots(consent_record_id: str, purged_at: str)
     return _DATABASE_REPOSITORY.purge_project_contribution_snapshots(consent_record_id, purged_at)
 
 
-def list_project_contribution_snapshots(limit: Optional[int] = None) -> List[Any]:
-    if limit is not None:
-        limit = max(1, min(limit, 500))
-    return _DATABASE_REPOSITORY.list_project_contribution_snapshots(limit)
-
-
-def review_project_contribution_snapshot(
-    snapshot_id: str,
-    review_status: str,
-    reviewed_at: str,
-    reviewed_by_user_id: str,
-) -> Optional[Any]:
-    normalized_status = str(review_status or "").strip().lower()
-    if normalized_status not in {"approved", "rejected"}:
-        raise ValueError("Anonymization review status must be approved or rejected.")
-    normalized_reviewer = _normalize_user_id(reviewed_by_user_id) or ""
-    if not normalized_reviewer:
-        raise ValueError("Anonymization review requires a reviewer user id.")
-    return _DATABASE_REPOSITORY.review_project_contribution_snapshot(
-        str(snapshot_id),
-        normalized_status,
-        reviewed_at,
-        normalized_reviewer,
-    )
+def list_consented_projects_for_export() -> List[Any]:
+    """Return project/consent pairs allowed by project consent and account settings."""
+    return _DATABASE_REPOSITORY.list_consented_projects_for_export()
 
 
 def add_project_deletion_audit(record: Dict[str, Any]) -> Any:

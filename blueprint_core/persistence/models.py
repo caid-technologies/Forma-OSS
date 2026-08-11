@@ -198,9 +198,6 @@ class DBProjectContributionSnapshot(Base):
     created_at = Column(String, nullable=False)
     sanitized_at = Column(String, nullable=True)
     anonymized_at = Column(String, nullable=True)
-    anonymization_review_status = Column(String, index=True, nullable=False, default="pending")
-    reviewed_at = Column(String, nullable=True)
-    reviewed_by_user_id = Column(String, nullable=True)
     purged_at = Column(String, nullable=True)
 
 

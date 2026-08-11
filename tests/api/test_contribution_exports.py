@@ -8,6 +8,7 @@ import uuid
 import zipfile
 from pathlib import Path
 
+from apps.api import project_deletion
 from apps.api.contribution_export_api import (
     build_contribution_xlsx,
     build_contribution_zip,
@@ -33,34 +34,71 @@ class ContributionExportTests(unittest.TestCase):
         self.original_repository = database._DATABASE_REPOSITORY
         database._DATABASE_PROVIDER = provider
         database._DATABASE_REPOSITORY = SqlAlchemyRepository(provider.session_factory)
-        self.snapshot_id = str(uuid.uuid4())
-        database.upsert_project_contribution_snapshot(
-            {
-                "id": self.snapshot_id,
-                "source_project_id": str(uuid.uuid4()),
-                "consent_record_id": str(uuid.uuid4()),
-                "sanitization_version": "2026-07-31.1",
-                "contribution_status": "anonymized",
-                "payload_json": {
-                    "schema_version": 1,
-                    "sanitization_version": "2026-07-31.1",
-                    "consent_version": "2026-07-31",
-                    "permitted_purposes": ["evaluation", "product_research"],
-                    "hardware_summary": {
-                        "is_valid": True,
-                        "component_count": 2,
-                        "component_categories": {"sensor": 1, "microcontroller": 1},
-                        "component_pin_counts": [8, 2],
-                        "net_count": 1,
-                        "net_connection_counts": [2],
-                        "validation_counts": {"critical": 0, "warnings": 1},
+        self.project_id = str(uuid.uuid4())
+        self.owner_id = "consenting-user@example.com"
+        database.save_generated_project(
+            project_id=self.project_id,
+            title="Secret customer prototype",
+            prompt="Contact alice@example.com with token sk-secret and private details",
+            hardware_ir={
+                "components": [
+                    {
+                        "ref_des": "U1",
+                        "part_number": "MCU-PRIVATE",
+                        "name": "Private controller",
+                        "category": "Microcontroller",
+                        "rationale": "private rationale",
+                        "pins": [
+                            {"pin_id": "1", "name": "A", "pin_type": "Digital"},
+                            {"pin_id": "2", "name": "B", "pin_type": "Digital"},
+                        ],
                     },
+                    {
+                        "ref_des": "S1",
+                        "part_number": "SENSOR-PRIVATE",
+                        "name": "Private sensor",
+                        "category": "Sensor",
+                        "rationale": "private rationale",
+                        "pins": [],
+                    },
+                ],
+                "nets": [
+                    {
+                        "net_id": "private-net",
+                        "name": "Private net",
+                        "net_type": "Digital",
+                        "pins": [{"ref_des": "U1", "pin_id": "1"}, {"ref_des": "S1", "pin_id": "1"}],
+                    }
+                ],
+                "validation": {
+                    "critical": [],
+                    "warning": [
+                        {
+                            "severity": "WARNING",
+                            "category": "Private",
+                            "description": "private warning",
+                            "troubleshooting": "private fix",
+                        }
+                    ],
                 },
-                "created_at": "2026-08-01T00:00:00Z",
-                "sanitized_at": "2026-08-01T00:00:00Z",
-                "anonymized_at": "2026-08-02T00:00:00Z",
-                "purged_at": None,
-            }
+                "assembly_metadata": {
+                    "project_id": self.project_id,
+                    "chat_id": "private-chat",
+                    "source_prompt": "private prompt",
+                    "image_url": "https://example.com/private.png",
+                },
+                "is_valid": True,
+            },
+            created_at="2026-08-01T00:00:00Z",
+            chat_id="private-chat",
+            owner_user_id=self.owner_id,
+            visibility="private",
+        )
+        project_deletion.grant_contribution_consent(
+            self.project_id,
+            self.owner_id,
+            consent_version="2026-07-31",
+            permitted_purposes=["evaluation", "product_research"],
         )
 
     def tearDown(self) -> None:
@@ -68,75 +106,78 @@ class ContributionExportTests(unittest.TestCase):
         database._DATABASE_REPOSITORY = self.original_repository
         self.directory.cleanup()
 
-    def test_approved_anonymization_review_is_required_for_export(self) -> None:
+    def test_export_anonymizes_consented_project_at_download_time(self) -> None:
         inventory = contribution_export_inventory()
-        self.assertEqual(1, inventory["counts"]["pending_review"])
-        self.assertEqual(0, inventory["counts"]["exportable"])
-        self.assertNotIn("source_project_id", inventory["snapshots"][0])
-        self.assertNotIn("consent_record_id", inventory["snapshots"][0])
-        self.assertNotIn("reviewed_by_user_id", inventory["snapshots"][0])
+        first_export = exportable_contribution_records()
+        second_export = exportable_contribution_records()
+
+        self.assertEqual(1, inventory["count"])
+        self.assertEqual(
+            {
+                "file_number",
+                "consent_version",
+                "permitted_purposes",
+                "component_count",
+                "net_count",
+            },
+            set(inventory["files"][0]),
+        )
+        self.assertEqual(1, len(first_export))
+        self.assertNotEqual(first_export[0]["dataset_record_id"], second_export[0]["dataset_record_id"])
+        serialized = json.dumps(first_export)
+        for forbidden in (
+            self.project_id,
+            self.owner_id,
+            "alice@example.com",
+            "sk-secret",
+            "Secret customer prototype",
+            "Private controller",
+            "private-chat",
+            "example.com",
+        ):
+            self.assertNotIn(forbidden, serialized)
+        self.assertEqual(2, first_export[0]["payload"]["hardware_summary"]["component_count"])
+
+    def test_account_opt_out_vetoes_existing_project_consent(self) -> None:
+        database.set_user_model_training_preference(
+            self.owner_id,
+            allow_model_training=False,
+            updated_at="2026-08-11T00:00:00Z",
+        )
+
+        self.assertEqual({"count": 0, "files": []}, contribution_export_inventory())
         self.assertEqual([], exportable_contribution_records())
 
-        reviewed = database.review_project_contribution_snapshot(
-            self.snapshot_id,
-            "approved",
-            "2026-08-03T00:00:00Z",
-            "admin-reviewer",
-        )
+    def test_withdrawn_project_consent_is_not_exported(self) -> None:
+        project_deletion.withdraw_contribution(self.project_id, self.owner_id)
 
-        self.assertIsNotNone(reviewed)
-        records = exportable_contribution_records()
-        self.assertEqual(1, len(records))
-        self.assertNotIn("admin-reviewer", json.dumps(records))
-        self.assertNotIn("source_project_id", json.dumps(records))
-        self.assertNotIn("consent_record_id", json.dumps(records))
-
-    def test_rejected_review_is_not_exportable(self) -> None:
-        reviewed = database.review_project_contribution_snapshot(
-            self.snapshot_id,
-            "rejected",
-            "2026-08-03T00:00:00Z",
-            "admin-reviewer",
-        )
-        self.assertIsNotNone(reviewed)
         self.assertEqual([], exportable_contribution_records())
 
-    def test_zip_contains_manifest_and_one_json_file_per_record(self) -> None:
-        database.review_project_contribution_snapshot(
-            self.snapshot_id,
-            "approved",
-            "2026-08-03T00:00:00Z",
-            "admin-reviewer",
-        )
+    def test_zip_contains_anonymous_numbered_files_and_manifests(self) -> None:
         records = exportable_contribution_records()
 
         archive_bytes = build_contribution_zip(records, "2026-08-11T12:00:00Z")
 
         with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
             self.assertEqual(
-                {"export.json", "manifest.csv", f"snapshots/{self.snapshot_id}.json"},
+                {"export.json", "manifest.csv", "files/contribution-00001.json"},
                 set(archive.namelist()),
             )
-            exported = json.loads(archive.read(f"snapshots/{self.snapshot_id}.json"))
+            exported = json.loads(archive.read("files/contribution-00001.json"))
             self.assertEqual(2, exported["payload"]["hardware_summary"]["component_count"])
-            self.assertIn(self.snapshot_id, archive.read("manifest.csv").decode("utf-8"))
+            export_metadata = json.loads(archive.read("export.json"))
+            self.assertEqual("performed during export", export_metadata["anonymization"])
 
-    def test_xlsx_is_a_valid_office_archive_with_contribution_rows(self) -> None:
-        database.review_project_contribution_snapshot(
-            self.snapshot_id,
-            "approved",
-            "2026-08-03T00:00:00Z",
-            "admin-reviewer",
-        )
-
+    def test_xlsx_is_a_valid_office_archive_with_anonymous_rows(self) -> None:
         workbook_bytes = build_contribution_xlsx(exportable_contribution_records())
 
         with zipfile.ZipFile(io.BytesIO(workbook_bytes)) as workbook:
             self.assertIn("xl/workbook.xml", workbook.namelist())
             sheet = workbook.read("xl/worksheets/sheet1.xml").decode("utf-8")
             self.assertIn("dataset_record_id", sheet)
-            self.assertIn(self.snapshot_id, sheet)
             self.assertIn("component_count", sheet)
+            self.assertNotIn(self.owner_id, sheet)
+            self.assertNotIn(self.project_id, sheet)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Admin review and export endpoints for anonymized contribution snapshots."""
+"""Admin exports that anonymize consented project data at download time."""
 
 from __future__ import annotations
 
@@ -7,23 +7,17 @@ import io
 import json
 import logging
 import re
+import uuid
 import zipfile
 from datetime import datetime, timezone
 from typing import Any, Literal
 from xml.etree import ElementTree as ET
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Query, Response
 
-from apps.api.auth import (
-    UserContext,
-    require_admin_destructive_user_context,
-    require_admin_user_context,
-)
-from blueprint_core.database import (
-    list_project_contribution_snapshots,
-    review_project_contribution_snapshot,
-)
+from apps.api.auth import UserContext, require_admin_user_context
+from apps.api.project_deletion import sanitize_project_for_contribution
+from blueprint_core.database import list_consented_projects_for_export
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-contribution-exports"])
@@ -35,8 +29,6 @@ _XLSX_COLUMNS = (
     "sanitization_version",
     "consent_version",
     "permitted_purposes",
-    "anonymized_at",
-    "reviewed_at",
     "is_valid",
     "component_count",
     "component_categories",
@@ -49,10 +41,6 @@ _XLSX_COLUMNS = (
 )
 
 
-class AnonymizationReviewRequest(BaseModel):
-    status: Literal["approved", "rejected"]
-
-
 def _attr(record: Any, name: str, default: Any = None) -> Any:
     if isinstance(record, dict):
         return record.get(name, default)
@@ -63,69 +51,54 @@ def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def _exportable(snapshot: Any) -> bool:
-    return bool(
-        _attr(snapshot, "contribution_status") == "anonymized"
-        and _attr(snapshot, "anonymized_at")
-        and _attr(snapshot, "anonymization_review_status", "pending") == "approved"
-        and _attr(snapshot, "reviewed_at")
-        and isinstance(_attr(snapshot, "payload_json"), dict)
+def _entry_part(entry: Any, name: str) -> Any:
+    return _attr(entry, name, {})
+
+
+def anonymize_consented_project(entry: Any) -> dict[str, Any]:
+    """Create an export-only record without copying project or account identity."""
+    project = _entry_part(entry, "project")
+    consent = _entry_part(entry, "consent")
+    payload = sanitize_project_for_contribution(project)
+    payload["consent_version"] = str(_attr(consent, "consent_version", ""))
+    payload["permitted_purposes"] = sorted(
+        {
+            str(purpose)
+            for purpose in (_attr(consent, "permitted_purposes", []) or [])
+            if str(purpose).strip()
+        }
     )
-
-
-def _public_snapshot(snapshot: Any, *, include_payload: bool = True) -> dict[str, Any]:
-    payload = _attr(snapshot, "payload_json", {})
-    result = {
-        "snapshot_id": str(_attr(snapshot, "id", "")),
-        "contribution_status": _attr(snapshot, "contribution_status"),
-        "sanitization_version": _attr(snapshot, "sanitization_version"),
-        "created_at": _attr(snapshot, "created_at"),
-        "sanitized_at": _attr(snapshot, "sanitized_at"),
-        "anonymized_at": _attr(snapshot, "anonymized_at"),
-        "anonymization_review_status": _attr(snapshot, "anonymization_review_status", "pending"),
-        "reviewed_at": _attr(snapshot, "reviewed_at"),
-        "exportable": _exportable(snapshot),
-    }
-    if include_payload:
-        result["payload"] = payload if isinstance(payload, dict) else {}
-    return result
-
-
-def contribution_export_inventory(limit: int = 500) -> dict[str, Any]:
-    snapshots = list_project_contribution_snapshots(limit)
-    public_snapshots = [_public_snapshot(snapshot) for snapshot in snapshots]
     return {
-        "counts": {
-            "total": len(public_snapshots),
-            "pending_review": sum(
-                snapshot["contribution_status"] == "anonymized"
-                and snapshot["anonymization_review_status"] == "pending"
-                for snapshot in public_snapshots
-            ),
-            "approved": sum(snapshot["anonymization_review_status"] == "approved" for snapshot in public_snapshots),
-            "rejected": sum(snapshot["anonymization_review_status"] == "rejected" for snapshot in public_snapshots),
-            "exportable": sum(snapshot["exportable"] for snapshot in public_snapshots),
-        },
-        "snapshots": public_snapshots,
-    }
-
-
-def _dataset_record(snapshot: Any) -> dict[str, Any]:
-    payload = _attr(snapshot, "payload_json", {})
-    return {
-        "dataset_record_id": str(_attr(snapshot, "id", "")),
-        "sanitization_version": str(_attr(snapshot, "sanitization_version", "")),
-        "anonymized_at": _attr(snapshot, "anonymized_at"),
-        "reviewed_at": _attr(snapshot, "reviewed_at"),
-        "consent_version": payload.get("consent_version"),
-        "permitted_purposes": payload.get("permitted_purposes", []),
+        "dataset_record_id": str(uuid.uuid4()),
+        "sanitization_version": str(payload.get("sanitization_version") or ""),
+        "consent_version": payload["consent_version"],
+        "permitted_purposes": payload["permitted_purposes"],
         "payload": payload,
     }
 
 
 def exportable_contribution_records() -> list[dict[str, Any]]:
-    snapshots = list_project_contribution_snapshots()
-    return [_dataset_record(snapshot) for snapshot in snapshots if _exportable(snapshot)]
+    return [
+        anonymize_consented_project(entry)
+        for entry in list_consented_projects_for_export()
+    ]
+
+
+def contribution_export_inventory() -> dict[str, Any]:
+    files = []
+    for file_number, entry in enumerate(list_consented_projects_for_export(), 1):
+        record = anonymize_consented_project(entry)
+        summary = record["payload"].get("hardware_summary", {})
+        files.append(
+            {
+                "file_number": file_number,
+                "consent_version": record["consent_version"],
+                "permitted_purposes": record["permitted_purposes"],
+                "component_count": summary.get("component_count", 0),
+                "net_count": summary.get("net_count", 0),
+            }
+        )
+    return {"count": len(files), "files": files}
 
 
 def build_contribution_zip(records: list[dict[str, Any]], generated_at: str) -> bytes:
@@ -135,27 +108,22 @@ def build_contribution_zip(records: list[dict[str, Any]], generated_at: str) -> 
         writer = csv.writer(manifest_buffer)
         writer.writerow(
             (
+                "file",
                 "dataset_record_id",
                 "sanitization_version",
                 "consent_version",
                 "permitted_purposes",
-                "anonymized_at",
-                "reviewed_at",
-                "file",
             )
         )
-        for record in records:
-            record_id = record["dataset_record_id"]
-            path = f"snapshots/{record_id}.json"
+        for file_number, record in enumerate(records, 1):
+            path = f"files/contribution-{file_number:05d}.json"
             writer.writerow(
                 (
-                    record_id,
+                    path,
+                    record["dataset_record_id"],
                     record["sanitization_version"],
                     record["consent_version"],
-                    ";".join(record["permitted_purposes"] or []),
-                    record["anonymized_at"],
-                    record["reviewed_at"],
-                    path,
+                    ";".join(record["permitted_purposes"]),
                 )
             )
             archive.writestr(path, json.dumps(record, indent=2, sort_keys=True) + "\n")
@@ -167,7 +135,8 @@ def build_contribution_zip(records: list[dict[str, Any]], generated_at: str) -> 
                     "schema_version": 1,
                     "generated_at": generated_at,
                     "record_count": len(records),
-                    "eligibility": "anonymized and anonymization_review_status=approved",
+                    "anonymization": "performed during export",
+                    "eligibility": "active project consent and no account-level model-training opt-out",
                 },
                 indent=2,
                 sort_keys=True,
@@ -198,8 +167,7 @@ def _xlsx_cell(row_number: int, column_number: int, value: Any, *, header: bool 
         ET.SubElement(cell, "v").text = str(value)
     else:
         cell.set("t", "inlineStr")
-        inline = ET.SubElement(cell, "is")
-        text = ET.SubElement(inline, "t")
+        text = ET.SubElement(ET.SubElement(cell, "is"), "t")
         text.text = _XML_CONTROL_CHARACTERS.sub("", "" if value is None else str(value))[:32767]
     return cell
 
@@ -213,9 +181,7 @@ def _xlsx_row(record: dict[str, Any]) -> dict[str, Any]:
         "schema_version": payload.get("schema_version"),
         "sanitization_version": record["sanitization_version"],
         "consent_version": record["consent_version"],
-        "permitted_purposes": ";".join(record["permitted_purposes"] or []),
-        "anonymized_at": record["anonymized_at"],
-        "reviewed_at": record["reviewed_at"],
+        "permitted_purposes": ";".join(record["permitted_purposes"]),
         "is_valid": bool(hardware.get("is_valid")),
         "component_count": hardware.get("component_count", 0),
         "component_categories": json.dumps(hardware.get("component_categories", {}), sort_keys=True),
@@ -240,10 +206,10 @@ def build_contribution_xlsx(records: list[dict[str, Any]]) -> bytes:
     for column_number, column in enumerate(_XLSX_COLUMNS, 1):
         header_row.append(_xlsx_cell(1, column_number, column, header=True))
     for row_number, record in enumerate(records, 2):
-        row_values = _xlsx_row(record)
+        values = _xlsx_row(record)
         row = ET.SubElement(sheet_data, f"{{{spreadsheet_namespace}}}row", {"r": str(row_number)})
         for column_number, column in enumerate(_XLSX_COLUMNS, 1):
-            row.append(_xlsx_cell(row_number, column_number, row_values.get(column)))
+            row.append(_xlsx_cell(row_number, column_number, values.get(column)))
     if records:
         ET.SubElement(
             worksheet,
@@ -301,32 +267,13 @@ def build_contribution_xlsx(records: list[dict[str, Any]]) -> bytes:
     return buffer.getvalue()
 
 
-@router.get("/contribution-snapshots")
-def list_contribution_snapshots_endpoint(
+@router.get("/contribution-exports/inventory")
+def contribution_export_inventory_endpoint(
     response: Response,
-    limit: int = Query(500, ge=1, le=500),
     _user: UserContext = Depends(require_admin_user_context),
 ):
     response.headers["Cache-Control"] = "no-store"
-    return contribution_export_inventory(limit)
-
-
-@router.put("/contribution-snapshots/{snapshot_id}/anonymization-review")
-def review_contribution_snapshot_endpoint(
-    snapshot_id: str,
-    request: AnonymizationReviewRequest,
-    user: UserContext = Depends(require_admin_destructive_user_context),
-):
-    reviewed = review_project_contribution_snapshot(
-        snapshot_id,
-        request.status,
-        _utc_timestamp(),
-        user.owner_user_id or user.subject or "",
-    )
-    if not reviewed:
-        raise HTTPException(status_code=409, detail="Only anonymized contribution snapshots can be reviewed.")
-    logger.info("Contribution snapshot anonymization review completed; snapshot_id=%s status=%s", snapshot_id, request.status)
-    return _public_snapshot(reviewed)
+    return contribution_export_inventory()
 
 
 @router.get("/contribution-exports")
@@ -344,7 +291,7 @@ def download_contribution_export_endpoint(
         content = build_contribution_zip(records, generated_at)
         media_type = "application/zip"
     filename = f"forma-consented-contributions-{filename_timestamp}.{format}"
-    logger.info("Contribution dataset exported; format=%s record_count=%d", format, len(records))
+    logger.info("Consented projects anonymized and exported; format=%s record_count=%d", format, len(records))
     return Response(
         content=content,
         media_type=media_type,

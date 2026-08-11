@@ -36,27 +36,15 @@ import CopyButton from "../../components/copy-button";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
 
-type ContributionSnapshot = {
-  snapshot_id: string;
-  contribution_status: string;
-  sanitization_version: string | null;
-  created_at: string | null;
-  anonymized_at: string | null;
-  anonymization_review_status: "pending" | "approved" | "rejected";
-  reviewed_at: string | null;
-  exportable: boolean;
-  payload: Record<string, any>;
-};
-
 type ContributionInventory = {
-  counts: {
-    total: number;
-    pending_review: number;
-    approved: number;
-    rejected: number;
-    exportable: number;
-  };
-  snapshots: ContributionSnapshot[];
+  count: number;
+  files: Array<{
+    file_number: number;
+    consent_version: string;
+    permitted_purposes: string[];
+    component_count: number;
+    net_count: number;
+  }>;
 };
 
 export function ContributionExportPanel({
@@ -71,14 +59,13 @@ export function ContributionExportPanel({
   const [inventory, setInventory] = useState<ContributionInventory | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [reviewingId, setReviewingId] = useState<string | null>(null);
   const [exportingFormat, setExportingFormat] = useState<"xlsx" | "zip" | null>(null);
 
   const fetchInventory = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/admin/contribution-snapshots?limit=500`, {
+      const response = await fetch(`${apiUrl}/admin/contribution-exports/inventory`, {
         headers: await getHeaders(),
         signal,
       });
@@ -97,29 +84,6 @@ export function ContributionExportPanel({
     void fetchInventory(controller.signal);
     return () => controller.abort();
   }, [fetchInventory]);
-
-  const reviewSnapshot = async (snapshotId: string, status: "approved" | "rejected") => {
-    setReviewingId(snapshotId);
-    setError(null);
-    try {
-      const headers = new Headers(await getHeaders());
-      headers.set("Content-Type", "application/json");
-      const response = await fetch(
-        `${apiUrl}/admin/contribution-snapshots/${encodeURIComponent(snapshotId)}/anonymization-review`,
-        {
-          method: "PUT",
-          headers,
-          body: JSON.stringify({ status }),
-        },
-      );
-      if (!response.ok) throw new Error(await readError(response));
-      await fetchInventory();
-    } catch (reviewError) {
-      setError(reviewError instanceof Error ? reviewError.message : "Unable to save the anonymization review.");
-    } finally {
-      setReviewingId(null);
-    }
-  };
 
   const downloadExport = async (format: "xlsx" | "zip") => {
     setExportingFormat(format);
@@ -147,8 +111,8 @@ export function ContributionExportPanel({
     }
   };
 
-  const snapshots = inventory?.snapshots || [];
-  const exportableCount = inventory?.counts.exportable || 0;
+  const files = inventory?.files || [];
+  const exportableCount = inventory?.count || 0;
 
   return (
     <section className="mb-6 border border-[#2c2f37] bg-[#17181d] p-4 sm:p-5">
@@ -159,7 +123,7 @@ export function ContributionExportPanel({
             <h2 className="text-base font-black uppercase text-white">Consented data exports</h2>
           </div>
           <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-            Review anonymized snapshots, then download every approved record. Exports exclude prompts, titles, account identifiers, uploads, and source URLs.
+            Download every project with active contribution consent whose owner has not opted out. User and project data is anonymized when the export is generated.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -184,11 +148,9 @@ export function ContributionExportPanel({
         </div>
       </div>
 
-      <div className="my-4 grid gap-2 sm:grid-cols-4">
-        <JobMetric label="Exportable" value={inventory?.counts.exportable ?? "-"} />
-        <JobMetric label="Pending review" value={inventory?.counts.pending_review ?? "-"} />
-        <JobMetric label="Approved" value={inventory?.counts.approved ?? "-"} />
-        <JobMetric label="Rejected" value={inventory?.counts.rejected ?? "-"} />
+      <div className="my-4 grid gap-2 sm:grid-cols-2">
+        <JobMetric label="Consented files" value={inventory?.count ?? "-"} />
+        <JobMetric label="Anonymization" value="At download" />
       </div>
 
       {error && (
@@ -199,70 +161,27 @@ export function ContributionExportPanel({
       )}
 
       {loading && !inventory ? (
-        <div className="border border-[#2a2c33] p-4 text-xs text-slate-500">Loading contribution snapshots...</div>
-      ) : snapshots.length ? (
+        <div className="border border-[#2a2c33] p-4 text-xs text-slate-500">Loading consented files...</div>
+      ) : files.length ? (
         <div className="space-y-2">
-          {snapshots.slice(0, 25).map((snapshot) => {
-            const summary = snapshot.payload?.hardware_summary || {};
-            const pending = snapshot.contribution_status === "anonymized"
-              && snapshot.anonymization_review_status === "pending";
-            return (
-              <div key={snapshot.snapshot_id} className="flex flex-col gap-3 border border-[#2a2c33] bg-[#141519] p-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2 text-xs">
-                    <span className="font-mono text-slate-300">{snapshot.snapshot_id}</span>
-                    <span className={`border px-2 py-1 text-[10px] font-black uppercase ${
-                      snapshot.anonymization_review_status === "approved"
-                        ? "border-emerald-500/30 text-emerald-300"
-                        : snapshot.anonymization_review_status === "rejected"
-                          ? "border-rose-500/30 text-rose-300"
-                          : "border-amber-500/30 text-amber-200"
-                    }`}>
-                      {snapshot.anonymization_review_status}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-[11px] leading-5 text-slate-500">
-                    {summary.component_count ?? 0} components · {summary.net_count ?? 0} nets · sanitized {snapshot.sanitization_version || "unknown"}
-                  </p>
-                  {pending && (
-                    <details className="mt-2 max-w-3xl text-[11px] text-slate-500">
-                      <summary className="cursor-pointer font-bold text-cyan-300 hover:text-white">Inspect sanitized payload before review</summary>
-                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words border border-[#2a2c33] bg-black p-3 font-mono leading-5 text-slate-300">
-                        {JSON.stringify(snapshot.payload, null, 2)}
-                      </pre>
-                    </details>
-                  )}
+          {files.slice(0, 25).map((file) => (
+              <div key={file.file_number} className="flex flex-col gap-2 border border-[#2a2c33] bg-[#141519] p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span className="font-bold text-slate-300">Consented file {file.file_number}</span>
+                  <span className="border border-emerald-500/30 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">Ready</span>
                 </div>
-                {pending && (
-                  <div className="flex shrink-0 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => void reviewSnapshot(snapshot.snapshot_id, "rejected")}
-                      disabled={reviewingId === snapshot.snapshot_id}
-                      className="border border-rose-500/30 px-3 py-2 text-[10px] font-black uppercase text-rose-300 hover:bg-rose-500 hover:text-white disabled:opacity-40"
-                    >
-                      Reject
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void reviewSnapshot(snapshot.snapshot_id, "approved")}
-                      disabled={reviewingId === snapshot.snapshot_id}
-                      className="border border-emerald-500/30 px-3 py-2 text-[10px] font-black uppercase text-emerald-300 hover:bg-emerald-500 hover:text-black disabled:opacity-40"
-                    >
-                      Approve anonymization
-                    </button>
-                  </div>
-                )}
+                <p className="text-[11px] leading-5 text-slate-500">
+                  {file.component_count} components · {file.net_count} nets · {file.permitted_purposes.join(", ")}
+                </p>
               </div>
-            );
-          })}
-          {snapshots.length > 25 && (
-            <p className="text-[11px] text-slate-600">Showing the 25 newest of {snapshots.length} snapshots.</p>
+          ))}
+          {files.length > 25 && (
+            <p className="text-[11px] text-slate-600">Showing 25 of {files.length} consented files.</p>
           )}
         </div>
       ) : (
         <div className="border border-[#2a2c33] p-4 text-xs leading-5 text-slate-500">
-          No sanitized contribution snapshots are available yet.
+          No projects currently satisfy both the contribution-consent and account-preference checks.
         </div>
       )}
     </section>

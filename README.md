@@ -13,6 +13,7 @@ This repository is an **MVP and research prototype** focused on **low-voltage ma
   - Interactive **React Flow** schematic
   - Generated **SVG** schematic
 - View a lightweight **3D mechanical layout** (Three.js / React Three Fiber)
+- Preview the project layout in the native **CAID OpenCAD viewport**
 - Generate an optional **product concept image** with an image model
 - Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `BLUEPRINT_DEV_MODE` for SQLite-only local work
 - Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured

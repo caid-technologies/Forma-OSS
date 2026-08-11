@@ -96,6 +96,7 @@ import {
   Maximize2,
   Minimize2,
   Trash2,
+  DraftingCompass,
 } from "lucide-react";
 
 const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), {
@@ -103,6 +104,15 @@ const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), 
   loading: () => (
     <div className="flex h-full min-h-[620px] items-center justify-center bg-[#0f1014] text-xs font-black uppercase tracking-[0.16em] text-slate-600">
       Loading wiring diagram...
+    </div>
+  ),
+});
+
+const OpenCadViewport = dynamic(() => import("../components/opencad-viewport"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex h-full min-h-[420px] items-center justify-center bg-[#0a0b0e] text-xs font-black uppercase tracking-[0.16em] text-slate-600">
+      Loading OpenCAD viewport...
     </div>
   ),
 });
@@ -1433,6 +1443,7 @@ const workspaceTabs = [
   { id: "overview", label: "INFO", icon: Info },
   { id: "bom", label: "BOM", icon: ShoppingBag },
   { id: "mechanical", label: "MECH", icon: Box },
+  { id: "opencad", label: "CAD", icon: DraftingCompass },
   { id: "schematic", label: "WIRE", icon: Cpu },
   { id: "assembly", label: "DOCS", icon: Info },
   { id: "video", label: "MEDIA", icon: Film },
@@ -1442,6 +1453,7 @@ const workspaceTabNamespaces: Record<string, string> = {
   overview: "product.overview",
   bom: "product.bom",
   mechanical: "product.mech",
+  opencad: "product.mech",
   schematic: "product.electrical",
   assembly: "project.docs",
   video: "product.visuals.video",
@@ -1457,6 +1469,7 @@ function normalizeTab(tab: string | null) {
     info: "overview",
     image: "overview",
     mech: "mechanical",
+    cad: "opencad",
     wire: "schematic",
     docs: "assembly",
   };
@@ -4518,6 +4531,14 @@ export function FormaWorkspace({
             setElectricalActive={setMechElectricalActive}
             components={components}
             features={imageFeatures}
+            metadata={projectIR?.assembly_metadata || {}}
+            mechanical={projectIR?.mechanical || {}}
+          />
+        );
+      case "opencad":
+        return (
+          <OpenCadViewport
+            components={components}
             metadata={projectIR?.assembly_metadata || {}}
             mechanical={projectIR?.mechanical || {}}
           />

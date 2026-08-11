@@ -153,6 +153,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual("building", body["workflow"]["state"])
         self.assertIsNotNone(body["build_execution"])
         self.assertIn("started the design", body["assistant_message"])
+        self.assertEqual([], body["suggestions"])
         persisted_requirements = " ".join(brief.requirements)
         self.assertIn("Mamba-like latent-space model", persisted_requirements)
         self.assertIn("7B to 30B parameter reference workload", persisted_requirements)
@@ -444,6 +445,8 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(201, first.status_code, first.text)
         self.assertEqual("gathering_context", first.json()["workflow"]["state"])
         self.assertTrue(first.json()["questions"])
+        self.assertTrue(first.json()["suggestions"])
+        self.assertNotIn("Other", first.json()["suggestions"])
         self.assertEqual(201, second.status_code, second.text)
         self.assertEqual(2, second.json()["design_brief"]["brief_version"])
         self.assertEqual([1, 2], [brief.brief_version for brief in versions])
@@ -452,6 +455,32 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertIn("The display must remain readable outdoors.", versions[-1].requirements)
         self.assertEqual(4, len(chat.messages))
         create_job.assert_not_called()
+
+    def test_agent_suggestions_are_returned_and_persisted_with_the_assistant_turn(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-chat-suggestions"
+
+        class SuggestedAnswerAgent(ContextGatheringAgent):
+            def route_turn(self, *_args, **_kwargs):
+                return ContextTurnDecision(
+                    turn_kind="context",
+                    tool_name="ask_question",
+                    save_context=True,
+                    assistant_message="Which deployment environment should I design for?",
+                    suggestions=["3-season", "4-season", "Other"],
+                )
+
+        self.app.dependency_overrides[context_gathering_agent] = lambda: SuggestedAnswerAgent()
+        with sqlite_repository():
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a one-person tent."},
+            )
+            chat = database.get_project_chat(conversation_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertEqual(["3-season", "4-season"], response.json()["suggestions"])
+        self.assertEqual(["3-season", "4-season"], chat.messages[-1]["suggestions"])
 
     def test_generation_and_mutating_tools_are_blocked_during_gathering(self) -> None:
         project_id = str(uuid.uuid4())

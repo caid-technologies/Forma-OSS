@@ -9,6 +9,7 @@ import {
   type GenerationLlmOption,
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
+import { normalizeContextSuggestions } from "../lib/context-suggestions";
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
 import { calculateProjectCostMetrics } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
@@ -181,6 +182,7 @@ type ChatMessage = {
   contextProjectId?: string | null;
   workflowState?: string | null;
   contextQuestions?: string[];
+  contextSuggestions?: string[];
   buildPlanId?: string | null;
   buildJobId?: string | null;
 };
@@ -448,6 +450,7 @@ function normalizeChatMessage(value: any): ChatMessage | null {
     contextQuestions: (Array.isArray(value.contextQuestions) ? value.contextQuestions : value.questions)
       ?.filter((question: unknown): question is string => typeof question === "string" && Boolean(question.trim()))
       .map((question: string) => question.trim()) || [],
+    contextSuggestions: normalizeContextSuggestions(value.contextSuggestions ?? value.suggestions),
     buildPlanId: typeof value.buildPlanId === "string"
       ? value.buildPlanId
       : typeof value.build_plan_id === "string"
@@ -1602,7 +1605,7 @@ export function FormaWorkspace({
   const contextProjectIdsRef = useRef<Record<string, string>>({});
   const contextBuildWatchersRef = useRef<Set<string>>(new Set());
   const [contextWorkflowStates, setContextWorkflowStates] = useState<Record<string, string>>({});
-  const [contextSkipping, setContextSkipping] = useState(false);
+  const [contextBuildStarting, setContextBuildStarting] = useState(false);
   const [contextSubmitting, setContextSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
@@ -3246,12 +3249,12 @@ export function FormaWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId, chatMessageIdentityKey(chatMessages)]);
 
-  const handleGatherContext = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submitGatherContext = async (answer?: string) => {
     if (contextSubmitting || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
 
-    const validation = validateGenerationInput(prompt, Boolean(selectedImage));
+    const submittedPrompt = answer ?? prompt;
+    const validation = validateGenerationInput(submittedPrompt, Boolean(selectedImage));
     if (!validation.isValid) {
       setGenerationInputNotice(validation.message);
       return;
@@ -3264,7 +3267,7 @@ export function FormaWorkspace({
         : newBuildChatId()
     );
     contextProjectIdsRef.current[requestChatId] = requestProjectId;
-    const text = prompt.trim();
+    const text = submittedPrompt.trim();
     const imageData = selectedImage;
     const userMessageId = newChatMessageId();
     const assistantMessageId = newChatMessageId();
@@ -3342,6 +3345,7 @@ export function FormaWorkspace({
         contextProjectId: persistedProjectId || null,
         workflowState: workflowState || null,
         contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        contextSuggestions: normalizeContextSuggestions(data?.suggestions),
         buildPlanId: buildPlanId || null,
         buildJobId: buildJobId || null,
       });
@@ -3352,6 +3356,7 @@ export function FormaWorkspace({
         contextProjectId: persistedProjectId || null,
         workflowState: workflowState || null,
         contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        contextSuggestions: normalizeContextSuggestions(data?.suggestions),
         buildPlanId: buildPlanId || null,
         buildJobId: buildJobId || null,
       });
@@ -3391,8 +3396,13 @@ export function FormaWorkspace({
     }
   };
 
-  const handleSkipContextGathering = async () => {
-    if (contextSkipping || contextSubmitting || activeGenerationRef.current) return;
+  const handleGatherContext = (event: React.FormEvent) => {
+    event.preventDefault();
+    void submitGatherContext();
+  };
+
+  const handleBuildNow = async () => {
+    if (contextBuildStarting || contextSubmitting || activeGenerationRef.current) return;
     const requestChatId = activeChatId;
     const availableMessages = requestChatId
       ? chatThreads[requestChatId] || chatMessages
@@ -3404,11 +3414,11 @@ export function FormaWorkspace({
       ? contextProjectIdsRef.current[requestChatId] || persistedContextMessage?.contextProjectId || ""
       : "";
     if (!requestChatId || !projectId) {
-      setGenerationInputNotice("Save the initial project context before skipping this stage.");
+      setGenerationInputNotice("Share the initial project context before starting the build.");
       return;
     }
 
-    setContextSkipping(true);
+    setContextBuildStarting(true);
     setGenerationInputNotice(null);
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/context/messages`, {
@@ -3465,9 +3475,9 @@ export function FormaWorkspace({
         watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id, run);
       }
     } catch (error) {
-      setGenerationInputNotice(error instanceof Error ? error.message : "Could not skip context gathering.");
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not start the build.");
     } finally {
-      setContextSkipping(false);
+      setContextBuildStarting(false);
     }
   };
 
@@ -4907,7 +4917,7 @@ export function FormaWorkspace({
                 setPrompt(example);
               }}
               onSubmit={handleGatherContext}
-              canSkipContext={(() => {
+              canBuildNow={(() => {
                 const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
                 const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
                 const state = contextWorkflowStates[activeChatId]
@@ -4915,8 +4925,11 @@ export function FormaWorkspace({
                   || (contextMessage?.contextProjectId ? "gathering_context" : "");
                 return state === "gathering_context";
               })()}
-              contextSkipping={contextSkipping}
-              onSkipContext={handleSkipContextGathering}
+              buildNowLoading={contextBuildStarting}
+              onBuildNow={handleBuildNow}
+              onSelectContextSuggestion={(suggestion) => {
+                void submitGatherContext(suggestion);
+              }}
               isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage)}
               generationReady
               needsGenerationProvider={false}

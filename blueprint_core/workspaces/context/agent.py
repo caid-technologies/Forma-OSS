@@ -140,7 +140,7 @@ def _assistant_reply(text: str, questions: list[str], previous: DesignBrief | No
         return (
             "That’s okay—you don’t need to choose technical parts yet. "
             "Tell me any outcome, operating condition, or constraint you do know, and the build agents can propose the open technical choices. "
-            "You can also skip context gathering whenever you’re ready."
+            "Choose Build Now whenever you’re ready, and the build agents will resolve the remaining technical choices."
         )
     if previous:
         if questions:
@@ -160,7 +160,11 @@ def _assistant_reply(text: str, questions: list[str], previous: DesignBrief | No
 class ContextBriefUpdater:
     """Updates a DesignBrief without invoking a model, tool, or worker job."""
 
-    def update(self, request: ContextGatheringRequest, previous: DesignBrief | None = None) -> tuple[DesignBriefCreate, str, list[str]]:
+    def update(
+        self,
+        request: ContextGatheringRequest,
+        previous: DesignBrief | None = None,
+    ) -> tuple[DesignBriefCreate, str, list[str], list[str]]:
         text = request.text.strip()
         attachment_text = [item.extracted_text for item in request.attachments if item.extracted_text]
         combined_update = "\n".join([text, *attachment_text]).strip()
@@ -221,6 +225,11 @@ class ContextBriefUpdater:
             if not _question_answered(question.question, full_context)
         ]
         questions = _unique([*prior_questions, *new_questions])
+        suggestions = next((
+            list(question.suggestions)
+            for question in clarification.questions
+            if question.question in questions and question.suggestions
+        ), [])
 
         if previous and previous.summary:
             summary = previous.summary
@@ -247,4 +256,4 @@ class ContextBriefUpdater:
             readiness=DesignBriefReadiness.NEEDS_CLARIFICATION if questions else DesignBriefReadiness.DRAFT,
         )
         assistant_message = _assistant_reply(text, questions, previous)
-        return brief, assistant_message, questions
+        return brief, assistant_message, questions, suggestions

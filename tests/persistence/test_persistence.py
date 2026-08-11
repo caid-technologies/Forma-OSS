@@ -267,6 +267,61 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertEqual(4, total)
         self.assertEqual(["project-4", "project-2"], [project.project_id for project in projects])
 
+    def test_sqlite_repository_searches_project_titles_and_prompts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            with provider.session_factory() as session, session.begin():
+                session.add_all([
+                    DBGeneratedProject(
+                        project_id="title-match",
+                        visibility="public",
+                        title="Compact Motor Controller",
+                        prompt="Build a portable drive.",
+                        hardware_ir={},
+                        created_at="2026-08-03T00:00:00Z",
+                        status="active",
+                    ),
+                    DBGeneratedProject(
+                        project_id="prompt-match",
+                        visibility="public",
+                        title="Factory Fixture",
+                        prompt="Build a MOTOR test stand.",
+                        hardware_ir={},
+                        created_at="2026-08-02T00:00:00Z",
+                        status="active",
+                    ),
+                    DBGeneratedProject(
+                        project_id="no-match",
+                        visibility="public",
+                        title="Weather Station",
+                        prompt="Measure temperature.",
+                        hardware_ir={},
+                        created_at="2026-08-01T00:00:00Z",
+                        status="active",
+                    ),
+                ])
+
+            projects, total = repository.list_generated_projects_page(
+                None,
+                visibility="public",
+                limit=6,
+                offset=0,
+                search="motor",
+            )
+
+        self.assertEqual(2, total)
+        self.assertEqual(
+            ["title-match", "prompt-match"],
+            [project.project_id for project in projects],
+        )
+
     def test_supabase_repository_requests_an_exact_count_and_bounded_range(self) -> None:
         client = _ProjectPageClient()
         repository = SupabaseRepository(client)
@@ -285,6 +340,23 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIn(("status", "active"), client.query.filters)
         self.assertIn(("owner_user_id", "user-a"), client.query.filters)
         self.assertIn(("visibility", "public"), client.query.filters)
+
+    def test_supabase_repository_searches_titles_and_prompts(self) -> None:
+        client = _ProjectPageClient()
+        repository = SupabaseRepository(client)
+
+        repository.list_generated_projects_page(
+            None,
+            visibility="public",
+            limit=6,
+            offset=0,
+            search="motor, controller",
+        )
+
+        self.assertEqual(
+            'title.ilike."*motor, controller*",prompt.ilike."*motor, controller*"',
+            client.query.or_filter,
+        )
 
     def test_legacy_job_import_is_idempotent_and_does_not_overwrite_primary_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -439,6 +511,7 @@ class _ProjectPageQuery:
         self.count_mode: str | None = None
         self.requested_range: tuple[int, int] | None = None
         self.filters: list[tuple[str, str]] = []
+        self.or_filter: str | None = None
 
     def select(self, _projection: str, *, count: str | None = None) -> "_ProjectPageQuery":
         self.count_mode = count
@@ -446,6 +519,10 @@ class _ProjectPageQuery:
 
     def eq(self, field: str, value: str) -> "_ProjectPageQuery":
         self.filters.append((field, value))
+        return self
+
+    def or_(self, expression: str) -> "_ProjectPageQuery":
+        self.or_filter = expression
         return self
 
     def order(self, _field: str, *, desc: bool = False) -> "_ProjectPageQuery":

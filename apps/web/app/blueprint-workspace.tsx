@@ -1618,6 +1618,8 @@ export function FormaWorkspace({
   const [myProjectHistoryTotal, setMyProjectHistoryTotal] = useState(0);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
   const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
+  const [projectSearchInput, setProjectSearchInput] = useState("");
+  const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
   const [privateChatItems, setPrivateChatItems] = useState<ChatListItem[]>([]);
   const [privateChatsLoaded, setPrivateChatsLoaded] = useState(false);
@@ -2342,17 +2344,29 @@ export function FormaWorkspace({
 
   useEffect(() => {
     if (homeView !== "projects") return;
-    void fetchProjectHistory(projectHistoryPage);
+    void fetchProjectHistory(projectHistoryPage, projectSearchQuery);
     // Public gallery data becomes critical only when its route is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeView, projectHistoryPage]);
+  }, [homeView, projectHistoryPage, projectSearchQuery]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQuery = projectSearchInput.trim();
+      if (nextQuery === projectSearchQuery) return;
+      setProjectHistoryLoaded(false);
+      setVisibleProjectGalleryIds([]);
+      setProjectHistoryPage(0);
+      setProjectSearchQuery(nextQuery);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [projectSearchInput, projectSearchQuery]);
 
   useDeferredTask(() => {
-    if (!projectHistoryLoaded) void fetchProjectHistory(projectHistoryPage);
+    if (!projectHistoryLoaded) void fetchProjectHistory(projectHistoryPage, projectSearchQuery);
   }, {
     delayMs: 1200,
     enabled: homeView !== "projects" && !projectHistoryLoaded,
-    taskKey: `${homeView}:${projectHistoryPage}`,
+    taskKey: `${homeView}:${projectHistoryPage}:${projectSearchQuery}`,
     timeoutMs: 1800,
   });
 
@@ -2544,7 +2558,10 @@ export function FormaWorkspace({
   };
 
 
-  const fetchProjectHistory = async (page: number = projectHistoryPage) => {
+  const fetchProjectHistory = async (
+    page: number = projectHistoryPage,
+    search: string = projectSearchQuery,
+  ) => {
     const requestId = projectHistoryRequestIdRef.current + 1;
     projectHistoryRequestIdRef.current = requestId;
     setProjectHistoryLoaded(false);
@@ -2553,6 +2570,8 @@ export function FormaWorkspace({
         limit: String(PROJECT_GALLERY_PAGE_SIZE),
         offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
       });
+      const normalizedSearch = search.trim();
+      if (normalizedSearch) params.set("q", normalizedSearch);
       const res = await fetch(`${API_URL}/projects?${params.toString()}`, {
         headers: await optionalAuthHeaders(),
       });
@@ -4767,6 +4786,8 @@ export function FormaWorkspace({
                 totalItems={projectHistoryTotal}
                 currentPage={projectHistoryPage}
                 onPageChange={handleProjectHistoryPageChange}
+                searchValue={projectSearchInput}
+                onSearchValueChange={setProjectSearchInput}
                 standalone
               />
             </>

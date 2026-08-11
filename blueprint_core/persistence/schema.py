@@ -80,8 +80,7 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         "project_contribution_snapshots",
         (
             "id", "source_project_id", "consent_record_id", "sanitization_version", "contribution_status",
-            "payload_json", "created_at", "sanitized_at", "anonymized_at", "anonymization_review_status",
-            "reviewed_at", "reviewed_by_user_id", "purged_at",
+            "payload_json", "created_at", "sanitized_at", "anonymized_at", "purged_at",
         ),
     ),
     TableContract(

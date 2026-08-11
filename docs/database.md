@@ -86,10 +86,8 @@ Separately stored, aggregate-only contribution records created during the privac
 
 - `contribution_status` (`sanitized_pending_anonymization` or `anonymized`)
 - `payload_json` (sanitized structural counts and consent-purpose metadata)
-- `anonymization_review_status` (`pending`, `approved`, or `rejected`)
-- `reviewed_at` and `reviewed_by_user_id` (internal review audit metadata)
 
-Only anonymized snapshots with an approved, timestamped review are eligible for the admin Excel and ZIP exports. Reviewer and severed source/consent identifiers are not included in exported records.
+Admin Excel and ZIP downloads do not rely on a separate review state. At download time, the exporter selects projects with active contribution consent, applies the account opt-out veto, runs the aggregate sanitizer in memory, and emits fresh anonymous records without source, consent, account, workspace, chat, prompt, title, upload, or URL identifiers.
 
 ### a2a_jobs
 A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.

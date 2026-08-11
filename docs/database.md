@@ -87,7 +87,7 @@ Separately stored, aggregate-only contribution records created during the privac
 - `contribution_status` (`sanitized_pending_anonymization` or `anonymized`)
 - `payload_json` (sanitized structural counts and consent-purpose metadata)
 
-Admin Excel and ZIP downloads do not rely on a separate review state. At download time, the exporter selects projects with active contribution consent, applies the account opt-out veto, runs the aggregate sanitizer in memory, and emits fresh anonymous records without source, consent, account, workspace, chat, prompt, title, upload, or URL identifiers.
+Admin Excel and ZIP downloads do not rely on the separate deletion-contribution consent records. At download time, the exporter selects every active, user-owned project except those owned by an account with `model_training_opt_out = true`, runs the aggregate sanitizer in memory, and emits fresh anonymous records without source, account, workspace, chat, prompt, title, upload, or URL identifiers.
 
 ### a2a_jobs
 A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.

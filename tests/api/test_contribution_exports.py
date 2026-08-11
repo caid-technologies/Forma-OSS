@@ -8,7 +8,6 @@ import uuid
 import zipfile
 from pathlib import Path
 
-from apps.api import project_deletion
 from apps.api.contribution_export_api import (
     build_contribution_xlsx,
     build_contribution_zip,
@@ -94,19 +93,12 @@ class ContributionExportTests(unittest.TestCase):
             owner_user_id=self.owner_id,
             visibility="private",
         )
-        project_deletion.grant_contribution_consent(
-            self.project_id,
-            self.owner_id,
-            consent_version="2026-07-31",
-            permitted_purposes=["evaluation", "product_research"],
-        )
-
     def tearDown(self) -> None:
         database._DATABASE_PROVIDER = self.original_provider
         database._DATABASE_REPOSITORY = self.original_repository
         self.directory.cleanup()
 
-    def test_export_anonymizes_consented_project_at_download_time(self) -> None:
+    def test_export_anonymizes_default_opted_in_project_at_download_time(self) -> None:
         inventory = contribution_export_inventory()
         first_export = exportable_contribution_records()
         second_export = exportable_contribution_records()
@@ -115,8 +107,6 @@ class ContributionExportTests(unittest.TestCase):
         self.assertEqual(
             {
                 "file_number",
-                "consent_version",
-                "permitted_purposes",
                 "component_count",
                 "net_count",
             },
@@ -138,7 +128,7 @@ class ContributionExportTests(unittest.TestCase):
             self.assertNotIn(forbidden, serialized)
         self.assertEqual(2, first_export[0]["payload"]["hardware_summary"]["component_count"])
 
-    def test_account_opt_out_vetoes_existing_project_consent(self) -> None:
+    def test_account_opt_out_excludes_all_projects(self) -> None:
         database.set_user_model_training_preference(
             self.owner_id,
             allow_model_training=False,
@@ -148,10 +138,28 @@ class ContributionExportTests(unittest.TestCase):
         self.assertEqual({"count": 0, "files": []}, contribution_export_inventory())
         self.assertEqual([], exportable_contribution_records())
 
-    def test_withdrawn_project_consent_is_not_exported(self) -> None:
-        project_deletion.withdraw_contribution(self.project_id, self.owner_id)
+    def test_explicit_account_opt_in_is_included(self) -> None:
+        database.set_user_model_training_preference(
+            self.owner_id,
+            allow_model_training=True,
+            updated_at="2026-08-11T00:00:00Z",
+        )
 
-        self.assertEqual([], exportable_contribution_records())
+        self.assertEqual(1, contribution_export_inventory()["count"])
+
+    def test_export_includes_projects_from_every_non_opted_out_user(self) -> None:
+        database.save_generated_project(
+            project_id=str(uuid.uuid4()),
+            title="Another user's project",
+            prompt="private",
+            hardware_ir={"components": [], "nets": [], "validation": {}, "is_valid": True},
+            created_at="2026-08-02T00:00:00Z",
+            owner_user_id="another-user@example.com",
+            visibility="private",
+        )
+
+        self.assertEqual(2, contribution_export_inventory()["count"])
+        self.assertEqual(2, len(exportable_contribution_records()))
 
     def test_zip_contains_anonymous_numbered_files_and_manifests(self) -> None:
         records = exportable_contribution_records()

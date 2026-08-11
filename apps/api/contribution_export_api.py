@@ -1,4 +1,4 @@
-"""Admin exports that anonymize consented project data at download time."""
+"""Admin exports that anonymize opted-in project data at download time."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from apps.api.auth import UserContext, require_admin_user_context
 from apps.api.project_deletion import sanitize_project_for_contribution
-from blueprint_core.database import list_consented_projects_for_export
+from blueprint_core.database import list_model_training_projects_for_export
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-contribution-exports"])
@@ -27,8 +27,6 @@ _XLSX_COLUMNS = (
     "dataset_record_id",
     "schema_version",
     "sanitization_version",
-    "consent_version",
-    "permitted_purposes",
     "is_valid",
     "component_count",
     "component_categories",
@@ -41,59 +39,35 @@ _XLSX_COLUMNS = (
 )
 
 
-def _attr(record: Any, name: str, default: Any = None) -> Any:
-    if isinstance(record, dict):
-        return record.get(name, default)
-    return getattr(record, name, default)
-
-
 def _utc_timestamp() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
-def _entry_part(entry: Any, name: str) -> Any:
-    return _attr(entry, name, {})
-
-
-def anonymize_consented_project(entry: Any) -> dict[str, Any]:
+def anonymize_opted_in_project(project: Any) -> dict[str, Any]:
     """Create an export-only record without copying project or account identity."""
-    project = _entry_part(entry, "project")
-    consent = _entry_part(entry, "consent")
     payload = sanitize_project_for_contribution(project)
-    payload["consent_version"] = str(_attr(consent, "consent_version", ""))
-    payload["permitted_purposes"] = sorted(
-        {
-            str(purpose)
-            for purpose in (_attr(consent, "permitted_purposes", []) or [])
-            if str(purpose).strip()
-        }
-    )
     return {
         "dataset_record_id": str(uuid.uuid4()),
         "sanitization_version": str(payload.get("sanitization_version") or ""),
-        "consent_version": payload["consent_version"],
-        "permitted_purposes": payload["permitted_purposes"],
         "payload": payload,
     }
 
 
 def exportable_contribution_records() -> list[dict[str, Any]]:
     return [
-        anonymize_consented_project(entry)
-        for entry in list_consented_projects_for_export()
+        anonymize_opted_in_project(project)
+        for project in list_model_training_projects_for_export()
     ]
 
 
 def contribution_export_inventory() -> dict[str, Any]:
     files = []
-    for file_number, entry in enumerate(list_consented_projects_for_export(), 1):
-        record = anonymize_consented_project(entry)
+    for file_number, project in enumerate(list_model_training_projects_for_export(), 1):
+        record = anonymize_opted_in_project(project)
         summary = record["payload"].get("hardware_summary", {})
         files.append(
             {
                 "file_number": file_number,
-                "consent_version": record["consent_version"],
-                "permitted_purposes": record["permitted_purposes"],
                 "component_count": summary.get("component_count", 0),
                 "net_count": summary.get("net_count", 0),
             }
@@ -111,8 +85,6 @@ def build_contribution_zip(records: list[dict[str, Any]], generated_at: str) -> 
                 "file",
                 "dataset_record_id",
                 "sanitization_version",
-                "consent_version",
-                "permitted_purposes",
             )
         )
         for file_number, record in enumerate(records, 1):
@@ -122,8 +94,6 @@ def build_contribution_zip(records: list[dict[str, Any]], generated_at: str) -> 
                     path,
                     record["dataset_record_id"],
                     record["sanitization_version"],
-                    record["consent_version"],
-                    ";".join(record["permitted_purposes"]),
                 )
             )
             archive.writestr(path, json.dumps(record, indent=2, sort_keys=True) + "\n")
@@ -136,7 +106,7 @@ def build_contribution_zip(records: list[dict[str, Any]], generated_at: str) -> 
                     "generated_at": generated_at,
                     "record_count": len(records),
                     "anonymization": "performed during export",
-                    "eligibility": "active project consent and no account-level model-training opt-out",
+                    "eligibility": "active user-owned project and no account-level model-training opt-out",
                 },
                 indent=2,
                 sort_keys=True,
@@ -180,8 +150,6 @@ def _xlsx_row(record: dict[str, Any]) -> dict[str, Any]:
         "dataset_record_id": record["dataset_record_id"],
         "schema_version": payload.get("schema_version"),
         "sanitization_version": record["sanitization_version"],
-        "consent_version": record["consent_version"],
-        "permitted_purposes": ";".join(record["permitted_purposes"]),
         "is_valid": bool(hardware.get("is_valid")),
         "component_count": hardware.get("component_count", 0),
         "component_categories": json.dumps(hardware.get("component_categories", {}), sort_keys=True),
@@ -290,8 +258,8 @@ def download_contribution_export_endpoint(
     else:
         content = build_contribution_zip(records, generated_at)
         media_type = "application/zip"
-    filename = f"forma-consented-contributions-{filename_timestamp}.{format}"
-    logger.info("Consented projects anonymized and exported; format=%s record_count=%d", format, len(records))
+    filename = f"forma-anonymized-projects-{filename_timestamp}.{format}"
+    logger.info("Opted-in projects anonymized and exported; format=%s record_count=%d", format, len(records))
     return Response(
         content=content,
         media_type=media_type,

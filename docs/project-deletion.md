@@ -24,7 +24,7 @@ Before purge, withdrawal deletes the pending snapshot. At purge, an eligible san
 - `GET /admin/contribution-exports?format=xlsx` downloads one anonymous flattened row per eligible project in an Excel workbook.
 - `GET /admin/contribution-exports?format=zip` downloads one anonymous JSON file per eligible project with CSV and JSON manifests.
 
-Eligibility requires an active, unwithdrawn project contribution consent record, and the account-level model-training opt-out is a veto. The exporter reads the eligible project, runs the aggregate-only sanitizer in memory, assigns a fresh export-only random identifier, and writes only that anonymous copy. Project, consent, account, workspace, chat, title, prompt, URL, upload, and reviewer identifiers are never written to the export. Withdrawn, opted-out, and already-purged projects are excluded.
+Eligibility follows the account-level data-usage preference: every active, user-owned project is included by default unless its owner has `model_training_opt_out = true`. This is global across all users and does not require a separate per-project contribution-consent row. The exporter reads each eligible project, runs the aggregate-only sanitizer in memory, assigns a fresh export-only random identifier, and writes only that anonymous copy. Project, account, workspace, chat, title, prompt, URL, upload, and reviewer identifiers are never written to the export. Opted-out, ownerless, deleted, and purged projects are excluded.
 
 ## Configuration and operations
 

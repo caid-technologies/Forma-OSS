@@ -40,8 +40,6 @@ type ContributionInventory = {
   count: number;
   files: Array<{
     file_number: number;
-    consent_version: string;
-    permitted_purposes: string[];
     component_count: number;
     net_count: number;
   }>;
@@ -95,7 +93,7 @@ export function ContributionExportPanel({
       if (!response.ok) throw new Error(await readError(response));
       const disposition = response.headers.get("Content-Disposition") || "";
       const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-        || `forma-consented-contributions.${format}`;
+        || `forma-anonymized-projects.${format}`;
       const url = URL.createObjectURL(await response.blob());
       const anchor = document.createElement("a");
       anchor.href = url;
@@ -120,10 +118,10 @@ export function ContributionExportPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <Download className="h-4 w-4 text-cyan-400" />
-            <h2 className="text-base font-black uppercase text-white">Consented data exports</h2>
+            <h2 className="text-base font-black uppercase text-white">Opted-in data exports</h2>
           </div>
           <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-            Download every project with active contribution consent whose owner has not opted out. User and project data is anonymized when the export is generated.
+            Download every active project across all users except accounts that opted out. User and project data is anonymized when the export is generated.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -149,7 +147,7 @@ export function ContributionExportPanel({
       </div>
 
       <div className="my-4 grid gap-2 sm:grid-cols-2">
-        <JobMetric label="Consented files" value={inventory?.count ?? "-"} />
+        <JobMetric label="Eligible projects" value={inventory?.count ?? "-"} />
         <JobMetric label="Anonymization" value="At download" />
       </div>
 
@@ -161,27 +159,27 @@ export function ContributionExportPanel({
       )}
 
       {loading && !inventory ? (
-        <div className="border border-[#2a2c33] p-4 text-xs text-slate-500">Loading consented files...</div>
+        <div className="border border-[#2a2c33] p-4 text-xs text-slate-500">Loading eligible projects...</div>
       ) : files.length ? (
         <div className="space-y-2">
           {files.slice(0, 25).map((file) => (
               <div key={file.file_number} className="flex flex-col gap-2 border border-[#2a2c33] bg-[#141519] p-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-bold text-slate-300">Consented file {file.file_number}</span>
+                  <span className="font-bold text-slate-300">Eligible project {file.file_number}</span>
                   <span className="border border-emerald-500/30 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">Ready</span>
                 </div>
                 <p className="text-[11px] leading-5 text-slate-500">
-                  {file.component_count} components · {file.net_count} nets · {file.permitted_purposes.join(", ")}
+                  {file.component_count} components · {file.net_count} nets
                 </p>
               </div>
           ))}
           {files.length > 25 && (
-            <p className="text-[11px] text-slate-600">Showing 25 of {files.length} consented files.</p>
+            <p className="text-[11px] text-slate-600">Showing 25 of {files.length} eligible projects.</p>
           )}
         </div>
       ) : (
         <div className="border border-[#2a2c33] p-4 text-xs leading-5 text-slate-500">
-          No projects currently satisfy both the contribution-consent and account-preference checks.
+          No active projects belong to users who have not opted out.
         </div>
       )}
     </section>

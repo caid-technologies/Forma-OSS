@@ -1249,9 +1249,9 @@ def purge_project_contribution_snapshots(consent_record_id: str, purged_at: str)
     return _DATABASE_REPOSITORY.purge_project_contribution_snapshots(consent_record_id, purged_at)
 
 
-def list_consented_projects_for_export() -> List[Any]:
-    """Return project/consent pairs allowed by project consent and account settings."""
-    return _DATABASE_REPOSITORY.list_consented_projects_for_export()
+def list_model_training_projects_for_export() -> List[Any]:
+    """Return every active, user-owned project whose owner has not opted out."""
+    return _DATABASE_REPOSITORY.list_model_training_projects_for_export()
 
 
 def add_project_deletion_audit(record: Dict[str, Any]) -> Any:

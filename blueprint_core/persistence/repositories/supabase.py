@@ -730,55 +730,31 @@ class SupabaseRepository:
         ).execute()
         return len(snapshot_ids)
 
-    def list_consented_projects_for_export(self) -> List[Any]:
-        consent_rows: List[Dict[str, Any]] = []
+    def list_model_training_projects_for_export(self) -> List[Any]:
+        opted_out_user_ids = set(self.list_model_training_opt_out_user_ids())
+        projects: List[Any] = []
         offset = 0
         while True:
             page = (
-                self._client.table("project_contribution_consents")
+                self._client.table("generated_projects")
                 .select("*")
-                .is_("withdrawn_at", "null")
-                .order("granted_at")
+                .eq("status", "active")
+                .order("created_at")
                 .range(offset, offset + 999)
                 .execute()
                 .data
                 or []
             )
-            consent_rows.extend(page)
+            projects.extend(
+                _record(row)
+                for row in page
+                if str(row.get("owner_user_id") or "").strip()
+                and str(row.get("owner_user_id")) not in opted_out_user_ids
+            )
             if len(page) < 1000:
                 break
             offset += 1000
-
-        opted_out_user_ids = set(self.list_model_training_opt_out_user_ids())
-        eligible_consents = [
-            row
-            for row in consent_rows
-            if str(row.get("user_id") or "") not in opted_out_user_ids
-        ]
-        project_rows: List[Dict[str, Any]] = []
-        project_ids = [str(row.get("project_id") or "") for row in eligible_consents if row.get("project_id")]
-        for index in range(0, len(project_ids), 100):
-            project_rows.extend(
-                self._client.table("generated_projects")
-                .select("*")
-                .in_("project_id", project_ids[index:index + 100])
-                .in_("status", ["active", "deletion_pending"])
-                .execute()
-                .data
-                or []
-            )
-        projects_by_owner = {
-            (str(row.get("project_id") or ""), str(row.get("owner_user_id") or "")): row
-            for row in project_rows
-        }
-        results = []
-        for consent in eligible_consents:
-            project = projects_by_owner.get(
-                (str(consent.get("project_id") or ""), str(consent.get("user_id") or ""))
-            )
-            if project:
-                results.append({"project": _record(project), "consent": _record(consent)})
-        return results
+        return projects
 
     def add_project_deletion_audit(self, record: Dict[str, Any]) -> Any:
         rows = self._client.table("project_deletion_audit").insert(record).execute().data or []
@@ -956,12 +932,20 @@ class SupabaseRepository:
         return _record(rows[0]) if rows else _record(record)
 
     def list_model_training_opt_out_user_ids(self) -> List[str]:
-        rows = (
-            self._client.table("user_settings")
-            .select("owner_user_id")
-            .eq("model_training_opt_out", True)
-            .execute()
-            .data
-            or []
-        )
-        return [str(row["owner_user_id"]) for row in rows]
+        user_ids: List[str] = []
+        offset = 0
+        while True:
+            page = (
+                self._client.table("user_settings")
+                .select("owner_user_id")
+                .eq("model_training_opt_out", True)
+                .range(offset, offset + 999)
+                .execute()
+                .data
+                or []
+            )
+            user_ids.extend(str(row["owner_user_id"]) for row in page)
+            if len(page) < 1000:
+                break
+            offset += 1000
+        return user_ids

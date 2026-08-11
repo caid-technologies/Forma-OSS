@@ -80,6 +80,17 @@ Queryable per-user product and privacy preferences.
 
 No row means the product default applies. A row is created when the user saves the preference, so explicit opt-outs can be listed with `model_training_opt_out = true`. Dataset exporters must consult this table before selecting user-owned outputs.
 
+### project_contribution_snapshots
+
+Separately stored, aggregate-only contribution records created during the privacy-aware deletion flow. Operational project content is never copied here.
+
+- `contribution_status` (`sanitized_pending_anonymization` or `anonymized`)
+- `payload_json` (sanitized structural counts and consent-purpose metadata)
+- `anonymization_review_status` (`pending`, `approved`, or `rejected`)
+- `reviewed_at` and `reviewed_by_user_id` (internal review audit metadata)
+
+Only anonymized snapshots with an approved, timestamped review are eligible for the admin Excel and ZIP exports. Reviewer and severed source/consent identifiers are not included in exported records.
+
 ### a2a_jobs
 A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.
 - Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, `source_usage` metadata for Catalog/data warehouse, Web Research/Firecrawl, and past-job context, compact result summaries, structured operation pass/fail metadata, image output status/error metadata, errors, and optional `error_debug` traces when `BLUEPRINT_DEBUG=true`

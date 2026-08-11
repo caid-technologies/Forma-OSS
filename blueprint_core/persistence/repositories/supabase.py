@@ -730,6 +730,62 @@ class SupabaseRepository:
         ).execute()
         return len(snapshot_ids)
 
+    def list_project_contribution_snapshots(self, limit: Optional[int] = None) -> List[Any]:
+        page_size = min(limit or 1000, 1000)
+        rows: List[Dict[str, Any]] = []
+        offset = 0
+        while True:
+            query = (
+                self._client.table("project_contribution_snapshots")
+                .select("*")
+                .order("created_at", desc=True)
+                .range(offset, offset + page_size - 1)
+            )
+            page = query.execute().data or []
+            rows.extend(page)
+            if len(page) < page_size or (limit is not None and len(rows) >= limit):
+                break
+            offset += page_size
+        if limit is not None:
+            rows = rows[:limit]
+        return [_record(row) for row in rows]
+
+    def review_project_contribution_snapshot(
+        self,
+        snapshot_id: str,
+        review_status: str,
+        reviewed_at: str,
+        reviewed_by_user_id: str,
+    ) -> Optional[Any]:
+        candidates = (
+            self._client.table("project_contribution_snapshots")
+            .select("id,anonymized_at")
+            .eq("id", snapshot_id)
+            .eq("contribution_status", "anonymized")
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not candidates or not candidates[0].get("anonymized_at"):
+            return None
+        rows = (
+            self._client.table("project_contribution_snapshots")
+            .update(
+                {
+                    "anonymization_review_status": review_status,
+                    "reviewed_at": reviewed_at,
+                    "reviewed_by_user_id": reviewed_by_user_id,
+                }
+            )
+            .eq("id", snapshot_id)
+            .eq("contribution_status", "anonymized")
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
     def add_project_deletion_audit(self, record: Dict[str, Any]) -> Any:
         rows = self._client.table("project_deletion_audit").insert(record).execute().data or []
         return _record(rows[0]) if rows else _record(record)

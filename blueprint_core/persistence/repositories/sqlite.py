@@ -787,6 +787,38 @@ class SqlAlchemyRepository:
                 consent.purged_at = purged_at
             return count
 
+    def list_project_contribution_snapshots(self, limit: Optional[int] = None) -> List[Any]:
+        with self._session() as session:
+            query = session.query(DBProjectContributionSnapshot).order_by(
+                DBProjectContributionSnapshot.created_at.desc()
+            )
+            if limit is not None:
+                query = query.limit(limit)
+            return query.all()
+
+    def review_project_contribution_snapshot(
+        self,
+        snapshot_id: str,
+        review_status: str,
+        reviewed_at: str,
+        reviewed_by_user_id: str,
+    ) -> Optional[Any]:
+        with self._session() as session, session.begin():
+            snapshot = session.query(DBProjectContributionSnapshot).filter(
+                DBProjectContributionSnapshot.id == snapshot_id,
+                DBProjectContributionSnapshot.contribution_status == "anonymized",
+                DBProjectContributionSnapshot.anonymized_at.is_not(None),
+            ).first()
+            if not snapshot:
+                return None
+            snapshot.anonymization_review_status = review_status
+            snapshot.reviewed_at = reviewed_at
+            snapshot.reviewed_by_user_id = reviewed_by_user_id
+            session.flush()
+            session.refresh(snapshot)
+            session.expunge(snapshot)
+            return snapshot
+
     def add_project_deletion_audit(self, record: Dict[str, Any]) -> Any:
         with self._session() as session, session.begin():
             audit = DBProjectDeletionAudit(**record)

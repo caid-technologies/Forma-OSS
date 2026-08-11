@@ -191,6 +191,16 @@ class ApplicationRepository(Protocol):
 
     def purge_project_contribution_snapshots(self, consent_record_id: str, purged_at: str) -> int: ...
 
+    def list_project_contribution_snapshots(self, limit: Optional[int] = None) -> List[Any]: ...
+
+    def review_project_contribution_snapshot(
+        self,
+        snapshot_id: str,
+        review_status: str,
+        reviewed_at: str,
+        reviewed_by_user_id: str,
+    ) -> Optional[Any]: ...
+
     def add_project_deletion_audit(self, record: Dict[str, Any]) -> Any: ...
 
     def get_latest_project_deletion_audit(self, project_id: str) -> Optional[Any]: ...

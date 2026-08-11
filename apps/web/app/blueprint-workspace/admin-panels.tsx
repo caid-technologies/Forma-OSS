@@ -557,6 +557,7 @@ const JOB_METRICS_WINDOW_OPTIONS: Array<{ value: JobMetricsWindow; label: string
   { value: "24h", label: "24 hours" },
   { value: "7d", label: "7 days" },
 ];
+const JOB_METRICS_WINDOW_HOURS: Record<JobMetricsWindow, number> = { "1h": 1, "24h": 24, "7d": 168 };
 
 function JobMetricsPanel({
   metrics,
@@ -569,14 +570,16 @@ function JobMetricsPanel({
   metricsWindow: JobMetricsWindow;
   onMetricsWindowChange?: (window: JobMetricsWindow) => void;
 }) {
-  if (error && !metrics) {
+  const selectedMetrics = metrics?.interval_hours === JOB_METRICS_WINDOW_HOURS[metricsWindow] ? metrics : null;
+
+  if (error && !selectedMetrics) {
     return (
       <div className="mb-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200">
         {error}
       </div>
     );
   }
-  if (!metrics) {
+  if (!selectedMetrics) {
     return <div className="mb-4 border border-[#2a2c33] bg-[#17181d] p-4 text-xs text-slate-500">Loading job metrics...</div>;
   }
 
@@ -606,23 +609,23 @@ function JobMetricsPanel({
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
-        <JobMetricSummary label={`Jobs · ${intervalLabel}`} value={metrics.total_jobs} detail="Created in selected interval" />
+        <JobMetricSummary label={`Jobs · ${intervalLabel}`} value={selectedMetrics.total_jobs} detail="Created in selected interval" />
         <JobMetricSummary
           label="Completed"
-          value={metrics.completed_jobs}
-          detail={`${metrics.failed_jobs} failed`}
-          danger={metrics.failed_jobs > 0}
+          value={selectedMetrics.completed_jobs}
+          detail={`${selectedMetrics.failed_jobs} failed`}
+          danger={selectedMetrics.failed_jobs > 0}
         />
         <JobMetricSummary
           label={`${intervalLabel} failure rate`}
-          value={`${Number(metrics.failure_rate || 0).toFixed(1)}%`}
-          detail={`${metrics.failed_jobs} failed / ${metrics.completed_jobs} completed`}
-          danger={metrics.failure_rate > 0}
+          value={`${Number(selectedMetrics.failure_rate || 0).toFixed(1)}%`}
+          detail={`${selectedMetrics.failed_jobs} failed / ${selectedMetrics.completed_jobs} completed`}
+          danger={selectedMetrics.failure_rate > 0}
         />
       </div>
       <JobVolumeChart
         title={chartUsesDays ? "Jobs per day" : "Jobs per hour"}
-        buckets={chartUsesDays ? metrics.daily : metrics.hourly}
+        buckets={chartUsesDays ? selectedMetrics.daily : selectedMetrics.hourly}
         unit={chartUsesDays ? "day" : "hour"}
       />
       {error && <p className="text-[11px] text-amber-300">Showing the last available metrics. {error}</p>}

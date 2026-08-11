@@ -151,6 +151,7 @@ def gather_project_context_endpoint(
 
     brief = previous
     questions: list[str] = []
+    suggestions = list(decision.suggestions) if decision.tool_name == "ask_question" else []
     build_execution: ContextBuildExecution | None = None
     if decision.tool_name == "build_project" and brief is None:
         bootstrap_request = _bootstrap_context_request(request, existing_messages)
@@ -166,7 +167,7 @@ def gather_project_context_endpoint(
                     ).workflow
                 except WorkflowStateError as exc:
                     raise _workflow_error(exc) from exc
-            brief_create, _, questions = agent.update(bootstrap_request, None)
+            brief_create, _, questions, _ = agent.update(bootstrap_request, None)
             try:
                 brief = create_design_brief_version(str(project_id), owner, brief_create)
             except DesignBriefAccessError as exc:
@@ -224,7 +225,9 @@ def gather_project_context_endpoint(
                 },
             )
 
-        brief_create, _, questions = agent.update(request, previous)
+        brief_create, _, questions, generated_suggestions = agent.update(request, previous)
+        if not suggestions:
+            suggestions = generated_suggestions
         try:
             brief = create_design_brief_version(str(project_id), owner, brief_create)
         except DesignBriefAccessError as exc:
@@ -337,6 +340,7 @@ def gather_project_context_endpoint(
             "status": "complete",
             "timestamp": now,
             "questions": questions,
+            "suggestions": suggestions,
             "turnKind": decision.turn_kind,
             "toolName": decision.tool_name,
         }
@@ -371,5 +375,6 @@ def gather_project_context_endpoint(
         design_brief=brief,
         assistant_message=decision.assistant_message,
         questions=questions,
+        suggestions=suggestions,
         build_execution=build_execution,
     )

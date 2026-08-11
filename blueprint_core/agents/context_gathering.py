@@ -69,6 +69,7 @@ class ContextGatheringAgent(ContextBriefUpdater):
             "- iterate_project: a completed project exists and the user requests a change to it.",
             "Set turn_kind only as compatibility metadata: ask_question uses chat, clarification, or context; all other tools use proceed.",
             "Never mention internal fields, unresolved-context bookkeeping, routing, or context collection. Never repeat a question the user just answered or asked you to explain.",
+            "When ask_question offers a finite choice, populate suggestions with 2 to 4 concise, self-contained answers that the user can submit verbatim. Never add Custom, Other, Something else, or an equivalent catch-all; free text is always available.",
             "If the user asks what they can build, offer a few relevant ideas and invite them to choose or describe a direction.",
             "If the user says they do not know, guide them using outcomes and tradeoffs rather than repeating a technical question.",
             f"Workflow state: {workflow_state or 'not_started'}",

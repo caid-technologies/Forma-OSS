@@ -30,6 +30,7 @@ type HomeChatMessage = {
   contextProjectId?: string | null;
   workflowState?: string | null;
   contextQuestions?: string[];
+  contextSuggestions?: string[];
   buildPlanId?: string | null;
   buildJobId?: string | null;
 };
@@ -43,9 +44,10 @@ type HomeChatViewProps = {
   examples: string[];
   onSelectExample: (example: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  canSkipContext: boolean;
-  contextSkipping: boolean;
-  onSkipContext: () => void;
+  canBuildNow: boolean;
+  buildNowLoading: boolean;
+  onBuildNow: () => void;
+  onSelectContextSuggestion: (suggestion: string) => void;
   isLoading: boolean;
   generationReady: boolean;
   needsGenerationProvider: boolean;
@@ -79,9 +81,10 @@ export default function HomeChatView({
   examples,
   onSelectExample,
   onSubmit,
-  canSkipContext,
-  contextSkipping,
-  onSkipContext,
+  canBuildNow,
+  buildNowLoading,
+  onBuildNow,
+  onSelectContextSuggestion,
   isLoading,
   generationReady,
   needsGenerationProvider,
@@ -100,9 +103,12 @@ export default function HomeChatView({
   onImagePaste,
 }: HomeChatViewProps) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
-  const latestContextMessageId = [...messages]
+  const latestBuildNowMessageId = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && message.workflowState === "gathering_context")?.id;
+  const latestChoiceMessageId = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
 
   return (
     <section
@@ -175,15 +181,31 @@ export default function HomeChatView({
                       />
                     </div>
                     <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    {!isUser && canSkipContext && message.id === latestContextMessageId && (
+                    {!isUser && message.id === latestChoiceMessageId && Boolean(message.contextSuggestions?.length) && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Suggested answers">
+                        {message.contextSuggestions?.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => onSelectContextSuggestion(suggestion)}
+                            disabled={isLoading}
+                            className="flex min-h-12 items-center gap-2 border border-[#3a3e48] bg-[#111216] px-3 py-2 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+                            <span className="break-words">{suggestion}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!isUser && canBuildNow && message.id === latestBuildNowMessageId && (
                       <button
                         type="button"
-                        onClick={onSkipContext}
-                        disabled={contextSkipping || isLoading}
+                        onClick={onBuildNow}
+                        disabled={buildNowLoading || isLoading}
                         className="mt-3 inline-flex h-9 items-center justify-center gap-2 border border-cyan-300/40 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {contextSkipping ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                        Skip context gathering
+                        {buildNowLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                        Build now
                       </button>
                     )}
                     {message.imagePreview && (

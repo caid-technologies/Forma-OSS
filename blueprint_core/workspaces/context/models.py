@@ -3,13 +3,33 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from blueprint_core.workspaces.design_briefs import DesignBrief
 from blueprint_core.workspaces.workflow import ProjectWorkflow
 
 
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+
+
+def _suggested_answers(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    excluded = {"custom", "other", "something else", "none of these"}
+    seen: set[str] = set()
+    suggestions: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        suggestion = " ".join(item.split())
+        key = suggestion.casefold()
+        if not suggestion or key in excluded or key in seen:
+            continue
+        seen.add(key)
+        suggestions.append(suggestion[:120])
+        if len(suggestions) == 4:
+            break
+    return suggestions
 
 
 class ContextAttachment(BaseModel):
@@ -69,7 +89,13 @@ class ContextGatheringResponse(BaseModel):
     design_brief: DesignBrief | None = None
     assistant_message: NonEmptyString
     questions: list[NonEmptyString] = Field(default_factory=list)
+    suggestions: list[NonEmptyString] = Field(default_factory=list)
     build_execution: ContextBuildExecution | None = None
+
+    @field_validator("suggestions", mode="before")
+    @classmethod
+    def normalize_suggestions(cls, value: object) -> list[str]:
+        return _suggested_answers(value)
 
 
 class ContextTurnDecision(BaseModel):
@@ -81,3 +107,9 @@ class ContextTurnDecision(BaseModel):
     tool_name: Literal["ask_question", "build_project", "render_project", "iterate_project"] = "ask_question"
     save_context: bool = False
     assistant_message: NonEmptyString
+    suggestions: list[NonEmptyString] = Field(default_factory=list)
+
+    @field_validator("suggestions", mode="before")
+    @classmethod
+    def normalize_suggestions(cls, value: object) -> list[str]:
+        return _suggested_answers(value)

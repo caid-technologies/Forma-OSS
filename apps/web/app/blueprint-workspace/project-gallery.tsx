@@ -333,7 +333,7 @@ export function ProjectGallery({
         <ProjectGallerySkeleton count={pageSize} />
       ) : total && visibleItems.length ? (
         <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {visibleItems.map((item) => (
               <ProjectGalleryCard
                 key={item.key}
@@ -439,16 +439,16 @@ function buildProjectGalleryPageMarkers(currentPage: number, pageCount: number):
 function ProjectGallerySkeleton({ count }: { count: number }) {
   const skeletonItems = Array.from({ length: Math.max(1, count) }, (_, index) => index);
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Loading projects">
+    <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="Loading projects">
       {skeletonItems.map((item) => (
         <div
           key={item}
-          className="overflow-hidden border border-[#2c2f37] bg-[#17181d]"
+          className="flex h-full flex-col overflow-hidden border border-[#2c2f37] bg-[#17181d]"
         >
           <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
             <ProjectImageLoadingPanel />
           </div>
-          <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
+          <div className="flex min-h-[150px] flex-1 flex-col justify-between gap-3 p-4">
             <div className="space-y-2">
               <div className="h-4 w-4/5 animate-pulse bg-[#252832]" />
               <div className="h-4 w-3/5 animate-pulse bg-[#252832]" />
@@ -458,10 +458,10 @@ function ProjectGallerySkeleton({ count }: { count: number }) {
               <div className="h-3 w-10 animate-pulse bg-[#252832]" />
               <div className="h-3 w-12 animate-pulse bg-[#252832]" />
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <div className="h-4 w-24 animate-pulse bg-[#252832]" />
-              <div className="h-9 w-24 animate-pulse border border-cyan-300/20 bg-[#111820]" />
-            </div>
+            <div className="h-4 w-24 animate-pulse bg-[#252832]" />
+          </div>
+          <div className="flex h-14 shrink-0 items-center justify-end border-t border-[#2c2f37] px-4 py-2">
+            <div className="h-9 w-24 animate-pulse border border-cyan-300/20 bg-[#111820]" />
           </div>
         </div>
       ))}
@@ -503,7 +503,7 @@ function ProjectGalleryCard({
           onOpen();
         }
       }}
-      className="group cursor-pointer overflow-hidden border border-[#2c2f37] bg-[#17181d] outline-none transition hover:border-cyan-300/35 focus-visible:border-cyan-300"
+      className="group flex h-full cursor-pointer flex-col overflow-hidden border border-[#2c2f37] bg-[#17181d] outline-none transition hover:border-cyan-300/35 focus-visible:border-cyan-300"
       aria-label={`View project ${item.title}`}
     >
       <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
@@ -522,16 +522,18 @@ function ProjectGalleryCard({
         )}
       </div>
 
-      <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
+      <div className="flex min-h-[150px] flex-1 flex-col gap-3 p-4">
         <h3 className="line-clamp-2 min-h-10 break-words text-sm font-black uppercase leading-5 tracking-[0.08em] text-white">
           {item.title}
         </h3>
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-sm font-bold text-slate-500">
           <span className="whitespace-nowrap">{item.partsCount} parts</span>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-300">
-            <Star className="h-3.5 w-3.5 fill-current" />
-            {item.starCount}
-          </span>
+          {item.starCount > 0 && (
+            <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-300">
+              <Star className="h-3.5 w-3.5 fill-current" />
+              {item.starCount}
+            </span>
+          )}
           {ageLabel && (
             <span className="inline-flex items-center gap-1 whitespace-nowrap">
               <Clock3 className="h-3.5 w-3.5" />
@@ -539,42 +541,41 @@ function ProjectGalleryCard({
             </span>
           )}
         </div>
-        <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-500">
-            {item.creatorImageUrl ? (
-              <img
-                src={item.creatorImageUrl}
-                alt=""
-                className="h-5 w-5 shrink-0 border border-[#2c2f37] object-cover"
-              />
-            ) : (
-              <span className="h-3.5 w-3.5 shrink-0 border border-emerald-300 bg-emerald-400 shadow-[inset_6px_0_0_#f472b6]" />
-            )}
-            <span className="truncate">{item.creatorDisplay}</span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {onDelete && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDelete();
-                }}
-                onKeyDown={(event) => event.stopPropagation()}
-                className="inline-flex h-9 w-9 items-center justify-center border border-red-400/35 text-red-200 transition hover:bg-red-400 hover:text-black"
-                aria-label={`Delete ${item.title}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
-            {item.canChat && (
-              <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
-                <MessageSquare className="h-4 w-4 shrink-0" />
-                <span className="truncate">Your project</span>
-              </span>
-            )}
-          </div>
+        <div className="mt-auto flex min-w-0 items-center gap-2 text-sm font-bold text-slate-500">
+          {item.creatorImageUrl ? (
+            <img
+              src={item.creatorImageUrl}
+              alt=""
+              className="h-5 w-5 shrink-0 border border-[#2c2f37] object-cover"
+            />
+          ) : (
+            <span className="h-3.5 w-3.5 shrink-0 border border-emerald-300 bg-emerald-400 shadow-[inset_6px_0_0_#f472b6]" />
+          )}
+          <span className="truncate">{item.creatorDisplay}</span>
         </div>
+      </div>
+
+      <div className="flex h-14 shrink-0 items-center justify-end gap-2 border-t border-[#2c2f37] px-4 py-2">
+        {onDelete && (
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDelete();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+            className="inline-flex h-9 w-9 items-center justify-center border border-red-400/35 text-red-200 transition hover:bg-red-400 hover:text-black"
+            aria-label={`Delete ${item.title}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        )}
+        {item.canChat && (
+          <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
+            <MessageSquare className="h-4 w-4 shrink-0" />
+            <span>Your project</span>
+          </span>
+        )}
       </div>
     </article>
   );

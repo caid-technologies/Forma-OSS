@@ -52,4 +52,27 @@ def migrate_sqlite_schema(engine: Engine, *, import_legacy_jobs: bool = True) ->
             text("CREATE INDEX IF NOT EXISTS ix_generated_projects_purge_after ON generated_projects (purge_after)")
         )
 
+        snapshot_columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(project_contribution_snapshots)").fetchall()
+        }
+        if "anonymization_review_status" not in snapshot_columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE project_contribution_snapshots "
+                    "ADD COLUMN anonymization_review_status VARCHAR NOT NULL DEFAULT 'pending'"
+                )
+            )
+        for column in ("reviewed_at", "reviewed_by_user_id"):
+            if column not in snapshot_columns:
+                connection.execute(
+                    text(f"ALTER TABLE project_contribution_snapshots ADD COLUMN {column} VARCHAR")
+                )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS ix_project_contribution_snapshots_review_status "
+                "ON project_contribution_snapshots (anonymization_review_status)"
+            )
+        )
+
     migrate_job_schema(engine, import_legacy_jobs=import_legacy_jobs)

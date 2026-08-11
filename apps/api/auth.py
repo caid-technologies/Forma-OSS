@@ -378,6 +378,14 @@ async def require_admin_user_context(request: Request) -> UserContext:
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required.")
 
 
+async def require_admin_destructive_user_context(request: Request) -> UserContext:
+    """Require recent authentication, rate limiting, and administrative access."""
+    context = await require_destructive_user_context(request)
+    if context.is_admin:
+        return context
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required.")
+
+
 async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
     """Compatibility wrapper for routes that still consume raw Clerk claims."""
     if not deployed_auth_required():

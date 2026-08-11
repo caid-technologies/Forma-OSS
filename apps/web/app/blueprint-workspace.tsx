@@ -40,6 +40,7 @@ import {
   type StoredVideoInfo,
 } from "./blueprint-workspace/use-project-video";
 import {
+  ContributionExportPanel,
   JobsPanel,
   LogsPanel,
   formatBytes,
@@ -4890,26 +4891,33 @@ export function FormaWorkspace({
                 description="Generated-project jobs, pipeline events, image status, and operation errors."
               />
               {canViewJobs ? (
-                <JobsPanel
-                  jobs={a2aJobs}
-                  metrics={jobMetrics}
-                  metricsError={jobMetricsError}
-                  metricsWindow={jobMetricsWindow}
-                  onMetricsWindowChange={setJobMetricsWindow}
-                  loading={jobsLoading}
-                  error={jobsError}
-                  statusFilter={jobStatusFilter}
-                  onStatusFilterChange={changeJobStatusFilter}
-                  onRefresh={() => fetchA2aJobs(jobStatusFilter)}
-                  onOpenProject={loadProjectForJob}
-                  findProjectForJob={findProjectForJob}
-                  lastUpdatedAt={jobsLastUpdatedAt}
-                  pollIntervalMs={JOB_POLL_INTERVAL_MS}
-                  title="Jobs"
-                  description="Generation and example project job metadata. Polling stays active while this page is open."
-                  emptyMessage="No jobs recorded for this filter."
-                  formatLlmLabel={generationLlmLabel}
-                />
+                <>
+                  <ContributionExportPanel
+                    apiUrl={API_URL}
+                    getHeaders={generationRequestHeaders}
+                    readError={readApiErrorMessage}
+                  />
+                  <JobsPanel
+                    jobs={a2aJobs}
+                    metrics={jobMetrics}
+                    metricsError={jobMetricsError}
+                    metricsWindow={jobMetricsWindow}
+                    onMetricsWindowChange={setJobMetricsWindow}
+                    loading={jobsLoading}
+                    error={jobsError}
+                    statusFilter={jobStatusFilter}
+                    onStatusFilterChange={changeJobStatusFilter}
+                    onRefresh={() => fetchA2aJobs(jobStatusFilter)}
+                    onOpenProject={loadProjectForJob}
+                    findProjectForJob={findProjectForJob}
+                    lastUpdatedAt={jobsLastUpdatedAt}
+                    pollIntervalMs={JOB_POLL_INTERVAL_MS}
+                    title="Jobs"
+                    description="Generation and example project job metadata. Polling stays active while this page is open."
+                    emptyMessage="No jobs recorded for this filter."
+                    formatLlmLabel={generationLlmLabel}
+                  />
+                </>
               ) : (
                 <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
                   {adminSessionLoaded ? "Admin access is required to view jobs." : "Checking admin access..."}

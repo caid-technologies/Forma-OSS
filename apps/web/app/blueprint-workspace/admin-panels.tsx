@@ -1,13 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   AlertTriangle,
   CheckCircle,
   Cpu,
   Database,
+  Download,
   Eye,
+  FileArchive,
+  FileSpreadsheet,
   History,
   Info,
   RefreshCw,
@@ -32,6 +35,239 @@ import {
 import CopyButton from "../../components/copy-button";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
+
+type ContributionSnapshot = {
+  snapshot_id: string;
+  contribution_status: string;
+  sanitization_version: string | null;
+  created_at: string | null;
+  anonymized_at: string | null;
+  anonymization_review_status: "pending" | "approved" | "rejected";
+  reviewed_at: string | null;
+  exportable: boolean;
+  payload: Record<string, any>;
+};
+
+type ContributionInventory = {
+  counts: {
+    total: number;
+    pending_review: number;
+    approved: number;
+    rejected: number;
+    exportable: number;
+  };
+  snapshots: ContributionSnapshot[];
+};
+
+export function ContributionExportPanel({
+  apiUrl,
+  getHeaders,
+  readError,
+}: {
+  apiUrl: string;
+  getHeaders: () => HeadersInit | Promise<HeadersInit>;
+  readError: (response: Response) => Promise<string>;
+}) {
+  const [inventory, setInventory] = useState<ContributionInventory | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [exportingFormat, setExportingFormat] = useState<"xlsx" | "zip" | null>(null);
+
+  const fetchInventory = useCallback(async (signal?: AbortSignal) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${apiUrl}/admin/contribution-snapshots?limit=500`, {
+        headers: await getHeaders(),
+        signal,
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setInventory(await response.json());
+    } catch (fetchError) {
+      if (fetchError instanceof DOMException && fetchError.name === "AbortError") return;
+      setError(fetchError instanceof Error ? fetchError.message : "Unable to load contribution exports.");
+    } finally {
+      if (!signal?.aborted) setLoading(false);
+    }
+  }, [apiUrl, getHeaders, readError]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchInventory(controller.signal);
+    return () => controller.abort();
+  }, [fetchInventory]);
+
+  const reviewSnapshot = async (snapshotId: string, status: "approved" | "rejected") => {
+    setReviewingId(snapshotId);
+    setError(null);
+    try {
+      const headers = new Headers(await getHeaders());
+      headers.set("Content-Type", "application/json");
+      const response = await fetch(
+        `${apiUrl}/admin/contribution-snapshots/${encodeURIComponent(snapshotId)}/anonymization-review`,
+        {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ status }),
+        },
+      );
+      if (!response.ok) throw new Error(await readError(response));
+      await fetchInventory();
+    } catch (reviewError) {
+      setError(reviewError instanceof Error ? reviewError.message : "Unable to save the anonymization review.");
+    } finally {
+      setReviewingId(null);
+    }
+  };
+
+  const downloadExport = async (format: "xlsx" | "zip") => {
+    setExportingFormat(format);
+    setError(null);
+    try {
+      const response = await fetch(`${apiUrl}/admin/contribution-exports?format=${format}`, {
+        headers: await getHeaders(),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      const disposition = response.headers.get("Content-Disposition") || "";
+      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
+        || `forma-consented-contributions.${format}`;
+      const url = URL.createObjectURL(await response.blob());
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (exportError) {
+      setError(exportError instanceof Error ? exportError.message : "Unable to download the contribution export.");
+    } finally {
+      setExportingFormat(null);
+    }
+  };
+
+  const snapshots = inventory?.snapshots || [];
+  const exportableCount = inventory?.counts.exportable || 0;
+
+  return (
+    <section className="mb-6 border border-[#2c2f37] bg-[#17181d] p-4 sm:p-5">
+      <div className="flex flex-col gap-4 border-b border-[#2a2c33] pb-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <Download className="h-4 w-4 text-cyan-400" />
+            <h2 className="text-base font-black uppercase text-white">Consented data exports</h2>
+          </div>
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
+            Review anonymized snapshots, then download every approved record. Exports exclude prompts, titles, account identifiers, uploads, and source URLs.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => void downloadExport("xlsx")}
+            disabled={!exportableCount || Boolean(exportingFormat)}
+            className="flex items-center gap-2 border border-[#34363f] px-3 py-2 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <FileSpreadsheet className="h-4 w-4" />
+            {exportingFormat === "xlsx" ? "Preparing..." : "Excel"}
+          </button>
+          <button
+            type="button"
+            onClick={() => void downloadExport("zip")}
+            disabled={!exportableCount || Boolean(exportingFormat)}
+            className="flex items-center gap-2 border border-[#34363f] px-3 py-2 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <FileArchive className="h-4 w-4" />
+            {exportingFormat === "zip" ? "Preparing..." : "ZIP"}
+          </button>
+        </div>
+      </div>
+
+      <div className="my-4 grid gap-2 sm:grid-cols-4">
+        <JobMetric label="Exportable" value={inventory?.counts.exportable ?? "-"} />
+        <JobMetric label="Pending review" value={inventory?.counts.pending_review ?? "-"} />
+        <JobMetric label="Approved" value={inventory?.counts.approved ?? "-"} />
+        <JobMetric label="Rejected" value={inventory?.counts.rejected ?? "-"} />
+      </div>
+
+      {error && (
+        <div className="mb-4 flex gap-2 border border-rose-500/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-300">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {loading && !inventory ? (
+        <div className="border border-[#2a2c33] p-4 text-xs text-slate-500">Loading contribution snapshots...</div>
+      ) : snapshots.length ? (
+        <div className="space-y-2">
+          {snapshots.slice(0, 25).map((snapshot) => {
+            const summary = snapshot.payload?.hardware_summary || {};
+            const pending = snapshot.contribution_status === "anonymized"
+              && snapshot.anonymization_review_status === "pending";
+            return (
+              <div key={snapshot.snapshot_id} className="flex flex-col gap-3 border border-[#2a2c33] bg-[#141519] p-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="font-mono text-slate-300">{snapshot.snapshot_id}</span>
+                    <span className={`border px-2 py-1 text-[10px] font-black uppercase ${
+                      snapshot.anonymization_review_status === "approved"
+                        ? "border-emerald-500/30 text-emerald-300"
+                        : snapshot.anonymization_review_status === "rejected"
+                          ? "border-rose-500/30 text-rose-300"
+                          : "border-amber-500/30 text-amber-200"
+                    }`}>
+                      {snapshot.anonymization_review_status}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-[11px] leading-5 text-slate-500">
+                    {summary.component_count ?? 0} components · {summary.net_count ?? 0} nets · sanitized {snapshot.sanitization_version || "unknown"}
+                  </p>
+                  {pending && (
+                    <details className="mt-2 max-w-3xl text-[11px] text-slate-500">
+                      <summary className="cursor-pointer font-bold text-cyan-300 hover:text-white">Inspect sanitized payload before review</summary>
+                      <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words border border-[#2a2c33] bg-black p-3 font-mono leading-5 text-slate-300">
+                        {JSON.stringify(snapshot.payload, null, 2)}
+                      </pre>
+                    </details>
+                  )}
+                </div>
+                {pending && (
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void reviewSnapshot(snapshot.snapshot_id, "rejected")}
+                      disabled={reviewingId === snapshot.snapshot_id}
+                      className="border border-rose-500/30 px-3 py-2 text-[10px] font-black uppercase text-rose-300 hover:bg-rose-500 hover:text-white disabled:opacity-40"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void reviewSnapshot(snapshot.snapshot_id, "approved")}
+                      disabled={reviewingId === snapshot.snapshot_id}
+                      className="border border-emerald-500/30 px-3 py-2 text-[10px] font-black uppercase text-emerald-300 hover:bg-emerald-500 hover:text-black disabled:opacity-40"
+                    >
+                      Approve anonymization
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {snapshots.length > 25 && (
+            <p className="text-[11px] text-slate-600">Showing the 25 newest of {snapshots.length} snapshots.</p>
+          )}
+        </div>
+      ) : (
+        <div className="border border-[#2a2c33] p-4 text-xs leading-5 text-slate-500">
+          No sanitized contribution snapshots are available yet.
+        </div>
+      )}
+    </section>
+  );
+}
 
 function normalizeAdminPipelineEvents(value: any): AgentPipelineEvent[] {
   const rawEvents = Array.isArray(value) ? value : [];

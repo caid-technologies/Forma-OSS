@@ -16,16 +16,15 @@ This repository currently has no project share-link, ACL, upload, cache, search-
 
 Consent is explicit, versioned, purpose-specific, off by default, and stored separately. Deletion succeeds without consent. When active consent exists, deletion creates only an aggregate summary of component categories and structural counts. Prompts, titles, identifiers, URLs, credentials, uploads, request metadata, and free text are never copied into the contribution store.
 
-Before purge, withdrawal deletes the pending snapshot. At purge, an eligible sanitized snapshot receives unrelated random source and consent identifiers and is severed from the consent/account record; the identifiable consent row is then deleted. Dataset export accepts only snapshots with `contribution_status=anonymized`, `anonymization_review_status=approved`, and a recorded review timestamp.
+Before purge, withdrawal deletes the pending snapshot. At purge, an eligible sanitized snapshot receives unrelated random source and consent identifiers and is severed from the consent/account record; the identifiable consent row is then deleted.
 
-## Admin review and export
+## Admin export
 
-- `GET /admin/contribution-snapshots` lists sanitized snapshots and their review state for administrators. It does not return source project, consent, account, workspace, or reviewer identifiers.
-- `PUT /admin/contribution-snapshots/{snapshot_id}/anonymization-review` records an administrator's approval or rejection. This state-changing route requires recent authentication and uses the destructive-action rate limit.
-- `GET /admin/contribution-exports?format=xlsx` downloads one flattened row per eligible snapshot in an Excel workbook.
-- `GET /admin/contribution-exports?format=zip` downloads one JSON file per eligible snapshot with CSV and JSON manifests.
+- `GET /admin/contribution-exports/inventory` returns a content-free count and structural summary of files currently eligible for export.
+- `GET /admin/contribution-exports?format=xlsx` downloads one anonymous flattened row per eligible project in an Excel workbook.
+- `GET /admin/contribution-exports?format=zip` downloads one anonymous JSON file per eligible project with CSV and JSON manifests.
 
-Both export formats are assembled from the separately stored sanitized payload. The exporter rechecks anonymization, approval, review timestamp, and payload shape on every request; unreviewed, rejected, pending-anonymization, withdrawn, and purged records are excluded.
+Eligibility requires an active, unwithdrawn project contribution consent record, and the account-level model-training opt-out is a veto. The exporter reads the eligible project, runs the aggregate-only sanitizer in memory, assigns a fresh export-only random identifier, and writes only that anonymous copy. Project, consent, account, workspace, chat, title, prompt, URL, upload, and reviewer identifiers are never written to the export. Withdrawn, opted-out, and already-purged projects are excluded.
 
 ## Configuration and operations
 
@@ -47,4 +46,4 @@ Production owners must configure encrypted backup expiry no longer than the appr
 - Approval of the retention, sanitization, anonymization, re-identification, and malicious-dataset-content standards.
 - Confirmation that every production subprocessor and storage system has equivalent deletion behavior.
 - Security review of rate limiting, recent authentication, storage encryption, administrative access, and purge alerts.
-- Approval of the reviewed export format and downstream access controls before production dataset use.
+- Approval of the export-time anonymization format and downstream access controls before production dataset use.

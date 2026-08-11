@@ -787,37 +787,31 @@ class SqlAlchemyRepository:
                 consent.purged_at = purged_at
             return count
 
-    def list_project_contribution_snapshots(self, limit: Optional[int] = None) -> List[Any]:
+    def list_consented_projects_for_export(self) -> List[Any]:
         with self._session() as session:
-            query = session.query(DBProjectContributionSnapshot).order_by(
-                DBProjectContributionSnapshot.created_at.desc()
+            rows = (
+                session.query(DBGeneratedProject, DBProjectContributionConsent)
+                .outerjoin(
+                    DBUserSettings,
+                    DBUserSettings.owner_user_id == DBGeneratedProject.owner_user_id,
+                )
+                .join(
+                    DBProjectContributionConsent,
+                    (DBProjectContributionConsent.project_id == DBGeneratedProject.project_id)
+                    & (DBProjectContributionConsent.user_id == DBGeneratedProject.owner_user_id),
+                )
+                .filter(
+                    DBProjectContributionConsent.withdrawn_at.is_(None),
+                    DBGeneratedProject.status.in_(("active", "deletion_pending")),
+                    or_(
+                        DBUserSettings.owner_user_id.is_(None),
+                        DBUserSettings.model_training_opt_out.is_(False),
+                    ),
+                )
+                .order_by(DBGeneratedProject.created_at.asc())
+                .all()
             )
-            if limit is not None:
-                query = query.limit(limit)
-            return query.all()
-
-    def review_project_contribution_snapshot(
-        self,
-        snapshot_id: str,
-        review_status: str,
-        reviewed_at: str,
-        reviewed_by_user_id: str,
-    ) -> Optional[Any]:
-        with self._session() as session, session.begin():
-            snapshot = session.query(DBProjectContributionSnapshot).filter(
-                DBProjectContributionSnapshot.id == snapshot_id,
-                DBProjectContributionSnapshot.contribution_status == "anonymized",
-                DBProjectContributionSnapshot.anonymized_at.is_not(None),
-            ).first()
-            if not snapshot:
-                return None
-            snapshot.anonymization_review_status = review_status
-            snapshot.reviewed_at = reviewed_at
-            snapshot.reviewed_by_user_id = reviewed_by_user_id
-            session.flush()
-            session.refresh(snapshot)
-            session.expunge(snapshot)
-            return snapshot
+            return [{"project": project, "consent": consent} for project, consent in rows]
 
     def add_project_deletion_audit(self, record: Dict[str, Any]) -> Any:
         with self._session() as session, session.begin():

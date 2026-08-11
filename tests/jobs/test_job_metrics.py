@@ -122,6 +122,22 @@ class JobMetricsTests(unittest.TestCase):
         self.assertEqual(1, metrics["failed_jobs"])
         self.assertEqual(100.0, metrics["failure_rate"])
 
+    def test_each_selected_window_has_independent_totals_and_buckets(self) -> None:
+        rows = [
+            {"created_at": "2026-08-09T12:15:00Z", "status": "succeeded"},
+            {"created_at": "2026-08-09T06:00:00Z", "status": "failed"},
+            {"created_at": "2026-08-06T12:00:00Z", "status": "succeeded"},
+        ]
+        now = datetime(2026, 8, 9, 12, 30, tzinfo=timezone.utc)
+
+        one_hour = summarize_job_metrics(rows, now=now, days=1, hours=1, interval_hours=1)
+        twenty_four_hours = summarize_job_metrics(rows, now=now, days=1, hours=24, interval_hours=24)
+        seven_days = summarize_job_metrics(rows, now=now, days=7, hours=24, interval_hours=168)
+
+        self.assertEqual((1, 1), (one_hour["total_jobs"], len(one_hour["hourly"])))
+        self.assertEqual((2, 24), (twenty_four_hours["total_jobs"], len(twenty_four_hours["hourly"])))
+        self.assertEqual((3, 7), (seven_days["total_jobs"], len(seven_days["daily"])))
+
     def test_metric_windows_are_bounded(self) -> None:
         metrics = summarize_job_metrics([], days=100, hours=1000)
 

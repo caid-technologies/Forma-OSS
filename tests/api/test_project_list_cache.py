@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from blueprint_core import project_list_cache
 
@@ -28,6 +28,8 @@ class _FakeRedis:
 class ProjectListCacheTests(unittest.TestCase):
     def setUp(self) -> None:
         project_list_cache._disabled_until = 0.0
+        project_list_cache._client = None
+        project_list_cache._client_identity = None
 
     def test_round_trip_uses_hashed_identity_and_configured_ttl(self) -> None:
         redis = _FakeRedis()
@@ -80,7 +82,7 @@ class ProjectListCacheTests(unittest.TestCase):
     def test_non_development_mode_requires_url_and_prefix(self) -> None:
         with patch.dict("os.environ", {"BLUEPRINT_DEV_MODE": "false"}, clear=True):
             with self.assertLogs(project_list_cache.logger, level="CRITICAL"):
-                with self.assertRaisesRegex(RuntimeError, "REDIS_URL, REDIS_CACHE_PREFIX"):
+                with self.assertRaisesRegex(RuntimeError, "UPSTASH_REDIS_REST_URL"):
                     project_list_cache.require_project_list_cache_config()
 
     def test_non_development_mode_accepts_complete_redis_config(self) -> None:
@@ -94,6 +96,38 @@ class ProjectListCacheTests(unittest.TestCase):
             clear=True,
         ):
             project_list_cache.require_project_list_cache_config()
+
+    def test_non_development_mode_accepts_complete_upstash_config(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "BLUEPRINT_DEV_MODE": "false",
+                "UPSTASH_REDIS_REST_URL": "https://example.upstash.io",
+                "UPSTASH_REDIS_REST_TOKEN": "secret",
+                "REDIS_CACHE_PREFIX": "blueprint-production",
+            },
+            clear=True,
+        ):
+            project_list_cache.require_project_list_cache_config()
+
+    def test_upstash_rest_client_sends_redis_commands(self) -> None:
+        response = Mock()
+        response.read.return_value = b'{"result":"cached-value"}'
+        response.__enter__ = Mock(return_value=response)
+        response.__exit__ = Mock(return_value=False)
+
+        client = project_list_cache._UpstashRedisRestClient(
+            "https://example.upstash.io/", "secret-token", 0.5
+        )
+        with patch.object(project_list_cache.request, "urlopen", return_value=response) as urlopen:
+            result = client.get("cache-key")
+
+        self.assertEqual("cached-value", result)
+        redis_request = urlopen.call_args.args[0]
+        self.assertEqual("https://example.upstash.io", redis_request.full_url)
+        self.assertEqual(["GET", "cache-key"], json.loads(redis_request.data))
+        self.assertEqual("Bearer secret-token", redis_request.get_header("Authorization"))
+        self.assertEqual(0.5, urlopen.call_args.kwargs["timeout"])
 
 
 if __name__ == "__main__":

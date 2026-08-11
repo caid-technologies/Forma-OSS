@@ -1,10 +1,11 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from blueprint_core.jobs.metrics import summarize_job_metrics
 from blueprint_core.jobs.repositories import (
     JobCancelledError,
     JobRepository,
@@ -335,6 +336,40 @@ class JobMetadataStore:
         limit = max(1, min(limit, 200))
         assert self._repository is not None
         return self._repository.list(sender=sender, status=status, limit=limit)
+
+    def get_metrics(
+        self,
+        *,
+        days: int = 7,
+        hours: int = 24,
+        interval_hours: Optional[int] = None,
+        additional_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Return UTC job-volume and failure metrics for the admin dashboard."""
+        self.init_db()
+        now = datetime.now(timezone.utc)
+        lookback_days = max(
+            max(1, min(days, 31)),
+            (max(1, min(hours, 168)) + 23) // 24,
+            (max(1, min(interval_hours or 1, 31 * 24)) + 23) // 24,
+        )
+        created_since = (now - timedelta(days=lookback_days + 1)).isoformat().replace("+00:00", "Z")
+        assert self._repository is not None
+        rows = self._repository.list_metric_rows(created_since=created_since)
+        if additional_rows:
+            existing_job_ids = {str(row.get("job_id") or "") for row in rows}
+            rows.extend(
+                row
+                for row in additional_rows
+                if str(row.get("job_id") or "") not in existing_job_ids
+            )
+        return summarize_job_metrics(
+            rows,
+            now=now,
+            days=days,
+            hours=hours,
+            interval_hours=interval_hours,
+        )
 
     def list_project_jobs(self, project_id: str) -> List[Dict[str, Any]]:
         """Return every persisted job whose payload or result references a project."""

@@ -22,6 +22,16 @@ class ApplicationRepository(Protocol):
 
     def list_generated_projects(self, owner_user_id: Optional[str]) -> List[Any]: ...
 
+    def list_generated_projects_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]: ...
+
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]: ...
 
     def insert_design_brief_version(self, record: Dict[str, Any]) -> Any: ...
@@ -78,6 +88,8 @@ class ApplicationRepository(Protocol):
 
     def get_worker_execution_plan(self, plan_id: str, owner_user_id: str) -> Optional[Any]: ...
 
+    def list_worker_execution_plans(self, limit: int = 200) -> List[Any]: ...
+
     def update_worker_execution_plan(
         self,
         plan_id: str,
@@ -86,6 +98,8 @@ class ApplicationRepository(Protocol):
     ) -> Optional[Any]: ...
 
     def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]: ...
 
     def get_project_revision(
         self,

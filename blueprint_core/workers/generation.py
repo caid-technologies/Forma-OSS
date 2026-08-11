@@ -26,6 +26,7 @@ from blueprint_core.workers.registry import WorkerCapability, WorkerDefinition
 from blueprint_core.workspaces.design_briefs import DesignBrief
 from blueprint_core.workspaces.projects import (
     ProjectArtifact,
+    ProjectRevision,
     ProjectRevisionOutcome,
     ProjectRevisionDraft,
     ProjectStateError,
@@ -121,6 +122,7 @@ class HardwareIRGenerationEngine:
 
 def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> ProjectRevisionDraft:
     component_refs = [component.ref_des for component in state.components]
+    known_component_refs = set(component_refs)
     systems = [
         ProjectSystem(
             system_id="system-primary",
@@ -130,26 +132,39 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
         )
     ]
     for rail in state.power_rails:
+        rail_refs = [rail.source_component] if rail.source_component in known_component_refs else []
+        rail_metadata: dict[str, Any] = {
+            "voltage": rail.voltage,
+            "max_current_capacity_ma": rail.max_current_capacity_ma,
+            "source_component": rail.source_component,
+        }
+        if not rail_refs:
+            rail_metadata["unresolved_component_refs"] = [rail.source_component]
         systems.append(ProjectSystem(
             system_id=f"power-{rail.rail_id}",
             kind="power",
             name=rail.rail_id,
-            component_refs=[rail.source_component],
-            metadata={"voltage": rail.voltage, "max_current_capacity_ma": rail.max_current_capacity_ma},
+            component_refs=rail_refs,
+            metadata=rail_metadata,
         ))
     for bus in state.buses:
-        bus_components = sorted({
+        declared_bus_components = {
             pin.ref_des
             for net in state.nets
             if net.net_id in bus.nets
             for pin in net.pins
-        })
+        }
+        bus_components = sorted(declared_bus_components.intersection(known_component_refs))
+        unresolved_bus_components = sorted(declared_bus_components.difference(known_component_refs))
+        bus_metadata: dict[str, Any] = {"bus_type": bus.bus_type, "net_ids": list(bus.nets)}
+        if unresolved_bus_components:
+            bus_metadata["unresolved_component_refs"] = unresolved_bus_components
         systems.append(ProjectSystem(
             system_id=f"bus-{bus.bus_id}",
             kind="bus",
             name=bus.bus_id,
             component_refs=bus_components,
-            metadata={"bus_type": bus.bus_type, "net_ids": list(bus.nets)},
+            metadata=bus_metadata,
         ))
 
     revision_base = f"forma://projects/{design_brief.project_id}/revisions/1"
@@ -204,6 +219,7 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
 
 
 ProgressReporter = Callable[[WorkerProgress], Awaitable[None]]
+ProjectPublisher = Callable[[ProjectRevision, DesignBrief, str], str]
 
 
 class GenerationWorker:
@@ -213,9 +229,11 @@ class GenerationWorker:
         self,
         state_service: ProjectStateService,
         engine: GenerationEngine | None = None,
+        project_publisher: ProjectPublisher | None = None,
     ) -> None:
         self._state = state_service
         self._engine = engine or HardwareIRGenerationEngine()
+        self._project_publisher = project_publisher
 
     def worker_definition(self) -> WorkerDefinition:
         return WorkerDefinition(
@@ -270,6 +288,10 @@ class GenerationWorker:
                     ),
                     retryable=False,
                 )
+            try:
+                self._publish(replay, payload.design_brief, owner_user_id)
+            except Exception as exc:
+                return _failure_result(request, exc, retryable=True)
             return _success_result(request, ProjectRevisionOutcome(revision=replay, idempotent_replay=True))
 
         cancellation_check = request.metadata.get("pipeline_cancellation_check")
@@ -336,6 +358,7 @@ class GenerationWorker:
                 design_brief_version=request.design_brief_version,
                 source_job_id=request.job_id,
             )
+            self._publish(outcome.revision, payload.design_brief, owner_user_id)
         except PipelineCancelledError:
             return _cancelled_result(request)
         except ProjectStateError as exc:
@@ -344,6 +367,10 @@ class GenerationWorker:
             return _failure_result(request, exc, retryable=True)
 
         return _success_result(request, outcome)
+
+    def _publish(self, revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> None:
+        if self._project_publisher is not None:
+            self._project_publisher(revision, brief, owner_user_id)
 
 
 def _pipeline_event_percent(event: AgentPipelineEvent) -> float:
@@ -442,7 +469,7 @@ def _worker_context(request: WorkerRequest) -> dict[str, Any]:
 
 def _failure_result(request: WorkerRequest, exc: Exception, *, retryable: bool) -> WorkerResult:
     context = _worker_context(request)
-    code = getattr(exc, "code", "generation_failed")
+    code = str(getattr(exc, "code", "generation_failed"))
     message = str(getattr(exc, "message", "") or str(exc) or exc.__class__.__name__)
     details = {
         "exception_type": exc.__class__.__name__,

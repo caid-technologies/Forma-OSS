@@ -659,6 +659,24 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertNotIn("GMI_IMAGE_SIZE", os.environ)
             self.assertNotIn("GMI_IMAGE_OUTPUT_FORMAT", os.environ)
 
+    def test_gmi_credentials_do_not_override_platform_vertex_image_provider(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["IMAGE_PROVIDER"] = "vertex"
+            os.environ["VERTEX_AI_IMAGE_MODEL"] = "gemini-3.1-flash-image"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "gmi",
+                field_values={
+                    "api_key": "gmi-secret",
+                },
+            )
+
+            apply_user_integrations_to_environment(store)
+
+            self.assertEqual("vertex", os.environ["IMAGE_PROVIDER"])
+            self.assertEqual("gemini-3.1-flash-image", os.environ["VERTEX_AI_IMAGE_MODEL"])
+            self.assertEqual("gmi-secret", os.environ["GMI_API_KEY"])
+
     def test_vertex_image_config_becomes_active_image_provider(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")

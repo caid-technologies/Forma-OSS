@@ -25,7 +25,7 @@ from blueprint_core import database
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workspaces.projects.models import GenerateProjectRequest
-from blueprint_core.workspaces.context import ContextBuildExecution
+from blueprint_core.workspaces.context import ContextBuildExecution, ContextTurnDecision
 from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 from blueprint_core.vertex_auth import (
     bind_vertex_oidc_token,
@@ -119,6 +119,118 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(201, replay.status_code, replay.text)
         self.assertEqual("proceed", replay.json()["turn_kind"])
         self.assertEqual("ready_to_build", replay.json()["workflow"]["state"])
+
+    def test_first_turn_build_intent_bootstraps_the_brief_and_starts_the_build(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-first-turn-build"
+        prompt = (
+            "Build me a chip that supports a Mamba-like latent-space model as an orchestrator "
+            "for an LLM and reinforcement-learning model. Start with a scalable compute tile "
+            "for a 7B to 30B parameter reference workload with HBM-attached tensor compute."
+        )
+
+        class FirstTurnBuildAgent(ContextGatheringAgent):
+            def route_turn(self, *_args, **_kwargs):
+                return ContextTurnDecision(
+                    turn_kind="proceed",
+                    tool_name="build_project",
+                    assistant_message="I’ll start the design.",
+                )
+
+        self.app.dependency_overrides[context_gathering_agent] = lambda: FirstTurnBuildAgent()
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": prompt},
+            )
+            brief = database.get_latest_design_brief(project_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        body = response.json()
+        self.assertEqual("building", body["workflow"]["state"])
+        self.assertIsNotNone(body["build_execution"])
+        self.assertIn("started the design", body["assistant_message"])
+        self.assertEqual([], body["suggestions"])
+        persisted_requirements = " ".join(brief.requirements)
+        self.assertIn("Mamba-like latent-space model", persisted_requirements)
+        self.assertIn("7B to 30B parameter reference workload", persisted_requirements)
+        self.assertNotIn("Tell me what you want to build first", body["assistant_message"])
+
+    def test_first_turn_build_control_without_project_context_does_not_start(self) -> None:
+        project_id = str(uuid.uuid4())
+
+        class FirstTurnBuildAgent(ContextGatheringAgent):
+            def route_turn(self, *_args, **_kwargs):
+                return ContextTurnDecision(
+                    turn_kind="proceed",
+                    tool_name="build_project",
+                    assistant_message="I’ll start the design.",
+                )
+
+        self.app.dependency_overrides[context_gathering_agent] = lambda: FirstTurnBuildAgent()
+        with sqlite_repository():
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": "conversation-no-context", "text": "start"},
+            )
+
+        self.assertEqual(201, response.status_code, response.text)
+        body = response.json()
+        self.assertIsNone(body["workflow"])
+        self.assertIsNone(body["design_brief"])
+        self.assertIsNone(body["build_execution"])
+        self.assertEqual("clarification", body["turn_kind"])
+        self.assertEqual("ask_question", body["tool_name"])
+        self.assertIn("Tell me what you want to build first", body["assistant_message"])
+
+    def test_stuck_chat_recovers_prior_project_context_on_the_next_build_command(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-recover-build"
+        original_prompt = (
+            "Build a scalable compute tile with HBM-attached tensor and sequence compute, "
+            "FP8 and INT8 inference, and a tile-to-tile interconnect."
+        )
+
+        class BuildAgent(ContextGatheringAgent):
+            def route_turn(self, *_args, **_kwargs):
+                return ContextTurnDecision(
+                    turn_kind="proceed",
+                    tool_name="build_project",
+                    assistant_message="I’ll start the design.",
+                )
+
+        self.app.dependency_overrides[context_gathering_agent] = lambda: BuildAgent()
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            database.upsert_project_chat(
+                chat_id=conversation_id,
+                owner_user_id=OWNER,
+                title="Scalable compute tile",
+                messages=[
+                    {"role": "user", "content": original_prompt},
+                    {
+                        "role": "assistant",
+                        "content": "Tell me what you want to build first, and I’ll help shape it and start the design.",
+                    },
+                ],
+                created_at="2026-08-10T09:09:00Z",
+                updated_at="2026-08-10T09:09:00Z",
+            )
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            brief = database.get_latest_design_brief(project_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertEqual("building", response.json()["workflow"]["state"])
+        self.assertIsNotNone(response.json()["build_execution"])
+        self.assertIn("HBM-attached tensor and sequence compute", " ".join(brief.requirements))
 
     def test_proceed_dispatches_a_real_build_stage_when_a_dispatcher_is_available(self) -> None:
         project_id = str(uuid.uuid4())
@@ -333,6 +445,8 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(201, first.status_code, first.text)
         self.assertEqual("gathering_context", first.json()["workflow"]["state"])
         self.assertTrue(first.json()["questions"])
+        self.assertTrue(first.json()["suggestions"])
+        self.assertNotIn("Other", first.json()["suggestions"])
         self.assertEqual(201, second.status_code, second.text)
         self.assertEqual(2, second.json()["design_brief"]["brief_version"])
         self.assertEqual([1, 2], [brief.brief_version for brief in versions])
@@ -341,6 +455,32 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertIn("The display must remain readable outdoors.", versions[-1].requirements)
         self.assertEqual(4, len(chat.messages))
         create_job.assert_not_called()
+
+    def test_agent_suggestions_are_returned_and_persisted_with_the_assistant_turn(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-chat-suggestions"
+
+        class SuggestedAnswerAgent(ContextGatheringAgent):
+            def route_turn(self, *_args, **_kwargs):
+                return ContextTurnDecision(
+                    turn_kind="context",
+                    tool_name="ask_question",
+                    save_context=True,
+                    assistant_message="Which deployment environment should I design for?",
+                    suggestions=["3-season", "4-season", "Other"],
+                )
+
+        self.app.dependency_overrides[context_gathering_agent] = lambda: SuggestedAnswerAgent()
+        with sqlite_repository():
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a one-person tent."},
+            )
+            chat = database.get_project_chat(conversation_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertEqual(["3-season", "4-season"], response.json()["suggestions"])
+        self.assertEqual(["3-season", "4-season"], chat.messages[-1]["suggestions"])
 
     def test_generation_and_mutating_tools_are_blocked_during_gathering(self) -> None:
         project_id = str(uuid.uuid4())
@@ -380,7 +520,8 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
                     "conversation_id": conversation_id,
                     "text": (
                         "Use an ESP32-S3 powered from USB-C 5 V. Show readings on an OLED. "
-                        "It is a bench tool for engineers, must fit within 100 mm, and should include wiring and a BOM. "
+                        "Use a rounded desktop puck shape. It is a bench tool for engineers, must fit within 100 mm, "
+                        "and should include wiring and a BOM. "
                         "Validate that readings remain within the sensor tolerance."
                     ),
                 },

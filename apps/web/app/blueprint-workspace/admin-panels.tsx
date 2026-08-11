@@ -1,5 +1,7 @@
 "use client";
 
+import { useMemo, useState } from "react";
+
 import {
   AlertTriangle,
   CheckCircle,
@@ -17,7 +19,17 @@ import {
   type A2AJob,
   type AgentPipelineEvent,
   type BackendLogs,
+  type JobMetricBucket,
+  type JobMetrics,
+  type JobMetricsWindow,
 } from "./use-admin-data";
+import {
+  ADMIN_JOB_SORT_OPTIONS,
+  adminJobLastOccurredAt,
+  sortAdminJobs,
+  type AdminJobSortMode,
+} from "../../lib/admin-job-sort";
+import CopyButton from "../../components/copy-button";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
 
@@ -169,6 +181,10 @@ export function LogsPanel({
 
 export function JobsPanel({
   jobs,
+  metrics,
+  metricsError,
+  metricsWindow = "7d",
+  onMetricsWindowChange,
   loading,
   error,
   statusFilter,
@@ -187,6 +203,10 @@ export function JobsPanel({
   formatLlmLabel,
 }: {
   jobs: A2AJob[];
+  metrics?: JobMetrics | null;
+  metricsError?: string | null;
+  metricsWindow?: JobMetricsWindow;
+  onMetricsWindowChange?: (window: JobMetricsWindow) => void;
   loading: boolean;
   error: string | null;
   statusFilter: string;
@@ -204,7 +224,40 @@ export function JobsPanel({
   compactActionLabel?: string;
   formatLlmLabel: (provider: string, model: string) => string;
 }) {
-  const visibleJobs = compact ? jobs.slice(0, 2) : jobs;
+  const [userFilter, setUserFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sortMode, setSortMode] = useState<AdminJobSortMode>("last_occurred_desc");
+  const userOptions = useMemo(() => {
+    const users = new Map<string, { id: string; label: string }>();
+    jobs.forEach((job) => {
+      const id = job.owner_user_id || job.payload?.owner_user_id;
+      if (typeof id !== "string" || !id.trim()) return;
+      const normalizedId = id.trim();
+      const label = formatJobOwnerUsername(job) || normalizedId;
+      users.set(normalizedId, { id: normalizedId, label });
+    });
+    return Array.from(users.values()).sort((left, right) => left.label.localeCompare(right.label));
+  }, [jobs]);
+  const filteredJobs = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    return jobs.filter((job) => {
+      const ownerUserId = String(job.owner_user_id || job.payload?.owner_user_id || "");
+      if (userFilter !== "all" && ownerUserId !== userFilter) return false;
+      if (!query) return true;
+      const searchable = [
+        job.payload?.prompt,
+        job.result_summary?.title,
+        job.job_id,
+        job.owner_display_name,
+        job.owner_email,
+        job.owner_github_username,
+        ownerUserId,
+      ];
+      return searchable.some((value) => String(value || "").toLowerCase().includes(query));
+    });
+  }, [jobs, searchQuery, userFilter]);
+  const sortedJobs = useMemo(() => sortAdminJobs(filteredJobs, sortMode), [filteredJobs, sortMode]);
+  const visibleJobs = compact ? sortedJobs.slice(0, 2) : sortedJobs;
   const filters = ["all", "queued", "running", "succeeded", "failed"];
   const panelDescription = description || `Generation and example job metadata. Polling every ${Math.round(pollIntervalMs / 1000)}s.`;
 
@@ -236,22 +289,70 @@ export function JobsPanel({
         </button>
       </div>
 
+      {!compact && metrics !== undefined && (
+        <JobMetricsPanel
+          metrics={metrics || null}
+          error={metricsError || null}
+          metricsWindow={metricsWindow}
+          onMetricsWindowChange={onMetricsWindowChange}
+        />
+      )}
+
       {!compact && (
-        <div className="mb-4 flex flex-wrap gap-2">
-          {filters.map((filter) => (
-            <button
-              key={filter}
-              type="button"
-              onClick={() => onStatusFilterChange(filter)}
-              className={`border px-3 py-2 text-xs font-bold uppercase ${
-                statusFilter === filter
-                  ? "border-white bg-white text-black"
-                  : "border-[#2a2c33] bg-[#141519] text-slate-500 hover:border-slate-500 hover:text-white"
-              }`}
-            >
-              {filter}
-            </button>
-          ))}
+        <div className="mb-4 space-y-3">
+          <div className="flex flex-wrap gap-2">
+            {filters.map((filter) => (
+              <button
+                key={filter}
+                type="button"
+                onClick={() => onStatusFilterChange(filter)}
+                className={`border px-3 py-2 text-xs font-bold uppercase ${
+                  statusFilter === filter
+                    ? "border-white bg-white text-black"
+                    : "border-[#2a2c33] bg-[#141519] text-slate-500 hover:border-slate-500 hover:text-white"
+                }`}
+              >
+                {filter}
+              </button>
+            ))}
+          </div>
+          <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_minmax(190px,0.35fr)_minmax(190px,0.35fr)]">
+            <label className="min-w-0">
+              <span className="sr-only">Search jobs and prompts</span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search prompts, users, or job IDs"
+                className="h-10 w-full border border-[#2a2c33] bg-[#141519] px-3 text-xs text-white outline-none placeholder:text-slate-600 focus:border-cyan-400"
+              />
+            </label>
+            <label className="min-w-0">
+              <span className="sr-only">Filter jobs by user</span>
+              <select
+                value={userFilter}
+                onChange={(event) => setUserFilter(event.target.value)}
+                className="h-10 w-full border border-[#2a2c33] bg-[#141519] px-3 text-xs font-bold text-slate-300 outline-none focus:border-cyan-400"
+              >
+                <option value="all">All users ({userOptions.length})</option>
+                {userOptions.map((user) => (
+                  <option key={user.id} value={user.id}>{user.label}</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-0">
+              <span className="sr-only">Sort jobs</span>
+              <select
+                value={sortMode}
+                onChange={(event) => setSortMode(event.target.value as AdminJobSortMode)}
+                className="h-10 w-full border border-[#2a2c33] bg-[#141519] px-3 text-xs font-bold text-slate-300 outline-none focus:border-cyan-400"
+              >
+                {ADMIN_JOB_SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
       )}
 
@@ -279,7 +380,7 @@ export function JobsPanel({
         </div>
       ) : (
         <div className="border border-[#2a2c33] bg-[#141519] p-5 text-sm leading-6 text-slate-500">
-          {emptyMessage}
+          {jobs.length && (searchQuery || userFilter !== "all") ? "No jobs match these user or prompt filters." : emptyMessage}
         </div>
       )}
 
@@ -298,6 +399,159 @@ export function JobsPanel({
   );
 }
 
+const JOB_METRICS_WINDOW_OPTIONS: Array<{ value: JobMetricsWindow; label: string }> = [
+  { value: "1h", label: "1 hour" },
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+];
+
+function JobMetricsPanel({
+  metrics,
+  error,
+  metricsWindow,
+  onMetricsWindowChange,
+}: {
+  metrics: JobMetrics | null;
+  error: string | null;
+  metricsWindow: JobMetricsWindow;
+  onMetricsWindowChange?: (window: JobMetricsWindow) => void;
+}) {
+  if (error && !metrics) {
+    return (
+      <div className="mb-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200">
+        {error}
+      </div>
+    );
+  }
+  if (!metrics) {
+    return <div className="mb-4 border border-[#2a2c33] bg-[#17181d] p-4 text-xs text-slate-500">Loading job metrics...</div>;
+  }
+
+  const intervalLabel = JOB_METRICS_WINDOW_OPTIONS.find((option) => option.value === metricsWindow)?.label || metricsWindow;
+  const chartUsesDays = metricsWindow === "7d";
+
+  return (
+    <section className="mb-5 space-y-3" aria-label="Job metrics">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Metrics interval</span>
+        <div className="flex flex-wrap gap-2" role="group" aria-label="Job metrics interval">
+          {JOB_METRICS_WINDOW_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => onMetricsWindowChange?.(option.value)}
+              aria-pressed={metricsWindow === option.value}
+              className={`border px-3 py-1.5 text-[10px] font-black uppercase ${
+                metricsWindow === option.value
+                  ? "border-white bg-white text-black"
+                  : "border-[#2a2c33] text-slate-500 hover:border-slate-500 hover:text-white"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-3">
+        <JobMetricSummary label={`Jobs · ${intervalLabel}`} value={metrics.total_jobs} detail="Created in selected interval" />
+        <JobMetricSummary
+          label="Completed"
+          value={metrics.completed_jobs}
+          detail={`${metrics.failed_jobs} failed`}
+          danger={metrics.failed_jobs > 0}
+        />
+        <JobMetricSummary
+          label={`${intervalLabel} failure rate`}
+          value={`${Number(metrics.failure_rate || 0).toFixed(1)}%`}
+          detail={`${metrics.failed_jobs} failed / ${metrics.completed_jobs} completed`}
+          danger={metrics.failure_rate > 0}
+        />
+      </div>
+      <JobVolumeChart
+        title={chartUsesDays ? "Jobs per day" : "Jobs per hour"}
+        buckets={chartUsesDays ? metrics.daily : metrics.hourly}
+        unit={chartUsesDays ? "day" : "hour"}
+      />
+      {error && <p className="text-[11px] text-amber-300">Showing the last available metrics. {error}</p>}
+    </section>
+  );
+}
+
+function JobMetricSummary({
+  label,
+  value,
+  detail,
+  danger = false,
+}: {
+  label: string;
+  value: string | number;
+  detail: string;
+  danger?: boolean;
+}) {
+  return (
+    <div className={`border bg-[#17181d] p-4 ${danger ? "border-rose-500/30" : "border-[#2a2c33]"}`}>
+      <div className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">{label}</div>
+      <div className={`mt-2 text-2xl font-black ${danger ? "text-rose-300" : "text-white"}`}>{value}</div>
+      <div className="mt-1 text-[11px] text-slate-600">{detail}</div>
+    </div>
+  );
+}
+
+function JobVolumeChart({
+  title,
+  buckets,
+  unit,
+}: {
+  title: string;
+  buckets: JobMetricBucket[];
+  unit: "day" | "hour";
+}) {
+  const maximum = Math.max(1, ...buckets.map((bucket) => Number(bucket.count || 0)));
+  return (
+    <div className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <h3 className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">{title}</h3>
+        <span className="text-[10px] text-slate-600">UTC</span>
+      </div>
+      <div className="flex h-28 items-end gap-1" role="img" aria-label={`${title} in UTC`}>
+        {buckets.map((bucket, index) => {
+          const count = Number(bucket.count || 0);
+          const height = count ? Math.max(6, Math.round((count / maximum) * 100)) : 2;
+          const showLabel = unit === "day" || index % 4 === 0 || index === buckets.length - 1;
+          return (
+            <div key={bucket.period} className="flex h-full min-w-0 flex-1 flex-col justify-end" title={`${formatMetricPeriod(bucket.period, unit)}: ${count} jobs`}>
+              <div className="mb-1 text-center text-[9px] font-bold text-slate-500">{count || ""}</div>
+              <div className="w-full bg-cyan-400/80" style={{ height: `${height}%` }} />
+              <div className="mt-2 truncate text-center text-[8px] text-slate-600">
+                {showLabel ? formatMetricAxisLabel(bucket.period, unit) : ""}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function formatMetricPeriod(value: string, unit: "day" | "hour") {
+  const date = new Date(unit === "day" ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    ...(unit === "hour" ? { hour: "numeric", hour12: true } : {}),
+  });
+}
+
+function formatMetricAxisLabel(value: string, unit: "day" | "hour") {
+  const date = new Date(unit === "day" ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(date.getTime())) return value;
+  return unit === "day"
+    ? date.toLocaleDateString([], { timeZone: "UTC", weekday: "short" })
+    : date.toLocaleTimeString([], { timeZone: "UTC", hour: "numeric", hour12: true }).replace(" ", "");
+}
+
 export function JobRow({
   job,
   project,
@@ -314,7 +568,8 @@ export function JobRow({
   const tone = statusTone(job.status);
   const summary = job.result_summary || {};
   const title = summary.title || job.payload?.prompt || job.action;
-  const prompt = job.payload?.prompt || job.correlation_id || job.job_id;
+  const userPrompt = typeof job.payload?.prompt === "string" ? job.payload.prompt : "";
+  const prompt = userPrompt || job.correlation_id || job.job_id;
   const sourceUsage = getJobSourceUsage(job);
   const sourceLabel = formatSourceUsageLabel(sourceUsage);
   const SourceIcon = sourceUsage.web_research || sourceUsage.firecrawl ? Sparkles : Database;
@@ -324,6 +579,22 @@ export function JobRow({
   const isOpenable = hasChatTarget || hasProjectTarget;
   const imageStatusLabel = formatJobImageStatus(summary);
   const operations = getJobOperations(summary);
+  const imageOperation = operations.find((operation) => operation.id === "image_generation") || {};
+  const imageFailed = Boolean(
+    summary.image_output_failed
+    || summary.image_output_status === "failed"
+    || imageOperation.status === "failed"
+  );
+  const imageFailureOutput = firstString(
+    summary.image_output_error,
+    summary.product_image_error,
+    imageOperation.error,
+    summary.image_output_reason,
+    imageOperation.reason,
+  ) || "Image generation failed without an error message.";
+  const ownerUserId = job.owner_user_id || job.payload?.owner_user_id || "";
+  const ownerLabel = formatJobOwnerUsername(job) || ownerUserId || "Unknown user";
+  const lastOccurredAt = adminJobLastOccurredAt(job);
 
   return (
     <article className={`border border-[#2a2c33] bg-[#141519] ${compact ? "p-3" : "p-4"}`}>
@@ -347,9 +618,17 @@ export function JobRow({
               </span>
             )}
             <span className="min-w-0 max-w-full truncate text-[11px] font-bold text-slate-500">{job.sender} {"->"} {job.recipient}</span>
+            {ownerUserId && (
+              <span className="inline-flex max-w-full items-center truncate border border-sky-300/25 bg-sky-300/10 px-2 py-1 text-[11px] font-black text-sky-200" title={ownerUserId}>
+                {ownerLabel}
+              </span>
+            )}
           </div>
           <h3 className="truncate text-sm font-black text-white">{title}</h3>
-          <p className="mt-2 line-clamp-2 break-words text-xs leading-5 text-slate-500">{prompt}</p>
+          <div className="mt-2 flex min-w-0 items-start gap-2">
+            <p className="min-w-0 flex-1 line-clamp-2 break-words text-xs leading-5 text-slate-500">{prompt}</p>
+            <CopyButton value={userPrompt} label="Copy user prompt" className="shrink-0" />
+          </div>
         </div>
 
         <button
@@ -364,9 +643,11 @@ export function JobRow({
       </div>
 
       {!compact && (
-        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8">
+        <div className="mt-4 grid gap-2 text-[11px] sm:grid-cols-2 lg:grid-cols-5 xl:grid-cols-10">
+          <JobMetric label="User" value={ownerLabel} />
           <JobMetric label="Job" value={job.job_id} />
           <JobMetric label="Created" value={formatJobTime(job.created_at)} />
+          <JobMetric label="Last occurred" value={formatJobTime(lastOccurredAt)} />
           <JobMetric label="Duration" value={formatJobDuration(job)} />
           <JobMetric label="Source" value={sourceLabel} />
           <JobMetric label="LLM" value={llmInfo.label} />
@@ -376,13 +657,27 @@ export function JobRow({
         </div>
       )}
 
+      {!compact && userPrompt && (
+        <details className="mt-3 border border-[#25272e] bg-black/20 p-3">
+          <summary className="cursor-pointer text-[10px] font-black uppercase tracking-[0.14em] text-cyan-300">
+            View full user prompt
+          </summary>
+          <div className="mt-3 whitespace-pre-wrap break-words text-xs leading-5 text-slate-300">{userPrompt}</div>
+          {ownerUserId && (
+            <div className="mt-3 border-t border-white/10 pt-2 font-mono text-[10px] text-slate-600">
+              User ID: {ownerUserId}
+            </div>
+          )}
+        </details>
+      )}
+
       <JobPipelineEventList events={job.progress_events || []} jobStatus={job.status} compact={compact} />
 
       <OperationStatusList operations={operations} compact={compact} />
 
-      {summary.image_output_failed && summary.image_output_error && (
+      {imageFailed && (
         <div className="break-anywhere mt-3 border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
-          Image generation failed: {summary.image_output_error}
+          Image generation failed: {imageFailureOutput}
           {summary.image_output_debug && (
             <pre className="break-anywhere mt-2 max-h-40 overflow-auto whitespace-pre-wrap border border-amber-500/20 bg-black/25 p-2 font-mono text-[10px] leading-4 text-amber-100">
               {JSON.stringify(summary.image_output_debug, null, 2)}
@@ -419,6 +714,12 @@ export function JobRow({
       )}
     </article>
   );
+}
+
+function formatJobOwnerUsername(job: A2AJob) {
+  const githubUsername = String(job.owner_github_username || "").trim().replace(/^@+/, "");
+  if (githubUsername) return `@${githubUsername}`;
+  return String(job.owner_username || job.owner_email || job.owner_display_name || "").trim();
 }
 
 function getJobOperations(summary: Record<string, any>) {
@@ -690,4 +991,3 @@ function formatJobDuration(job: A2AJob) {
   if (!job.started_at || !job.completed_at) return job.status === "running" ? "running" : "-";
   return formatDurationSeconds(durationSecondsBetween(job.started_at, job.completed_at));
 }
-

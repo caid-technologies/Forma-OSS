@@ -96,11 +96,13 @@ export function OverviewPanel({
               className="h-[320px] w-full object-contain sm:h-[440px]"
             />
           ) : (
-            <ProductRender product={metadata.product_visual} />
+            <ImageUnavailableState failed={metadata.image_output_failed === true || metadata.image_output_status === "failed"} />
           )}
-          <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-blue-600 shadow-lg" title={activeImage ? activeImage.label : "Generated visual reference"}>
-            <Eye className="h-5 w-5" />
-          </button>
+          {activeImage && (
+            <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-blue-600 shadow-lg" title={activeImage.label}>
+              <Eye className="h-5 w-5" />
+            </button>
+          )}
           {activeImage && (
             <div className="absolute left-4 top-4 max-w-[calc(100%-6.5rem)] border border-black/10 bg-white/90 px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#202127] shadow-lg">
               {activeImage.label}
@@ -663,31 +665,20 @@ export function PartsSidebar({ components, issues, isValid }: { components: any[
   );
 }
 
-export function ProductRender({ product }: { product?: string }) {
+export function ImageUnavailableState({ failed = false }: { failed?: boolean }) {
   return (
-    <div className="relative flex h-[440px] items-center justify-center overflow-hidden bg-[#d5d5d3]">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_45%_38%,rgba(255,255,255,0.88),rgba(210,210,208,0.35)_48%,rgba(185,185,182,0.55))]" />
-      <div className="relative h-64 w-[470px] rotate-[-16deg] skew-x-[-8deg] rounded-[34px] border border-black/20 bg-gradient-to-br from-[#6b6b68] via-[#3f403d] to-[#222321] shadow-2xl">
-        <div className="absolute left-9 top-8 h-48 w-[400px] rounded-[28px] border border-white/10 bg-gradient-to-br from-[#888884] via-[#4f504d] to-[#262725]" />
-        <div className="absolute right-14 top-10 h-28 w-44 rounded-xl border border-black/40 bg-[#0c0d10] shadow-inner">
-          <div className="absolute left-5 top-10 h-px w-32 bg-cyan-300/70 shadow-[12px_-10px_0_rgba(103,232,249,0.45),30px_12px_0_rgba(103,232,249,0.6),58px_-2px_0_rgba(103,232,249,0.5)]" />
-          <div className="absolute bottom-4 left-6 flex gap-5 text-white/60">
-            <span className="h-3 w-3 border-l-4 border-y-4 border-y-transparent" />
-            <span className="h-3 w-3 border-l-4 border-y-4 border-y-transparent" />
-            <span className="h-3 w-3 bg-white/60" />
-          </div>
-        </div>
-        <div className="absolute left-28 top-28 h-28 w-28 rounded-full border-[10px] border-[#222] bg-[#565653] shadow-inner">
-          <div className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full border border-black/40 bg-[#8a8a84]" />
-          <div className="absolute left-[42px] top-[38px] h-0 w-0 border-y-[12px] border-l-[18px] border-y-transparent border-l-[#4a4a48]" />
-        </div>
-        <span className="absolute left-20 top-24 h-9 w-9 rounded-full border border-black/40 bg-[#777771]" />
-        <span className="absolute left-[104px] top-42 h-8 w-8 rounded-full border border-black/40 bg-[#777771]" />
-        <span className="absolute right-5 top-32 h-12 w-3 rounded bg-black/50" />
+    <div className="flex h-[320px] flex-col items-center justify-center bg-[#d5d5d3] px-8 text-center sm:h-[440px]">
+      <div className="flex h-16 w-16 items-center justify-center border border-slate-400/70 bg-white/40 text-slate-600">
+        {failed ? <AlertTriangle className="h-7 w-7" /> : <Box className="h-7 w-7" />}
       </div>
-      <div className="absolute bottom-6 right-8 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">
-        {product === "pocket_mp3_player" ? "Rendered from extracted MP3 player features" : "Generated visual reference"}
+      <div className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-slate-700">
+        {failed ? "Product image unavailable" : "Product image not generated"}
       </div>
+      <p className="mt-2 max-w-md text-xs leading-5 text-slate-600">
+        {failed
+          ? "Image generation failed for this revision. The project data and build artifacts are still available."
+          : "No generated product image is available for this revision."}
+      </p>
     </div>
   );
 }

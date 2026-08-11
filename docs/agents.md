@@ -3,9 +3,17 @@
 Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `apps/api/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
 
 ## Pipeline overview
-0. Safety guardrails → 1. Intent Parser → 2. Requirements → 3. System Architecture → 4. Component Selection → 5. Wiring/Netlist (+ repair loop) → 6. BOM → 7. Mechanical/Fabrication → 8. Assembly Instructions → 9. Mechanical render enrichment
+0. Context clarification → 1. Safety guardrails → 2. Intent Parser → 3. Requirements → 4. System Architecture → 5. Component Selection → 6. Wiring/Netlist (+ repair loop) → 7. BOM → 8. Mechanical/Fabrication → 9. Assembly Instructions → 10. Mechanical render enrichment
 
 ## Agent responsibilities
+
+### Context Clarifier Agent
+
+**Input:** Prompt (+ optional reference image)
+
+**Output:** Up to three focused questions before generation
+
+**Goal:** Capture missing human requirements, including the intended system shape, silhouette, or form factor. Shape choices are passed through as explicit requirements instead of allowing downstream agents to assume a rectangular enclosure.
 
 ### Safety Guardrail (pre-check)
 **Input:** Prompt
@@ -51,7 +59,7 @@ If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-
 **Input:** Mechanical system branch + pin-free component summaries
 
 **Output:** `MechanicalNotes`  
-**Goal:** Suggest enclosure type, mounting, and fabrication details.
+**Goal:** Preserve the requested physical form and suggest appropriate housing or open-frame structure, mounting, and fabrication details.
 
 The agent may also emit `render_dimensions`, `component_placements`, and `spatial_relationships` for the 3D viewer.
 

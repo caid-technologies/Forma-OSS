@@ -81,6 +81,8 @@ class JobRepository(Protocol):
 
     def list(self, *, sender: Optional[str], status: Optional[str], limit: int) -> List[Dict[str, Any]]: ...
 
+    def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]: ...
+
     def list_for_project(self, project_id: str) -> List[Dict[str, Any]]: ...
 
     def delete_for_project(self, project_id: str) -> int: ...
@@ -186,6 +188,27 @@ class SupabaseJobRepository:
             query = query.eq("status", status)
         rows = query.order("created_at", desc=True).limit(limit).execute().data or []
         return [_row_to_dict(row) for row in rows]
+
+    def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]:
+        records: List[Dict[str, Any]] = []
+        offset = 0
+        batch_size = 1000
+        while True:
+            rows = (
+                self._client.table("a2a_jobs")
+                .select("job_id,status,created_at")
+                .gte("created_at", created_since)
+                .order("created_at")
+                .range(offset, offset + batch_size - 1)
+                .execute()
+                .data
+                or []
+            )
+            records.extend(dict(row) for row in rows)
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+        return records
 
     def update_status(self, job_id: str, status: str, now: str) -> None:
         self._client.table("a2a_jobs").update(
@@ -338,6 +361,14 @@ class SQLiteJobRepository:
                 parameters,
             ).fetchall()
         return [_row_to_dict(row) for row in rows]
+
+    def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]:
+        with closing(self._provider.connect_dbapi()) as connection:
+            rows = connection.execute(
+                "SELECT job_id, status, created_at FROM a2a_jobs WHERE created_at >= ? ORDER BY created_at",
+                (created_since,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def update_status(self, job_id: str, status: str, now: str) -> None:
         with self._locked_connection() as connection:

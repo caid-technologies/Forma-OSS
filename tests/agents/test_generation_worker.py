@@ -6,10 +6,11 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 from blueprint_core.agents.pipeline import emit_agent_pipeline_event
+from blueprint_core.database import list_project_generation_jobs
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
 from blueprint_core.workers import (
@@ -25,6 +26,7 @@ from blueprint_core.workers import (
     WorkerPlanStatus,
     WorkerRegistry,
     WorkerRequest,
+    build_generation_draft,
 )
 from blueprint_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
@@ -38,7 +40,15 @@ from blueprint_core.workspaces.projects import (
     ProjectStateService,
     ProjectSystem,
 )
-from blueprint_core.workspaces.projects.models import ComponentInstance, HardwareIR, ProjectOverview
+from blueprint_core.workspaces.projects.models import (
+    BusConnection,
+    ComponentInstance,
+    ConnectionNet,
+    HardwareIR,
+    PinReference,
+    PowerRail,
+    ProjectOverview,
+)
 from blueprint_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
@@ -50,9 +60,16 @@ OWNER = "generation-worker-user"
 
 
 class FakeGenerationEngine:
-    def __init__(self, *, fail: bool = False, target_project_id: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        fail: bool = False,
+        target_project_id: str | None = None,
+        assembly_metadata: dict[str, Any] | None = None,
+    ) -> None:
         self.fail = fail
         self.target_project_id = target_project_id
+        self.assembly_metadata = assembly_metadata or {}
         self.received: list[DesignBrief] = []
 
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
@@ -77,6 +94,7 @@ class FakeGenerationEngine:
             assembly_metadata={
                 "project_id": self.target_project_id or str(design_brief.project_id),
                 "revision": 1,
+                **self.assembly_metadata,
             },
         )
         return ProjectRevisionDraft(
@@ -100,6 +118,16 @@ class FakeGenerationEngine:
             ],
             assumptions=[*design_brief.assumptions, "Use the ESP32 development-board regulator."],
         )
+
+
+class ProviderDeadlineError(RuntimeError):
+    code = 504
+
+
+class ProviderDeadlineGenerationEngine(FakeGenerationEngine):
+    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+        del design_brief
+        raise ProviderDeadlineError("504 DEADLINE_EXCEEDED: Deadline expired before operation could complete.")
 
 
 class ObservableGenerationEngine(HardwareIRGenerationEngine):
@@ -167,6 +195,47 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
         self.assertEqual("Vertex Image Project", draft.state.overview.title)
 
+    def test_generation_draft_preserves_dangling_ir_refs_without_invalid_system_refs(self) -> None:
+        component = ComponentInstance(
+            ref_des="U1",
+            part_number="ESP32-DEVKIT",
+            name="ESP32 controller",
+            category="Microcontroller",
+            rationale="Provides processing and connectivity.",
+        )
+        state = HardwareIR(
+            components=[component],
+            nets=[
+                ConnectionNet(
+                    net_id="NET_I2C_SDA",
+                    name="I2C data",
+                    net_type="I2C",
+                    pins=[
+                        PinReference(ref_des="U1", pin_id="SDA"),
+                        PinReference(ref_des="R2", pin_id="1"),
+                    ],
+                )
+            ],
+            buses=[BusConnection(bus_id="I2C_1", bus_type="I2C", nets=["NET_I2C_SDA"])],
+            power_rails=[
+                PowerRail(
+                    rail_id="3V3",
+                    voltage=3.3,
+                    max_current_capacity_ma=500,
+                    source_component="R2",
+                )
+            ],
+        )
+
+        draft = build_generation_draft(self.brief, state)
+
+        power_system = next(system for system in draft.systems if system.kind == "power")
+        bus_system = next(system for system in draft.systems if system.kind == "bus")
+        self.assertEqual([], power_system.component_refs)
+        self.assertEqual(["R2"], power_system.metadata["unresolved_component_refs"])
+        self.assertEqual(["U1"], bus_system.component_refs)
+        self.assertEqual(["R2"], bus_system.metadata["unresolved_component_refs"])
+
     def tearDown(self) -> None:
         self.directory.cleanup()
 
@@ -227,7 +296,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registered_worker_persists_initial_revision_through_orchestrator(self) -> None:
         engine = FakeGenerationEngine()
-        worker = GenerationWorker(self.state, engine)
+        publisher = Mock(return_value=str(self.project_id))
+        worker = GenerationWorker(self.state, engine, project_publisher=publisher)
         registry = WorkerRegistry([worker])
         orchestrator = WorkerOrchestrator(
             self.repository,
@@ -260,6 +330,27 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(self.project_id), OWNER).state)
         self.assertEqual(self.brief, engine.received[0])
         self.assertEqual(["ref-datasheet"], [item.reference_id for item in engine.received[0].references])
+        publisher.assert_called_once_with(revision, self.brief, OWNER)
+
+    async def test_idempotent_replay_retries_the_gallery_projection(self) -> None:
+        engine = FakeGenerationEngine()
+        publisher = Mock(side_effect=[RuntimeError("gallery unavailable"), str(self.project_id)])
+        worker = GenerationWorker(self.state, engine, project_publisher=publisher)
+        request = self.request().model_copy(update={"metadata": {"execution_owner_user_id": OWNER}})
+
+        async def progress(_: Any) -> None:
+            return None
+
+        first = await worker.execute(request, progress)
+        second = await worker.execute(request, progress)
+
+        self.assertEqual("failed", first.status.value)
+        self.assertTrue(first.error.retryable)
+        self.assertIn("gallery unavailable", first.error.message)
+        self.assertEqual("succeeded", second.status.value)
+        self.assertTrue(second.output["idempotent_replay"])
+        self.assertEqual(2, publisher.call_count)
+        self.assertEqual(1, len(engine.received))
 
     async def test_project_chat_iteration_appends_an_immutable_revision(self) -> None:
         engine = FakeGenerationEngine()
@@ -352,6 +443,45 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ProjectStateError) as missing:
             self.state.get_latest(self.project_id, OWNER)
         self.assertEqual("project_revision_not_found", missing.exception.code)
+
+    async def test_admin_job_projection_includes_image_failure_output(self) -> None:
+        engine = FakeGenerationEngine(assembly_metadata={
+            "image_output_status": "failed",
+            "image_output_failed": True,
+            "image_output_error": "Image provider returned no images.",
+            "image_output_error_type": "empty_response",
+            "operation_statuses": [
+                {"id": "image_generation", "label": "Image generation", "status": "failed"},
+            ],
+        })
+        worker = GenerationWorker(self.state, engine)
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([self.request()], OWNER)
+        await orchestrator.execute(plan.plan_id, OWNER)
+
+        with patch("blueprint_core.database._DATABASE_REPOSITORY", self.repository):
+            jobs = list_project_generation_jobs(limit=10)
+
+        projected = next(job for job in jobs if job["job_id"] == "job-generation-initial")
+        summary = projected["result_summary"]
+        self.assertTrue(summary["image_output_failed"])
+        self.assertEqual("failed", summary["image_output_status"])
+        self.assertEqual("Image provider returned no images.", summary["image_output_error"])
+        self.assertEqual("failed", summary["operation_statuses"][0]["status"])
+
+    async def test_numeric_provider_status_is_preserved_as_a_retryable_worker_error(self) -> None:
+        worker = GenerationWorker(self.state, ProviderDeadlineGenerationEngine())
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        result = completed.jobs["job-generation-initial"].result
+
+        self.assertEqual(WorkerPlanStatus.FAILED, completed.status)
+        self.assertEqual("504", result.error.code)
+        self.assertTrue(result.error.retryable)
+        self.assertIn("DEADLINE_EXCEEDED", result.error.message)
+        self.assertEqual("ProviderDeadlineError", result.error.details["exception_type"])
 
     async def test_extra_conversation_input_is_rejected_before_generation(self) -> None:
         engine = FakeGenerationEngine()

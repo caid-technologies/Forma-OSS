@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import logging
@@ -86,7 +87,10 @@ from blueprint_core.database import (
     list_project_chats,
     list_component_templates,
     list_generated_projects,
+    list_generated_projects_page,
+    list_latest_project_revisions,
     list_project_deletion_audits,
+    list_project_generation_jobs,
     save_alpha_signup,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
@@ -143,6 +147,7 @@ from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
 from apps.api.auth import (
     UserContext,
+    clerk_user_profile,
     deployed_auth_required,
     optional_user_context,
     require_admin_user_context,
@@ -333,6 +338,41 @@ def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
+
+
+def _admin_job_records(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add admin-only owner labels without changing the persisted job shape."""
+    records = [dict(job) for job in jobs]
+    owner_user_ids: List[str] = []
+
+    for record in records:
+        owner_user_id = _job_owner_user_id(record)
+        record["owner_user_id"] = owner_user_id
+        if owner_user_id and owner_user_id not in owner_user_ids:
+            owner_user_ids.append(owner_user_id)
+
+    # Clerk lookups are optional display enrichment. Cap and parallelize cold
+    # lookups so a large job list cannot hold the admin request open.
+    profile_user_ids = owner_user_ids[:16]
+    if profile_user_ids:
+        with ThreadPoolExecutor(max_workers=min(8, len(profile_user_ids))) as executor:
+            resolved_profiles = executor.map(clerk_user_profile, profile_user_ids)
+            profiles = dict(zip(profile_user_ids, resolved_profiles))
+    else:
+        profiles = {}
+
+    for record in records:
+        owner_user_id = record.get("owner_user_id")
+        profile = profiles.get(owner_user_id) if isinstance(owner_user_id, str) else None
+        display_name = profile.get("display_name") if profile else None
+        email = profile.get("email") if profile else None
+        github_username = profile.get("github_username") if profile else None
+        record["owner_display_name"] = display_name
+        record["owner_email"] = email
+        record["owner_github_username"] = github_username
+        record["owner_username"] = github_username or email or display_name or owner_user_id
+
+    return records
 
 
 def _require_job_reader(job: Dict[str, Any], user: UserContext) -> None:
@@ -1267,7 +1307,27 @@ def list_a2a_jobs(
     _user: UserContext = Depends(require_admin_user_context),
 ):
     """Lists persisted A2A job metadata."""
-    return JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
+    jobs = JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
+    if sender in {None, "conversation"}:
+        jobs.extend(list_project_generation_jobs(status=job_status, limit=limit))
+    jobs.sort(key=lambda item: str(item.get("created_at") or item.get("updated_at") or ""), reverse=True)
+    return _admin_job_records(jobs[:limit])
+
+
+@app.get("/a2a/jobs/metrics")
+def get_a2a_job_metrics(
+    days: int = Query(7, ge=1, le=31),
+    hours: int = Query(24, ge=1, le=168),
+    interval_hours: int | None = Query(None, ge=1, le=744),
+    _user: UserContext = Depends(require_admin_user_context),
+):
+    """Returns aggregate job volume and failure metrics for administrators."""
+    return JOB_STORE.get_metrics(
+        days=days,
+        hours=hours,
+        interval_hours=interval_hours,
+        additional_rows=list_project_generation_jobs(limit=1000),
+    )
 
 
 @app.get("/a2a/jobs/{job_id}")
@@ -1563,6 +1623,30 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
     }
 
 
+def _canonical_project_summary_response(
+    revision: Any,
+    brief: Any,
+    *,
+    owner_user_id: str,
+) -> Dict[str, Any]:
+    """Adapt canonical project state to the established gallery response."""
+
+    state = revision.state
+    overview = getattr(state, "overview", None)
+    title = str(getattr(overview, "title", "") or getattr(brief, "summary", "") or "Untitled project")
+    project = types.SimpleNamespace(
+        project_id=str(revision.project_id),
+        chat_id=brief.conversation_id,
+        owner_user_id=owner_user_id,
+        visibility="private",
+        title=title,
+        prompt=brief.summary,
+        created_at=revision.created_at,
+        hardware_ir=state.model_dump(mode="json"),
+    )
+    return _project_summary_response(project, current_user_id=owner_user_id)
+
+
 def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
     if not isinstance(owner_user_id, str) or not owner_user_id.strip():
         return None
@@ -1639,9 +1723,29 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 
 
 @app.get("/projects")
-def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
+def list_projects_endpoint(
+    user: UserContext = Depends(optional_user_context),
+    limit: Optional[int] = None,
+    offset: int = 0,
+    q: Optional[str] = None,
+):
     """Lists public compiled hardware projects."""
     try:
+        if limit is not None:
+            projects, total = list_generated_projects_page(
+                visibility="public",
+                limit=limit,
+                offset=offset,
+                search=q,
+            )
+            items = [_public_project_cache_record(project) for project in projects]
+            return {
+                "items": _personalize_public_project_records(items, user.owner_user_id),
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
         cached, generation = get_cached_project_list("public", None)
         if cached is not None:
             return _personalize_public_project_records(cached, user.owner_user_id)
@@ -1656,17 +1760,66 @@ def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
 
 
 @app.get("/my/projects")
-def list_my_projects_endpoint(user: UserContext = Depends(require_user_context)):
+def list_my_projects_endpoint(
+    user: UserContext = Depends(require_user_context),
+    limit: Optional[int] = None,
+    offset: int = 0,
+):
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
+        if limit is not None:
+            projects, total = list_generated_projects_page(
+                owner_user_id=owner_user_id,
+                limit=limit,
+                offset=offset,
+            )
+            items = [
+                _project_summary_response(project, current_user_id=owner_user_id)
+                for project in projects
+            ]
+            return {
+                "items": items,
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
             return cached
         projects = list_generated_projects(owner_user_id=owner_user_id)
-        response = jsonable_encoder(
-            [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
-        )
+        response = [
+            _project_summary_response(project, current_user_id=owner_user_id)
+            for project in projects
+        ]
+        legacy_project_ids = {str(project.project_id) for project in projects}
+        for revision in list_latest_project_revisions(owner_user_id):
+            project_id = str(revision.project_id)
+            if project_id in legacy_project_ids:
+                continue
+            legacy_record = get_generated_project(project_id, include_deleted=True)
+            if legacy_record is not None:
+                # A soft-deleted legacy projection must not be resurrected by
+                # its retained canonical revisions during the recovery window.
+                continue
+            try:
+                brief = get_latest_design_brief(project_id, owner_user_id)
+            except DesignBriefNotFoundError:
+                logger.warning(
+                    "Skipping canonical project without a design brief in owner listing: project_id=%s",
+                    project_id,
+                )
+                continue
+            response.append(
+                _canonical_project_summary_response(
+                    revision,
+                    brief,
+                    owner_user_id=owner_user_id,
+                )
+            )
+        response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
         return response
     except Exception as e:

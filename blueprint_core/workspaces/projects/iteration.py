@@ -162,9 +162,17 @@ def build_iteration_prompt(
     normalized_namespace = normalize_project_namespace(target_namespace)
     namespace_block = ""
     if normalized_namespace:
+        boundary_guidance = ""
+        if normalized_namespace == "product.mech":
+            boundary_guidance = (
+                "A product.mech change may revise physical_form, enclosure_type, dimensions, placement, materials, "
+                "and fabrication details. Keep the existing BOM/components and all electrical connectivity fixed. "
+                "Component or wiring changes must use the corresponding electrical or BOM namespace.\n"
+            )
         namespace_block = (
             f"\nTarget namespace: {normalized_namespace}\n"
             "Focus the requested change on this namespace. Preserve other namespaces unless they must change to keep the project coherent.\n"
+            f"{boundary_guidance}"
             "Current target namespace payload:\n"
             f"{json.dumps(namespace_payload(current_ir, normalized_namespace), indent=2, sort_keys=True)}\n"
         )
@@ -387,6 +395,20 @@ def finalize_project_iteration(
     base = coerce_hardware_ir(base_ir)
     revised = coerce_hardware_ir(revised_ir)
     instruction = normalize_iteration_instruction(instruction)
+    normalized_namespace = normalize_project_namespace(target_namespace)
+
+    if normalized_namespace == "product.mech":
+        # A mechanical chat iteration is the shape-redesign path. Enforce the
+        # namespace boundary even if a model returns opportunistic BOM edits.
+        for field_name in (
+            "components",
+            "nets",
+            "buses",
+            "pin_mappings",
+            "power_rails",
+            "estimated_current_draw_ma",
+        ):
+            setattr(revised, field_name, getattr(base, field_name))
 
     if revised.overview and (_is_placeholder_text(revised.overview.title) or _is_placeholder_text(revised.overview.description)):
         raise LLMProviderOutputError(

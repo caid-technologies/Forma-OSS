@@ -86,6 +86,10 @@ def _question_answered(question: str, context: str) -> bool:
     context_lower = context.casefold()
     answer_patterns: tuple[tuple[tuple[str, ...], str], ...] = (
         (("controller", "major modules"), r"\b(esp32|arduino|raspberry|stm32|rp2040|controller|module)\b"),
+        (
+            ("overall shape", "silhouette", "form factor"),
+            r"\b(rectangular|square|box|round|rounded|circular|cylindrical|cylinder|radial|curved|handheld|wearable|folded|open[-\s]?frame|exposed|puck|pod|tower|wall[-\s]?mounted)\b",
+        ),
         (("power", "battery", "adapter", "rail"), r"(?:\b\d+(?:\.\d+)?\s*v\b|\busb(?:-c)?\b|\bbattery\b|\badapter\b|\bno mains\b)"),
         (("control or display", "system control", "outputs"), r"\b(display|oled|screen|relay|motor|pump|fan|led|buzzer|actuator|log|control)\b"),
         (("weather", "environment", "where will"), r"\b(indoor|outdoor|field|bench|lab|rain|wind|weather|temperature)\b"),
@@ -136,7 +140,7 @@ def _assistant_reply(text: str, questions: list[str], previous: DesignBrief | No
         return (
             "That’s okay—you don’t need to choose technical parts yet. "
             "Tell me any outcome, operating condition, or constraint you do know, and the build agents can propose the open technical choices. "
-            "You can also skip context gathering whenever you’re ready."
+            "Choose Build Now whenever you’re ready, and the build agents will resolve the remaining technical choices."
         )
     if previous:
         if questions:
@@ -156,7 +160,11 @@ def _assistant_reply(text: str, questions: list[str], previous: DesignBrief | No
 class ContextBriefUpdater:
     """Updates a DesignBrief without invoking a model, tool, or worker job."""
 
-    def update(self, request: ContextGatheringRequest, previous: DesignBrief | None = None) -> tuple[DesignBriefCreate, str, list[str]]:
+    def update(
+        self,
+        request: ContextGatheringRequest,
+        previous: DesignBrief | None = None,
+    ) -> tuple[DesignBriefCreate, str, list[str], list[str]]:
         text = request.text.strip()
         attachment_text = [item.extracted_text for item in request.attachments if item.extracted_text]
         combined_update = "\n".join([text, *attachment_text]).strip()
@@ -170,7 +178,7 @@ class ContextBriefUpdater:
         ]
         requirements = _unique([*prior_requirements, *update_sentences])
         constraint_markers = re.compile(
-            r"\b(must|only|under|maximum|max\b|minimum|min\b|budget|fit|within|voltage|battery|usb|no\s+|without|weatherproof|waterproof|material)\b",
+            r"\b(must|only|under|maximum|max\b|minimum|min\b|budget|fit|within|voltage|battery|usb|no\s+|without|weatherproof|waterproof|material|shape|silhouette|form factor|rectangular|square|round|rounded|circular|cylindrical|radial|curved|handheld|wearable|folded|open[-\s]?frame|puck|pod)\b",
             re.IGNORECASE,
         )
         constraints = _unique([
@@ -217,6 +225,11 @@ class ContextBriefUpdater:
             if not _question_answered(question.question, full_context)
         ]
         questions = _unique([*prior_questions, *new_questions])
+        suggestions = next((
+            list(question.suggestions)
+            for question in clarification.questions
+            if question.question in questions and question.suggestions
+        ), [])
 
         if previous and previous.summary:
             summary = previous.summary
@@ -243,4 +256,4 @@ class ContextBriefUpdater:
             readiness=DesignBriefReadiness.NEEDS_CLARIFICATION if questions else DesignBriefReadiness.DRAFT,
         )
         assistant_message = _assistant_reply(text, questions, previous)
-        return brief, assistant_message, questions
+        return brief, assistant_message, questions, suggestions

@@ -82,6 +82,7 @@ class WorkerExecutionPlan(BaseModel):
     owner_user_id: NonEmptyString
     project_id: str
     correlation_id: NonEmptyString
+    attempt: int = Field(default=1, ge=1)
     status: WorkerPlanStatus = WorkerPlanStatus.PLANNED
     max_concurrency: int = Field(default=4, ge=1, le=64)
     jobs: dict[str, OrchestrationTaskState]
@@ -347,6 +348,43 @@ class WorkerOrchestrator:
         await self._advance_workflow(plan)
         return plan
 
+    async def reset(self, plan_id: str, owner_user_id: str) -> WorkerExecutionPlan:
+        """Reset failed work so a user can make another execution attempt."""
+
+        plan = self.get_plan(plan_id, owner_user_id)
+        if plan.status != WorkerPlanStatus.FAILED:
+            raise WorkerPlanningError(
+                "worker_plan_not_failed",
+                "Only a failed worker plan can be reset.",
+                context={"plan_id": plan.plan_id, "status": plan.status.value},
+            )
+
+        for job in plan.jobs.values():
+            if job.status not in {OrchestrationTaskStatus.FAILED, OrchestrationTaskStatus.BLOCKED}:
+                continue
+            job.status = OrchestrationTaskStatus.QUEUED
+            job.progress = []
+            job.result = None
+            job.error = None
+            job.started_at = None
+            job.completed_at = None
+
+        plan.attempt += 1
+        plan.status = WorkerPlanStatus.PLANNED
+        plan.aggregate = {}
+        plan.completed_at = None
+        self._workflow.transition(
+            plan.project_id,
+            plan.owner_user_id,
+            ProjectWorkflowState.BUILDING,
+            actor_type=WorkflowActorType.USER,
+            actor_id=plan.owner_user_id,
+            reason=f"User reset failed worker execution plan {plan.plan_id} for another attempt.",
+            idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:reset",
+        )
+        await self._persist(plan)
+        return plan
+
     def _ready_jobs(self, plan: WorkerExecutionPlan) -> list[str]:
         ready: list[str] = []
         for job_id, job in plan.jobs.items():
@@ -523,7 +561,7 @@ class WorkerOrchestrator:
             actor_type=WorkflowActorType.SYSTEM,
             actor_id="worker-orchestrator",
             reason=f"Worker execution plan {plan.plan_id} reached a terminal result.",
-            idempotency_key=f"worker-plan:{plan.plan_id}:terminal",
+            idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:terminal",
         )
 
     async def _persist(self, plan: WorkerExecutionPlan) -> None:

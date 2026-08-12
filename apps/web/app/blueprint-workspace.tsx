@@ -47,6 +47,7 @@ import {
   isFinalVideoStatus,
   statusTone,
 } from "./blueprint-workspace/admin-panels";
+import AdminAlphaMedia from "./blueprint-workspace/admin-alpha-media";
 import HomeChatView from "./blueprint-workspace/home-chat-view";
 import useChatAutoScroll from "./blueprint-workspace/use-chat-auto-scroll";
 import {
@@ -2130,6 +2131,7 @@ export function FormaWorkspace({
   });
   const canViewJobs = !authRequired || isAdmin;
   const canViewAdminTools = !authRequired || showDeveloperTools || isAdmin;
+  const canUseAdminAlphaMedia = !authRequired || isAdmin;
   const sidebarChatsLoading = !chatIndexLoaded || !chatHistoryLoaded;
   const sidebarJobsPending = authRequired && !adminSessionLoaded;
   const jobsViewActive = canViewJobs && (homeView === "jobs" || Boolean(projectIR && activeTab === "jobs"));
@@ -2179,7 +2181,7 @@ export function FormaWorkspace({
     setAspectRatio: setVideoAspectRatio,
   } = useVideoModels({
     apiUrl: API_URL,
-    enabled: Boolean(projectIR && activeTab === "video"),
+    enabled: Boolean(projectIR && activeTab === "video" && canUseAdminAlphaMedia),
     onAvailabilityChange: setVideoGenerationConfig,
   });
   const waitingGenerationJobKey = useMemo(() => {
@@ -4472,11 +4474,11 @@ export function FormaWorkspace({
   const currentProjectCanDownloadAssets = currentUserOwnsProject;
   const projectVideo = useProjectVideo({
     apiUrl: API_URL,
-    enabled: Boolean(projectIR && activeTab === "video"),
+    enabled: Boolean(projectIR && activeTab === "video" && canUseAdminAlphaMedia),
     projectId: currentProjectId,
     authIdentityKey,
-    canManageProject: currentUserOwnsProject,
-    canLoadProjectVideos: currentProjectCanDownloadAssets,
+    canManageProject: canUseAdminAlphaMedia,
+    canLoadProjectVideos: canUseAdminAlphaMedia,
     imageOptions: videoImageOptions,
     defaultImage: defaultVideoImage,
     authorizeGeneration: requireSignedInForGeneration,
@@ -4492,7 +4494,9 @@ export function FormaWorkspace({
       aspectRatio: videoAspectRatio,
       setAspectRatio: setVideoAspectRatio,
     },
-    generationAvailability: videoGenerationConfig,
+    generationAvailability: canUseAdminAlphaMedia
+      ? videoGenerationConfig
+      : { configured: false, reason: "Video generation is limited to the admin alpha." },
     reviewAvailability: videoSelfCorrectionConfig,
     globalBusy: isLoading,
     setGlobalBusy: setIsLoading,
@@ -4597,7 +4601,25 @@ export function FormaWorkspace({
         );
       case "video":
         return (
-          <VideoPanel {...projectVideo} />
+          <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#141519]">
+            {canUseAdminAlphaMedia && (
+              <AdminAlphaMedia
+                apiUrl={API_URL}
+                projectId={currentProjectId}
+                hasGeneratedImage={videoImageOptions.length > 0}
+                disabled={isLoading}
+                getRequestHeaders={generationRequestHeaders}
+                readError={readApiErrorMessage}
+                onGenerated={(nextProjectIR, response) => {
+                  setProjectIR(withProjectResponseMetadata(nextProjectIR, response));
+                  void refreshProjectAndChatLists();
+                }}
+              />
+            )}
+            <div className="min-h-0 flex-1">
+              <VideoPanel {...projectVideo} />
+            </div>
+          </div>
         );
       case "jobs":
         return (

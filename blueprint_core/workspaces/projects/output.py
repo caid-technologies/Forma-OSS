@@ -97,6 +97,7 @@ def attach_product_image(
     ir: Any,
     *,
     generate_image: bool = False,
+    generate_sequence: bool = True,
     provider_factory: ImageProviderFactory = build_image_provider,
     storage_handler: ImageStorageHandler = store_project_image,
 ) -> None:
@@ -153,7 +154,11 @@ def attach_product_image(
         return
 
     try:
-        generated_images = image_provider.generate_project_image_sequence(prompt_text, ir)
+        if generate_sequence:
+            generated_images = image_provider.generate_project_image_sequence(prompt_text, ir)
+        else:
+            generated_image = image_provider.generate_project_image(prompt_text, ir)
+            generated_images = [generated_image] if generated_image else []
     except Exception as exc:
         logger.exception("Image generation failed: %s", exc)
         error = str(exc)[:500]

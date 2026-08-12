@@ -1435,7 +1435,7 @@ const workspaceTabs = [
   { id: "bom", label: "BOM", icon: ShoppingBag },
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
-  { id: "assembly", label: "DOCS", icon: Info },
+  { id: "assembly", label: "ASSEMBLY", icon: Info },
   { id: "video", label: "MEDIA", icon: Film },
 ];
 

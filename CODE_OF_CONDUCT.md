@@ -1,4 +1,4 @@
-# Forma Oss Code of Conduct
+# Code of Conduct
 
 Like the technical community as a whole, the Caid community is made up of a mixture of professionals and volunteers from all over the world, working on every aspect of the mission - including mentorship, teaching, and connecting people.
 

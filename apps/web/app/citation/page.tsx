@@ -6,18 +6,18 @@ import LegalFooter from "../../components/legal-footer";
 import CitationCopyButton from "./citation-copy-button";
 
 const repositoryUrl = "https://github.com/caid-technologies/Forma-OSS";
-const release = "v0.3.1";
+const release = "v0.3.2";
 const releaseUrl = `${repositoryUrl}/releases/tag/${release}`;
 
 const plainTextCitation =
-  "CAID Technologies, Inc. (2026). Forma OSS (Version 0.3.1) [Computer software]. GitHub. https://github.com/caid-technologies/Forma-OSS/releases/tag/v0.3.1";
+  "CAID Technologies, Inc. (2026). Forma OSS (Version 0.3.2) [Computer software]. GitHub. https://github.com/caid-technologies/Forma-OSS/releases/tag/v0.3.2";
 
 const bibtexCitation = `@software{caid_forma_2026,
   author  = {{CAID Technologies, Inc.}},
   title   = {Forma OSS},
-  version = {0.3.1},
+  version = {0.3.2},
   year    = {2026},
-  url     = {https://github.com/caid-technologies/Forma-OSS/releases/tag/v0.3.1}
+  url     = {https://github.com/caid-technologies/Forma-OSS/releases/tag/v0.3.2}
 }`;
 
 export const metadata: Metadata = {

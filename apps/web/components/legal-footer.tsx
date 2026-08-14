@@ -43,9 +43,6 @@ export default function LegalFooter() {
             ))}
           </div>
           <div className="flex flex-wrap gap-x-4 gap-y-2 sm:justify-end">
-            <Link href="/citation" className="hover:text-white">
-              Citation
-            </Link>
             <Link href="/legal" className="hover:text-white">
               Legal
             </Link>

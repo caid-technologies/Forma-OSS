@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import {
-  BookOpen,
   Database,
   Handshake,
   History,
@@ -441,15 +440,6 @@ export function ChatSidebar({
           >
             <Handshake className="h-5 w-5 text-slate-500" />
             {!compact && <span className="truncate">About us</span>}
-          </Link>
-          <Link
-            href="/citation"
-            onClick={onNavigate}
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="Cite Forma"
-          >
-            <BookOpen className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">Cite Forma</span>}
           </Link>
         </div>
       </div>

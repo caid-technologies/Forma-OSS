@@ -63,7 +63,7 @@ class ExternalSourceRecord(BaseModel):
         text = (self.content or "").strip() or self.title or self.url
         block = f"[{index}] {self.title or 'Untitled source'}\nProvider: {self.provider or 'unknown'}\nURL: {self.url or 'unknown'}\n{text}"
         if len(block) > max_chars:
-            return block[: max(0, max_chars - 3)] + "..."
+            return block[: max_chars - 3] + "..." if max_chars >= 3 else block[:max_chars]
         return block
 
     def metadata_preview(self, *, max_chars: int = 360) -> dict[str, Any]:
@@ -91,23 +91,61 @@ class ExternalSourceLibrary(BaseModel):
     def hits(self) -> list[ExternalSourceRecord]:
         return self.sources
 
-    def as_prompt_context(self, max_chars: int = 14000) -> str:
+    def as_prompt_context(self, max_chars: int = 14_000) -> str:
+        """Render normalized external sources as bounded LLM context.
+
+        Args:
+            max_chars: Maximum total context length.
+
+        Returns:
+            Prompt-ready external research context.
+        """
+        if self.error:
+            raise RuntimeError(
+                f"{self.provider} external research failed: {self.error}"
+            )
+
         if not self.sources:
-            return f"No {self.provider} external source results were available."
+            return (
+                f"{self.provider} completed {self.searches_attempted} searches "
+                "but returned no usable external sources."
+            )
 
         blocks: list[str] = []
-        remaining = max_chars
-        if self.answer:
-            answer_block = f"{self.provider} answer summary:\n{self.answer.strip()}"
-            blocks.append(answer_block[:remaining])
-            remaining -= len(blocks[-1])
+        remaining = max(0, max_chars)
+
+        if self.answer and remaining > 0:
+            answer_block = (
+                f"{self.provider} answer summary:\n"
+                f"{self.answer.strip()}"
+            )
+            answer_block = answer_block[: min(3_000, remaining)]
+            blocks.append(answer_block)
+            remaining -= len(answer_block)
+
+        sources_remaining = len(self.sources)
 
         for index, source in enumerate(self.sources, start=1):
-            if remaining <= 0:
+            if remaining <= 0 or sources_remaining <= 0:
                 break
-            block = source.as_prompt_block(index, max_chars=remaining)
+
+            separator_length = 2 if blocks else 0
+            available = remaining - separator_length
+            if available <= 0:
+                break
+
+            fair_share = max(500, available // sources_remaining)
+            source_budget = min(4_000, fair_share, available)
+
+            block = source.as_prompt_block(
+                index,
+                max_chars=source_budget,
+            )
             blocks.append(block)
-            remaining -= len(block)
+
+            remaining -= len(block) + separator_length
+            sources_remaining -= 1
+
         return "\n\n".join(blocks)
 
     def source_metadata(self) -> dict[str, Any]:

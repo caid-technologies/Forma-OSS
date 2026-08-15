@@ -44,6 +44,20 @@ Outputs are written to `examples/results/`:
 The examples run in strict test mode. Provider failures raise and are recorded as
 failed jobs; they do not fall back to simulation.
 
+## Blueprint Core samples
+
+Focused Blueprint Core examples live in `examples/blueprint_core/`:
+
+```bash
+python examples/blueprint_core/sample.py
+python examples/blueprint_core/sample1.py
+python examples/blueprint_core/sample2.py
+```
+
+- `sample.py` generates a simulated project from a frozen design brief.
+- `sample1.py` generates a project with a local Ollama model.
+- `sample2.py` combines Ollama generation with Firecrawl web research.
+
 Useful overrides:
 
 ```bash

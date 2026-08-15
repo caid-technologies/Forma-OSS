@@ -81,23 +81,55 @@ class FirecrawlResearchResult:
     tool_name: Optional[str] = None
     error: Optional[str] = None
 
-    def as_prompt_context(self, max_chars: int = 14000) -> str:
-        if not self.hits:
-            return "No Firecrawl MCP search results were available."
+    def as_prompt_context(self, max_chars: int = 14_000) -> str:
+        """Render Firecrawl search hits as bounded LLM context.
 
-        blocks = []
-        remaining = max_chars
+        Args:
+            max_chars: Maximum total context length.
+
+        Returns:
+            Prompt-ready external research context.
+        """
+        if self.error:
+            raise RuntimeError(f"Firecrawl external research failed: {self.error}")
+
+        if not self.hits:
+            return (
+                f"Firecrawl completed {self.searches_attempted} searches "
+                "but returned no usable external sources."
+            )
+
+        blocks: list[str] = []
+        remaining = max(0, max_chars)
+        hits_remaining = len(self.hits)
+
         for index, hit in enumerate(self.hits, start=1):
-            text = (hit.content or "").strip()
-            if not text:
-                text = hit.title or hit.url
-            block = f"[{index}] {hit.title or 'Untitled source'}\nURL: {hit.url or 'unknown'}\n{text}"
-            if len(block) > remaining:
-                block = block[: max(0, remaining - 3)] + "..."
-            blocks.append(block)
-            remaining -= len(block)
-            if remaining <= 0:
+            if remaining <= 0 or hits_remaining <= 0:
                 break
+
+            separator_length = 2 if blocks else 0
+            available = remaining - separator_length
+            if available <= 0:
+                break
+
+            fair_share = max(500, available // hits_remaining)
+            hit_budget = min(4_000, fair_share, available)
+            text = (hit.content or "").strip() or hit.title or hit.url
+            block = (
+                f"[{index}] {hit.title or 'Untitled source'}\n"
+                f"URL: {hit.url or 'unknown'}\n{text}"
+            )
+            if len(block) > hit_budget:
+                block = (
+                    block[: hit_budget - 3] + "..."
+                    if hit_budget >= 3
+                    else block[:hit_budget]
+                )
+            blocks.append(block)
+
+            remaining -= len(block) + separator_length
+            hits_remaining -= 1
+
         return "\n\n".join(blocks)
 
     def metadata(self) -> Dict[str, Any]:
@@ -149,31 +181,36 @@ class _MCPStdioSession:
         self.process = None
 
     def _read_stdout(self) -> None:
-        assert self.process is not None and self.process.stdout is not None
+        """Read newline-delimited JSON-RPC messages from MCP stdout."""
+        assert self.process is not None
+        assert self.process.stdout is not None
+
         while True:
-            headers: Dict[str, str] = {}
-            line = self.process.stdout.readline()
+            raw_line = self.process.stdout.readline()
+
+            if not raw_line:
+                break
+
+            line = raw_line.decode("utf-8", errors="replace").strip()
+
             if not line:
-                return
-            while line and line.strip():
-                try:
-                    key, value = line.decode("utf-8", errors="replace").split(":", 1)
-                    headers[key.strip().lower()] = value.strip()
-                except ValueError:
-                    pass
-                line = self.process.stdout.readline()
-
-            length = int(headers.get("content-length", "0") or "0")
-            if length <= 0:
                 continue
 
-            body = self.process.stdout.read(length)
-            if not body:
-                return
             try:
-                self._responses.put(json.loads(body.decode("utf-8")))
-            except json.JSONDecodeError:
+                message = json.loads(line)
+            except json.JSONDecodeError as error:
+                self._stderr_lines.put(
+                    f"Invalid JSON received from MCP stdout: {error}: {line[:500]}"
+                )
                 continue
+
+            if not isinstance(message, dict):
+                self._stderr_lines.put(
+                    f"Unexpected MCP message type: {type(message).__name__}"
+                )
+                continue
+
+            self._responses.put(message)
 
     def _read_stderr(self) -> None:
         assert self.process is not None and self.process.stderr is not None
@@ -183,10 +220,26 @@ class _MCPStdioSession:
                 self._stderr_lines.put(text)
 
     def _send(self, payload: Dict[str, Any]) -> None:
-        assert self.process is not None and self.process.stdin is not None
-        raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
-        header = f"Content-Length: {len(raw)}\r\n\r\n".encode("ascii")
-        self.process.stdin.write(header + raw)
+        """Send one newline-delimited JSON-RPC message to the MCP server.
+
+        Args:
+            payload: JSON-RPC request, response, or notification payload.
+
+        Raises:
+            RuntimeError: If the MCP subprocess is not running.
+        """
+        if self.process is None or self.process.stdin is None:
+            raise RuntimeError(
+                "Cannot send MCP message because the process is not running."
+            )
+
+        raw = json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+
+        self.process.stdin.write(raw + b"\n")
         self.process.stdin.flush()
 
     def notify(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
@@ -257,35 +310,89 @@ def _stringify_tool_content(result: Dict[str, Any]) -> str:
 
 
 def _flatten_firecrawl_hits(value: Any) -> List[FirecrawlSearchHit]:
+    """Normalize Firecrawl MCP output into individual web search hits.
+
+    Args:
+        value: Parsed or serialized Firecrawl MCP tool output.
+
+    Returns:
+        Individual normalized web search results. Response envelopes and empty
+        result collections do not produce hits.
+    """
     if isinstance(value, str):
         try:
             return _flatten_firecrawl_hits(json.loads(value))
         except json.JSONDecodeError:
-            return [FirecrawlSearchHit(content=value)]
-
-    if isinstance(value, dict):
-        if isinstance(value.get("data"), list):
-            return _flatten_firecrawl_hits(value["data"])
-        if isinstance(value.get("results"), list):
-            return _flatten_firecrawl_hits(value["results"])
-        if any(key in value for key in ("url", "title", "markdown", "content", "description")):
-            content = value.get("markdown") or value.get("content") or value.get("description") or value.get("text") or ""
-            return [
-                FirecrawlSearchHit(
-                    title=str(value.get("title") or value.get("name") or ""),
-                    url=str(value.get("url") or value.get("source") or ""),
-                    content=str(content),
-                )
-            ]
-        return [FirecrawlSearchHit(content=json.dumps(value, sort_keys=True))]
+            return []
 
     if isinstance(value, list):
         hits: List[FirecrawlSearchHit] = []
+
         for item in value:
             hits.extend(_flatten_firecrawl_hits(item))
+
         return hits
 
-    return []
+    if not isinstance(value, dict):
+        return []
+
+    # Firecrawl search response:
+    # {"success": true, "data": {"web": [...]}}
+    data = value.get("data")
+
+    if isinstance(data, (dict, list)):
+        return _flatten_firecrawl_hits(data)
+
+    # Firecrawl web-result collection:
+    # {"web": [{...}, {...}]}
+    web_results = value.get("web")
+
+    if isinstance(web_results, list):
+        return _flatten_firecrawl_hits(web_results)
+
+    results = value.get("results")
+
+    if isinstance(results, (dict, list)):
+        return _flatten_firecrawl_hits(results)
+
+    url = value.get("url") or value.get("source")
+    title = value.get("title") or value.get("name")
+
+    if not url and not title:
+        # Do not convert metadata envelopes into fake sources.
+        return []
+
+    description = value.get("description")
+    markdown = value.get("markdown")
+    content = value.get("content")
+    text = value.get("text")
+
+    # Search descriptions are cleaner than entire scraped pages. Preserve a
+    # bounded markdown excerpt when it contains additional useful evidence.
+    content_parts: List[str] = []
+
+    if isinstance(description, str) and description.strip():
+        content_parts.append(description.strip())
+
+    if isinstance(markdown, str) and markdown.strip():
+        markdown_excerpt = markdown.strip()[:4_000]
+
+        if markdown_excerpt not in content_parts:
+            content_parts.append(markdown_excerpt)
+
+    if not content_parts:
+        for candidate in (content, text):
+            if isinstance(candidate, str) and candidate.strip():
+                content_parts.append(candidate.strip()[:4_000])
+                break
+
+    return [
+        FirecrawlSearchHit(
+            title=str(title or "").strip(),
+            url=str(url or "").strip(),
+            content="\n\n".join(content_parts),
+        )
+    ]
 
 
 class FirecrawlMCPResearchClient:

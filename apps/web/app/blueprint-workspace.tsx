@@ -3027,22 +3027,30 @@ export function FormaWorkspace({
     planId: string,
     run?: ActiveGenerationRun,
   ) => {
-    try {
-      const response = await fetch(
-        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/execute`,
-        {
-          method: "POST",
-          headers: await generationRequestHeaders(),
-          signal: run?.controller.signal,
-        },
-      );
-      if (!response.ok) throw new Error(await readApiErrorMessage(response));
-    } catch (error) {
-      if (run?.cancelled || run?.controller.signal.aborted) return;
-      console.warn("The build execution request ended before the plan reached a terminal state.", error);
-      setGenerationInputNotice(
-        error instanceof Error ? error.message : "The build execution request ended unexpectedly.",
-      );
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      try {
+        const response = await fetch(
+          `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/execute`,
+          {
+            method: "POST",
+            headers: await generationRequestHeaders(),
+            signal: run?.controller.signal,
+          },
+        );
+        if (!response.ok) throw new Error(await readApiErrorMessage(response));
+        return;
+      } catch (error) {
+        if (run?.cancelled || run?.controller.signal.aborted) return;
+        console.warn("The build execution request ended before the plan reached a terminal state.", error);
+        if (attempt === 4) {
+          setGenerationInputNotice(
+            error instanceof Error ? error.message : "The build execution request ended unexpectedly.",
+          );
+          return;
+        }
+        setGenerationInputNotice("Build connection interrupted. Resuming from the latest saved stage…");
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
     }
   };
 
@@ -3204,6 +3212,41 @@ export function FormaWorkspace({
           if (run) finishGenerationRun(run);
           return;
         }
+        if (planStatus === "partial") {
+          try {
+            const projectResponse = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+              headers: await optionalAuthHeaders(),
+            });
+            if (projectResponse.ok) {
+              const projectData = await projectResponse.json();
+              setProjectIR(withProjectResponseMetadata(projectData.project_ir, projectData));
+            }
+          } catch (error) {
+            console.warn("Could not load the preserved partial project.", error);
+          }
+          const failedStage = task?.result?.metadata?.generation_retry?.retry_stage;
+          const partialMessage = typeof failedStage === "string" && failedStage
+            ? `The ${failedStage.replaceAll("_", " ")} stage failed. Earlier and independent work was preserved.`
+            : "One build stage failed. Earlier and independent work was preserved.";
+          updateChatMessage(assistantMessageId, {
+            content: partialMessage,
+            status: "error",
+            pipelineProgress: synchronizedProgress,
+            projectId,
+            workflowState: "awaiting_feedback",
+          });
+          updateThreadMessage(chatId, assistantMessageId, {
+            content: partialMessage,
+            status: "error",
+            pipelineProgress: synchronizedProgress,
+            projectId,
+            workflowState: "awaiting_feedback",
+          });
+          setGenerationInputNotice("Partial design saved. Retry will resume from the failed stage.");
+          contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
+          return;
+        }
         if (planStatus === "failed") {
           const failureMessage = typeof task?.error?.message === "string"
             ? task.error.message
@@ -3253,12 +3296,24 @@ export function FormaWorkspace({
         ? resetPlan.jobs[jobId].request.job_id
         : jobId;
       const previousProgress = message.pipelineProgress;
-      const progress = createAgentPipelineProgress(
+      const resetTask = resetPlan?.jobs?.[jobId];
+      const resetEvents = pipelineEventsFromWorkerTask(resetTask);
+      const seedProgress = createAgentPipelineProgress(
         previousProgress?.steps || defaultAgentPipelineSteps,
         progressIncludesImageStep(previousProgress),
         chatTimestamp(),
         resetJobId,
       );
+      const progress = resetEvents.length
+        ? progressFromJobEvents({
+            job_id: resetJobId,
+            action: "blueprint.generate_project",
+            sender: "worker-orchestrator",
+            recipient: "blueprint",
+            status: "running",
+            progress_events: resetEvents,
+          }, seedProgress, false)
+        : seedProgress;
       const patch: Partial<Omit<ChatMessage, "id">> = {
         content: "Trying the design build again with the preserved project brief.",
         status: "loading",

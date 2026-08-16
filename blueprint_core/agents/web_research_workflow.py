@@ -461,7 +461,7 @@ class WebResearchHardwarePipeline:
         prior_run = metadata.get("prior_generation_run")
         prior_run = prior_run if isinstance(prior_run, dict) else {}
 
-        def persist_stage_run(stage_run: GenerationStageRun) -> None:
+        def persist_stage_run(stage_run: GenerationStageRun, _record: Any = None) -> None:
             snapshot = self._project_ir_from_stage_run(
                 stage_run,
                 user_prompt=user_prompt,

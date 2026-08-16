@@ -627,7 +627,7 @@ class GenerateProjectRequest(BaseModel):
     )
     retry_stage: Optional[str] = Field(
         None,
-        description="Retry one failed web-research generation stage using persisted upstream artifacts.",
+        description="Retry one failed generation stage using persisted upstream artifacts.",
     )
     workflow: str = Field(
         "default",

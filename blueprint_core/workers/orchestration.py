@@ -143,6 +143,58 @@ def _record_to_plan(record: Any) -> WorkerExecutionPlan:
     return WorkerExecutionPlan.model_validate(payload)
 
 
+def _generation_run_from_progress(progress: list[WorkerProgress]) -> dict[str, Any] | None:
+    records: dict[str, dict[str, Any]] = {}
+    generation_run_id = None
+    workflow = None
+    retry_stage = None
+    status = None
+    for item in progress:
+        checkpoint = item.metadata.get("generation_stage_checkpoint")
+        if not isinstance(checkpoint, dict):
+            continue
+        generation_run_id = checkpoint.get("generation_run_id") or generation_run_id
+        workflow = checkpoint.get("workflow") or workflow
+        retry_stage = checkpoint.get("retry_stage") or retry_stage
+        status = checkpoint.get("status") or status
+        record = checkpoint.get("record")
+        if isinstance(record, dict) and record.get("stage_id"):
+            records[str(record["stage_id"])] = record
+    if not generation_run_id or not records:
+        return None
+    return {
+        "generation_run_id": generation_run_id,
+        "workflow": workflow or "default",
+        "retry_stage": retry_stage,
+        "status": status or "running",
+        "records": records,
+    }
+
+
+def _preserved_retry_progress(
+    progress: list[WorkerProgress],
+    invalidated_stage_ids: set[str],
+) -> list[WorkerProgress]:
+    preserved: list[WorkerProgress] = []
+    for item in progress:
+        checkpoint = item.metadata.get("generation_stage_checkpoint")
+        if isinstance(checkpoint, dict):
+            record = checkpoint.get("record")
+            stage_id = str(record.get("stage_id") or "") if isinstance(record, dict) else ""
+            if stage_id and stage_id not in invalidated_stage_ids:
+                preserved.append(item)
+            continue
+        event = item.metadata.get("pipeline_event")
+        if not isinstance(event, dict):
+            continue
+        stage_id = str(event.get("step_id") or "")
+        if stage_id in invalidated_stage_ids:
+            continue
+        if str(event.get("status") or "").lower() in {"completed", "skipped"}:
+            preserved.append(item)
+    return preserved
+
+
 class WorkerOrchestrator:
     """Validate a worker DAG, execute ready jobs concurrently, and persist every state change."""
 
@@ -373,8 +425,27 @@ class WorkerOrchestrator:
                 OrchestrationTaskStatus.BLOCKED,
             }:
                 continue
+            retry_context = (
+                job.result.metadata.get("generation_retry")
+                if job.result is not None and isinstance(job.result.metadata, dict)
+                else None
+            )
             job.status = OrchestrationTaskStatus.QUEUED
-            job.progress = []
+            if isinstance(retry_context, dict):
+                invalidated = {
+                    str(stage_id)
+                    for stage_id in (retry_context.get("invalidated_stage_ids") or [])
+                }
+                job.progress = _preserved_retry_progress(job.progress, invalidated)
+                job.request = job.request.model_copy(update={
+                    "metadata": {
+                        **job.request.metadata,
+                        "prior_generation_run": retry_context.get("prior_generation_run"),
+                        "retry_stage": retry_context.get("retry_stage"),
+                    }
+                })
+            else:
+                job.progress = []
             job.result = None
             job.error = None
             job.started_at = None
@@ -562,6 +633,8 @@ class WorkerOrchestrator:
             )
             for dependency in request.dependencies
         }
+        task_progress = plan.jobs[request.job_id].progress
+        checkpoint_run = _generation_run_from_progress(task_progress)
         return request.model_copy(update={
             "payload": (
                 {**request.payload, "dependency_results": dependency_results}
@@ -571,6 +644,16 @@ class WorkerOrchestrator:
             "metadata": {
                 **request.metadata,
                 "execution_owner_user_id": plan.owner_user_id,
+                "execution_attempt": plan.attempt,
+                "progress_sequence_start": max(
+                    (progress.sequence for progress in task_progress),
+                    default=0,
+                ),
+                **(
+                    {"prior_generation_run": checkpoint_run}
+                    if checkpoint_run is not None and not isinstance(request.metadata.get("prior_generation_run"), dict)
+                    else {}
+                ),
                 **(
                     {"pipeline_cancellation_check": self._cancellation_check}
                     if self._cancellation_check is not None

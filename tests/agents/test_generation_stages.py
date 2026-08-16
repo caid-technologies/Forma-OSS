@@ -4,6 +4,13 @@ import unittest
 from types import SimpleNamespace
 
 from blueprint_core.agents.pipeline import GenerationStageRun, GenerationStageSpec
+from blueprint_core.agents.orchestrator import (
+    DefaultAssemblyOutput,
+    DefaultComponentSelection,
+    DefaultValidationOutput,
+    DefaultWiringOutput,
+    HardwarePipelineOrchestrator,
+)
 from blueprint_core.agents.web_research_workflow import (
     AssemblyWrapper,
     CompletenessAudit,
@@ -80,7 +87,7 @@ class GenerationStageRunTests(unittest.TestCase):
                 GenerationStageSpec(stage_id="validation", dependencies=["wiring"]),
                 GenerationStageSpec(stage_id="mechanical", dependencies=["components"]),
             ],
-            persist=lambda current: checkpoints.append(current.snapshot()),
+            persist=lambda current, _record: checkpoints.append(current.snapshot()),
         )
 
         run.run("components", lambda: {"refs": ["U1"]})
@@ -237,6 +244,123 @@ class WebResearchPartialGenerationTests(unittest.TestCase):
         replayed_records = replayed.assembly_metadata["generation_run"]["records"]
         self.assertEqual(2, replayed_records["wiring_netlist"]["attempt"])
         self.assertEqual("succeeded", replayed.assembly_metadata["generation_status"])
+
+
+class DefaultPartialGenerationTests(unittest.TestCase):
+    def pipeline(self) -> HardwarePipelineOrchestrator:
+        pipeline = HardwarePipelineOrchestrator.__new__(HardwarePipelineOrchestrator)
+        pipeline.runtime_config = SimpleNamespace(
+            provider="test",
+            model="test-model",
+            requested_provider="test",
+            requested_model="test-model",
+        )
+        pipeline.model_name = "test-model"
+        pipeline.persist_project = False
+        pipeline._active_generation_metadata = {
+            "project_id": "22222222-2222-4222-8222-222222222222",
+            "frontend_job_id": "default-stage-test",
+            "project_prompt": "Build a four wheel robot",
+        }
+        pipeline._generate_default_overview = lambda *args: project_plan().overview
+        pipeline._generate_default_requirements = lambda *args: project_plan().requirements
+        pipeline._generate_default_architecture = lambda *args: project_plan().system_architecture
+        pipeline._generate_default_components = lambda *args: DefaultComponentSelection(
+            components=component_selection().components,
+        )
+        pipeline._generate_default_mechanical = lambda *args: mechanical_plan()
+        pipeline._generate_default_assembly = lambda *args: DefaultAssemblyOutput(steps=[])
+        return pipeline
+
+    @staticmethod
+    def model_validation() -> SimpleNamespace:
+        return SimpleNamespace(
+            fallback_active=False,
+            requested_model="test-model",
+            actual_model="test-model",
+            provider="test",
+        )
+
+    def test_default_wiring_failure_is_partial_and_retry_reuses_completed_stages(self) -> None:
+        checkpoints: list[dict] = []
+        pipeline = self.pipeline()
+        pipeline._active_generation_metadata["stage_checkpoint"] = checkpoints.append
+        pipeline._generate_default_wiring = lambda *args: (_ for _ in ()).throw(TimeoutError("wiring timed out"))
+
+        partial = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        records = partial.assembly_metadata["generation_run"]["records"]
+        self.assertEqual("partial", partial.assembly_metadata["generation_status"])
+        self.assertEqual("succeeded", records["component_selection"]["status"])
+        self.assertEqual("failed", records["wiring_netlist"]["status"])
+        self.assertEqual("blocked", records["validation_repair"]["status"])
+        self.assertEqual("succeeded", records["bom"]["status"])
+        self.assertEqual("succeeded", records["mechanical_fabrication"]["status"])
+        self.assertEqual("blocked", records["assembly"]["status"])
+        self.assertEqual(1, len(partial.bom))
+        self.assertTrue(any(
+            checkpoint.get("record", {}).get("stage_id") == "component_selection"
+            and checkpoint["record"]["status"] == "succeeded"
+            for checkpoint in checkpoints
+            if isinstance(checkpoint.get("record"), dict)
+        ))
+
+        pipeline._active_generation_metadata.update({
+            "prior_generation_run": partial.assembly_metadata["generation_run"],
+            "retry_stage": "wiring_netlist",
+        })
+        pipeline._generate_default_overview = lambda *args: (_ for _ in ()).throw(AssertionError("overview repeated"))
+        pipeline._generate_default_requirements = lambda *args: (_ for _ in ()).throw(AssertionError("requirements repeated"))
+        pipeline._generate_default_architecture = lambda *args: (_ for _ in ()).throw(AssertionError("architecture repeated"))
+        pipeline._generate_default_components = lambda *args: (_ for _ in ()).throw(AssertionError("components repeated"))
+        pipeline._generate_default_mechanical = lambda *args: (_ for _ in ()).throw(AssertionError("mechanical repeated"))
+        pipeline._generate_default_wiring = lambda *args: DefaultWiringOutput(nets=[], pin_mappings=[])
+        pipeline._generate_default_validation = lambda *args: DefaultValidationOutput(
+            nets=[],
+            pin_mappings=[],
+            issues=[],
+            is_valid=True,
+        )
+
+        complete = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        retried = complete.assembly_metadata["generation_run"]["records"]
+        self.assertEqual("succeeded", complete.assembly_metadata["generation_status"])
+        self.assertEqual("complete", complete.assembly_metadata["project_readiness"])
+        self.assertEqual(1, retried["component_selection"]["attempt"])
+        self.assertEqual(1, retried["mechanical_fabrication"]["attempt"])
+        self.assertEqual(2, retried["wiring_netlist"]["attempt"])
+
+    def test_default_architecture_failure_preserves_intent_and_requirements(self) -> None:
+        pipeline = self.pipeline()
+        pipeline._generate_default_architecture = lambda *args: (
+            _ for _ in ()
+        ).throw(TimeoutError("architecture timed out"))
+
+        failed = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        records = failed.assembly_metadata["generation_run"]["records"]
+        self.assertEqual("failed", failed.assembly_metadata["generation_status"])
+        self.assertEqual("succeeded", records["intent_parser"]["status"])
+        self.assertEqual("succeeded", records["requirements"]["status"])
+        self.assertEqual("failed", records["system_architecture"]["status"])
+        self.assertEqual("blocked", records["component_selection"]["status"])
+        self.assertEqual("architecture timed out", failed.assembly_metadata["generation_error"]["message"])
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@ class GenerationStageRecord(BaseModel):
     attempt_history: List[dict[str, Any]] = Field(default_factory=list)
 
 
-GenerationStagePersistence = Callable[["GenerationStageRun"], None]
+GenerationStagePersistence = Callable[["GenerationStageRun", Optional[GenerationStageRecord]], None]
 
 
 class GenerationStageRun:
@@ -119,6 +119,15 @@ class GenerationStageRun:
                     stage_id=stage_id,
                     dependencies=list(spec.dependencies),
                 )
+        for record in self.records.values():
+            if record.status == GenerationStageStatus.RUNNING:
+                record.status = GenerationStageStatus.FAILED
+                record.error = {
+                    "code": "generation_stage_interrupted",
+                    "message": "The generation process ended before this stage completed.",
+                }
+                record.completed_at = _utc_now()
+                self._archive_attempt(record)
         self.invalidated = self._retry_closure(self.retry_stage) if self.retry_stage and not replay_retry else set()
         for stage_id in self.invalidated:
             record = self.records[stage_id]
@@ -147,7 +156,7 @@ class GenerationStageRun:
 
     def checkpoint(self) -> None:
         if self.persist is not None:
-            self.persist(self)
+            self.persist(self, None)
 
     def snapshot(self, *, include_outputs: bool = True) -> dict[str, Any]:
         records = {
@@ -283,7 +292,7 @@ class GenerationStageRun:
 
     def _commit(self, record: GenerationStageRecord) -> None:
         if self.persist is not None:
-            self.persist(self)
+            self.persist(self, record)
 
     @staticmethod
     def _archive_attempt(record: GenerationStageRecord) -> None:

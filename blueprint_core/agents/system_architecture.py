@@ -94,10 +94,10 @@ def hydrate_catalog_components(
                 part_number=component.part_number,
                 name=str(template.get("name") or component.name),
                 category=str(template.get("category") or component.category),
-                quantity=component.quantity,
                 unit_price=float(template.get("price") or 0.0),
                 sourcing_url=template.get("sourcing_url"),
                 rationale=component.rationale,
+                configuration=component.configuration,
                 pins=template.get("pins") or [],
             )
         )
@@ -112,7 +112,6 @@ def compact_component_context(components: Iterable[ComponentInstance]) -> list[d
             "part_number": component.part_number,
             "name": component.name,
             "category": component.category,
-            "quantity": component.quantity,
             "rationale": component.rationale,
         }
         for component in components

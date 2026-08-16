@@ -41,7 +41,7 @@ Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `app
 **Input:** Requirements + system tree + compact seed component catalog
 
 **Output:** `ComponentInstance[]`  
-**Goal:** Choose compatible parts by system role. Exact catalog pinouts are hydrated deterministically after selection.
+**Goal:** Choose compatible parts by system role. Repeated parts are emitted as one physical instance per reference designator; exact catalog pinouts are hydrated deterministically after selection.
 
 ### Wiring/Netlist Agent
 **Input:** Components + requirements  
@@ -52,8 +52,8 @@ If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-
 
 ### BOM Agent
 **Input:** Component list  
-**Output:** Updated `ProjectOverview.estimated_cost`  
-**Goal:** Calculate total cost from unit prices and quantities (deterministic step).
+**Output:** `PartDefinition[]`, `BOMLineItem[]`, and updated `ProjectOverview.estimated_cost`
+**Goal:** Store shared part data once, aggregate physical instance references into procurement rows, and calculate deterministic extended and total costs.
 
 ### Mechanical/Fabrication Agent
 **Input:** Mechanical system branch + pin-free component summaries

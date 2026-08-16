@@ -9,13 +9,15 @@ Forma’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic.
 - **Diffable:** Changes across versions are explicit and comparable.
 
 ## Top-level structure
-The core schema lives in `apps/api/models.py` and includes:
+The core schema lives in `blueprint_core/workspaces/projects/models.py` and includes:
 
 - **hardware_ir_version** – schema version string.
 - **overview** – `ProjectOverview` with title, description, difficulty, category.
 - **requirements** – `FunctionalRequirements` with power, constraints, safety notes.
 - **system_architecture** – purpose-driven `SystemArchitecture` tree of discipline and nested subsystem nodes.
-- **components** – list of `ComponentInstance` objects (instantiated BOM).
+- **part_definitions** – shared, source-agnostic `PartDefinition` identity, specifications, pinout, dimensions, datasheet, sourcing, and unit-price records.
+- **components** – physical `ComponentInstance` occurrences; every record has one unique reference designator and points to a part definition.
+- **bom** – deterministic `BOMLineItem` aggregation over physical instance references.
 - **nets** – list of `ConnectionNet` objects (netlist connections).
 - **buses** – `BusConnection` definitions (I2C/SPI/UART groups).
 - **pin_mappings** – `PinMappingEntry` for MCU signal mapping.
@@ -36,7 +38,8 @@ Additional fields commonly populated at runtime:
 
 ## Key relationships
 - **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.
-- **ComponentInstance → PinDefinition:** Each instance carries a full pinout.
+- **ComponentInstance → PartDefinition:** Each physical occurrence references shared part identity and pin data by `part_definition_id`.
+- **BOMLineItem → ComponentInstance:** Each procurement row aggregates `instance_refs`; its quantity must equal the number of those references.
 - **ConnectionNet → PinReference:** Nets reference component pins by `ref_des` + `pin_id`.
 - **BusConnection → ConnectionNet:** Buses group nets for higher-level comms.
 - **ValidationSummary → ValidationIssue:** Structured diagnostics live inside the IR.
@@ -49,6 +52,12 @@ The IR is produced in a loop:
 4. Validation results are embedded back into the IR.
 
 This makes the IR more than a snapshot—it’s a record of what was checked and why the design is considered safe within MVP scope.
+
+## Hardware IR 0.2 migration
+
+Hardware IR 0.2 separates physical design state from procurement aggregation. Repeated parts are represented as independently addressable instances (`M1`, `M2`, `M3`, `M4`), while the BOM can still contain one row with quantity four. Nets and mechanical placements always target a physical instance, and validation rejects duplicate or unknown references, unknown pins when a pinout is defined, mismatched BOM quantities, and non-deterministic extended prices.
+
+The validator reads 0.1 quantity-bearing component records and expands them deterministically. Shared legacy identity and pin fields are moved into `part_definitions`, BOM rows are derived, and the serialized result is emitted as 0.2. Runtime compatibility properties remain available to existing Python consumers during the transition, but new JSON must not use aggregate component quantities.
 
 ## Image inputs
 When `image_data` is provided to `POST /api/generate`, the backend uploads the reference image to Supabase Storage when the Supabase service-role/secret key is configured and `BLUEPRINT_DEV_MODE` is not enabled, then records `assembly_metadata.reference_image_url`, `reference_image_s3_bucket`, and `reference_image_s3_key`. If storage is not configured or `BLUEPRINT_DEV_MODE=true`, it falls back to `assembly_metadata.reference_image_data`.

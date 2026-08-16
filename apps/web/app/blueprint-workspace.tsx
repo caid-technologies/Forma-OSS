@@ -11,7 +11,7 @@ import {
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
 import { normalizeContextSuggestions } from "../lib/context-suggestions";
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
-import { calculateProjectCostMetrics } from "../lib/project-cost-metrics";
+import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
   humanContextSkipChatSummary,
@@ -4451,7 +4451,12 @@ export function FormaWorkspace({
   };
 
   const metrics = calculateProjectCostMetrics(projectIR);
-  const components = projectIR?.components || [];
+  const components = useMemo(() => resolveProjectComponentInstances(projectIR), [projectIR]);
+  const bomLineItems = projectIR?.bom?.length ? projectIR.bom : components;
+  const schematicProject = useMemo(
+    () => projectIR ? { ...projectIR, components } : projectIR,
+    [components, projectIR]
+  );
   const assembly = projectIR?.assembly || [];
   const constraints = projectIR?.constraints || [];
   const imageFeatures = projectIR?.assembly_metadata?.image_features?.length
@@ -4570,7 +4575,7 @@ export function FormaWorkspace({
       case "bom":
         return (
           <BomPanel
-            components={components}
+            components={bomLineItems}
             metrics={metrics}
             cadSources={(projectIR?.mechanical && Array.isArray(projectIR.mechanical.cad_sources)) ? projectIR.mechanical.cad_sources : []}
             fabricationCost={Number(projectIR?.mechanical?.fabrication_cost_estimate_usd || 0)}
@@ -4591,7 +4596,7 @@ export function FormaWorkspace({
           />
         );
       case "schematic":
-        return <SchematicCanvas project={projectIR} />;
+        return <SchematicCanvas project={schematicProject} />;
       case "assembly":
         return (
           <AssemblyPanel

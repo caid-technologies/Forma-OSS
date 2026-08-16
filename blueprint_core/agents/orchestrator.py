@@ -50,7 +50,8 @@ from blueprint_core.workspaces.projects.models import (
     MechanicalNotes, MechanicalSource, MechanicalVector3, MechanicalRotation3,
     MechanicalPlacement, MechanicalSpatialRelationship, PinMappingEntry,
     ValidationIssue, PinDefinition, ValidationSummary, BusConnection, PowerRail,
-    SystemArchitecture,
+    SystemArchitecture, component_detail_payload, component_instance_count,
+    expand_component_instances,
 )
 from blueprint_core.validation import validate_circuit, check_safety_violations, build_validation_summary
 
@@ -838,9 +839,12 @@ class HardwarePipelineOrchestrator:
                 For each selected component, instantiate it as a ComponentInstance with:
                 - ref_des: Unique ID like 'U1' (for MCUs), 'SEN1', 'ACT1', 'DISP1', 'R1', 'LED1', 'BAT1'
                 - part_number: MUST match exactly one of the available part_numbers in the database list above.
-                - name, category, quantity, unit_price, sourcing_url: Match the selected DB template.
+                - name, category, unit_price, sourcing_url: Match the selected DB template.
                 - rationale: Explain why this component is selected and how it fits.
                 - pins: Return an empty list. Exact catalog pins are hydrated deterministically after selection.
+                Every ComponentInstance is one physical occurrence. Repeated parts must be emitted as separate
+                records with unique reference designators (for example M1, M2, M3, and M4), never as one record
+                with an aggregate quantity.
                 
                 Output a JSON representation conforming to a List[ComponentInstance].
                 """
@@ -860,9 +864,10 @@ class HardwarePipelineOrchestrator:
                         "Restored explicitly requested catalog parts omitted by component selection: %s",
                         ", ".join(reconciled_component_parts),
                     )
+                components = expand_component_instances(components)
 
             # Compile intermediate IR for wiring
-            components_json = json.dumps([c.model_dump() for c in components], indent=2)
+            components_json = json.dumps([component_detail_payload(c) for c in components], indent=2)
 
             # 5. Wiring/Netlist Agent (With Auto-Correction Loop)
             logger.info("Invoking Wiring/Netlist Agent...")
@@ -944,7 +949,7 @@ class HardwarePipelineOrchestrator:
             # 5. BOM Agent
             logger.info("Invoking BOM Agent...")
             with agent_pipeline_step("default", "bom"):
-                total_cost = sum(c.unit_price * c.quantity for c in components)
+                total_cost = sum(c.unit_price * component_instance_count(c) for c in components)
                 overview.estimated_cost = round(total_cost, 2)
 
             # 6. Mechanical/Fabrication Agent
@@ -1263,7 +1268,10 @@ class HardwarePipelineOrchestrator:
                 rationale="Pull-up resistor for the DHT22 single-wire data line.",
             ),
         ]
-        overview.estimated_cost = round(sum(component.unit_price * component.quantity for component in components), 2)
+        overview.estimated_cost = round(
+            sum(component.unit_price * component_instance_count(component) for component in components),
+            2,
+        )
         emit_agent_pipeline_event("default", "component_selection", "completed", details={"component_count": len(components)})
 
         emit_agent_pipeline_event("default", "wiring_netlist", "started", details={"adapter": "parti-base-v1"})
@@ -1961,7 +1969,7 @@ class HardwarePipelineOrchestrator:
             )
         ]
 
-        overview.estimated_cost = sum(c.unit_price * c.quantity for c in components)
+        overview.estimated_cost = sum(c.unit_price * component_instance_count(c) for c in components)
 
         nets = [
             ConnectionNet(
@@ -2503,7 +2511,7 @@ class HardwarePipelineOrchestrator:
             )
         ]
 
-        overview.estimated_cost = sum(c.unit_price * c.quantity for c in components)
+        overview.estimated_cost = sum(c.unit_price * component_instance_count(c) for c in components)
 
         nets = [
             ConnectionNet(

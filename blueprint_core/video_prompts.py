@@ -38,7 +38,8 @@ def _component_label(component: Dict[str, Any]) -> str:
 
 
 def _top_components(payload: Dict[str, Any], limit: int = 6) -> List[str]:
-    components = payload.get("components") if isinstance(payload.get("components"), list) else []
+    bom = payload.get("bom") if isinstance(payload.get("bom"), list) else []
+    components = bom or (payload.get("components") if isinstance(payload.get("components"), list) else [])
     labels = []
     for component in components:
         if not isinstance(component, dict):

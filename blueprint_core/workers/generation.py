@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from typing import Any, Awaitable, Callable, Protocol
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -71,7 +72,12 @@ class HardwareIRGenerationEngine:
         self.use_simulation = use_simulation
         self.generate_image = generate_image
 
-    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
+    def generate(
+        self,
+        design_brief: DesignBrief,
+        *,
+        generation_metadata: dict[str, Any] | None = None,
+    ) -> ProjectRevisionDraft:
         from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 
         prompt = self._prompt(design_brief)
@@ -87,16 +93,23 @@ class HardwareIRGenerationEngine:
                 "project_id": str(design_brief.project_id),
                 "design_brief_id": str(design_brief.design_brief_id),
                 "design_brief_version": design_brief.brief_version,
+                **(generation_metadata or {}),
             },
         )
         generation_error = (state.assembly_metadata or {}).get("generation_error")
-        if generation_error or (state.assembly_metadata or {}).get("status") == "failed":
+        generation_run = (state.assembly_metadata or {}).get("generation_run")
+        if (generation_error or (state.assembly_metadata or {}).get("status") == "failed") and not isinstance(
+            generation_run,
+            dict,
+        ):
             message = generation_error.get("message") if isinstance(generation_error, dict) else None
             raise RuntimeError(str(message or "Structured hardware generation failed."))
-        if self.generate_image:
+        generation_status = str((state.assembly_metadata or {}).get("generation_status") or "succeeded")
+        generate_product_image = self.generate_image and generation_status == "succeeded"
+        if generate_product_image:
             emit_agent_pipeline_event("default", "image_generation", "started")
-        attach_product_image(prompt, state, generate_image=self.generate_image)
-        if self.generate_image:
+        attach_product_image(prompt, state, generate_image=generate_product_image)
+        if generate_product_image:
             image_status = (state.assembly_metadata or {}).get("image_output_status")
             emit_agent_pipeline_event(
                 "default",
@@ -289,12 +302,13 @@ class GenerationWorker:
         except (ProjectStateError, ValueError) as exc:
             return _failure_result(request, exc, retryable=False)
 
-        replay = self._state.get_by_source_job(request.project_id, owner_user_id, request.job_id)
+        execution_attempt = max(1, int(request.metadata.get("execution_attempt") or 1))
+        source_job_id = request.job_id if execution_attempt == 1 else f"{request.job_id}:attempt:{execution_attempt}"
+        replay = self._state.get_by_source_job(request.project_id, owner_user_id, source_job_id)
         if replay is not None:
             if (
                 replay.design_brief_id != request.design_brief_id
                 or replay.design_brief_version != request.design_brief_version
-                or replay.revision != request.project_revision
             ):
                 return _failure_result(
                     request,
@@ -317,7 +331,7 @@ class GenerationWorker:
         try:
             if cancellation_check is not None and cancellation_check():
                 return _cancelled_result(request)
-            progress_sequence = 1
+            progress_sequence = max(0, int(request.metadata.get("progress_sequence_start") or 0)) + 1
             await report_progress(WorkerProgress(
                 **context,
                 sequence=progress_sequence,
@@ -327,6 +341,21 @@ class GenerationWorker:
             ))
             if isinstance(self._engine, HardwareIRGenerationEngine):
                 event_loop = asyncio.get_running_loop()
+
+                prior_generation_run = request.metadata.get("prior_generation_run")
+                prior_generation_run = prior_generation_run if isinstance(prior_generation_run, dict) else None
+                if prior_generation_run is None:
+                    try:
+                        latest = self._state.get_latest(request.project_id, owner_user_id)
+                    except ProjectStateError:
+                        latest = None
+                    candidate_run = (
+                        ((latest.state.assembly_metadata or {}).get("generation_run") or {})
+                        if latest is not None
+                        else {}
+                    )
+                    prior_generation_run = candidate_run if isinstance(candidate_run, dict) and candidate_run else None
+                retry_stage = str(request.metadata.get("retry_stage") or "").strip() or None
 
                 def generate_with_observation() -> ProjectRevisionDraft:
                     def record_pipeline_event(event: AgentPipelineEvent) -> None:
@@ -347,8 +376,36 @@ class GenerationWorker:
                         )
                         future.result()
 
+                    def record_stage_checkpoint(checkpoint: dict[str, Any]) -> None:
+                        nonlocal progress_sequence
+                        if cancellation_check is not None and cancellation_check():
+                            raise PipelineCancelledError("Agent pipeline was cancelled.")
+                        progress_sequence += 1
+                        future = asyncio.run_coroutine_threadsafe(
+                            report_progress(WorkerProgress(
+                                **context,
+                                sequence=progress_sequence,
+                                status="running",
+                                percent_complete=None,
+                                message="Persisting generation stage checkpoint.",
+                                metadata={"generation_stage_checkpoint": checkpoint},
+                            )),
+                            event_loop,
+                        )
+                        future.result()
+
                     with observe_agent_pipeline(record_pipeline_event, cancellation_check=cancellation_check):
-                        return self._engine.generate(payload.design_brief)
+                        generation_parameters = inspect.signature(self._engine.generate).parameters
+                        if "generation_metadata" not in generation_parameters:
+                            return self._engine.generate(payload.design_brief)
+                        return self._engine.generate(
+                            payload.design_brief,
+                            generation_metadata={
+                                "prior_generation_run": prior_generation_run,
+                                "retry_stage": retry_stage,
+                                "stage_checkpoint": record_stage_checkpoint,
+                            },
+                        )
 
                 candidate = await asyncio.to_thread(generate_with_observation)
                 if cancellation_check is not None and cancellation_check():
@@ -366,14 +423,24 @@ class GenerationWorker:
                 percent_complete=80,
                 message="Persisting initial project revision.",
             ))
-            outcome = self._state.create_initial_revision(
-                draft,
-                project_id=request.project_id,
-                owner_user_id=owner_user_id,
-                design_brief_id=request.design_brief_id,
-                design_brief_version=request.design_brief_version,
-                source_job_id=request.job_id,
-            )
+            try:
+                self._state.get_latest(request.project_id, owner_user_id)
+            except ProjectStateError:
+                outcome = self._state.create_initial_revision(
+                    draft,
+                    project_id=request.project_id,
+                    owner_user_id=owner_user_id,
+                    design_brief_id=request.design_brief_id,
+                    design_brief_version=request.design_brief_version,
+                    source_job_id=source_job_id,
+                )
+            else:
+                outcome = self._state.create_revision(
+                    draft,
+                    project_id=request.project_id,
+                    owner_user_id=owner_user_id,
+                    source_job_id=source_job_id,
+                )
             self._publish(outcome.revision, payload.design_brief, owner_user_id)
         except PipelineCancelledError:
             return _cancelled_result(request)
@@ -432,21 +499,33 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
         for artifact in revision.artifacts
     ]
     generation_status = str((revision.state.assembly_metadata or {}).get("generation_status") or "succeeded")
-    partial_error = None
-    if generation_status == "partial":
-        partial_error = WorkerError(
+    generation_error = None
+    if generation_status in {"partial", "failed"}:
+        generation_error = WorkerError(
             **context,
-            code="generation_partial",
-            message="One or more generation stages failed; successful artifacts were preserved.",
+            code="generation_partial" if generation_status == "partial" else "generation_root_failed",
+            message=(
+                "One or more generation stages failed; successful artifacts were preserved."
+                if generation_status == "partial"
+                else "A required root generation stage failed; diagnostics were preserved."
+            ),
             retryable=True,
             details={
                 "stage_failures": (revision.state.assembly_metadata or {}).get("generation_stage_failures") or [],
             },
         )
+    result_status = (
+        WorkerResultStatus.PARTIAL
+        if generation_status == "partial"
+        else WorkerResultStatus.FAILED
+        if generation_status == "failed"
+        else WorkerResultStatus.SUCCEEDED
+    )
+    retry_metadata = _generation_retry_metadata(revision.state) if generation_error is not None else None
     return WorkerResult(
         **context,
         output_contract_version=GENERATION_OUTPUT_VERSION,
-        status=WorkerResultStatus.PARTIAL if partial_error is not None else WorkerResultStatus.SUCCEEDED,
+        status=result_status,
         output={
             "project_revision": revision.model_dump(mode="json"),
             "components": [item.model_dump(mode="json") for item in revision.components],
@@ -456,8 +535,39 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
             "idempotent_replay": outcome.idempotent_replay,
         },
         artifacts=artifacts,
-        error=partial_error,
+        error=generation_error,
+        metadata={"generation_retry": retry_metadata} if retry_metadata is not None else {},
     )
+
+
+def _generation_retry_metadata(state: HardwareIR) -> dict[str, Any] | None:
+    generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
+    records = generation_run.get("records") if isinstance(generation_run, dict) else None
+    if not isinstance(records, dict):
+        return None
+    retry_stage = next((
+        stage_id
+        for stage_id, record in records.items()
+        if isinstance(record, dict) and record.get("status") == "failed"
+    ), None)
+    if not retry_stage:
+        return None
+    invalidated = {retry_stage}
+    changed = True
+    while changed:
+        changed = False
+        for stage_id, record in records.items():
+            dependencies = record.get("dependencies") if isinstance(record, dict) else []
+            if stage_id not in invalidated and any(dep in invalidated for dep in (dependencies or [])):
+                invalidated.add(stage_id)
+                changed = True
+    if retry_stage != "package_project" and "package_project" in records:
+        invalidated.add("package_project")
+    return {
+        "retry_stage": retry_stage,
+        "prior_generation_run": generation_run,
+        "invalidated_stage_ids": sorted(invalidated),
+    }
 
 
 def _validate_request_identity(request: WorkerRequest, brief: DesignBrief) -> None:

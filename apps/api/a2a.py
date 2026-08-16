@@ -770,8 +770,8 @@ def build_generation_response(
     prior_generation_run: Optional[Dict[str, Any]] = None
     retry_stage_replay = False
     if normalized_retry_stage:
-        if workflow_id != "web_research":
-            raise ValueError("Named generation-stage retry is currently supported by the web_research workflow.")
+        if workflow_id not in {"default", "web_research"}:
+            raise ValueError("Named generation-stage retry is not supported by this workflow.")
         if not project_id:
             raise ValueError("project_id is required when retry_stage is provided.")
         existing_project = get_generated_project(project_id)
@@ -1306,7 +1306,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     },
                     "retry_stage": {
                         "type": "string",
-                        "description": "Failed web_research stage to retry while reusing successful artifacts.",
+                        "description": "Failed generation stage to retry while reusing successful artifacts.",
                     },
                     "workflow": {
                         "type": "string",

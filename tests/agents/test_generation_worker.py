@@ -149,6 +149,63 @@ class CancellableGenerationEngine(HardwareIRGenerationEngine):
         return FakeGenerationEngine().generate(design_brief)
 
 
+class RetryableStagedGenerationEngine(HardwareIRGenerationEngine):
+    def __init__(self) -> None:
+        self.calls: list[dict[str, Any]] = []
+
+    def generate(
+        self,
+        design_brief: DesignBrief,
+        *,
+        generation_metadata: dict[str, Any] | None = None,
+    ) -> ProjectRevisionDraft:
+        metadata = dict(generation_metadata or {})
+        self.calls.append(metadata)
+        first_attempt = len(self.calls) == 1
+        generation_run = {
+            "generation_run_id": "default-retry-run",
+            "workflow": "default",
+            "retry_stage": metadata.get("retry_stage"),
+            "status": "partial" if first_attempt else "succeeded",
+            "records": {
+                "component_selection": {
+                    "stage_id": "component_selection",
+                    "status": "succeeded",
+                    "dependencies": [],
+                },
+                "wiring_netlist": {
+                    "stage_id": "wiring_netlist",
+                    "status": "failed" if first_attempt else "succeeded",
+                    "dependencies": ["component_selection"],
+                },
+                "package_project": {
+                    "stage_id": "package_project",
+                    "status": "succeeded",
+                    "dependencies": [],
+                },
+            },
+        }
+        checkpoint = metadata.get("stage_checkpoint")
+        if first_attempt and callable(checkpoint):
+            for stage_id in ("component_selection", "wiring_netlist", "package_project"):
+                checkpoint({
+                    "generation_run_id": generation_run["generation_run_id"],
+                    "workflow": "default",
+                    "retry_stage": None,
+                    "status": generation_run["status"],
+                    "record": generation_run["records"][stage_id],
+                })
+        return FakeGenerationEngine(assembly_metadata={
+            "generation_status": "partial" if first_attempt else "succeeded",
+            "project_readiness": "partial" if first_attempt else "complete",
+            "generation_run": generation_run,
+            "generation_stage_failures": ([{
+                "stage_id": "wiring_netlist",
+                "status": "failed",
+            }] if first_attempt else []),
+        }).generate(design_brief)
+
+
 class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -194,6 +251,23 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         attach_image.assert_called_once()
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
         self.assertEqual("Vertex Image Project", draft.state.overview.title)
+
+    def test_hardware_engine_returns_contained_staged_root_failure(self) -> None:
+        state = HardwareIR(assembly_metadata={
+            "generation_status": "failed",
+            "status": "failed",
+            "generation_error": {"type": "TimeoutError", "message": "architecture timed out"},
+            "generation_run": {"generation_run_id": "failed-run", "records": {}},
+        })
+        with (
+            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("blueprint_core.workers.generation.attach_product_image"),
+        ):
+            orchestrator_type.return_value.generate_project.return_value = state
+
+            draft = HardwareIRGenerationEngine().generate(self.brief)
+
+        self.assertEqual("failed", draft.state.assembly_metadata["generation_status"])
 
     def test_hardware_ir_rejects_dangling_component_references(self) -> None:
         component = ComponentInstance(
@@ -366,6 +440,39 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(second.output["idempotent_replay"])
         self.assertEqual(2, publisher.call_count)
         self.assertEqual(1, len(engine.received))
+
+    async def test_partial_default_generation_retry_appends_revision_and_reuses_run(self) -> None:
+        engine = RetryableStagedGenerationEngine()
+        worker = GenerationWorker(self.state, engine)
+        orchestrator = WorkerOrchestrator(
+            self.repository,
+            [worker],
+            workflow_service=self.workflow,
+        )
+        plan = orchestrator.create_plan([self.request()], OWNER)
+
+        partial = await orchestrator.execute(plan.plan_id, OWNER)
+
+        self.assertEqual(WorkerPlanStatus.PARTIAL, partial.status)
+        self.assertEqual(1, self.state.get_latest(self.project_id, OWNER).revision)
+        reset = await orchestrator.reset(plan.plan_id, OWNER)
+        self.assertEqual("wiring_netlist", reset.jobs["job-generation-initial"].request.metadata["retry_stage"])
+        preserved_checkpoints = [
+            progress.metadata["generation_stage_checkpoint"]["record"]["stage_id"]
+            for progress in reset.jobs["job-generation-initial"].progress
+            if "generation_stage_checkpoint" in progress.metadata
+        ]
+        self.assertEqual(["component_selection"], preserved_checkpoints)
+
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+
+        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
+        self.assertEqual(2, self.state.get_latest(self.project_id, OWNER).revision)
+        self.assertEqual("wiring_netlist", engine.calls[1]["retry_stage"])
+        self.assertEqual(
+            "default-retry-run",
+            engine.calls[1]["prior_generation_run"]["generation_run_id"],
+        )
 
     async def test_project_chat_iteration_appends_an_immutable_revision(self) -> None:
         engine = FakeGenerationEngine()

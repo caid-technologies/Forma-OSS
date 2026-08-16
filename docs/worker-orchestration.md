@@ -29,6 +29,8 @@ The `worker_execution_plans` record contains the validated requests and every jo
 
 `reset_job()` retries one failed or partial job and resets only its transitive dependents. Successful upstream and independent results remain persisted and are not executed again.
 
+For the Generation worker, a partial result includes a generation retry context containing the named failed stage, prior stage records, and invalidated dependents. Reset preserves successful stage checkpoints and progress events, increments the execution attempt, and appends a new canonical project revision when the retry completes.
+
 When all jobs are terminal, the project workflow advances from `building` to `awaiting_feedback` with an idempotent system transition. Both successful and failed terminal plans preserve their results for feedback and diagnosis.
 
 Production capabilities on this boundary include the [Generation worker](generation-worker.md), which persists canonical project revision 1 from a frozen DesignBrief; the [Validation worker](validation-worker.md), which persists actionable findings against an exact revision; and the [Reverse-Engineering worker](reverse-engineering-worker.md), which produces evidence-linked artifact findings without mutating project state.

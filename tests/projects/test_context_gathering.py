@@ -24,6 +24,7 @@ from blueprint_core.agents.context_gathering import ContextGatheringAgent
 from blueprint_core import database
 from blueprint_core.persistence.providers import create_sqlite_provider
 from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workers import WorkerPlanStatus
 from blueprint_core.workspaces.projects.models import GenerateProjectRequest
 from blueprint_core.workspaces.context import ContextBuildExecution, ContextTurnDecision
 from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
@@ -402,6 +403,37 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(200, response.status_code, response.text)
         self.assertEqual(execution["plan_id"], response.json()["plan_id"])
         execute_plan.assert_awaited_once_with(execution["plan_id"], OWNER)
+
+    def test_worker_plan_reset_endpoint_resets_owned_failed_build(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-reset-build"
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a relay controller."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            execution = started.json()["build_execution"]
+            plan = database.get_project_generation_plan(execution["plan_id"], OWNER)
+            reset_plan = plan.model_copy(update={"status": WorkerPlanStatus.PLANNED, "attempt": 2})
+            with patch(
+                "apps.api.worker_plans_api.reset_project_generation_plan",
+                new=AsyncMock(return_value=reset_plan),
+            ) as reset:
+                response = self.client.post(
+                    f"/projects/{project_id}/build/plans/{execution['plan_id']}/reset",
+                )
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual("planned", response.json()["status"])
+        self.assertEqual(2, response.json()["attempt"])
+        reset.assert_awaited_once_with(execution["plan_id"], OWNER)
 
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())

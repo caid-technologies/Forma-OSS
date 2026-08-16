@@ -59,6 +59,9 @@ type HomeChatViewProps = {
   onPromptChange: (prompt: string) => void;
   generationActive: boolean;
   onStop: () => void;
+  canRetryFailedBuild: boolean;
+  retryingFailedBuild: boolean;
+  onRetryFailedBuild: () => void;
   hasGenerationInput: boolean;
   inputValid: boolean;
   imageInputRef: RefObject<HTMLInputElement | null>;
@@ -96,6 +99,9 @@ export default function HomeChatView({
   onPromptChange,
   generationActive,
   onStop,
+  canRetryFailedBuild,
+  retryingFailedBuild,
+  onRetryFailedBuild,
   hasGenerationInput,
   inputValid,
   imageInputRef,
@@ -109,6 +115,14 @@ export default function HomeChatView({
   const latestChoiceMessageId = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
+  const retryMode = canRetryFailedBuild && !hasGenerationInput && !generationActive;
+  const primaryActionLabel = generationActive
+    ? "Stop generation"
+    : retryMode
+      ? "Try failed build again"
+      : inputValid
+        ? "Send context"
+        : "Check hardware idea";
 
   return (
     <section
@@ -317,7 +331,12 @@ export default function HomeChatView({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  if (!isLoading) event.currentTarget.form?.requestSubmit();
+                  if (isLoading) return;
+                  if (retryMode) {
+                    onRetryFailedBuild();
+                    return;
+                  }
+                  event.currentTarget.form?.requestSubmit();
                 }
               }}
               placeholder="Describe the product, constraints, references, and outputs you need…"
@@ -335,14 +354,22 @@ export default function HomeChatView({
               <Paperclip className="h-4 w-4" />
             </button>
             <button
-              type={generationActive ? "button" : "submit"}
-              onClick={generationActive ? onStop : undefined}
-              disabled={!generationActive && (isLoading || !hasGenerationInput || !generationReady)}
+              type={generationActive || retryMode ? "button" : "submit"}
+              onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
+              disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
               className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
-              aria-label={generationActive ? "Stop generation" : inputValid ? "Send context" : "Check hardware idea"}
-              title={generationActive ? "Stop generation" : inputValid ? "Send context" : "Check hardware idea"}
+              aria-label={primaryActionLabel}
+              title={primaryActionLabel}
             >
-              {generationActive ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              {generationActive ? (
+                <Square className="h-4 w-4 fill-current" />
+              ) : retryMode ? (
+                <RefreshCw className={`h-4 w-4 ${retryingFailedBuild ? "animate-spin" : ""}`} />
+              ) : isLoading ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
             </button>
           </div>
 

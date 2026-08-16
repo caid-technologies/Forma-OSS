@@ -1039,6 +1039,20 @@ async def cancel_project_generation_plan(plan_id: str, owner_user_id: str):
     return await orchestrator.cancel(plan_id, owner)
 
 
+async def reset_project_generation_plan(plan_id: str, owner_user_id: str):
+    """Reset failed generation work while preserving the frozen project brief."""
+
+    from blueprint_core.workers import GenerationWorker, WorkerOrchestrator
+
+    owner = _normalize_user_id(owner_user_id)
+    orchestrator = WorkerOrchestrator(
+        _DATABASE_REPOSITORY,
+        [GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY))],
+        workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+    )
+    return await orchestrator.reset(plan_id, owner)
+
+
 def list_project_workflow_transitions(
     project_id: str,
     owner_user_id: str,

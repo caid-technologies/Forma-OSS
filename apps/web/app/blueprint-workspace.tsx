@@ -1606,6 +1606,7 @@ export function FormaWorkspace({
   const contextBuildWatchersRef = useRef<Set<string>>(new Set());
   const [contextWorkflowStates, setContextWorkflowStates] = useState<Record<string, string>>({});
   const [contextBuildStarting, setContextBuildStarting] = useState(false);
+  const [resettingBuildMessageId, setResettingBuildMessageId] = useState<string | null>(null);
   const [contextSubmitting, setContextSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
@@ -1806,6 +1807,12 @@ export function FormaWorkspace({
       projectId: message.projectId,
       pipelineProgress: message.pipelineProgress || null,
       imagePreview: message.imagePreview || null,
+      contextProjectId: message.contextProjectId || null,
+      workflowState: message.workflowState || null,
+      contextQuestions: message.contextQuestions || [],
+      contextSuggestions: message.contextSuggestions || [],
+      buildPlanId: message.buildPlanId || null,
+      buildJobId: message.buildJobId || null,
       timestamp: chatTimestamp(),
     };
     setChatMessages((current) => [...current, nextMessage]);
@@ -1854,6 +1861,12 @@ export function FormaWorkspace({
       projectId: message.projectId,
       pipelineProgress: message.pipelineProgress || null,
       imagePreview: message.imagePreview || null,
+      contextProjectId: message.contextProjectId || null,
+      workflowState: message.workflowState || null,
+      contextQuestions: message.contextQuestions || [],
+      contextSuggestions: message.contextSuggestions || [],
+      buildPlanId: message.buildPlanId || null,
+      buildJobId: message.buildJobId || null,
       timestamp: chatTimestamp(),
     };
     setChatThreads((current) => {
@@ -2188,6 +2201,14 @@ export function FormaWorkspace({
     )) || null,
     [chatMessages],
   );
+  const retryableContextBuildMessage = useMemo(() => {
+    const latestBuildMessage = [...chatMessages].reverse().find((message) => (
+      Boolean(message.buildPlanId)
+      && Boolean(message.buildJobId)
+      && Boolean(message.contextProjectId)
+    ));
+    return latestBuildMessage?.status === "error" ? latestBuildMessage : null;
+  }, [chatMessages]);
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
@@ -3209,6 +3230,53 @@ export function FormaWorkspace({
       if (attempts < 600) window.setTimeout(poll, 2000);
     };
     window.setTimeout(poll, 750);
+  };
+
+  const resetFailedContextBuild = async (message: ChatMessage) => {
+    const projectId = message.contextProjectId;
+    const planId = message.buildPlanId;
+    const jobId = message.buildJobId;
+    const chatId = activeChatId;
+    if (!projectId || !planId || !jobId || !chatId || activeGenerationRef.current) return;
+
+    setResettingBuildMessageId(message.id);
+    setGenerationInputNotice(null);
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/reset`,
+        { method: "POST", headers: await generationRequestHeaders() },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+
+      const resetPlan = await response.json();
+      const resetJobId = typeof resetPlan?.jobs?.[jobId]?.request?.job_id === "string"
+        ? resetPlan.jobs[jobId].request.job_id
+        : jobId;
+      const previousProgress = message.pipelineProgress;
+      const progress = createAgentPipelineProgress(
+        previousProgress?.steps || defaultAgentPipelineSteps,
+        progressIncludesImageStep(previousProgress),
+        chatTimestamp(),
+        resetJobId,
+      );
+      const patch: Partial<Omit<ChatMessage, "id">> = {
+        content: "Trying the design build again with the preserved project brief.",
+        status: "loading",
+        pipelineProgress: progress,
+        workflowState: "building",
+      };
+      updateChatMessage(message.id, patch);
+      updateThreadMessage(chatId, message.id, patch);
+      setContextWorkflowStates((current) => ({ ...current, [chatId]: "building" }));
+      setGenerationInputNotice("Job reset. The build agents are trying again.");
+
+      const run = beginContextBuildRun(projectId, planId, resetJobId, chatId, message.id);
+      watchContextBuild(projectId, planId, resetJobId, chatId, message.id, run);
+    } catch (error) {
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not reset the failed job.");
+    } finally {
+      setResettingBuildMessageId(null);
+    }
   };
 
   useEffect(() => {
@@ -4893,6 +4961,17 @@ export function FormaWorkspace({
                       ? () => stopContextBuildMessage(message as ChatMessage)
                       : undefined
                   }
+                  onReset={
+                    message.status === "error"
+                    && message.buildPlanId
+                    && message.buildJobId
+                    && message.contextProjectId
+                    && !activeGeneration
+                    && !pendingContextBuildMessage
+                      ? () => void resetFailedContextBuild(message as ChatMessage)
+                      : undefined
+                  }
+                  resetting={resettingBuildMessageId === message.id}
                 />
               )}
               projectArtifact={
@@ -4930,7 +5009,7 @@ export function FormaWorkspace({
               onSelectContextSuggestion={(suggestion) => {
                 void submitGatherContext(suggestion);
               }}
-              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage)}
+              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage || resettingBuildMessageId)}
               generationReady
               needsGenerationProvider={false}
               needsImageProvider={false}
@@ -4946,6 +5025,11 @@ export function FormaWorkspace({
               onStop={() => {
                 if (activeGenerationRef.current) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
+              }}
+              canRetryFailedBuild={Boolean(retryableContextBuildMessage)}
+              retryingFailedBuild={resettingBuildMessageId === retryableContextBuildMessage?.id}
+              onRetryFailedBuild={() => {
+                if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
               }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}
@@ -6725,11 +6809,15 @@ function AgentPipelineProgressView({
   status,
   compact = false,
   onStop,
+  onReset,
+  resetting = false,
 }: {
   progress?: AgentPipelineProgress | null;
   status?: ChatMessage["status"];
   compact?: boolean;
   onStop?: () => void;
+  onReset?: () => void;
+  resetting?: boolean;
 }) {
   if (!progress) return null;
 
@@ -6806,6 +6894,19 @@ function AgentPipelineProgressView({
             >
               <Square className="h-3 w-3 fill-current" />
               Stop
+            </button>
+          )}
+          {isError && onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              disabled={resetting}
+              className="inline-flex h-7 items-center gap-1 border border-cyan-300/40 px-2 text-[10px] font-black uppercase text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:opacity-60"
+              aria-label="Reset failed generation job"
+              title="Reset failed generation job and try again"
+            >
+              <RefreshCw className={`h-3 w-3 ${resetting ? "animate-spin" : ""}`} />
+              {resetting ? "Resetting" : "Reset job"}
             </button>
           )}
           <div className="text-right">

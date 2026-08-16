@@ -58,8 +58,13 @@ class ProjectRevisionDraft(BaseModel):
 
     @model_validator(mode="after")
     def require_consistent_unique_output(self) -> "ProjectRevisionDraft":
-        if self.components != self.state.components:
+        component_payloads = [item.model_dump(mode="json") for item in self.components]
+        state_component_payloads = [item.model_dump(mode="json") for item in self.state.components]
+        if component_payloads != state_component_payloads:
             raise ValueError("Project revision components must match the canonical HardwareIR state.")
+        # Keep runtime-only shared part details available to worker consumers while
+        # persisting only the normalized physical-instance records.
+        self.components = list(self.state.components)
         for values, label in (
             ([item.system_id for item in self.systems], "system_id"),
             ([item.artifact_id for item in self.artifacts], "artifact_id"),

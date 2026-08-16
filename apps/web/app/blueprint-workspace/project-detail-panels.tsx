@@ -252,10 +252,11 @@ export function BomPanel({
         {components.map((component) => {
           const tone = categoryTone[component.category?.toLowerCase()] || categoryTone.default;
           const Icon = iconForCategory(component.category);
-          const subtotal = (component.unit_price || 0) * (component.quantity || 1);
+          const subtotal = component.extended_price ?? (component.unit_price || 0) * (component.quantity || 1);
+          const itemKey = component.line_id || component.ref_des || component.part_definition_id;
 
           return (
-            <article key={component.ref_des} className="border border-[#2a2c33] bg-[#17181d] p-4">
+            <article key={itemKey} className="border border-[#2a2c33] bg-[#17181d] p-4">
               <div className="flex min-w-0 items-start gap-3">
                 <span className={`flex h-11 w-11 shrink-0 items-center justify-center border ${tone.border} ${tone.bg}`}>
                   <Icon className={`h-5 w-5 ${tone.text}`} />
@@ -263,6 +264,11 @@ export function BomPanel({
                 <div className="min-w-0 flex-1">
                   <h3 className="break-words text-sm font-black text-white">{component.name}</h3>
                   <p className="mt-2 break-words text-xs leading-5 text-slate-500">{component.rationale}</p>
+                  {Array.isArray(component.instance_refs) && component.instance_refs.length > 0 && (
+                    <p className="mt-2 break-words text-[10px] font-bold text-slate-600">
+                      {component.instance_refs.join(", ")}
+                    </p>
+                  )}
                   <CategoryBadge category={component.category} />
                 </div>
               </div>
@@ -311,13 +317,16 @@ export function BomPanel({
           </div>
           <div className="divide-y divide-[#282a30]">
             {components.map((component) => (
-              <div key={component.ref_des} className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] items-center px-5 py-6">
+              <div key={component.line_id || component.ref_des || component.part_definition_id} className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] items-center px-5 py-6">
                 <div className="flex items-start gap-4">
                   <PartThumb component={component} />
                   <div className="min-w-0">
                     <h3 className="text-lg font-black text-white">{component.name}</h3>
                     <div className="mt-2 text-sm text-slate-500">{component.category}</div>
                     <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">{component.rationale}</p>
+                    {Array.isArray(component.instance_refs) && component.instance_refs.length > 0 && (
+                      <p className="mt-2 text-xs font-bold text-slate-600">{component.instance_refs.join(", ")}</p>
+                    )}
                     <CategoryBadge category={component.category} />
                   </div>
                 </div>
@@ -334,7 +343,7 @@ export function BomPanel({
                     />
                   ))}
                 </div>
-                <div className="text-right text-lg font-black text-white">~${((component.unit_price || 0) * (component.quantity || 1)).toFixed(2)}</div>
+                <div className="text-right text-lg font-black text-white">~${Number(component.extended_price ?? ((component.unit_price || 0) * (component.quantity || 1))).toFixed(2)}</div>
               </div>
             ))}
           </div>

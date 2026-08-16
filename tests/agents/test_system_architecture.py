@@ -19,6 +19,7 @@ from blueprint_core.workspaces.projects.models import (
     PinReference,
     ProjectOverview,
     SystemArchitecture,
+    expand_component_instances,
 )
 from blueprint_core.workspaces.projects.objects import namespace_payload
 
@@ -76,6 +77,7 @@ class SystemArchitectureTests(unittest.TestCase):
             part_number="MCU-1",
             name="placeholder",
             category="placeholder",
+            quantity=4,
             rationale="Runs the product.",
             pins=[],
         )
@@ -88,6 +90,9 @@ class SystemArchitectureTests(unittest.TestCase):
         self.assertEqual(["Power"], compact_catalog[0]["available_interfaces"])
         self.assertEqual("3V3", hydrated[0].pins[0].pin_id)
         self.assertNotIn("pins", compact_components[0])
+        self.assertEqual(["U1", "U2", "U3", "U4"], [
+            component.ref_des for component in expand_component_instances(hydrated)
+        ])
 
     def test_compact_net_context_keeps_components_not_pin_ids(self) -> None:
         net = ConnectionNet(

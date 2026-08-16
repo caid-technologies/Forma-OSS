@@ -42,6 +42,9 @@ from blueprint_core.workspaces.projects.models import (
     ProjectOverview,
     SystemArchitecture,
     ValidationIssue,
+    component_detail_payload,
+    component_instance_count,
+    expand_component_instances,
 )
 from blueprint_core.observability import serialize_for_langfuse, start_observation, update_observation
 from blueprint_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
@@ -301,8 +304,8 @@ class WebResearchHardwarePipeline:
         logger.info("Invoking Web Component Sourcing Agent...")
         with agent_pipeline_step(self.workflow_id, "web_component_sourcing"):
             selection = self._select_components(user_prompt, plan, research_context)
-            components = selection.components
-            components_json = json.dumps([component.model_dump() for component in components], indent=2)
+            components = expand_component_instances(selection.components)
+            components_json = json.dumps([component_detail_payload(component) for component in components], indent=2)
 
         logger.info("Invoking Wiring/Netlist Agent...")
         with agent_pipeline_step(self.workflow_id, "wiring_netlist"):
@@ -322,7 +325,10 @@ class WebResearchHardwarePipeline:
                 validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
 
-        total_cost = sum(component.unit_price * component.quantity for component in components)
+        total_cost = sum(
+            component.unit_price * component_instance_count(component)
+            for component in components
+        )
         plan.overview.estimated_cost = round(total_cost, 2)
 
         logger.info("Invoking Mechanical/Fabrication Agent...")
@@ -488,6 +494,8 @@ class WebResearchHardwarePipeline:
         - Include a realistic low-voltage power source/regulator path.
         - Include complete relevant pins for each selected component: power, ground, interfaces, control, analog, and outputs.
         - Give each project instance a unique ref_des such as U1, SEN1, DIS1, PWR1, REG1, ACT1, SW1, R1.
+        - Every ComponentInstance is one physical occurrence. Emit repeated parts as separate records with unique
+          reference designators (for example M1, M2, M3, and M4); never use aggregate quantity semantics.
         - For complex boards, include the pins needed for this build rather than every package pin.
 
         Return WebComponentSelection.
@@ -635,7 +643,7 @@ class WebResearchHardwarePipeline:
         {plan.requirements.model_dump_json()}
 
         Components:
-        {json.dumps([component.model_dump() for component in components], indent=2)}
+        {json.dumps([component_detail_payload(component) for component in components], indent=2)}
 
         Nets:
         {json.dumps([net.model_dump() for net in nets], indent=2)}

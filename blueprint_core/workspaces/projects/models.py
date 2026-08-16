@@ -625,6 +625,10 @@ class GenerateProjectRequest(BaseModel):
         None,
         description="Optional context project id whose workflow authorizes this generation.",
     )
+    retry_stage: Optional[str] = Field(
+        None,
+        description="Retry one failed web-research generation stage using persisted upstream artifacts.",
+    )
     workflow: str = Field(
         "default",
         description="Generation workflow id: default or web_research"
@@ -672,7 +676,7 @@ class GenerateProjectRequest(BaseModel):
         description="Maximum number of relevant completed jobs to include when data_sources contains past_jobs.",
     )
 
-    @field_validator("provider", "model", "project_id", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
+    @field_validator("provider", "model", "project_id", "retry_stage", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod
     def strip_optional_generation_selector(cls, value: Any) -> Any:
         if isinstance(value, str):

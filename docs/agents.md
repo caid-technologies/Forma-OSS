@@ -1,6 +1,6 @@
 # Agents
 
-Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `apps/api/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
+Forma uses an **ADK-style** multi-agent workflow implemented in `blueprint_core/agents`. Each agent writes structured artifacts into the Hardware IR.
 
 ## Pipeline overview
 0. Context clarification → 1. Safety guardrails → 2. Intent Parser → 3. Requirements → 4. System Architecture → 5. Component Selection → 6. Wiring/Netlist (+ repair loop) → 7. BOM → 8. Mechanical/Fabrication → 9. Assembly Instructions → 10. Mechanical render enrichment
@@ -84,7 +84,7 @@ flowchart LR
 ```
 
 ## Notes
-- Agents run **sequentially** for determinism and traceability.
+- Web-research artifact stages run as a dependency graph. Successful outputs are checkpointed independently, failed dependencies block only downstream work, and unrelated stages continue.
 - Validation can trigger a **repair loop** that re-invokes the wiring agent.
 - If a live LLM provider isn’t configured (or generation fails), the backend uses a deterministic **simulation fallback** backed by the example projects.
 - The pipeline is designed to swap models or add agents without rewriting the core IR schema.

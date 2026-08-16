@@ -258,7 +258,7 @@ export function JobsPanel({
   }, [jobs, searchQuery, userFilter]);
   const sortedJobs = useMemo(() => sortAdminJobs(filteredJobs, sortMode), [filteredJobs, sortMode]);
   const visibleJobs = compact ? sortedJobs.slice(0, 2) : sortedJobs;
-  const filters = ["all", "queued", "running", "succeeded", "failed"];
+  const filters = ["all", "queued", "running", "partial", "succeeded", "failed"];
   const panelDescription = description || `Generation and example job metadata. Polling every ${Math.round(pollIntervalMs / 1000)}s.`;
 
   return (
@@ -602,7 +602,7 @@ export function JobRow({
         <div className="min-w-0 flex-1">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[11px] font-black uppercase ${tone}`}>
-              {job.status === "succeeded" ? <CheckCircle className="h-3.5 w-3.5" /> : job.status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {job.status === "succeeded" ? <CheckCircle className="h-3.5 w-3.5" /> : ["partial", "failed"].includes(job.status) ? <AlertTriangle className="h-3.5 w-3.5" /> : <RefreshCw className="h-3.5 w-3.5" />}
               {job.status}
             </span>
             {sourceLabel !== "-" && (

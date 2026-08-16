@@ -35,6 +35,7 @@ class OrchestrationTaskStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
     FAILED = "failed"
     BLOCKED = "blocked"
     CANCELLED = "cancelled"
@@ -44,18 +45,21 @@ class WorkerPlanStatus(str, Enum):
     PLANNED = "planned"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
 TERMINAL_JOB_STATUSES = frozenset({
     OrchestrationTaskStatus.SUCCEEDED,
+    OrchestrationTaskStatus.PARTIAL,
     OrchestrationTaskStatus.FAILED,
     OrchestrationTaskStatus.BLOCKED,
     OrchestrationTaskStatus.CANCELLED,
 })
 TERMINAL_PLAN_STATUSES = frozenset({
     WorkerPlanStatus.SUCCEEDED,
+    WorkerPlanStatus.PARTIAL,
     WorkerPlanStatus.FAILED,
     WorkerPlanStatus.CANCELLED,
 })
@@ -314,13 +318,16 @@ class WorkerOrchestrator:
         plan.aggregate = {
             job_id: job.result.model_dump(mode="json")
             for job_id, job in plan.jobs.items()
-            if job.status == OrchestrationTaskStatus.SUCCEEDED and job.result is not None
+            if job.status in {OrchestrationTaskStatus.SUCCEEDED, OrchestrationTaskStatus.PARTIAL}
+            and job.result is not None
         }
         plan.status = (
             WorkerPlanStatus.CANCELLED
             if any(job.status == OrchestrationTaskStatus.CANCELLED for job in plan.jobs.values())
             else WorkerPlanStatus.SUCCEEDED
             if all(job.status == OrchestrationTaskStatus.SUCCEEDED for job in plan.jobs.values())
+            else WorkerPlanStatus.PARTIAL
+            if any(job.status == OrchestrationTaskStatus.PARTIAL for job in plan.jobs.values())
             else WorkerPlanStatus.FAILED
         )
         plan.completed_at = _utc_now()
@@ -352,7 +359,7 @@ class WorkerOrchestrator:
         """Reset failed work so a user can make another execution attempt."""
 
         plan = self.get_plan(plan_id, owner_user_id)
-        if plan.status != WorkerPlanStatus.FAILED:
+        if plan.status not in {WorkerPlanStatus.FAILED, WorkerPlanStatus.PARTIAL}:
             raise WorkerPlanningError(
                 "worker_plan_not_failed",
                 "Only a failed worker plan can be reset.",
@@ -360,7 +367,11 @@ class WorkerOrchestrator:
             )
 
         for job in plan.jobs.values():
-            if job.status not in {OrchestrationTaskStatus.FAILED, OrchestrationTaskStatus.BLOCKED}:
+            if job.status not in {
+                OrchestrationTaskStatus.PARTIAL,
+                OrchestrationTaskStatus.FAILED,
+                OrchestrationTaskStatus.BLOCKED,
+            }:
                 continue
             job.status = OrchestrationTaskStatus.QUEUED
             job.progress = []
@@ -381,6 +392,61 @@ class WorkerOrchestrator:
             actor_id=plan.owner_user_id,
             reason=f"User reset failed worker execution plan {plan.plan_id} for another attempt.",
             idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:reset",
+        )
+        await self._persist(plan)
+        return plan
+
+    async def reset_job(self, plan_id: str, owner_user_id: str, job_id: str) -> WorkerExecutionPlan:
+        """Retry one failed stage plus only the downstream work invalidated by it."""
+
+        plan = self.get_plan(plan_id, owner_user_id)
+        target = plan.jobs.get(job_id)
+        if target is None:
+            raise WorkerPlanningError("worker_job_not_found", f"Worker job '{job_id}' was not found.")
+        if target.status not in {OrchestrationTaskStatus.FAILED, OrchestrationTaskStatus.PARTIAL}:
+            raise WorkerPlanningError(
+                "worker_job_not_failed",
+                "Only a failed worker job can be retried independently.",
+                context={"job_id": job_id, "status": target.status.value},
+            )
+
+        invalidated = {job_id}
+        changed = True
+        while changed:
+            changed = False
+            for candidate_id, candidate in plan.jobs.items():
+                if candidate_id in invalidated:
+                    continue
+                if any(dependency.job_id in invalidated for dependency in candidate.request.dependencies):
+                    invalidated.add(candidate_id)
+                    changed = True
+
+        for candidate_id in invalidated:
+            job = plan.jobs[candidate_id]
+            job.status = OrchestrationTaskStatus.QUEUED
+            job.progress = []
+            job.result = None
+            job.error = None
+            job.started_at = None
+            job.completed_at = None
+        plan.attempt += 1
+        plan.status = WorkerPlanStatus.PLANNED
+        plan.aggregate = {
+            candidate_id: job.result.model_dump(mode="json")
+            for candidate_id, job in plan.jobs.items()
+            if candidate_id not in invalidated
+            and job.status in {OrchestrationTaskStatus.SUCCEEDED, OrchestrationTaskStatus.PARTIAL}
+            and job.result is not None
+        }
+        plan.completed_at = None
+        self._workflow.transition(
+            plan.project_id,
+            plan.owner_user_id,
+            ProjectWorkflowState.BUILDING,
+            actor_type=WorkflowActorType.USER,
+            actor_id=plan.owner_user_id,
+            reason=f"User retried worker job {job_id} in execution plan {plan.plan_id}.",
+            idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:retry:{job_id}",
         )
         await self._persist(plan)
         return plan
@@ -407,6 +473,7 @@ class WorkerOrchestrator:
                 if dependency.required
                 and plan.jobs[dependency.job_id].status in {
                     OrchestrationTaskStatus.FAILED,
+                    OrchestrationTaskStatus.PARTIAL,
                     OrchestrationTaskStatus.BLOCKED,
                 }
             ]
@@ -470,6 +537,8 @@ class WorkerOrchestrator:
                 state.status = (
                     OrchestrationTaskStatus.SUCCEEDED
                     if result.status == WorkerResultStatus.SUCCEEDED
+                    else OrchestrationTaskStatus.PARTIAL
+                    if result.status == WorkerResultStatus.PARTIAL
                     else OrchestrationTaskStatus.CANCELLED
                     if result.status == WorkerResultStatus.CANCELLED
                     else OrchestrationTaskStatus.FAILED

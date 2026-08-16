@@ -6,6 +6,7 @@ from typing import Any, Dict, Iterable, Optional
 
 SUCCESS_STATUSES = {"succeeded", "success", "completed", "complete", "done"}
 FAILED_STATUSES = {"failed", "failure", "error"}
+PARTIAL_STATUSES = {"partial"}
 
 
 def _utc_datetime(value: Any) -> Optional[datetime]:
@@ -65,6 +66,7 @@ def summarize_job_metrics(
         for index in range(hours)
     }
     failed_jobs = 0
+    partial_jobs = 0
     completed_jobs = 0
     jobs_last_hour = 0
     total_jobs = 0
@@ -87,6 +89,9 @@ def summarize_job_metrics(
             elif status in FAILED_STATUSES:
                 completed_jobs += 1
                 failed_jobs += 1
+            elif status in PARTIAL_STATUSES:
+                completed_jobs += 1
+                partial_jobs += 1
 
         if created_at >= hourly_start:
             hour_key = _iso_hour(created_at.replace(minute=0, second=0, microsecond=0))
@@ -109,10 +114,11 @@ def summarize_job_metrics(
         "jobs_last_hour": jobs_last_hour,
         "completed_jobs": completed_jobs,
         "failed_jobs": failed_jobs,
+        "partial_jobs": partial_jobs,
         "failure_rate": round((failed_jobs / completed_jobs) * 100, 1) if completed_jobs else 0.0,
         "daily": daily,
         "hourly": hourly,
     }
 
 
-__all__ = ["FAILED_STATUSES", "SUCCESS_STATUSES", "summarize_job_metrics"]
+__all__ = ["FAILED_STATUSES", "PARTIAL_STATUSES", "SUCCESS_STATUSES", "summarize_job_metrics"]

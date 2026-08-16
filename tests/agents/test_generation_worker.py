@@ -228,6 +228,29 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 ],
             )
 
+    def test_generation_draft_reuses_persisted_stage_artifact_references(self) -> None:
+        stage_artifact = ProjectArtifact(
+            artifact_id="run-1:web_architect:attempt:1",
+            kind="generation-stage:web_architect",
+            uri="forma://generation-runs/run-1/stages/web_architect/attempts/1",
+            media_type="application/json",
+            checksum="sha256:abc123",
+        )
+        state = HardwareIR(assembly_metadata={
+            "generation_run": {
+                "records": {
+                    "web_architect": {
+                        "status": "succeeded",
+                        "artifact": stage_artifact.model_dump(mode="json"),
+                    }
+                }
+            }
+        })
+
+        draft = build_generation_draft(self.brief, state)
+
+        self.assertIn(stage_artifact, draft.artifacts)
+
     def tearDown(self) -> None:
         self.directory.cleanup()
 

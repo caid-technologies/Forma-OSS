@@ -2204,6 +2204,14 @@ export function FormaWorkspace({
     )) || null,
     [chatMessages],
   );
+  const retryableContextBuildMessage = useMemo(() => {
+    const latestBuildMessage = [...chatMessages].reverse().find((message) => (
+      Boolean(message.buildPlanId)
+      && Boolean(message.buildJobId)
+      && Boolean(message.contextProjectId)
+    ));
+    return latestBuildMessage?.status === "error" ? latestBuildMessage : null;
+  }, [chatMessages]);
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
@@ -5031,7 +5039,7 @@ export function FormaWorkspace({
               onSelectContextSuggestion={(suggestion) => {
                 void submitGatherContext(suggestion);
               }}
-              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage)}
+              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage || resettingBuildMessageId)}
               generationReady
               needsGenerationProvider={false}
               needsImageProvider={false}
@@ -5047,6 +5055,11 @@ export function FormaWorkspace({
               onStop={() => {
                 if (activeGenerationRef.current) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
+              }}
+              canRetryFailedBuild={Boolean(retryableContextBuildMessage)}
+              retryingFailedBuild={resettingBuildMessageId === retryableContextBuildMessage?.id}
+              onRetryFailedBuild={() => {
+                if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
               }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}

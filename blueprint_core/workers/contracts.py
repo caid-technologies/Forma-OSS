@@ -34,6 +34,7 @@ class WorkerProgressStatus(str, Enum):
 
 class WorkerResultStatus(str, Enum):
     SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
@@ -156,6 +157,8 @@ class WorkerResult(WorkerContract):
     def validate_terminal_shape(self) -> "WorkerResult":
         if self.status == WorkerResultStatus.FAILED and self.error is None:
             raise ValueError("A failed WorkerResult requires error details.")
+        if self.status == WorkerResultStatus.PARTIAL and (self.error is None or not self.artifacts):
+            raise ValueError("A partial WorkerResult requires both an error and successful artifacts.")
         if self.status == WorkerResultStatus.SUCCEEDED and self.error is not None:
             raise ValueError("A successful WorkerResult cannot include an error.")
         for artifact in self.artifacts:

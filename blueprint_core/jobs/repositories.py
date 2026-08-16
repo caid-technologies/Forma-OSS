@@ -11,7 +11,7 @@ from blueprint_core.persistence.providers.sqlite import SQLiteProvider
 from blueprint_core.agents.pipeline import PipelineCancelledError
 
 
-TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled", "canceled"}
+TERMINAL_JOB_STATUSES = {"succeeded", "partial", "failed", "cancelled", "canceled"}
 
 
 class JobCancelledError(PipelineCancelledError):
@@ -295,7 +295,7 @@ class SQLiteJobRepository:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, started_at = COALESCE(started_at, ?), updated_at = ?
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')
+                WHERE job_id = ? AND status NOT IN ('succeeded', 'partial', 'failed', 'cancelled', 'canceled')
                 """,
                 ("running", now, now, job_id),
             )
@@ -324,7 +324,7 @@ class SQLiteJobRepository:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, completed_at = ?, updated_at = ?, error = ?
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')
+                WHERE job_id = ? AND status NOT IN ('succeeded', 'partial', 'failed', 'cancelled', 'canceled')
                 """,
                 ("cancelled", now, now, reason, job_id),
             )

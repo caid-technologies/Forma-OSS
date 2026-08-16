@@ -12,7 +12,7 @@ class JobMetricsTests(unittest.TestCase):
     def test_sqlite_job_store_reports_persisted_metrics(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".db") as file:
             store = JobMetadataStore(file.name, backend="sqlite")
-            for job_id in ("job_success", "job_failure"):
+            for job_id in ("job_success", "job_partial", "job_failure"):
                 store.create_job(
                     job_id=job_id,
                     message_id=f"message_{job_id}",
@@ -24,15 +24,17 @@ class JobMetricsTests(unittest.TestCase):
                     server_owned=True,
                 )
             store.mark_succeeded("job_success", {"project_ir": {}})
+            store.mark_partial("job_partial", {"project_ir": {}})
             store.mark_failed("job_failure", "provider failed")
 
             metrics = store.get_metrics(days=7, hours=24)
 
-        self.assertEqual(2, metrics["jobs_today"])
-        self.assertEqual(2, metrics["jobs_last_hour"])
-        self.assertEqual(2, metrics["completed_jobs"])
+        self.assertEqual(3, metrics["jobs_today"])
+        self.assertEqual(3, metrics["jobs_last_hour"])
+        self.assertEqual(3, metrics["completed_jobs"])
         self.assertEqual(1, metrics["failed_jobs"])
-        self.assertEqual(50.0, metrics["failure_rate"])
+        self.assertEqual(1, metrics["partial_jobs"])
+        self.assertEqual(33.3, metrics["failure_rate"])
 
     def test_sqlite_job_store_merges_durable_worker_plan_rows(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".db") as file:

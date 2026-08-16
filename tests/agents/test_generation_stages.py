@@ -1,0 +1,243 @@
+from __future__ import annotations
+
+import unittest
+from types import SimpleNamespace
+
+from blueprint_core.agents.pipeline import GenerationStageRun, GenerationStageSpec
+from blueprint_core.agents.web_research_workflow import (
+    AssemblyWrapper,
+    CompletenessAudit,
+    WebComponentSelection,
+    WebProjectPlan,
+    WebResearchHardwarePipeline,
+    WiringWrapper,
+)
+from blueprint_core.external_sources import ExternalSourceLibrary
+from blueprint_core.workspaces.projects.models import (
+    ComponentInstance,
+    FunctionalRequirements,
+    MechanicalNotes,
+    ProjectOverview,
+    SystemArchitecture,
+    SystemNode,
+)
+
+
+def project_plan() -> WebProjectPlan:
+    return WebProjectPlan(
+        overview=ProjectOverview(
+            title="Partial robot",
+            description="A small independently driven robot.",
+            difficulty="Intermediate",
+            category="Robotics",
+        ),
+        requirements=FunctionalRequirements(
+            requirements=["Drive four wheels"],
+            power_needs="Low-voltage battery",
+        ),
+        system_architecture=SystemArchitecture(
+            summary="Robot system",
+            root=SystemNode(
+                system_id="product",
+                name="Robot",
+                domain="product",
+                purpose="Move on four wheels.",
+            ),
+        ),
+    )
+
+
+def component_selection() -> WebComponentSelection:
+    return WebComponentSelection(components=[
+        ComponentInstance(
+            ref_des="U1",
+            part_number="MCU-TEST",
+            name="Test controller",
+            category="Microcontroller",
+            unit_price=4.0,
+            rationale="Controls the robot.",
+        )
+    ])
+
+
+def mechanical_plan() -> MechanicalNotes:
+    return MechanicalNotes(
+        enclosure_type="Open frame",
+        mounting_guidance="Mount the controller above the chassis.",
+        manufacturability_rating="Easy",
+        fabrication_details=["Use a flat chassis plate."],
+    )
+
+
+class GenerationStageRunTests(unittest.TestCase):
+    def test_stage_failure_blocks_dependents_but_runs_independent_work(self) -> None:
+        checkpoints: list[dict] = []
+        run = GenerationStageRun(
+            "web_research",
+            [
+                GenerationStageSpec(stage_id="components"),
+                GenerationStageSpec(stage_id="wiring", dependencies=["components"]),
+                GenerationStageSpec(stage_id="validation", dependencies=["wiring"]),
+                GenerationStageSpec(stage_id="mechanical", dependencies=["components"]),
+            ],
+            persist=lambda current: checkpoints.append(current.snapshot()),
+        )
+
+        run.run("components", lambda: {"refs": ["U1"]})
+        run.run("wiring", lambda: (_ for _ in ()).throw(TimeoutError("wiring timed out")))
+        run.run("validation", lambda: {"valid": True})
+        run.run("mechanical", lambda: {"enclosure": "open-frame"})
+
+        self.assertEqual("succeeded", run.records["components"].status.value)
+        self.assertEqual("failed", run.records["wiring"].status.value)
+        self.assertEqual("blocked", run.records["validation"].status.value)
+        self.assertEqual("succeeded", run.records["mechanical"].status.value)
+        self.assertEqual("partial", run.overall_status)
+        self.assertEqual("generation-stage:components", run.records["components"].artifact.kind)
+        self.assertTrue(run.records["components"].artifact.checksum.startswith("sha256:"))
+        self.assertTrue(any(
+            snapshot["records"]["components"]["status"] == "succeeded"
+            for snapshot in checkpoints
+        ))
+
+
+class WebResearchPartialGenerationTests(unittest.TestCase):
+    def pipeline(self) -> tuple[WebResearchHardwarePipeline, list[dict]]:
+        pipeline = WebResearchHardwarePipeline.__new__(WebResearchHardwarePipeline)
+        pipeline.runtime_config = SimpleNamespace(
+            provider="test",
+            model="test-model",
+            requested_provider="test",
+            requested_model="test-model",
+            provider_overridden=False,
+            model_overridden=False,
+        )
+        pipeline.model_name = "test-model"
+        pipeline.research_client = SimpleNamespace(provider_name="test-search")
+        pipeline._active_generation_metadata = {
+            "project_id": "11111111-1111-4111-8111-111111111111",
+            "frontend_job_id": "job-stage-test",
+            "owner_user_id": "stage-owner",
+            "project_prompt": "Build a four wheel robot",
+        }
+        saved: list[dict] = []
+        pipeline._save_project_to_db = lambda prompt, ir: (
+            saved.append(ir.model_dump(mode="json"))
+            or "11111111-1111-4111-8111-111111111111"
+        )
+        pipeline._research = lambda queries: ExternalSourceLibrary(
+            provider="test-search",
+            configured=True,
+            searches_attempted=len(queries),
+        )
+        pipeline._plan_project = lambda *args: project_plan()
+        pipeline._select_components = lambda *args: component_selection()
+        pipeline._generate_mechanical = lambda *args: mechanical_plan()
+        pipeline._generate_assembly = lambda *args: []
+        pipeline._audit_output = lambda *args: CompletenessAudit(
+            completeness_score=1.0,
+            summary="Complete",
+        )
+        return pipeline, saved
+
+    @staticmethod
+    def model_validation() -> SimpleNamespace:
+        return SimpleNamespace(
+            fallback_active=False,
+            requested_model="test-model",
+            actual_model="test-model",
+            provider="test",
+        )
+
+    def test_wiring_failure_preserves_bom_and_mechanical_artifacts(self) -> None:
+        pipeline, saved = self.pipeline()
+        pipeline._wire_project = lambda *args: (_ for _ in ()).throw(TimeoutError("wiring timed out"))
+
+        ir = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        records = ir.assembly_metadata["generation_run"]["records"]
+        self.assertEqual("partial", ir.assembly_metadata["generation_status"])
+        self.assertEqual("partial", ir.assembly_metadata["project_readiness"])
+        self.assertEqual("succeeded", records["web_architect"]["status"])
+        self.assertEqual("succeeded", records["web_component_sourcing"]["status"])
+        self.assertEqual("failed", records["wiring_netlist"]["status"])
+        self.assertEqual("blocked", records["validation_repair"]["status"])
+        self.assertEqual("succeeded", records["mechanical_fabrication"]["status"])
+        self.assertEqual("blocked", records["assembly"]["status"])
+        self.assertEqual(1, len(ir.bom))
+        self.assertIsNotNone(ir.mechanical)
+        self.assertGreater(len(saved), 4)
+        component_checkpoint = next(
+            item for item in saved
+            if ((item.get("assembly_metadata") or {}).get("generation_run") or {})
+            .get("records", {})
+            .get("web_component_sourcing", {})
+            .get("status") == "succeeded"
+        )
+        self.assertEqual(1, len(component_checkpoint["bom"]))
+
+    def test_retry_reuses_upstream_and_independent_artifacts(self) -> None:
+        pipeline, _ = self.pipeline()
+        pipeline._wire_project = lambda *args: (_ for _ in ()).throw(TimeoutError("first attempt"))
+        partial = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        prior_run = partial.assembly_metadata["generation_run"]
+        pipeline._active_generation_metadata.update({
+            "retry_stage": "wiring_netlist",
+            "prior_generation_run": prior_run,
+        })
+        pipeline._research = lambda *_: (_ for _ in ()).throw(AssertionError("research repeated"))
+        pipeline._plan_project = lambda *_: (_ for _ in ()).throw(AssertionError("architecture repeated"))
+        pipeline._select_components = lambda *_: (_ for _ in ()).throw(AssertionError("components repeated"))
+        pipeline._generate_mechanical = lambda *_: (_ for _ in ()).throw(AssertionError("mechanical repeated"))
+        pipeline._wire_project = lambda *args: WiringWrapper(nets=[], pin_mappings=[])
+
+        completed = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        records = completed.assembly_metadata["generation_run"]["records"]
+        self.assertEqual("succeeded", completed.assembly_metadata["generation_status"])
+        self.assertEqual("complete", completed.assembly_metadata["project_readiness"])
+        self.assertEqual(1, records["web_architect"]["attempt"])
+        self.assertEqual(1, records["web_component_sourcing"]["attempt"])
+        self.assertEqual(1, records["mechanical_fabrication"]["attempt"])
+        self.assertEqual(2, records["wiring_netlist"]["attempt"])
+        self.assertEqual(2, records["package_project"]["attempt"])
+        self.assertEqual(
+            ["failed", "succeeded"],
+            [entry["status"] for entry in records["wiring_netlist"]["attempt_history"]],
+        )
+
+        pipeline._active_generation_metadata.update({
+            "prior_generation_run": completed.assembly_metadata["generation_run"],
+            "retry_stage_replay": True,
+        })
+        pipeline._wire_project = lambda *_: (_ for _ in ()).throw(AssertionError("wiring repeated"))
+        replayed = pipeline._generate_staged_project(
+            "Build a four wheel robot",
+            image_bytes=None,
+            image_mime_type=None,
+            model_validation=self.model_validation(),
+        )
+
+        replayed_records = replayed.assembly_metadata["generation_run"]["records"]
+        self.assertEqual(2, replayed_records["wiring_netlist"]["attempt"])
+        self.assertEqual("succeeded", replayed.assembly_metadata["generation_status"])
+
+
+if __name__ == "__main__":
+    unittest.main()

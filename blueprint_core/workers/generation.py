@@ -205,6 +205,22 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
             media_type="application/json",
         ))
 
+    generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
+    generation_records = generation_run.get("records") if isinstance(generation_run, dict) else {}
+    generation_records = generation_records if isinstance(generation_records, dict) else {}
+    known_artifact_ids = {artifact.artifact_id for artifact in artifacts}
+    for record in generation_records.values():
+        artifact_payload = record.get("artifact") if isinstance(record, dict) else None
+        if not isinstance(artifact_payload, dict):
+            continue
+        try:
+            stage_artifact = ProjectArtifact.model_validate(artifact_payload)
+        except ValidationError:
+            continue
+        if stage_artifact.artifact_id not in known_artifact_ids:
+            artifacts.append(stage_artifact)
+            known_artifact_ids.add(stage_artifact.artifact_id)
+
     assumptions = list(dict.fromkeys([
         *design_brief.assumptions,
         "Generated component selections and topology remain provisional until validation.",
@@ -415,10 +431,22 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
         )
         for artifact in revision.artifacts
     ]
+    generation_status = str((revision.state.assembly_metadata or {}).get("generation_status") or "succeeded")
+    partial_error = None
+    if generation_status == "partial":
+        partial_error = WorkerError(
+            **context,
+            code="generation_partial",
+            message="One or more generation stages failed; successful artifacts were preserved.",
+            retryable=True,
+            details={
+                "stage_failures": (revision.state.assembly_metadata or {}).get("generation_stage_failures") or [],
+            },
+        )
     return WorkerResult(
         **context,
         output_contract_version=GENERATION_OUTPUT_VERSION,
-        status=WorkerResultStatus.SUCCEEDED,
+        status=WorkerResultStatus.PARTIAL if partial_error is not None else WorkerResultStatus.SUCCEEDED,
         output={
             "project_revision": revision.model_dump(mode="json"),
             "components": [item.model_dump(mode="json") for item in revision.components],
@@ -428,6 +456,7 @@ def _success_result(request: WorkerRequest, outcome: ProjectRevisionOutcome) -> 
             "idempotent_replay": outcome.idempotent_replay,
         },
         artifacts=artifacts,
+        error=partial_error,
     )
 
 

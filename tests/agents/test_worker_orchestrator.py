@@ -275,6 +275,46 @@ class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual("worker_plan_not_failed", raised.exception.code)
 
+    async def test_named_job_retry_preserves_successful_upstream_results(self) -> None:
+        self.enter_building()
+        source = FakeWorker("source")
+        flaky = FakeWorker("flaky", fail=True)
+        downstream = FakeWorker("downstream")
+        orchestrator = WorkerOrchestrator(
+            self.repository,
+            [source, flaky, downstream],
+            workflow_service=self.workflow,
+        )
+        plan = orchestrator.create_plan(
+            [
+                make_request("source", "job-source"),
+                make_request(
+                    "flaky",
+                    "job-flaky",
+                    dependencies=[WorkerDependency(job_id="job-source", required=True)],
+                ),
+                make_request(
+                    "downstream",
+                    "job-downstream",
+                    dependencies=[WorkerDependency(job_id="job-flaky", required=True)],
+                ),
+            ],
+            OWNER,
+        )
+        await orchestrator.execute(plan.plan_id, OWNER)
+
+        reset = await orchestrator.reset_job(plan.plan_id, OWNER, "job-flaky")
+
+        self.assertEqual(OrchestrationTaskStatus.SUCCEEDED, reset.jobs["job-source"].status)
+        self.assertEqual(OrchestrationTaskStatus.QUEUED, reset.jobs["job-flaky"].status)
+        self.assertEqual(OrchestrationTaskStatus.QUEUED, reset.jobs["job-downstream"].status)
+        flaky.fail = False
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        self.assertEqual(1, source.execution_count)
+        self.assertEqual(2, flaky.execution_count)
+        self.assertEqual(1, downstream.execution_count)
+        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
+
     async def test_planned_build_can_be_cancelled_without_running_workers(self) -> None:
         self.enter_building()
         worker = FakeWorker("generation")

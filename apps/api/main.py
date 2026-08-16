@@ -628,6 +628,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     payload = {
         "prompt": request.prompt,
         "project_id": request.project_id,
+        "retry_stage": request.retry_stage,
         "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
@@ -683,10 +684,17 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 data_sources=request.data_sources,
                 past_job_context=past_job_context,
                 project_id=request.project_id,
+                retry_stage=request.retry_stage,
             )
         if JOB_STORE.is_cancelled(job_id):
             raise JobCancelledError(f"Job {job_id} was cancelled.")
-        JOB_STORE.mark_succeeded(job_id, response)
+        generation_status = str(response.get("generation_status") or "succeeded").lower()
+        if generation_status == "partial":
+            JOB_STORE.mark_partial(job_id, response)
+        elif generation_status == "failed":
+            JOB_STORE.mark_failed(job_id, "A required root generation stage failed; partial diagnostics were preserved.")
+        else:
+            JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
         if str((job or {}).get("status") or "").lower() in {"cancelled", "canceled"}:
             raise JobCancelledError(f"Job {job_id} was cancelled.")
@@ -1620,6 +1628,8 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         "product_image_model": hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
         "product_visual_sequence": sequence if isinstance(sequence, list) else [],
         "image_output_status": hydrated_metadata.get("image_output_status"),
+        "generation_status": metadata.get("generation_status", "succeeded"),
+        "project_readiness": metadata.get("project_readiness", "complete"),
     }
 
 
@@ -1872,6 +1882,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_object": build_project_object(ir).model_dump(mode="json"),
             "mermaid_code": generate_mermaid_chart(ir),
             "svg_schematic": generate_svg_schematic(ir),
+            "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     _require_project_reader(project, user)
 
@@ -1905,6 +1918,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_object": None,
             "mermaid_code": None,
             "svg_schematic": None,
+            "generation_status": (response_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (response_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((response_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
 
     try:
@@ -1941,7 +1957,10 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_ir": response_ir.model_dump(),
             "project_object": build_project_object(response_ir).model_dump(mode="json"),
             "mermaid_code": mermaid_code,
-            "svg_schematic": svg_schematic
+            "svg_schematic": svg_schematic,
+            "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     except HTTPException:
         raise

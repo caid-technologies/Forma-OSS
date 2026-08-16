@@ -325,6 +325,33 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(stage_artifact, draft.artifacts)
 
+    def test_generation_draft_disambiguates_duplicate_power_and_bus_system_ids(self) -> None:
+        component = ComponentInstance(
+            ref_des="U1",
+            part_number="ESP32-DEVKIT",
+            name="ESP32 controller",
+            category="Microcontroller",
+            rationale="Provides processing and connectivity.",
+        )
+        state = HardwareIR(
+            components=[component],
+            power_rails=[
+                PowerRail(rail_id="RAIL_5V", voltage=5.0, max_current_capacity_ma=1000, source_component="U1"),
+                PowerRail(rail_id="RAIL_5V", voltage=5.0, max_current_capacity_ma=500, source_component="U1"),
+            ],
+            buses=[
+                BusConnection(bus_id="I2C_1", bus_type="I2C", nets=[]),
+                BusConnection(bus_id="I2C_1", bus_type="I2C", nets=[]),
+            ],
+        )
+
+        draft = build_generation_draft(self.brief, state)
+
+        self.assertEqual(
+            ["system-primary", "power-RAIL_5V", "power-RAIL_5V-2", "bus-I2C_1", "bus-I2C_1-2"],
+            [system.system_id for system in draft.systems],
+        )
+
     def tearDown(self) -> None:
         self.directory.cleanup()
 

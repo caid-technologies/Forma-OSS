@@ -126,6 +126,51 @@ class FakeWorker:
         )
 
 
+class CheckpointThenFailWorker(FakeWorker):
+    async def execute(self, request: WorkerRequest, report_progress: Any) -> WorkerResult:
+        self.execution_count += 1
+        self.received.append(request)
+        sequence = int(request.metadata.get("progress_sequence_start") or 0)
+        sequence += 1
+        await report_progress(WorkerProgress(
+            **request_context(request.worker_id, request.capability_id, request.job_id),
+            sequence=sequence,
+            status="running",
+            percent_complete=75,
+            message="Packaging project artifacts: completed",
+            metadata={"pipeline_event": {
+                "workflow": "default",
+                "step_id": "package_project",
+                "status": "completed",
+                "agent": "ArtifactPackager",
+                "label": "Packaging project artifacts",
+                "description": "Package the generated project.",
+                "observed_at": "2026-08-16T00:00:00Z",
+                "details": {},
+            }},
+        ))
+        sequence += 1
+        await report_progress(WorkerProgress(
+            **request_context(request.worker_id, request.capability_id, request.job_id),
+            sequence=sequence,
+            status="running",
+            percent_complete=None,
+            message="Persisting generation stage checkpoint.",
+            metadata={"generation_stage_checkpoint": {
+                "generation_run_id": "run-finalization-failure",
+                "workflow": "default",
+                "retry_stage": None,
+                "status": "succeeded",
+                "record": {
+                    "stage_id": "package_project",
+                    "status": "succeeded",
+                    "dependencies": [],
+                },
+            }},
+        ))
+        raise RuntimeError("revision finalization failed")
+
+
 class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
@@ -274,6 +319,23 @@ class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
             await orchestrator.reset(plan.plan_id, OWNER)
 
         self.assertEqual("worker_plan_not_failed", raised.exception.code)
+
+    async def test_finalization_failure_reset_reuses_completed_generation_checkpoints(self) -> None:
+        self.enter_building()
+        worker = CheckpointThenFailWorker("generation")
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([make_request("generation", "job-generation")], OWNER)
+
+        failed = await orchestrator.execute(plan.plan_id, OWNER)
+        reset = await orchestrator.reset(plan.plan_id, OWNER)
+
+        self.assertEqual(WorkerPlanStatus.FAILED, failed.status)
+        self.assertEqual(2, len(reset.jobs["job-generation"].progress))
+        self.assertEqual(
+            "run-finalization-failure",
+            reset.jobs["job-generation"].request.metadata["prior_generation_run"]["generation_run_id"],
+        )
+        self.assertIsNone(reset.jobs["job-generation"].request.metadata["retry_stage"])
 
     async def test_named_job_retry_preserves_successful_upstream_results(self) -> None:
         self.enter_building()

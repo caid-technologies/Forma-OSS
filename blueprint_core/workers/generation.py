@@ -136,6 +136,19 @@ class HardwareIRGenerationEngine:
 def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> ProjectRevisionDraft:
     component_refs = [component.ref_des for component in state.components]
     known_component_refs = set(component_refs)
+    used_system_ids = {"system-primary"}
+
+    def unique_system_id(candidate: str) -> str:
+        if candidate not in used_system_ids:
+            used_system_ids.add(candidate)
+            return candidate
+        suffix = 2
+        while f"{candidate}-{suffix}" in used_system_ids:
+            suffix += 1
+        resolved = f"{candidate}-{suffix}"
+        used_system_ids.add(resolved)
+        return resolved
+
     systems = [
         ProjectSystem(
             system_id="system-primary",
@@ -154,7 +167,7 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
         if not rail_refs:
             rail_metadata["unresolved_component_refs"] = [rail.source_component]
         systems.append(ProjectSystem(
-            system_id=f"power-{rail.rail_id}",
+            system_id=unique_system_id(f"power-{rail.rail_id}"),
             kind="power",
             name=rail.rail_id,
             component_refs=rail_refs,
@@ -173,7 +186,7 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
         if unresolved_bus_components:
             bus_metadata["unresolved_component_refs"] = unresolved_bus_components
         systems.append(ProjectSystem(
-            system_id=f"bus-{bus.bus_id}",
+            system_id=unique_system_id(f"bus-{bus.bus_id}"),
             kind="bus",
             name=bus.bus_id,
             component_refs=bus_components,

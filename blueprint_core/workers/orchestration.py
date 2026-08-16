@@ -195,6 +195,38 @@ def _preserved_retry_progress(
     return preserved
 
 
+def _checkpoint_retry_context(progress: list[WorkerProgress]) -> dict[str, Any] | None:
+    generation_run = _generation_run_from_progress(progress)
+    if generation_run is None:
+        return None
+    records = generation_run.get("records")
+    if not isinstance(records, dict):
+        return None
+    retry_stage = next((
+        stage_id
+        for stage_id, record in records.items()
+        if isinstance(record, dict) and record.get("status") == "failed"
+    ), None)
+    invalidated: set[str] = set()
+    if retry_stage:
+        invalidated.add(retry_stage)
+        changed = True
+        while changed:
+            changed = False
+            for stage_id, record in records.items():
+                dependencies = record.get("dependencies") if isinstance(record, dict) else []
+                if stage_id not in invalidated and any(dep in invalidated for dep in (dependencies or [])):
+                    invalidated.add(stage_id)
+                    changed = True
+        if retry_stage != "package_project" and "package_project" in records:
+            invalidated.add("package_project")
+    return {
+        "retry_stage": retry_stage,
+        "prior_generation_run": generation_run,
+        "invalidated_stage_ids": sorted(invalidated),
+    }
+
+
 class WorkerOrchestrator:
     """Validate a worker DAG, execute ready jobs concurrently, and persist every state change."""
 
@@ -430,6 +462,8 @@ class WorkerOrchestrator:
                 if job.result is not None and isinstance(job.result.metadata, dict)
                 else None
             )
+            if not isinstance(retry_context, dict):
+                retry_context = _checkpoint_retry_context(job.progress)
             job.status = OrchestrationTaskStatus.QUEUED
             if isinstance(retry_context, dict):
                 invalidated = {

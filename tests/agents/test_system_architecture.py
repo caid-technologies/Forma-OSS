@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.agents.system_architecture import (
+from forma_core.agents.system_architecture import (
     architecture_tree_is_usable,
     build_default_system_architecture,
     compact_component_catalog,
@@ -12,7 +12,7 @@ from blueprint_core.agents.system_architecture import (
     hydrate_catalog_components,
     system_context,
 )
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
@@ -21,7 +21,7 @@ from blueprint_core.workspaces.projects.models import (
     SystemArchitecture,
     expand_component_instances,
 )
-from blueprint_core.workspaces.projects.objects import namespace_payload
+from forma_core.workspaces.projects.objects import namespace_payload
 
 
 class SystemArchitectureTests(unittest.TestCase):

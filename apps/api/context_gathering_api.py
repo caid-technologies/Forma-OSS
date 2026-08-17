@@ -9,8 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.context_builds import ContextBuildDispatcher, context_build_dispatcher
-from blueprint_core.agents.context_gathering import ContextGatheringAgent
-from blueprint_core.database import (
+from forma_core.agents.context_gathering import ContextGatheringAgent
+from forma_core.database import (
     DesignBriefAccessError,
     DesignBriefNotFoundError,
     create_design_brief_version,
@@ -21,15 +21,15 @@ from blueprint_core.database import (
     transition_project_workflow,
     upsert_project_chat,
 )
-from blueprint_core.llm import build_llm_provider
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
-from blueprint_core.workspaces.context import (
+from forma_core.llm import build_llm_provider
+from forma_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment
+from forma_core.workspaces.context import (
     ContextBuildExecution,
     ContextGatheringRequest,
     ContextGatheringResponse,
 )
-from blueprint_core.workspaces.readiness import ReadinessError
-from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
+from forma_core.workspaces.readiness import ReadinessError
+from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 
 
 router = APIRouter(prefix="/projects/{project_id}/context", tags=["context-gathering"])

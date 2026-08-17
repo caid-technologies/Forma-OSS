@@ -4,8 +4,8 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from blueprint_core import database
-from blueprint_core.workspaces.projects import ProjectStateError
+from forma_core import database
+from forma_core.workspaces.projects import ProjectStateError
 
 
 class ChatProjectValidationTests(unittest.TestCase):

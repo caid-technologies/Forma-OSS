@@ -15,10 +15,10 @@ from pydantic import ValidationError
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.design_briefs_api import router
-from blueprint_core import database
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workspaces.design_briefs import (
+from forma_core import database
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workspaces.design_briefs import (
     DesignBrief,
     DesignBriefCreate,
     DesignBriefReadiness,
@@ -39,7 +39,7 @@ def sqlite_repository() -> Iterator[None]:
     with tempfile.TemporaryDirectory() as directory:
         provider = create_sqlite_provider(
             source="design brief test",
-            url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(directory) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None
@@ -157,7 +157,7 @@ class DesignBriefPersistenceTests(unittest.TestCase):
 
     def test_project_creation_respects_brief_owner_and_purge_removes_brief(self) -> None:
         project_id = str(uuid.uuid4())
-        with sqlite_repository(), patch("blueprint_core.database.invalidate_project_lists"):
+        with sqlite_repository(), patch("forma_core.database.invalidate_project_lists"):
             database.create_design_brief_version(
                 project_id,
                 "user_one",

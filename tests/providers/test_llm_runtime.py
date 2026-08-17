@@ -8,8 +8,8 @@ from contextlib import contextmanager
 from typing import Iterator
 from unittest.mock import patch
 
-from blueprint_core.agents.web_research_workflow import WebResearchHardwarePipeline
-from blueprint_core.llm import (
+from forma_core.agents.web_research_workflow import WebResearchHardwarePipeline
+from forma_core.llm import (
     LLMProviderConfigError,
     LLMProviderInputError,
     LLMProviderOutputError,
@@ -20,9 +20,9 @@ from blueprint_core.llm import (
     model_image_input_support,
     resolve_llm_runtime_config,
 )
-from blueprint_core.llm_providers import OpenAICompatibleProvider
-from blueprint_core.workspaces.projects.models import ProjectOverview
-from blueprint_core.selectors import parse_llm_selector, split_llm_selector
+from forma_core.llm_providers import OpenAICompatibleProvider
+from forma_core.workspaces.projects.models import ProjectOverview
+from forma_core.selectors import parse_llm_selector, split_llm_selector
 
 
 LLM_ENV_KEYS = {
@@ -42,9 +42,9 @@ LLM_ENV_KEYS = {
     "BASETEN_API_KEY",
     "BASETEN_BASE_URL",
     "BASETEN_MODEL",
-    "BLUEPRINT_DEPLOYMENT",
-    "BLUEPRINT_DEPLOYMENT_MODE",
-    "BLUEPRINT_DEV_MODE",
+    "FORMA_DEPLOYMENT",
+    "FORMA_DEPLOYMENT_MODE",
+    "FORMA_DEV_MODE",
     "CLAUDE_API_KEY",
     "CLAUDE_API_VERSION",
     "CLAUDE_BASE_URL",
@@ -55,7 +55,7 @@ LLM_ENV_KEYS = {
     "CLAUDE_VALIDATE_MODELS",
     "DEPLOYMENT",
     "DEPLOYMENT_MODE",
-    "NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT",
+    "NEXT_PUBLIC_FORMA_DEPLOYMENT",
     "GEMINI_ALLOWED_MODELS",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
@@ -188,7 +188,7 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
     try:
         for key in LLM_ENV_KEYS:
             os.environ.pop(key, None)
-        os.environ.update({"BLUEPRINT_DEV_MODE": "true", **overrides})
+        os.environ.update({"FORMA_DEV_MODE": "true", **overrides})
         yield
     finally:
         for key in LLM_ENV_KEYS:
@@ -209,7 +209,7 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=False,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+        with isolated_llm_env(FORMA_DEV_MODE="false"):
             with self.assertRaisesRegex(LLMProviderPreflightError, "did not perform a live model-availability check"):
                 enforce_production_llm_preflight(validation)
 
@@ -224,7 +224,7 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=True,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+        with isolated_llm_env(FORMA_DEV_MODE="false"):
             self.assertIs(validation, enforce_production_llm_preflight(validation))
 
     def test_production_preflight_rejects_model_fallback(self) -> None:
@@ -239,7 +239,7 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=True,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+        with isolated_llm_env(FORMA_DEV_MODE="false"):
             with self.assertRaisesRegex(LLMProviderPreflightError, "fell back to a different model"):
                 enforce_production_llm_preflight(validation)
 
@@ -254,12 +254,12 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=False,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="true"):
+        with isolated_llm_env(FORMA_DEV_MODE="true"):
             self.assertIs(validation, enforce_production_llm_preflight(validation))
 
     def test_production_forces_openai_compatible_model_validation(self) -> None:
         with isolated_llm_env(
-            BLUEPRINT_DEV_MODE="false",
+            FORMA_DEV_MODE="false",
             LLM_PROVIDER="openai",
             OPENAI_API_KEY="test-key",
             OPENAI_MODEL="gpt-test",
@@ -305,7 +305,7 @@ class LLMRuntimeTests(unittest.TestCase):
             LLM_MODEL="qwen3:8b",
             LLM_RESPONSE_FORMAT="json_schema",
             OLLAMA_CONTEXT_LENGTH="16384",
-        ), patch("blueprint_core.llm_providers.urllib.request.urlopen", side_effect=fake_urlopen):
+        ), patch("forma_core.llm_providers.urllib.request.urlopen", side_effect=fake_urlopen):
             provider = OpenAICompatibleProvider("openai-compatible", "qwen3:8b")
             result = provider.generate_structured("Return a project overview.", ProjectOverview)
 
@@ -345,7 +345,7 @@ class LLMRuntimeTests(unittest.TestCase):
             GOOGLE_CLOUD_PROJECT="forma-vertex-test",
             GOOGLE_CLOUD_LOCATION="us-central1",
             VERTEX_AI_MODEL="gemini-3.5-flash",
-        ), patch("blueprint_core.llm_providers.genai", FakeGenAI):
+        ), patch("forma_core.llm_providers.genai", FakeGenAI):
             runtime = resolve_llm_runtime_config()
             provider = build_llm_provider(runtime_config=runtime)
             validation = provider.validate_configured_model()
@@ -388,8 +388,8 @@ class LLMRuntimeTests(unittest.TestCase):
         with isolated_llm_env(
             GOOGLE_CLOUD_PROJECT="forma-vertex-test",
             VERTEX_AI_MODEL="gemini-3.5-flash",
-        ), patch("blueprint_core.llm_providers.genai", FakeGenAI), patch(
-            "blueprint_core.llm_providers.build_vertex_credentials",
+        ), patch("forma_core.llm_providers.genai", FakeGenAI), patch(
+            "forma_core.llm_providers.build_vertex_credentials",
             return_value=credentials,
         ):
             provider = build_llm_provider()
@@ -458,7 +458,7 @@ class LLMRuntimeTests(unittest.TestCase):
 
     def test_env_default_provider_still_respects_allowlist(self) -> None:
         with isolated_llm_env(
-            BLUEPRINT_DEPLOYMENT="true",
+            FORMA_DEPLOYMENT="true",
             LLM_PROVIDER="openai",
             LLM_ALLOWED_PROVIDERS="simulation",
         ):

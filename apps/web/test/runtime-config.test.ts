@@ -8,7 +8,7 @@ function contract(): RuntimeConfigContract {
   return {
     contract_version: 1,
     authority: "backend",
-    blueprint_dev_mode: true,
+    forma_dev_mode: true,
     generation: {
       ready: true,
       available: true,

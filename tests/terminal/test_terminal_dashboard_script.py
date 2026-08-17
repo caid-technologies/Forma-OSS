@@ -75,7 +75,7 @@ class TerminalDashboardScriptTests(unittest.TestCase):
             self.assertEqual(str(executable), module.find_chromium(str(executable)))
 
     def test_pillow_dashboard_renderer_writes_png(self) -> None:
-        from blueprint_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
+        from forma_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
 
         project_ir = json.loads((ROOT_DIR / "apps" / "web" / "public" / "examples" / "plant_watering.json").read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as temp_dir:

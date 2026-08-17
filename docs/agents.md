@@ -1,6 +1,6 @@
 # Agents
 
-Forma uses an **ADK-style** multi-agent workflow implemented in `blueprint_core/agents`. Each agent writes structured artifacts into the Hardware IR.
+Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agents`. Each agent writes structured artifacts into the Hardware IR.
 
 ## Pipeline overview
 0. Context clarification → 1. Safety guardrails → 2. Intent Parser → 3. Requirements → 4. System Architecture → 5. Component Selection → 6. Wiring/Netlist (+ repair loop) → 7. BOM → 8. Mechanical/Fabrication → 9. Assembly Instructions → 10. Mechanical render enrichment

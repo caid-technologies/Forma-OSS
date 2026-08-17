@@ -1,4 +1,4 @@
 results/
 __pycache__/
 */__pycache__/
-blueprint_core/*.db
+forma_core/*.db

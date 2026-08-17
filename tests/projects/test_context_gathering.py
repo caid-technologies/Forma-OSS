@@ -20,15 +20,15 @@ from apps.api.auth import UserContext, require_user_context
 from apps.api.context_builds import ContextBuildDispatcher, context_build_dispatcher
 from apps.api.context_gathering_api import context_gathering_agent, router
 from apps.api.worker_plans_api import router as worker_plans_router
-from blueprint_core.agents.context_gathering import ContextGatheringAgent
-from blueprint_core import database
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workers import WorkerPlanStatus
-from blueprint_core.workspaces.projects.models import GenerateProjectRequest
-from blueprint_core.workspaces.context import ContextBuildExecution, ContextTurnDecision
-from blueprint_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
-from blueprint_core.vertex_auth import (
+from forma_core.agents.context_gathering import ContextGatheringAgent
+from forma_core import database
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workers import WorkerPlanStatus
+from forma_core.workspaces.projects.models import GenerateProjectRequest
+from forma_core.workspaces.context import ContextBuildExecution, ContextTurnDecision
+from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
+from forma_core.vertex_auth import (
     bind_vertex_oidc_token,
     current_vertex_oidc_token,
     reset_vertex_oidc_token,
@@ -50,7 +50,7 @@ def sqlite_repository() -> Iterator[None]:
     with tempfile.TemporaryDirectory() as directory:
         provider = create_sqlite_provider(
             source="context gathering test",
-            url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(directory) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None
@@ -519,7 +519,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         with sqlite_repository():
             database.initialize_project_workflow(project_id, OWNER)
 
-            for action in ("blueprint.generate_project", "fabricator.plan", "opencad.mutate"):
+            for action in ("forma.generate_project", "fabricator.plan", "opencad.mutate"):
                 with self.subTest(action=action), self.assertRaises(WorkflowStateError) as raised:
                     database.ensure_project_action_allowed(project_id, OWNER, action, require_workflow=True)
                 self.assertEqual("tool_execution_blocked_while_gathering_context", raised.exception.code)
@@ -617,7 +617,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         project_id = str(uuid.uuid4())
         message = A2AMessage(
             sender="test-agent",
-            action="blueprint.generate_project",
+            action="forma.generate_project",
             payload={"project_id": project_id, "owner_user_id": OWNER, "prompt": "Build it"},
         )
         with sqlite_repository(), patch.object(a2a.A2A_HUB, "register", new=AsyncMock()), patch.object(

@@ -12,7 +12,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.config import config  # noqa: E402
+from forma_core.config import config  # noqa: E402
 
 VERIFY_SCRIPT = Path(__file__).with_name("verify-llm-providers.py")
 DEFAULT_TIMEOUT_SECONDS = "1200"

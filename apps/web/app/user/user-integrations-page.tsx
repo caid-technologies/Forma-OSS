@@ -353,7 +353,7 @@ function isTruthyFieldValue(value: string | null | undefined) {
     "project-scoped",
     "organization-scoped",
     "dedicated-project",
-    "dedicated-to-blueprint",
+    "dedicated-to-forma",
   ].includes((value || "").trim().toLowerCase());
 }
 

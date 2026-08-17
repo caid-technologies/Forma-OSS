@@ -11,13 +11,13 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blueprint_core.config import config  # noqa: E402
+from forma_core.config import config  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.production.local", override=False)
 load_dotenv(ROOT / ".env.local", override=False)
 
-from blueprint_core.user_integrations import (  # noqa: E402
+from forma_core.user_integrations import (  # noqa: E402
     INTEGRATION_DEFINITIONS,
     SupabaseWorkspaceIntegrationStore,
     UserIntegrationConfig,
@@ -88,7 +88,7 @@ def main() -> int:
 
     store.save(config)
     print(f"Migrated {changed} LLM/image integrations into encrypted Supabase workspace config.")
-    print("Set BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND=supabase on the backend to use it at runtime.")
+    print("Set FORMA_WORKSPACE_INTEGRATIONS_BACKEND=supabase on the backend to use it at runtime.")
     return 0
 
 

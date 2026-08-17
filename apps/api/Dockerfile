@@ -5,7 +5,7 @@ FROM python:3.11-slim AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    SQLITE_DATABASE_URL=sqlite:////data/blueprint.db \
+    SQLITE_DATABASE_URL=sqlite:////data/forma.db \
     A2A_SOCKET_HOST=0.0.0.0
 
 WORKDIR /app
@@ -24,7 +24,7 @@ RUN pip install --upgrade pip \
 
 COPY apps/__init__.py ./apps/__init__.py
 COPY apps/api ./apps/api
-COPY blueprint_core ./blueprint_core
+COPY forma_core ./forma_core
 RUN chown -R appuser:appuser /app
 
 USER appuser

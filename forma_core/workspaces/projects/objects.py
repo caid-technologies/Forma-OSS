@@ -7,7 +7,7 @@ from typing import Any, Iterable, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIR, component_detail_payload
 
 
 PROJECT_OBJECT_TYPE = "forma.project"
@@ -465,6 +465,18 @@ def build_project_attribute_objects(
 
 
 def _component_bom_payload(ir_payload: dict[str, Any]) -> dict[str, Any]:
+    bom = ir_payload.get("bom") or []
+    if bom:
+        line_items = [dict(item) for item in bom if isinstance(item, dict)]
+        electrical_total = round(sum(float(item.get("extended_price") or 0.0) for item in line_items), 2)
+        return {
+            "line_items": line_items,
+            "component_count": sum(int(item.get("quantity") or 0) for item in line_items),
+            "line_item_count": len(line_items),
+            "estimated_electrical_cost": electrical_total,
+            "estimated_total_cost": (ir_payload.get("overview") or {}).get("estimated_cost", electrical_total),
+        }
+
     components = ir_payload.get("components") or []
     total = 0.0
     line_items = []
@@ -565,7 +577,9 @@ def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[s
         }
     elif normalized == "product.electrical":
         selected_payload = {
-            "components": payload.get("components") or [],
+            "part_definitions": payload.get("part_definitions") or [],
+            "components": [component_detail_payload(component) for component in hardware_ir.components],
+            "bom": payload.get("bom") or [],
             "nets": payload.get("nets") or [],
             "buses": payload.get("buses") or [],
             "pin_mappings": payload.get("pin_mappings") or [],

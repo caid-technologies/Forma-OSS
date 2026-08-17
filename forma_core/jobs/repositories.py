@@ -11,7 +11,7 @@ from forma_core.persistence.providers.sqlite import SQLiteProvider
 from forma_core.agents.pipeline import PipelineCancelledError
 
 
-TERMINAL_JOB_STATUSES = {"succeeded", "failed", "cancelled", "canceled"}
+TERMINAL_JOB_STATUSES = {"succeeded", "partial", "failed", "cancelled", "canceled"}
 
 
 class JobCancelledError(PipelineCancelledError):
@@ -80,6 +80,8 @@ class JobRepository(Protocol):
     def get(self, job_id: str) -> Optional[Dict[str, Any]]: ...
 
     def list(self, *, sender: Optional[str], status: Optional[str], limit: int) -> List[Dict[str, Any]]: ...
+
+    def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]: ...
 
     def list_for_project(self, project_id: str) -> List[Dict[str, Any]]: ...
 
@@ -187,6 +189,27 @@ class SupabaseJobRepository:
         rows = query.order("created_at", desc=True).limit(limit).execute().data or []
         return [_row_to_dict(row) for row in rows]
 
+    def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]:
+        records: List[Dict[str, Any]] = []
+        offset = 0
+        batch_size = 1000
+        while True:
+            rows = (
+                self._client.table("a2a_jobs")
+                .select("job_id,status,created_at")
+                .gte("created_at", created_since)
+                .order("created_at")
+                .range(offset, offset + batch_size - 1)
+                .execute()
+                .data
+                or []
+            )
+            records.extend(dict(row) for row in rows)
+            if len(rows) < batch_size:
+                break
+            offset += batch_size
+        return records
+
     def update_status(self, job_id: str, status: str, now: str) -> None:
         self._client.table("a2a_jobs").update(
             {"status": status, "updated_at": now}
@@ -272,7 +295,7 @@ class SQLiteJobRepository:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, started_at = COALESCE(started_at, ?), updated_at = ?
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')
+                WHERE job_id = ? AND status NOT IN ('succeeded', 'partial', 'failed', 'cancelled', 'canceled')
                 """,
                 ("running", now, now, job_id),
             )
@@ -301,7 +324,7 @@ class SQLiteJobRepository:
                 """
                 UPDATE a2a_jobs
                 SET status = ?, completed_at = ?, updated_at = ?, error = ?
-                WHERE job_id = ? AND status NOT IN ('succeeded', 'failed', 'cancelled', 'canceled')
+                WHERE job_id = ? AND status NOT IN ('succeeded', 'partial', 'failed', 'cancelled', 'canceled')
                 """,
                 ("cancelled", now, now, reason, job_id),
             )
@@ -338,6 +361,14 @@ class SQLiteJobRepository:
                 parameters,
             ).fetchall()
         return [_row_to_dict(row) for row in rows]
+
+    def list_metric_rows(self, *, created_since: str) -> List[Dict[str, Any]]:
+        with closing(self._provider.connect_dbapi()) as connection:
+            rows = connection.execute(
+                "SELECT job_id, status, created_at FROM a2a_jobs WHERE created_at >= ? ORDER BY created_at",
+                (created_since,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def update_status(self, job_id: str, status: str, now: str) -> None:
         with self._locked_connection() as connection:

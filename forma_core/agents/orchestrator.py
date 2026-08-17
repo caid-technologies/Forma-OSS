@@ -5,7 +5,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -27,7 +27,15 @@ from forma_core.llm import (
     resolve_llm_runtime_config,
 )
 from forma_core.observability import serialize_for_langfuse, start_observation, update_observation
-from forma_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from forma_core.agents.pipeline import (
+    GenerationStageRecord,
+    GenerationStageRun,
+    GenerationStageSpec,
+    PipelineCancelledError,
+    agent_pipeline_step,
+    emit_agent_pipeline_event,
+    ensure_agent_pipeline_active,
+)
 from forma_core.agents.component_reconciliation import reconcile_explicit_catalog_components
 from forma_core.agents.system_architecture import (
     architecture_tree_is_usable,
@@ -50,11 +58,69 @@ from forma_core.workspaces.projects.models import (
     MechanicalNotes, MechanicalSource, MechanicalVector3, MechanicalRotation3,
     MechanicalPlacement, MechanicalSpatialRelationship, PinMappingEntry,
     ValidationIssue, PinDefinition, ValidationSummary, BusConnection, PowerRail,
-    SystemArchitecture,
+    SystemArchitecture, component_detail_payload, component_instance_count,
+    expand_component_instances,
 )
 from forma_core.validation import validate_circuit, check_safety_violations, build_validation_summary
 
 logger = logging.getLogger(__name__)
+
+
+class DefaultComponentSelection(BaseModel):
+    components: List[ComponentInstance]
+    reconciled_component_parts: List[str] = Field(default_factory=list)
+
+
+class DefaultWiringOutput(BaseModel):
+    nets: List[ConnectionNet]
+    pin_mappings: List[PinMappingEntry]
+
+
+class DefaultValidationOutput(BaseModel):
+    nets: List[ConnectionNet]
+    pin_mappings: List[PinMappingEntry]
+    issues: List[ValidationIssue]
+    is_valid: bool
+
+
+class DefaultBomOutput(BaseModel):
+    estimated_cost: float
+
+
+class DefaultAssemblyOutput(BaseModel):
+    steps: List[AssemblyStep]
+
+
+DEFAULT_GENERATION_STAGE_SPECS = [
+    GenerationStageSpec(stage_id="intent_parser"),
+    GenerationStageSpec(stage_id="requirements", dependencies=["intent_parser"]),
+    GenerationStageSpec(stage_id="system_architecture", dependencies=["intent_parser", "requirements"]),
+    GenerationStageSpec(
+        stage_id="component_selection",
+        dependencies=["requirements", "system_architecture"],
+    ),
+    GenerationStageSpec(stage_id="wiring_netlist", dependencies=["requirements", "component_selection"]),
+    GenerationStageSpec(
+        stage_id="validation_repair",
+        dependencies=["requirements", "component_selection", "wiring_netlist"],
+    ),
+    GenerationStageSpec(stage_id="bom", dependencies=["intent_parser", "component_selection"]),
+    GenerationStageSpec(
+        stage_id="mechanical_fabrication",
+        dependencies=["intent_parser", "system_architecture", "component_selection"],
+    ),
+    GenerationStageSpec(
+        stage_id="assembly",
+        dependencies=[
+            "intent_parser",
+            "system_architecture",
+            "component_selection",
+            "wiring_netlist",
+            "mechanical_fabrication",
+        ],
+    ),
+    GenerationStageSpec(stage_id="package_project"),
+]
 
 PLACEHOLDER_TEXT_VALUES = {
     "",
@@ -748,6 +814,14 @@ class HardwarePipelineOrchestrator:
                 image_mime_type=image_mime_type,
             )
 
+        if self._active_generation_metadata.get("legacy_atomic_generation") is not True:
+            return self._generate_staged_project(
+                user_prompt,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+                model_validation=model_validation,
+            )
+
         try:
             logger.info("Starting Forma Agent Pipeline Execution...")
             
@@ -838,9 +912,12 @@ class HardwarePipelineOrchestrator:
                 For each selected component, instantiate it as a ComponentInstance with:
                 - ref_des: Unique ID like 'U1' (for MCUs), 'SEN1', 'ACT1', 'DISP1', 'R1', 'LED1', 'BAT1'
                 - part_number: MUST match exactly one of the available part_numbers in the database list above.
-                - name, category, quantity, unit_price, sourcing_url: Match the selected DB template.
+                - name, category, unit_price, sourcing_url: Match the selected DB template.
                 - rationale: Explain why this component is selected and how it fits.
                 - pins: Return an empty list. Exact catalog pins are hydrated deterministically after selection.
+                Every ComponentInstance is one physical occurrence. Repeated parts must be emitted as separate
+                records with unique reference designators (for example M1, M2, M3, and M4), never as one record
+                with an aggregate quantity.
                 
                 Output a JSON representation conforming to a List[ComponentInstance].
                 """
@@ -860,9 +937,10 @@ class HardwarePipelineOrchestrator:
                         "Restored explicitly requested catalog parts omitted by component selection: %s",
                         ", ".join(reconciled_component_parts),
                     )
+                components = expand_component_instances(components)
 
             # Compile intermediate IR for wiring
-            components_json = json.dumps([c.model_dump() for c in components], indent=2)
+            components_json = json.dumps([component_detail_payload(c) for c in components], indent=2)
 
             # 5. Wiring/Netlist Agent (With Auto-Correction Loop)
             logger.info("Invoking Wiring/Netlist Agent...")
@@ -944,7 +1022,7 @@ class HardwarePipelineOrchestrator:
             # 5. BOM Agent
             logger.info("Invoking BOM Agent...")
             with agent_pipeline_step("default", "bom"):
-                total_cost = sum(c.unit_price * c.quantity for c in components)
+                total_cost = sum(c.unit_price * component_instance_count(c) for c in components)
                 overview.estimated_cost = round(total_cost, 2)
 
             # 6. Mechanical/Fabrication Agent
@@ -955,11 +1033,15 @@ class HardwarePipelineOrchestrator:
                 mech_prompt = f"""
             You are a Mechanical/Fabrication and CAD Sourcing Agent. Provide enclosure, mounting, material, and 3D printing/laser cutting details for this project.
             Project: "{overview.title}" - Description: "{overview.description}"
+            Original user request (including explicit shape/form-factor context):
+            {user_prompt}
             Mechanical system branch:
             {mechanical_architecture_json}
             Components Selected (identity and envelope purpose only; electrical pins are intentionally omitted):
             {mechanical_components_json}
             Populate the MechanicalNotes schema, including:
+            - physical_form: the requested overall shape, silhouette, and form factor. Treat explicit human shape context as authoritative. Do not default to a rectangular project box; enclosed, curved, cylindrical, wearable, folded, structural, and open-frame designs are all valid.
+            - enclosure_type: the housing approach when the design needs a housing. For an exposed or open-frame design, say so instead of inventing a closed case.
             - fabrication_cost_estimate_usd: realistic mechanical-only print/cut/enclosure cost, excluding electrical components.
             - cad_sources: CAD/enclosure/fabrication records with name, source_type, url, file_formats, license, estimated_unit_price_usd, and adaptation notes.
             - render_dimensions: overall X/Y/Z envelope dimensions in millimeters.
@@ -1259,7 +1341,10 @@ class HardwarePipelineOrchestrator:
                 rationale="Pull-up resistor for the DHT22 single-wire data line.",
             ),
         ]
-        overview.estimated_cost = round(sum(component.unit_price * component.quantity for component in components), 2)
+        overview.estimated_cost = round(
+            sum(component.unit_price * component_instance_count(component) for component in components),
+            2,
+        )
         emit_agent_pipeline_event("default", "component_selection", "completed", details={"component_count": len(components)})
 
         emit_agent_pipeline_event("default", "wiring_netlist", "started", details={"adapter": "parti-base-v1"})
@@ -1498,6 +1583,504 @@ class HardwarePipelineOrchestrator:
         emit_agent_pipeline_event("default", "package_project", "completed", details={"adapter": "parti-base-v1"})
         return project_ir
 
+    def _generate_staged_project(
+        self,
+        user_prompt: str,
+        *,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+        model_validation: LLMProviderValidation,
+    ) -> HardwareIR:
+        """Run the default workflow as durable, dependency-aware artifact stages."""
+
+        metadata = self._active_generation_metadata
+        metadata["project_id"] = canonical_project_uuid(metadata.get("project_id"))
+        prior_run = metadata.get("prior_generation_run")
+        prior_run = prior_run if isinstance(prior_run, dict) else {}
+        external_checkpoint = metadata.get("stage_checkpoint")
+
+        def persist_stage_run(
+            stage_run: GenerationStageRun,
+            record: Optional[GenerationStageRecord],
+        ) -> None:
+            if callable(external_checkpoint):
+                external_checkpoint({
+                    "generation_run_id": stage_run.run_id,
+                    "workflow": stage_run.workflow,
+                    "retry_stage": stage_run.retry_stage,
+                    "status": stage_run.overall_status,
+                    "record": record.model_dump(mode="json") if record is not None else None,
+                })
+            if getattr(self, "persist_project", False):
+                snapshot = self._project_ir_from_stage_run(
+                    stage_run,
+                    model_validation=model_validation,
+                )
+                if not self.save_project_to_db(user_prompt, snapshot):
+                    raise RuntimeError("Generation stage checkpoint could not be persisted.")
+
+        stage_run = GenerationStageRun(
+            "default",
+            DEFAULT_GENERATION_STAGE_SPECS,
+            run_id=prior_run.get("generation_run_id") or metadata.get("frontend_job_id"),
+            prior_records=prior_run.get("records") if isinstance(prior_run.get("records"), dict) else None,
+            retry_stage=metadata.get("retry_stage"),
+            replay_retry=bool(metadata.get("retry_stage_replay")),
+            persist=persist_stage_run,
+        )
+        stage_run.checkpoint()
+
+        overview = stage_run.run(
+            "intent_parser",
+            lambda: self._generate_default_overview(user_prompt, image_bytes, image_mime_type),
+            schema=ProjectOverview,
+        )
+        requirements = stage_run.run(
+            "requirements",
+            lambda: self._generate_default_requirements(
+                user_prompt,
+                overview,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=FunctionalRequirements,
+        )
+        architecture = stage_run.run(
+            "system_architecture",
+            lambda: self._generate_default_architecture(
+                overview,
+                requirements,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=SystemArchitecture,
+        )
+        selection = stage_run.run(
+            "component_selection",
+            lambda: self._generate_default_components(
+                user_prompt,
+                requirements,
+                architecture,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=DefaultComponentSelection,
+        )
+        components = list(selection.components) if selection is not None else []
+        wiring = stage_run.run(
+            "wiring_netlist",
+            lambda: self._generate_default_wiring(components, requirements, image_bytes, image_mime_type),
+            schema=DefaultWiringOutput,
+        )
+        validation = stage_run.run(
+            "validation_repair",
+            lambda: self._generate_default_validation(
+                user_prompt,
+                components,
+                requirements,
+                wiring,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=DefaultValidationOutput,
+        )
+        stage_run.run(
+            "bom",
+            lambda: DefaultBomOutput(estimated_cost=round(sum(
+                component.unit_price * component_instance_count(component)
+                for component in components
+            ), 2)),
+            schema=DefaultBomOutput,
+        )
+        mechanical = stage_run.run(
+            "mechanical_fabrication",
+            lambda: self._generate_default_mechanical(
+                user_prompt,
+                overview,
+                architecture,
+                components,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=MechanicalNotes,
+        )
+        stage_run.run(
+            "assembly",
+            lambda: self._generate_default_assembly(
+                overview,
+                architecture,
+                components,
+                list(validation.nets if validation is not None else wiring.nets),
+                mechanical,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=DefaultAssemblyOutput,
+        )
+        stage_run.run(
+            "package_project",
+            lambda: {
+                "project_id": metadata["project_id"],
+                "project_readiness": self._default_project_readiness(stage_run),
+            },
+        )
+        return self._project_ir_from_stage_run(stage_run, model_validation=model_validation)
+
+    def _generate_default_overview(
+        self,
+        user_prompt: str,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> ProjectOverview:
+        overview = self._call_llm_structured(
+            f"""
+            You are an Intent Parser Agent. Convert the user's idea and visual reference into a structured
+            hardware project overview. User idea: {user_prompt!r}. Return ProjectOverview and set estimated
+            cost to zero until component selection is complete.
+            """,
+            ProjectOverview,
+            image_bytes,
+            image_mime_type,
+        )
+        if _is_placeholder_text(overview.title) or _is_placeholder_text(overview.description):
+            raise LLMProviderOutputError("The selected model returned placeholder project overview fields.")
+        return overview
+
+    def _generate_default_requirements(
+        self,
+        user_prompt: str,
+        overview: ProjectOverview,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> FunctionalRequirements:
+        return self._call_llm_structured(
+            f"""
+            You are a Requirements Agent. Extract functional requirements, power needs, physical constraints,
+            operating voltage, safety notes, and missing information.
+            User idea: {user_prompt!r}
+            Project: {overview.model_dump_json()}
+            Return FunctionalRequirements.
+            """,
+            FunctionalRequirements,
+            image_bytes,
+            image_mime_type,
+        )
+
+    def _generate_default_architecture(
+        self,
+        overview: ProjectOverview,
+        requirements: FunctionalRequirements,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> SystemArchitecture:
+        architecture = self._call_llm_structured(
+            f"""
+            You are a System Architecture Agent. Decompose this product into a concise purpose-driven hierarchy.
+            Project: {overview.model_dump_json()}
+            Requirements: {requirements.model_dump_json()}
+            Return SystemArchitecture with a product root and applicable electrical, mechanical, and firmware
+            branches. Keep exact parts, nets, connectors, and pins out of this architecture.
+            """,
+            SystemArchitecture,
+            image_bytes,
+            image_mime_type,
+        )
+        return architecture if architecture_tree_is_usable(architecture) else build_default_system_architecture(
+            overview,
+            requirements,
+        )
+
+    def _generate_default_components(
+        self,
+        user_prompt: str,
+        requirements: FunctionalRequirements,
+        architecture: SystemArchitecture,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> DefaultComponentSelection:
+        templates = get_db_component_templates()
+        wrapper = self._call_llm_structured(
+            f"""
+            You are a Component Selection Agent. Select compatible components from the inventory catalog to
+            fulfill the project requirements.
+            Requirements: {requirements.model_dump_json()}
+            Architecture: {json.dumps(system_context(architecture), indent=2)}
+            Catalog: {json.dumps(compact_component_catalog(templates), indent=2)}
+            Include a microcontroller and every sensor, actuator, display, passive, and power part the design
+            needs. Every physical instance needs a unique ref_des and an exact catalog part_number. Repeated
+            parts must be separate instances, never aggregate quantities. Match catalog names, categories,
+            prices, and sourcing URLs. Explain each rationale and return empty pin lists; catalog pins are
+            hydrated deterministically. Return DefaultComponentSelection.
+            """,
+            DefaultComponentSelection,
+            image_bytes,
+            image_mime_type,
+        )
+        components = hydrate_catalog_components(wrapper.components, templates)
+        components, reconciled = reconcile_explicit_catalog_components(
+            str(self._active_generation_metadata.get("project_prompt") or user_prompt),
+            components,
+            templates,
+        )
+        return DefaultComponentSelection(
+            components=expand_component_instances(components),
+            reconciled_component_parts=reconciled,
+        )
+
+    def _generate_default_wiring(
+        self,
+        components: List[ComponentInstance],
+        requirements: FunctionalRequirements,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> DefaultWiringOutput:
+        return self._call_llm_structured(
+            f"""
+            You are a Wiring/Netlist Agent. Connect the selected component pins into a safe low-voltage circuit.
+            Components: {json.dumps([component_detail_payload(item) for item in components], indent=2)}
+            Requirements: {requirements.model_dump_json()}
+            Establish compatible ground and power rails, connect required communication and control signals,
+            and do not mix incompatible logic voltages. Every physical pin may appear in only one net. Passive
+            parts bridge nets using one passive pin per net. Do not leave critical power or ground pins
+            unconnected. Return DefaultWiringOutput with complete nets and controller pin mappings.
+            """,
+            DefaultWiringOutput,
+            image_bytes,
+            image_mime_type,
+        )
+
+    def _generate_default_validation(
+        self,
+        user_prompt: str,
+        components: List[ComponentInstance],
+        requirements: FunctionalRequirements,
+        wiring: DefaultWiringOutput,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> DefaultValidationOutput:
+        nets = list(wiring.nets)
+        pin_mappings = list(wiring.pin_mappings)
+        issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+        is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
+        if not is_valid:
+            corrected = self._call_llm_structured(
+                f"""
+                You are a Wiring/Netlist Auto-Correction Agent. Correct this netlist using the validation report.
+                Components: {json.dumps([component_detail_payload(item) for item in components], indent=2)}
+                Previous nets: {json.dumps([item.model_dump(mode='json') for item in nets], indent=2)}
+                Validation issues: {json.dumps([item.model_dump(mode='json') for item in issues], indent=2)}
+                Return DefaultWiringOutput.
+                """,
+                DefaultWiringOutput,
+                image_bytes,
+                image_mime_type,
+            )
+            nets = corrected.nets
+            pin_mappings = corrected.pin_mappings
+            issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+            is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
+        return DefaultValidationOutput(
+            nets=nets,
+            pin_mappings=pin_mappings,
+            issues=issues,
+            is_valid=is_valid,
+        )
+
+    def _generate_default_mechanical(
+        self,
+        user_prompt: str,
+        overview: ProjectOverview,
+        architecture: SystemArchitecture,
+        components: List[ComponentInstance],
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> MechanicalNotes:
+        return self._call_llm_structured(
+            f"""
+            You are a Mechanical/Fabrication and CAD Sourcing Agent. Produce enclosure, mounting, material,
+            fabrication, CAD-source, and spatial-layout guidance. Respect the requested form rather than
+            defaulting to a rectangular box; exposed and open-frame designs must not invent a closed case.
+            User request: {user_prompt}
+            Project: {overview.model_dump_json()}
+            Mechanical architecture: {json.dumps(system_context(architecture, 'mechanical'), indent=2)}
+            Components: {json.dumps(compact_component_context(components), indent=2)}
+            Populate physical_form, enclosure_type, fabrication cost, known CAD sources, render dimensions,
+            component placements, and spatial relationships. Do not invent source URLs. Return MechanicalNotes.
+            """,
+            MechanicalNotes,
+            image_bytes,
+            image_mime_type,
+        )
+
+    def _generate_default_assembly(
+        self,
+        overview: ProjectOverview,
+        architecture: SystemArchitecture,
+        components: List[ComponentInstance],
+        nets: List[ConnectionNet],
+        mechanical: MechanicalNotes,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+    ) -> DefaultAssemblyOutput:
+        return self._call_llm_structured(
+            f"""
+            You are an Assembly Instruction Agent. Produce concrete, sequential physical and electronic build
+            instructions, including warnings for batteries, motors, relays, soldering, heat, polarity, and
+            moving parts where applicable.
+            Project: {overview.model_dump_json()}
+            Architecture: {json.dumps(system_context(architecture), indent=2)}
+            Components: {json.dumps(compact_component_context(components), indent=2)}
+            Nets: {json.dumps(compact_net_context(nets), indent=2)}
+            Mechanical guide: {mechanical.model_dump_json()}
+            Return DefaultAssemblyOutput.
+            """,
+            DefaultAssemblyOutput,
+            image_bytes,
+            image_mime_type,
+        )
+
+    def _project_ir_from_stage_run(
+        self,
+        stage_run: GenerationStageRun,
+        *,
+        model_validation: LLMProviderValidation,
+    ) -> HardwareIR:
+        overview = stage_run.output("intent_parser", ProjectOverview)
+        requirements = stage_run.output("requirements", FunctionalRequirements)
+        architecture = stage_run.output("system_architecture", SystemArchitecture)
+        selection = stage_run.output("component_selection", DefaultComponentSelection)
+        wiring = stage_run.output("wiring_netlist", DefaultWiringOutput)
+        validation = stage_run.output("validation_repair", DefaultValidationOutput)
+        bom = stage_run.output("bom", DefaultBomOutput)
+        mechanical = stage_run.output("mechanical_fabrication", MechanicalNotes)
+        assembly_output = stage_run.output("assembly", DefaultAssemblyOutput)
+        components = list(selection.components) if selection is not None else []
+        nets = list(validation.nets if validation is not None else (wiring.nets if wiring is not None else []))
+        pin_mappings = list(
+            validation.pin_mappings
+            if validation is not None
+            else (wiring.pin_mappings if wiring is not None else [])
+        )
+        if overview is not None and bom is not None:
+            overview.estimated_cost = bom.estimated_cost
+        constraints = []
+        if requirements is not None:
+            constraints = [
+                *requirements.physical_constraints,
+                f"Operating Voltage: {requirements.operating_voltage}V",
+            ]
+        public_metadata = {
+            key: value
+            for key, value in self._active_generation_metadata.items()
+            if key not in {
+                "owner_user_id",
+                "project_prompt",
+                "prior_generation_run",
+                "stage_checkpoint",
+            }
+        }
+        failures = [
+            record.model_dump(mode="json", exclude={"output"})
+            for record in stage_run.records.values()
+            if record.status.value in {"failed", "blocked"}
+        ]
+        generation_status = self._default_generation_status(stage_run)
+        issues = list(validation.issues) if validation is not None else []
+        root_failure = next((
+            record
+            for record in stage_run.records.values()
+            if record.status.value == "failed"
+        ), None)
+        if generation_status == "failed" and root_failure is not None:
+            issues.append(ValidationIssue(
+                severity="CRITICAL",
+                category="Generation Failure",
+                description=str((root_failure.error or {}).get("message") or "Generation failed."),
+                troubleshooting="Retry the failed generation stage or review the provider logs.",
+            ))
+        project_ir = HardwareIR(
+            overview=overview,
+            requirements=requirements,
+            system_architecture=architecture,
+            components=components,
+            nets=nets,
+            buses=extract_buses(nets),
+            pin_mappings=pin_mappings,
+            assembly=list(assembly_output.steps) if assembly_output is not None else [],
+            mechanical=mechanical,
+            constraints=constraints,
+            power_rails=extract_power_rails(components, nets),
+            estimated_current_draw_ma=estimate_current_draw(components),
+            fabrication_notes=mechanical.fabrication_details if mechanical is not None else [],
+            assembly_metadata={
+                **public_metadata,
+                "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "revision": 1,
+                "model_name": getattr(self, "model_name", None),
+                "fallback_mode": getattr(model_validation, "fallback_active", False),
+                "requested_model": getattr(model_validation, "requested_model", None),
+                "actual_model": getattr(model_validation, "actual_model", None),
+                "llm_provider": getattr(model_validation, "provider", None),
+                "runtime_provider": self.runtime_config.provider,
+                "runtime_model": self.runtime_config.model,
+                "workflow": "default",
+                "generation_status": generation_status,
+                "status": "failed" if generation_status == "failed" else generation_status,
+                "generation_error": (
+                    {
+                        "type": str((root_failure.error or {}).get("exception_type") or "GenerationStageError"),
+                        "message": str((root_failure.error or {}).get("message") or "Generation failed."),
+                    }
+                    if generation_status == "failed" and root_failure is not None
+                    else None
+                ),
+                "project_readiness": self._default_project_readiness(stage_run),
+                "generation_run": stage_run.snapshot(include_outputs=True),
+                "generation_stage_failures": failures,
+                "component_reconciliation_added": (
+                    selection.reconciled_component_parts if selection is not None else []
+                ),
+            },
+            project_version_history=[{
+                "version": "0.2",
+                "description": "Dependency-aware staged default generation",
+            }],
+            validation=build_validation_summary(issues),
+            is_valid=bool(validation is not None and validation.is_valid),
+        )
+        return build_mechanical_render_data(project_ir) if mechanical is not None else project_ir
+
+    @staticmethod
+    def _default_generation_status(stage_run: GenerationStageRun) -> str:
+        if stage_run.records["system_architecture"].status.value in {"failed", "blocked"}:
+            return "failed"
+        return stage_run.overall_status
+
+    @staticmethod
+    def _default_project_readiness(stage_run: GenerationStageRun) -> str:
+        statuses = {stage_id: record.status.value for stage_id, record in stage_run.records.items()}
+        if statuses.get("system_architecture") != "succeeded":
+            return "draft"
+        non_package = [status for stage_id, status in statuses.items() if stage_id != "package_project"]
+        if (
+            non_package
+            and all(status == "succeeded" for status in non_package)
+            and statuses.get("package_project") in {"running", "succeeded"}
+        ):
+            return "complete"
+        if all(statuses.get(stage_id) == "succeeded" for stage_id in (
+            "intent_parser",
+            "requirements",
+            "system_architecture",
+            "component_selection",
+            "wiring_netlist",
+            "validation_repair",
+        )):
+            return "core_ready"
+        if any(status in {"failed", "blocked"} for status in statuses.values()):
+            return "partial"
+        return "draft"
+
     def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
         """Saves a successfully generated HardwareIR to the configured database."""
         ensure_agent_pipeline_active()
@@ -1508,7 +2091,7 @@ class HardwarePipelineOrchestrator:
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
-            if key not in {"owner_user_id", "project_prompt"}
+            if key not in {"owner_user_id", "project_prompt", "prior_generation_run", "stage_checkpoint"}
         }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
@@ -1520,7 +2103,7 @@ class HardwarePipelineOrchestrator:
         try:
             save_generated_project(
                 project_id=project_id,
-                title=ir.overview.title,
+                title=ir.overview.title if ir.overview else "Untitled Forma Project",
                 prompt=str(generation_metadata.get("project_prompt") or prompt),
                 hardware_ir=ir.model_dump(),
                 created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -1957,7 +2540,7 @@ class HardwarePipelineOrchestrator:
             )
         ]
 
-        overview.estimated_cost = sum(c.unit_price * c.quantity for c in components)
+        overview.estimated_cost = sum(c.unit_price * component_instance_count(c) for c in components)
 
         nets = [
             ConnectionNet(
@@ -2499,7 +3082,7 @@ class HardwarePipelineOrchestrator:
             )
         ]
 
-        overview.estimated_cost = sum(c.unit_price * c.quantity for c in components)
+        overview.estimated_cost = sum(c.unit_price * component_instance_count(c) for c in components)
 
         nets = [
             ConnectionNet(

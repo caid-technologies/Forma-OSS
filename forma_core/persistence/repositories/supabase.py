@@ -8,6 +8,17 @@ def _record(row: Dict[str, Any]) -> SimpleNamespace:
     return SimpleNamespace(**row)
 
 
+def _postgrest_ilike_pattern(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("%", "\\%")
+        .replace("_", "\\_")
+        .replace("*", "\\*")
+    )
+    return f'"*{escaped}*"'
+
+
 class SupabaseRepository:
     """Application repository implemented through Supabase PostgREST."""
 
@@ -55,6 +66,38 @@ class SupabaseRepository:
             query = query.eq("owner_user_id", owner_user_id)
         rows = query.order("id", desc=True).execute().data or []
         return [_record(row) for row in rows]
+
+    def list_generated_projects_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]:
+        query = self._client.table("generated_projects").select(
+            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
+            "deleted_at,deletion_requested_by,purge_after,purge_started_at,purge_completed_at,deletion_error",
+            count="exact",
+        ).eq("status", "active")
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        if visibility:
+            query = query.eq("visibility", visibility)
+        if search:
+            pattern = _postgrest_ilike_pattern(search)
+            query = query.or_(f"title.ilike.{pattern},prompt.ilike.{pattern}")
+        response = (
+            query.order("created_at", desc=True)
+            .order("id", desc=True)
+            .range(offset, offset + limit - 1)
+            .execute()
+        )
+        rows = response.data or []
+        response_count = getattr(response, "count", None)
+        total = response_count if isinstance(response_count, int) else len(rows)
+        return [_record(row) for row in rows], total
 
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]:
         query = self._client.table("generated_projects").select("*").eq("project_id", project_id)
@@ -243,6 +286,18 @@ class SupabaseRepository:
         )
         return _record(rows[0]) if rows else None
 
+    def list_worker_execution_plans(self, limit: int = 200) -> List[Any]:
+        rows = (
+            self._client.table("worker_execution_plans")
+            .select("*")
+            .order("created_at", desc=True)
+            .limit(max(1, min(int(limit), 1000)))
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
     def update_worker_execution_plan(
         self,
         plan_id: str,
@@ -273,6 +328,31 @@ class SupabaseRepository:
             or []
         )
         return _record(rows[0]) if rows else None
+
+    def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("project_revisions")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .order("created_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        latest_by_project: Dict[str, Dict[str, Any]] = {}
+        for row in rows:
+            project_id = str(row.get("project_id") or "").strip()
+            if not project_id:
+                continue
+            current = latest_by_project.get(project_id)
+            if current is None or int(row.get("revision") or 0) > int(current.get("revision") or 0):
+                latest_by_project[project_id] = row
+        latest = sorted(
+            latest_by_project.values(),
+            key=lambda row: str(row.get("created_at") or ""),
+            reverse=True,
+        )
+        return [_record(row) for row in latest]
 
     def get_project_revision(
         self,

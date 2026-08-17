@@ -393,7 +393,7 @@ class OpenAIImageProvider(ImageProvider):
         return self._generate_image_from_prompt(
             image_prompt,
             view_id="case",
-            label="Exterior case render",
+            label="Product exterior render",
             reference_view_id=None,
         )
 
@@ -1313,7 +1313,7 @@ class HuggingFaceImageProvider(ImageProvider):
         return self._generate_image_from_prompt(
             image_prompt,
             view_id="case",
-            label="Exterior case render",
+            label="Product exterior render",
             reference_view_id=None,
         )
 
@@ -1420,6 +1420,7 @@ def build_project_image_prompt(user_prompt: str, ir: Any) -> str:
     components = getattr(ir, "components", []) or []
     constraints = getattr(ir, "constraints", []) or []
     fabrication_notes = getattr(ir, "fabrication_notes", []) or []
+    physical_form = getattr(mechanical, "physical_form", "") if mechanical else ""
 
     component_lines = _limit_list(
         [
@@ -1448,14 +1449,18 @@ def build_project_image_prompt(user_prompt: str, ir: Any) -> str:
 
     prompt_parts = [
         "Create a clean realistic product concept render for a safe low-voltage maker electronics build.",
-        "Show the assembled physical device, enclosure, visible controls, display openings, ports, and any exposed low-voltage modules that belong in the design.",
-        "Do not include text, labels, watermarks, logos, hands, people, wiring diagrams, schematic symbols, high-voltage equipment, medical devices, or weapons.",
+        "Show the assembled physical product and its requested silhouette, including visible controls, display openings, ports, structural parts, and any exposed low-voltage modules that belong in the design.",
+        "Use a closed shell only when the requirements call for one. Do not default to a rectangular project box; curved, cylindrical, radial, wearable, folded, structural, and open-frame forms are equally valid.",
+        "The rendered pixels must contain no text: no dimension lines or values, labels, annotations, captions, legends, watermarks, or logos.",
+        "Do not include hands, people, wiring diagrams, schematic symbols, high-voltage equipment, medical devices, or weapons.",
         "Use a neutral studio background, believable materials, and a three-quarter product view.",
         f"Project title: {_truncate(title, 120)}",
         f"Project description: {_truncate(description, 300)}",
         f"User prompt: {_truncate(user_prompt, 220)}",
     ]
 
+    if physical_form and str(physical_form).strip().lower() != "unspecified":
+        prompt_parts.append(f"Authoritative physical form and silhouette: {_truncate(physical_form, 240)}")
     if component_lines:
         prompt_parts.append("Main parts: " + "; ".join(component_lines))
     if constraints:
@@ -1463,7 +1468,9 @@ def build_project_image_prompt(user_prompt: str, ir: Any) -> str:
     if fabrication_notes:
         prompt_parts.append("Fabrication notes: " + "; ".join(_limit_list(fabrication_notes, 5)))
     if dimensions:
-        prompt_parts.append(f"Approximate device envelope: {dimensions}.")
+        prompt_parts.append(
+            f"Private proportion reference only (never print or annotate this in the image): {dimensions}."
+        )
 
     return "\n".join(prompt_parts)
 
@@ -1777,14 +1784,14 @@ def _orientation_landmarks(assembly_components: List[Dict[str, Any]]) -> List[st
         "Coordinate frame is fixed for every view: X is left/right width, Y is front/back depth, Z is bottom/top height.",
         "In top-down diagrams, the front edge is the lower edge of the page and the rear edge is the upper edge.",
         "Do not mirror, rotate, or swap left/right/front/back between images.",
-        "The enclosure bottom shell, lid, ports, side walls, and internal electronics are separate parts with separate visibility states.",
+        "Every applicable shell, frame, panel, mount, port, and electronic module is a separate part with its own visibility state.",
     ]
     if "front_wall_edge" in zones:
         landmarks.append("Front wall landmark: external power/USB/input ports stay on the same front edge in all views.")
     if "right_wall_exhaust" in zones or "fan_actuator" in roles:
         landmarks.append("Right wall landmark: fan/exhaust stays on the same right-side wall and airflow points outward.")
     if "top_lid_operator_panel" in zones:
-        landmarks.append("Top/lid landmark: display, knob, buttons, and switches stay attached to the lid/operator panel.")
+        landmarks.append("Operator-surface landmark: display, knob, buttons, and switches stay attached to their specified panel or mounting surface.")
     if "sensor" in roles:
         landmarks.append("Sensor landmark: air/ambient sensors stay near intake/venting and away from fan exhaust or hot driver stages.")
     return landmarks
@@ -1809,7 +1816,7 @@ def _control_loop_visual_requirements(user_prompt: str, ir: Any, nets: List[Dict
         "Closed-loop visuals must separate the measured feedback path from the control output path.",
         "Show the measured variable sensor or feedback signal returning to the controller when present in the IR.",
         "Show the controller output path to the actuator or driver stage, such as PWM to a fan or motor driver, when present in the IR.",
-        "Do not imply closed-loop speed control unless a feedback sensor, tach signal, or measured output path is visible or explicitly labeled from the spec.",
+        "Do not imply closed-loop speed control unless a feedback sensor, tach signal, or measured output path from the spec is physically visible.",
     ]
 
 
@@ -1841,15 +1848,15 @@ def _contract_for_subsystem(
             "purpose": "Expose human-readable status and user setpoint/control inputs without changing internal component placement.",
             "inputs": ["user action", "status data from controller"],
             "outputs": ["setpoint/control input to controller", "displayed status to user"],
-            "physical_interfaces": ["top lid/operator panel cutouts", "lid underside wiring/service loop", "display/control mounting features"],
+            "physical_interfaces": ["operator-panel or surface cutouts", "serviceable wiring loop", "display/control mounting features"],
             "placement_constraints": [
-                "UI components stay on the lid/operator panel plane.",
-                "Display apertures and knob/button shafts align to lid cutouts.",
-                "Leave a service loop so the lid can be opened without stressing wiring.",
+                "UI components stay on their specified operator panel or mounting surface.",
+                "Display apertures and knob/button shafts align to applicable cutouts.",
+                "Leave a service loop when a panel must move or be removed without stressing wiring.",
             ],
-            "failure_modes": ["misaligned lid cutouts", "lid wiring blocks closure", "controls duplicated on PCB floor"],
+            "failure_modes": ["misaligned panel cutouts", "service wiring blocks assembly", "controls duplicated on a carrier"],
             "verification_checks": [
-                "UI appears in a lid/UI subsystem window, not flattened into the PCB floor.",
+                "UI appears on its specified physical surface, not flattened into an unrelated carrier plane.",
                 "Controls keep facing_normal +Z unless an underside/service inset is explicitly shown.",
             ],
         },
@@ -1857,13 +1864,13 @@ def _contract_for_subsystem(
             "purpose": "Run firmware/control logic and coordinate sensor readings, user inputs, display state, and actuator commands.",
             "inputs": ["sensor measurements", "user setpoint/control input", "feedback nets when present"],
             "outputs": ["display/status data", "driver enable/PWM/control nets"],
-            "physical_interfaces": ["bottom-shell standoffs", "programming/power access", "signal harness to lid, sensors, and drivers"],
+            "physical_interfaces": ["board standoffs or carrier", "programming/power access", "signal harness to UI, sensors, and drivers"],
             "placement_constraints": [
-                "Controller stays on the bottom-shell floor plane unless explicitly specified otherwise.",
+                "Controller stays on its specified carrier, frame, or mounting plane.",
                 "Route signal wiring without crossing high-current driver paths unnecessarily.",
                 "Keep access to USB/programming connector if the component has one.",
             ],
-            "failure_modes": ["controller hidden under lid geometry", "signal paths omitted", "board rotated to face camera instead of +Z"],
+            "failure_modes": ["controller hidden by unrelated structure", "signal paths omitted", "board rotated to face camera instead of preserving its specified normal"],
             "verification_checks": [
                 "Controller is visible in the assembly reference or control subsystem window.",
                 "Control outputs and feedback inputs are represented when supported by nets.",
@@ -1873,7 +1880,7 @@ def _contract_for_subsystem(
             "purpose": "Accept low-voltage input, protect/regulate power, and drive actuators from controller outputs.",
             "inputs": ["external low-voltage power", "controller command/PWM/enable nets"],
             "outputs": ["regulated rails", "switched actuator power", "driver status/feedback when present"],
-            "physical_interfaces": ["front/edge power connector", "bottom-shell driver board area", "actuator terminal/wiring path"],
+            "physical_interfaces": ["edge power connector", "driver mounting area", "actuator terminal/wiring path"],
             "placement_constraints": [
                 "Power ports stay on their wall/edge plane.",
                 "Driver components stay clear of heat-sensitive sensors.",
@@ -1918,19 +1925,19 @@ def _contract_for_subsystem(
             ],
         },
         "mechanical": {
-            "purpose": "Hold the enclosure, standoffs, panels, hardware, and service access relationships together.",
+            "purpose": "Hold the product structure, mounts, panels, hardware, and service access relationships together.",
             "inputs": ["component envelopes", "mounting/clearance needs", "assembly/service requirements"],
-            "outputs": ["stable enclosure and mounting structure"],
-            "physical_interfaces": ["bottom shell", "lid", "side walls", "standoffs", "fasteners", "cutouts"],
+            "outputs": ["stable physical form and mounting structure"],
+            "physical_interfaces": ["shell or frame when present", "panels", "mounting surfaces", "standoffs", "fasteners", "cutouts"],
             "placement_constraints": [
-                "Do not fuse lid, shell, PCB, and internals into one surface.",
-                "Keep service states distinct: closed, transparent inspection, lid open/removed, subsystem layout.",
+                "Do not fuse panels, shells or frames, PCBs, and internals into one surface.",
+                "Keep assembled, inspection, and service states distinct for the specified physical form.",
                 "Show mounting hardware as structure rather than as electrical parts.",
             ],
-            "failure_modes": ["case surface blended with internals", "lid controls duplicated on bottom shell", "mounting hardware mistaken for circuit modules"],
+            "failure_modes": ["product structure blended with electronics", "controls duplicated on another surface", "mounting hardware mistaken for circuit modules"],
             "verification_checks": [
-                "Lid, bottom shell, walls, and PCB are visually distinct.",
-                "Transparent/ghosted views preserve enclosure orientation and component mounting planes.",
+                "Every applicable panel, shell or frame member, and PCB is visually distinct.",
+                "Inspection views preserve product orientation and component mounting planes.",
             ],
         },
         "support": {
@@ -1957,9 +1964,9 @@ def _contract_for_subsystem(
     else:
         contract["relevant_nets"] = _net_names_matching(nets, ["power", "ground", "gnd", "vcc", "5v", "3v3"])
     contract["assembly_states"] = [
-        "closed exterior",
-        "transparent top-down inspection",
-        "service access with relevant panel or shell separated",
+        "assembled exterior",
+        "top-down inspection with only occluding structure ghosted",
+        "service access with the relevant removable part separated",
     ]
     return contract
 
@@ -2014,14 +2021,14 @@ def _refs_for_subsystem(assembly_components: List[Dict[str, Any]], subsystem: st
 def _physical_dependency_graph(assembly_components: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     edges: List[Dict[str, Any]] = []
     subsystem_edges = [
-        ("ui", "control", "user setpoint/status interface", "UI harness must bridge lid plane to controller without forcing components onto the wrong plane."),
+        ("ui", "control", "user setpoint/status interface", "UI harness must bridge its operator surface to the controller without forcing components onto the wrong plane."),
         ("sensing", "control", "measurement/feedback interface", "Sensor placement must expose the measured variable and route signal wiring back to controller."),
         ("control", "power_driver", "command/PWM/enable interface", "Driver command path must remain visually distinct from high-current wiring."),
         ("power_driver", "airflow", "actuator power interface", "Driver output should route to fan/actuator without blocking airflow or service access."),
         ("airflow", "sensing", "process/air path relationship", "Airflow path should not corrupt sensor readings unless that is the intended feedback measurement."),
-        ("mechanical", "ui", "panel/cutout support", "Lid cutouts and UI components must align."),
-        ("mechanical", "control", "standoff/support", "PCB/controller must be mounted to bottom shell or carrier structure."),
-        ("mechanical", "airflow", "wall cutout/support", "Fan, vents, and duct features must align to side-wall openings."),
+        ("mechanical", "ui", "panel/cutout support", "Applicable panel cutouts and UI components must align."),
+        ("mechanical", "control", "standoff/support", "PCB/controller must be mounted to its specified shell, frame, or carrier structure."),
+        ("mechanical", "airflow", "cutout/support", "Fan, vents, and duct features must align to their specified openings."),
     ]
     present = {str(component.get("subsystem") or "") for component in assembly_components}
     for source, target, interface, check in subsystem_edges:
@@ -2110,25 +2117,28 @@ def _behavior_control_model(
 def _assembly_state_records() -> List[Dict[str, Any]]:
     return [
         {
-            "id": "closed_exterior",
+            "id": "assembled_exterior",
             "purpose": "Product-like exterior validation.",
-            "visible": ["opaque exterior enclosure", "external controls", "ports", "vents", "fasteners"],
-            "hidden": ["internal boards and wiring"],
-            "verification_checks": ["dimensions shown from spec", "no internals visible through opaque shell"],
+            "visible": ["specified shell or frame", "external controls", "ports", "vents", "fasteners", "intentionally exposed modules"],
+            "hidden": ["only electronics hidden by the specified assembled structure"],
+            "verification_checks": [
+                "proportions match dimensions from spec without visible dimension annotations",
+                "open products remain open and enclosed products do not reveal parts through opaque surfaces",
+            ],
         },
         {
             "id": "transparent_top_down_inspection",
             "purpose": "Check physical placement without rotating components toward the camera.",
-            "visible": ["ghosted enclosure", "true component mounting planes", "subsystem grouping cues"],
-            "hidden": ["opaque lid covering internals", "camera-facing fake rotations"],
+            "visible": ["ghosted occluding structure when present", "true component mounting planes", "subsystem grouping cues"],
+            "hidden": ["opaque structure covering inspected parts", "camera-facing fake rotations"],
             "verification_checks": ["front/right orientation preserved", "mounted_on and facing_normal respected"],
         },
         {
             "id": "service_access",
             "purpose": "Confirm assembly and maintenance access.",
-            "visible": ["lid underside", "bottom-shell floor", "wall-service wiring side", "fasteners/standoffs"],
-            "hidden": ["fused shell/lid/PCB geometry"],
-            "verification_checks": ["lid wiring service loop", "ports/fans accessible from correct wall"],
+            "visible": ["removable part underside", "component carrier", "service wiring side", "fasteners/standoffs"],
+            "hidden": ["fused structure/panel/PCB geometry"],
+            "verification_checks": ["service wiring loop when needed", "ports/fans accessible from their specified surface"],
         },
     ]
 
@@ -2140,6 +2150,8 @@ def _design_assembly_model(
     nets: List[Dict[str, Any]],
     external_dimensions: Optional[Dict[str, float]],
     internal_dimensions: Optional[Dict[str, float]],
+    physical_form: str,
+    enclosure_type: str,
 ) -> Dict[str, Any]:
     assembly_components = _assembly_component_records(components, placements)
     subsystem_decomposition = _subsystem_records(assembly_components, nets)
@@ -2147,8 +2159,10 @@ def _design_assembly_model(
     behavior_control = _behavior_control_model(user_prompt, assembly_components, nets)
     return {
         "modeling_method": "single canonical assembly with design intent, subsystem contracts, and derived view states",
+        "physical_form": physical_form,
+        "enclosure_type": enclosure_type,
         "coordinate_frame": {
-            "origin": "center of enclosure envelope",
+            "origin": "center of the overall product envelope",
             "x_axis": "width, left negative to right positive",
             "y_axis": "depth, front negative to rear positive",
             "z_axis": "height, bottom negative to top positive",
@@ -2159,11 +2173,11 @@ def _design_assembly_model(
             "internal_usable": internal_dimensions,
         },
         "assembly_parts": [
-            "bottom shell or base tub",
-            "top lid/operator panel",
-            "internal PCB or carrier board",
-            "panel-mounted controls and display",
-            "side-wall ports, vents, and fan openings",
+            "specified shell, frame, folded structure, or body",
+            "removable panel only when present",
+            "PCB or component carrier",
+            "surface-mounted controls and display",
+            "ports, vents, and fan openings on their specified surfaces",
             "mounting hardware and wire harnesses",
         ],
         "component_mounting_zones": assembly_components,
@@ -2175,30 +2189,30 @@ def _design_assembly_model(
         "derived_view_states": {
             "case": {
                 "camera": "three-quarter exterior product render",
-                "visible": ["bottom shell exterior", "top lid exterior", "external controls", "ports", "vents", "fasteners"],
-                "hidden": ["internal electronics", "internal wiring", "bottom-shell floor components"],
-                "rule": "closed assembled product only; do not reveal internals.",
+                "visible": ["specified product body or frame", "external controls", "ports", "vents", "fasteners", "intentionally exposed modules"],
+                "hidden": ["only electronics occluded by the specified assembled structure"],
+                "rule": "show the assembled specified form; do not add a closed shell to an open-frame product.",
             },
             "inside": {
                 "camera": "top-down or near top-down transparent assembly render",
                 "visible": [
-                    "transparent or ghosted enclosure shell",
+                    "transparent or ghosted occluding structure when present",
                     "true component mounting planes",
-                    "bottom-shell floor electronics facing +Z",
-                    "lid-mounted UI as lid plane or ghosted lid overlay",
-                    "wall-mounted ports, fan, vents, and sensors on their side-wall planes",
+                    "electronics preserving their specified facing normals",
+                    "panel-mounted UI on its panel plane",
+                    "ports, fan, vents, and sensors on their specified surface planes",
                     "subsystem grouping cues",
                 ],
-                "hidden": ["opaque exterior top surface covering the internals", "camera-facing rotated electronics"],
+                "hidden": ["opaque structure covering the inspected parts", "camera-facing rotated electronics"],
                 "rule": "prefer top-down transparent views; keep every component on its mounted_on plane and facing_normal.",
             },
         },
         "continuity_checks": [
             "Every view is the same assembly, not a redesigned device.",
             "Only camera angle and part visibility may change between stages.",
-            "Keep all ports, fan openings, vents, controls, display, mounting holes, and PCB positions on their assigned sides.",
-            "Do not duplicate components across lid and bottom shell unless the spec lists multiple instances.",
-            "Do not draw internals underneath an opaque lid surface.",
+            "Keep all ports, fan openings, vents, controls, display, mounting holes, and PCB positions on their assigned surfaces.",
+            "Do not duplicate components across panels, shells, frames, or carriers unless the spec lists multiple instances.",
+            "Do not draw internals underneath an opaque surface.",
             "Do not rotate components to face the camera; preserve facing_normal unless an inset explicitly shows the service side.",
         ],
     }
@@ -2226,6 +2240,7 @@ def build_project_visual_spec(user_prompt: str, ir: Any) -> Dict[str, Any]:
     overview = getattr(ir, "overview", None)
     mechanical = getattr(ir, "mechanical", None)
     metadata = getattr(ir, "assembly_metadata", None) or {}
+    physical_form = getattr(mechanical, "physical_form", "") if mechanical else ""
     external_dimensions = _vector_dict(getattr(mechanical, "render_dimensions", None))
     if not external_dimensions and isinstance(metadata, dict):
         external_dimensions = _vector_dict(metadata.get("render_dimensions"))
@@ -2233,7 +2248,18 @@ def build_project_visual_spec(user_prompt: str, ir: Any) -> Dict[str, Any]:
     components = _component_records(ir)
     placements = _component_placement_records(ir)
     nets = _net_records(ir)
-    assembly_model = _design_assembly_model(user_prompt, components, placements, nets, external_dimensions, internal_dimensions)
+    enclosure_type = getattr(mechanical, "enclosure_type", "not specified; a closed enclosure is not required")
+    normalized_physical_form = physical_form or "Unspecified; infer from explicit project requirements without defaulting to a box"
+    assembly_model = _design_assembly_model(
+        user_prompt,
+        components,
+        placements,
+        nets,
+        external_dimensions,
+        internal_dimensions,
+        normalized_physical_form,
+        enclosure_type,
+    )
     allowed_labels = sorted(
         {
             label
@@ -2254,11 +2280,12 @@ def build_project_visual_spec(user_prompt: str, ir: Any) -> Dict[str, Any]:
         "title": getattr(overview, "title", "Hardware concept"),
         "description": getattr(overview, "description", user_prompt),
         "source_prompt": user_prompt,
+        "physical_form": normalized_physical_form,
         "external_dimensions_mm": external_dimensions,
         "internal_usable_dimensions_mm": internal_dimensions,
         "external_dimensions_text": _dimension_text(external_dimensions, label="External dimensions"),
         "internal_dimensions_text": _dimension_text(internal_dimensions, label="Internal usable dimensions"),
-        "enclosure_type": getattr(mechanical, "enclosure_type", "custom compact enclosure"),
+        "enclosure_type": enclosure_type,
         "mounting_guidance": getattr(mechanical, "mounting_guidance", "internal standoffs and panel-mounted controls"),
         "components": components,
         "component_placements": placements,
@@ -2274,13 +2301,15 @@ def build_project_visual_spec(user_prompt: str, ir: Any) -> Dict[str, Any]:
         "constraints": _limit_list(getattr(ir, "constraints", []) or [], 10),
         "allowed_visual_labels": allowed_labels,
         "truth_rules": [
-            "Use only these dimensions for all numeric dimension callouts.",
+            "Treat physical_form and explicit shape language in source_prompt as authoritative for the product silhouette.",
+            "Do not default to a rectangular project box or invent a closed shell when the design is curved, cylindrical, radial, wearable, folded, structural, or open-frame.",
+            "Use dimensions only to establish physical proportions; never render dimension lines, arrows, or values.",
             "Use only listed component refs, names, part numbers, CAD sources, and placements.",
             "Use the design_assembly_model as the source of truth for orientation, part visibility, and component mounting zones.",
             "Preserve every component's subsystem, mounted_on plane, and facing_normal metadata in generated physical layouts.",
             "Preserve subsystem contracts: purpose, inputs, outputs, physical interfaces, placement constraints, dependencies, and verification checks.",
             "Do not invent vendor part numbers, enclosure models, tolerances, wall thickness, mounting hardware, or dimensions.",
-            "If a detail is not present in this spec, show it generically or omit the label.",
+            "Render no text, labels, annotations, captions, legends, watermarks, or logos in the image.",
         ],
     }
 
@@ -2290,6 +2319,8 @@ def _spec_prompt_text(spec: Dict[str, Any]) -> str:
     compact_spec = {
         "title": spec["title"],
         "description": spec["description"],
+        "source_prompt": spec["source_prompt"],
+        "physical_form": spec["physical_form"],
         "external_dimensions_mm": spec["external_dimensions_mm"],
         "internal_usable_dimensions_mm": spec["internal_usable_dimensions_mm"],
         "enclosure_type": spec["enclosure_type"],
@@ -2303,6 +2334,8 @@ def _spec_prompt_text(spec: Dict[str, Any]) -> str:
         "assembly_states": spec["assembly_states"],
         "design_assembly_model": {
             "modeling_method": assembly_model["modeling_method"],
+            "physical_form": assembly_model["physical_form"],
+            "enclosure_type": assembly_model["enclosure_type"],
             "coordinate_frame": assembly_model["coordinate_frame"],
             "component_mounting_zones": assembly_model["component_mounting_zones"],
             "subsystem_decomposition": assembly_model["subsystem_decomposition"],
@@ -2317,7 +2350,6 @@ def _spec_prompt_text(spec: Dict[str, Any]) -> str:
         "cad_sources": spec["cad_sources"],
         "fabrication_notes": spec["fabrication_notes"],
         "constraints": spec["constraints"],
-        "allowed_visual_labels": spec["allowed_visual_labels"],
         "truth_rules": spec["truth_rules"],
     }
     return json.dumps(compact_spec, separators=(",", ":"))
@@ -2329,20 +2361,22 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
     shared = [
         "Canonical Visual Design Spec, generated from the Hardware IR:",
         spec_text,
-        f"Fixed dimensions for every view: {spec['external_dimensions_text']}; {spec['internal_dimensions_text']}.",
+        f"Private geometry guidance for proportions only: {spec['external_dimensions_text']}; {spec['internal_dimensions_text']}. Never depict these measurements.",
         "Traditional design rule: this is one assembly model with derived view states, not three independent product concepts.",
         "Keep the same object identity, proportions, port positions, display/control layout, material, and scale across all images.",
         "Only the camera angle and part visibility state may change between stages.",
         "The visual sequence must not drift from the Canonical Visual Design Spec.",
+        "Treat physical_form and explicit shape language in source_prompt as authoritative. Preserve that silhouette across every view.",
+        "Do not default to a rectangular project box. Curved, cylindrical, radial, wearable, folded, structural, and open-frame products are first-class forms.",
         "Respect the fixed coordinate frame and orientation landmarks from design_assembly_model.",
-        "Keep the enclosure lid, bottom shell, side walls, PCB, controls, display, fan, ports, vents, standoffs, and wiring as distinct physical parts.",
+        "Keep every applicable shell, frame, panel, PCB, control, display, fan, port, vent, standoff, and wire as a distinct physical part; do not invent absent enclosure pieces.",
         "Use subsystem_decomposition to organize physical layouts into UI, control, power/driver, sensing, airflow, mechanical, and support windows when applicable.",
         "Use subsystem contracts to preserve purpose, inputs, outputs, physical interfaces, placement constraints, failure modes, and verification checks.",
         "Use physical_dependency_graph and behavior_control_model to keep layout, wiring, airflow, and feedback relationships coherent.",
         "Preserve each component's mounted_on plane and facing_normal; do not rotate electronics to face the camera for aesthetics.",
-        "Prefer top-down transparent or ghosted enclosure views for internal inspection rather than dramatic perspective views.",
-        "Do not fuse an exterior lid/top surface with internal electronics, and do not place internals under an opaque closed lid.",
-        "Do not add labels, dimensions, enclosure models, hardware kit contents, tolerances, or component names unless they appear in the spec.",
+        "Prefer top-down transparent or ghosted inspection views for enclosed products and unobstructed top-down views for open products rather than dramatic perspective views.",
+        "When a lid or top surface exists, do not fuse it with internal electronics or place visible internals under an opaque closed surface.",
+        "The rendered pixels must contain no text: no dimension lines or values, measurement arrows, labels, annotations, captions, legends, component names, part numbers, watermarks, or logos.",
         "Safe low-voltage maker electronics only. No hands, people, watermarks, brand logos, weapons, medical equipment, or mains-voltage hazards.",
     ]
 
@@ -2350,17 +2384,18 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
     return [
         {
             "view_id": "case",
-            "label": "Case exterior",
+            "label": "Product exterior",
             "prompt": "\n".join(
                 [
-                    "Stage 1 of 2: create the exterior case render.",
+                    "Stage 1 of 2: create the assembled product exterior render.",
                     shared_text,
                     "Use the case view state from design_assembly_model.",
-                    "Render a realistic closed enclosure/case only: visible screen/window openings, buttons, knobs, ports, seams, fillets, screw bosses if visible, and panel cutouts.",
-                    "The lid/operator panel is installed and opaque except for display windows, cutouts, ports, vents, or controls that are explicitly visible externally.",
-                    "Use consistent orientation landmarks: front wall remains front, right wall remains right, and top/lid controls stay on the top/lid.",
-                    "Dimension callouts must exactly match the external_dimensions_mm values in the spec. If external_dimensions_mm is null, do not draw numeric dimension callouts.",
-                    "Use a clean neutral studio background and a three-quarter view. Do not show internal electronics in this stage.",
+                    "Render the specified physical form as an assembled product. It may be enclosed, partially enclosed, structural, wearable, folded, or open-frame; use a closed case only when the spec requires one.",
+                    "Show only applicable exterior details such as screens, buttons, knobs, ports, seams, fillets, frame members, mounting features, vents, and panel cutouts.",
+                    "If a lid or operator panel exists, show it installed and opaque except for explicitly visible windows, cutouts, ports, vents, or controls.",
+                    "Use consistent orientation landmarks: front remains front, right remains right, and controls stay on their specified mounting surface.",
+                    "Use external_dimensions_mm only to guide proportions. Do not draw dimension lines, measurement arrows, numeric values, or any other text.",
+                    "Use a clean neutral studio background and a three-quarter view. For an enclosed product, do not show hidden electronics; for an open product, show only electronics that are naturally exposed.",
                 ]
             ),
         },
@@ -2369,24 +2404,24 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
             "label": "Transparent top-down assembly",
             "prompt": "\n".join(
                 [
-                    "Stage 2 of 2: image-to-image from the case render into a transparent top-down assembly inspection view.",
+                    "Stage 2 of 2: image-to-image from the exterior render into a top-down assembly inspection view.",
                     shared_text,
                     "Use the inside view state from design_assembly_model.",
-                    "Use the previous exterior case as the exact same enclosure, now shown from a top-down or near top-down orthographic inspection angle.",
-                    "Make the enclosure shell transparent or ghosted at roughly 15-25% opacity so the bottom shell floor, side walls, lid plane, and component mounting planes are all visible.",
-                    "Do not roll, invert, mirror, or flip the enclosure. Keep the same front edge, right wall, left wall, and rear wall orientation from the exterior render.",
-                    "Show the bottom shell interior as an upward-facing open tub viewed from above; the electronics must sit on the same bottom-shell floor plane and share the same perspective.",
-                    "Do not show the case exterior underside facing upward while the electronics face upward. The visible cavity, side walls, standoffs, and electronics must all agree on one coordinate frame.",
-                    "Use each component's mounted_on, facing_normal, visible_side, view_preference, and render_rule metadata. Floor boards face +Z, lid controls remain on the lid plane, wall components remain on side-wall planes.",
-                    "Do not rotate wall-mounted fans, ports, or lid-mounted displays to face the camera; use transparent shell visibility, ghosting, or small true-plane insets instead.",
-                    "Show subtle subsystem grouping cues for UI, control, power/driver, sensing, airflow, and mechanical subsystems without adding unsupported labels.",
+                    "Use the previous exterior product as the exact same physical assembly, now shown from a top-down or near top-down orthographic inspection angle.",
+                    "If a shell exists, make it transparent or ghosted at roughly 15-25% opacity so its mounting planes are visible. If the product is open-frame, preserve the exposed frame without inventing a shell.",
+                    "Do not roll, invert, mirror, or flip the product. Keep the same front, right, left, and rear orientation from the exterior render.",
+                    "Keep the electronics on their specified mounting planes with a shared perspective; curved, radial, wall-mounted, and frame-mounted layouts do not need a flat tub floor.",
+                    "The visible structure, mounting features, standoffs, and electronics must all agree on one coordinate frame.",
+                    "Use each component's mounted_on, facing_normal, visible_side, view_preference, and render_rule metadata. Preserve every board, control, and surface-mounted component on its specified plane.",
+                    "Do not rotate surface-mounted fans, ports, or displays to face the camera; use transparent structure, ghosting, or small true-plane insets instead.",
+                    "Show subtle subsystem grouping through placement and color cues only, with no written labels.",
                     "Respect subsystem placement constraints: sensors stay exposed to the intended medium, hot drivers stay away from sensors, ports align with wall cutouts, airflow paths remain unblocked, and service loops remain plausible.",
                     "For behavior/control systems, preserve the measured variable source, controller, driver/output path, actuator, and feedback path from behavior_control_model.",
-                    "The opaque lid/top surface must not cover or blend into internal electronics.",
-                    "Keep lid-mounted display, knob, button, and switch parts attached to the separate lid/operator panel or show their underside/cables clearly; do not relocate them onto the bottom shell unless their mounting_zone says so.",
-                    "Keep floor-mounted boards, drivers, power modules, terminals, standoffs, and wiring on the bottom shell floor.",
+                    "Any opaque lid or top surface must not cover or blend into internal electronics that the inspection view is meant to reveal.",
+                    "Keep display, knob, button, and switch parts attached to their specified operator surface or show their underside/cables clearly; do not relocate them to another carrier unless their mounting_zone says so.",
+                    "Keep boards, drivers, power modules, terminals, standoffs, and wiring on their specified mounting surfaces or frame members.",
                     "Show only the electronics and placements listed in the spec: mounted boards, display module, buttons, encoder/knob, power board, connectors, wiring harnesses, standoffs, screws, cable routing, and clearance.",
-                    "Dimension callouts must exactly match external_dimensions_mm and internal_usable_dimensions_mm. Preserve exterior port, vent, fan, and control positions from the case render.",
+                    "Use external_dimensions_mm and internal_usable_dimensions_mm only to guide proportions. Do not draw dimension lines, measurement arrows, numeric values, or any other text. Preserve exterior port, vent, fan, and control positions from the exterior render.",
                     "Use a realistic three-quarter product view with the internal electronics clearly visible.",
                 ]
             ),

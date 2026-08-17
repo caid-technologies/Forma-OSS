@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import json
 import os
 import unittest
 from contextlib import contextmanager
+from io import BytesIO
+from types import SimpleNamespace
 from typing import Iterator
 
-from forma_core.agents.firecrawl_mcp import FirecrawlResearchResult, FirecrawlSearchHit
+from forma_core.agents.firecrawl_mcp import (
+    FirecrawlResearchResult,
+    FirecrawlSearchHit,
+    _MCPStdioSession,
+    _flatten_firecrawl_hits,
+)
 from forma_core.external_sources import (
     ExternalSourceLibrary,
     ExternalSourceProviderConfig,
@@ -69,6 +77,68 @@ class FakeFirecrawlClient:
 
 
 class ExternalSourceTests(unittest.TestCase):
+    def test_mcp_stdio_sends_newline_delimited_json(self) -> None:
+        stdin = BytesIO()
+        session = _MCPStdioSession(["firecrawl-mcp"], timeout_seconds=1)
+        session.process = SimpleNamespace(stdin=stdin)  # type: ignore[assignment]
+
+        session._send({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+
+        payload = stdin.getvalue()
+        self.assertTrue(payload.endswith(b"\n"))
+        self.assertNotIn(b"Content-Length", payload)
+        self.assertEqual("tools/list", json.loads(payload)["method"])
+
+    def test_mcp_stdio_reads_newline_delimited_json(self) -> None:
+        stdout = BytesIO(b'{"jsonrpc":"2.0","id":1,"result":{}}\n')
+        session = _MCPStdioSession(["firecrawl-mcp"], timeout_seconds=1)
+        session.process = SimpleNamespace(stdout=stdout)  # type: ignore[assignment]
+
+        session._read_stdout()
+
+        self.assertEqual(1, session._responses.get_nowait()["id"])
+
+    def test_firecrawl_flattens_nested_web_results(self) -> None:
+        hits = _flatten_firecrawl_hits(
+            {
+                "success": True,
+                "data": {
+                    "web": [
+                        {
+                            "title": "Sensor datasheet",
+                            "url": "https://example.com/datasheet",
+                            "description": "Electrical specifications.",
+                            "markdown": "# Sensor\nAdditional details.",
+                        }
+                    ]
+                },
+            }
+        )
+
+        self.assertEqual(1, len(hits))
+        self.assertEqual("Sensor datasheet", hits[0].title)
+        self.assertIn("Electrical specifications.", hits[0].content)
+        self.assertIn("Additional details.", hits[0].content)
+
+    def test_firecrawl_prompt_context_is_bounded(self) -> None:
+        result = FirecrawlResearchResult(
+            configured=True,
+            searches_attempted=2,
+            hits=[
+                FirecrawlSearchHit(
+                    title=f"Source {index}",
+                    url=f"https://example.com/{index}",
+                    content="Evidence " * 100,
+                )
+                for index in range(2)
+            ],
+        )
+
+        context = result.as_prompt_context(max_chars=240)
+
+        self.assertLessEqual(len(context), 240)
+        self.assertIn("Source 0", context)
+
     def test_auto_provider_selects_firecrawl_even_when_tavily_key_is_present(self) -> None:
         with isolated_external_source_env(FIRECRAWL_API_KEY="fc_test", TAVILY_API_KEY="tvly_test"):
             provider = build_external_source_provider()
@@ -119,6 +189,23 @@ class ExternalSourceTests(unittest.TestCase):
         self.assertIn("Short answer.", context)
         self.assertIn("Provider: firecrawl", context)
         self.assertIn("Useful sourced text.", context)
+
+    def test_external_source_library_prompt_context_is_bounded(self) -> None:
+        library = ExternalSourceLibrary(
+            provider="firecrawl",
+            configured=True,
+            answer="Summary " * 100,
+            sources=[
+                ExternalSourceRecord(
+                    title="Example",
+                    url="https://example.com",
+                    content="Evidence " * 100,
+                    provider="firecrawl",
+                )
+            ],
+        )
+
+        self.assertLessEqual(len(library.as_prompt_context(max_chars=240)), 240)
 
     def test_source_usage_records_tavily_provider(self) -> None:
         usage = infer_source_usage(

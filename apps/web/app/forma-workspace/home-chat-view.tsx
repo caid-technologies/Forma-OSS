@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import CopyButton from "../../components/copy-button";
+import useChatAutoScroll from "./use-chat-auto-scroll";
 
 type HomeChatMessage = {
   id: string;
@@ -29,22 +30,24 @@ type HomeChatMessage = {
   contextProjectId?: string | null;
   workflowState?: string | null;
   contextQuestions?: string[];
+  contextSuggestions?: string[];
   buildPlanId?: string | null;
   buildJobId?: string | null;
 };
 
 type HomeChatViewProps = {
   started: boolean;
+  conversationKey: string;
   messages: HomeChatMessage[];
-  endRef: RefObject<HTMLDivElement | null>;
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
   projectArtifact?: ReactNode;
   examples: string[];
   onSelectExample: (example: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
-  canSkipContext: boolean;
-  contextSkipping: boolean;
-  onSkipContext: () => void;
+  canBuildNow: boolean;
+  buildNowLoading: boolean;
+  onBuildNow: () => void;
+  onSelectContextSuggestion: (suggestion: string) => void;
   isLoading: boolean;
   generationReady: boolean;
   needsGenerationProvider: boolean;
@@ -56,6 +59,9 @@ type HomeChatViewProps = {
   onPromptChange: (prompt: string) => void;
   generationActive: boolean;
   onStop: () => void;
+  canRetryFailedBuild: boolean;
+  retryingFailedBuild: boolean;
+  onRetryFailedBuild: () => void;
   hasGenerationInput: boolean;
   inputValid: boolean;
   imageInputRef: RefObject<HTMLInputElement | null>;
@@ -71,16 +77,17 @@ function formatTimestamp(value: string) {
 
 export default function HomeChatView({
   started,
+  conversationKey,
   messages,
-  endRef,
   renderPipelineProgress,
   projectArtifact,
   examples,
   onSelectExample,
   onSubmit,
-  canSkipContext,
-  contextSkipping,
-  onSkipContext,
+  canBuildNow,
+  buildNowLoading,
+  onBuildNow,
+  onSelectContextSuggestion,
   isLoading,
   generationReady,
   needsGenerationProvider,
@@ -92,21 +99,36 @@ export default function HomeChatView({
   onPromptChange,
   generationActive,
   onStop,
+  canRetryFailedBuild,
+  retryingFailedBuild,
+  onRetryFailedBuild,
   hasGenerationInput,
   inputValid,
   imageInputRef,
   onImageChange,
   onImagePaste,
 }: HomeChatViewProps) {
-  const latestContextMessageId = [...messages]
+  const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
+  const latestBuildNowMessageId = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && message.workflowState === "gathering_context")?.id;
+  const latestChoiceMessageId = [...messages]
+    .reverse()
+    .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
+  const retryMode = canRetryFailedBuild && !hasGenerationInput && !generationActive;
+  const primaryActionLabel = generationActive
+    ? "Stop generation"
+    : retryMode
+      ? "Try failed build again"
+      : inputValid
+        ? "Send context"
+        : "Check hardware idea";
 
   return (
     <section
       className={`${
         !started
-          ? "fixed bottom-[224px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none"
+          ? "fixed bottom-[224px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none md:justify-center md:px-6 md:py-8"
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
@@ -121,9 +143,19 @@ export default function HomeChatView({
         </div>
       )}
 
-      <div className={`${started ? "mt-0" : "mt-4 sm:mt-5"} flex min-h-0 flex-1 flex-col overflow-hidden border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}>
+      <div
+        className={`${
+          started
+            ? "mt-0 flex-1 overflow-hidden"
+            : "mt-4 flex-1 overflow-hidden sm:mt-5 md:mx-auto md:w-full md:max-w-5xl md:flex-none md:overflow-visible md:border"
+        } flex min-h-0 flex-col border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}
+      >
         {started && (
-          <div className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5">
+          <div
+            ref={containerRef}
+            onScroll={handleScroll}
+            className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
+          >
             {messages.map((message) => {
               const isUser = message.role === "user";
               const statusTone =
@@ -163,15 +195,31 @@ export default function HomeChatView({
                       />
                     </div>
                     <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    {!isUser && canSkipContext && message.id === latestContextMessageId && (
+                    {!isUser && message.id === latestChoiceMessageId && Boolean(message.contextSuggestions?.length) && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Suggested answers">
+                        {message.contextSuggestions?.map((suggestion) => (
+                          <button
+                            key={suggestion}
+                            type="button"
+                            onClick={() => onSelectContextSuggestion(suggestion)}
+                            disabled={isLoading}
+                            className="flex min-h-12 items-center gap-2 border border-[#3a3e48] bg-[#111216] px-3 py-2 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <ArrowRight className="h-3.5 w-3.5 shrink-0" />
+                            <span className="break-words">{suggestion}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {!isUser && canBuildNow && message.id === latestBuildNowMessageId && (
                       <button
                         type="button"
-                        onClick={onSkipContext}
-                        disabled={contextSkipping || isLoading}
+                        onClick={onBuildNow}
+                        disabled={buildNowLoading || isLoading}
                         className="mt-3 inline-flex h-9 items-center justify-center gap-2 border border-cyan-300/40 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
                       >
-                        {contextSkipping ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                        Skip context gathering
+                        {buildNowLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                        Build now
                       </button>
                     )}
                     {message.imagePreview && (
@@ -192,7 +240,7 @@ export default function HomeChatView({
         )}
 
         {!started && (
-          <div className="mt-auto shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4">
+          <div className="mt-auto shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4 md:mt-0">
             <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
               {examples.map((example) => (
                 <button
@@ -208,7 +256,10 @@ export default function HomeChatView({
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:sticky md:bottom-0 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4">
+        <form
+          onSubmit={onSubmit}
+          className={`${started ? "md:sticky md:bottom-0" : "md:static"} fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4`}
+        >
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 border border-cyan-300/30 bg-cyan-300/5 p-3 text-left sm:p-4" aria-label="Bring your own key setup">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -280,7 +331,12 @@ export default function HomeChatView({
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  if (!isLoading) event.currentTarget.form?.requestSubmit();
+                  if (isLoading) return;
+                  if (retryMode) {
+                    onRetryFailedBuild();
+                    return;
+                  }
+                  event.currentTarget.form?.requestSubmit();
                 }
               }}
               placeholder="Describe the product, constraints, references, and outputs you need…"
@@ -298,14 +354,22 @@ export default function HomeChatView({
               <Paperclip className="h-4 w-4" />
             </button>
             <button
-              type={generationActive ? "button" : "submit"}
-              onClick={generationActive ? onStop : undefined}
-              disabled={!generationActive && (isLoading || !hasGenerationInput || !generationReady)}
+              type={generationActive || retryMode ? "button" : "submit"}
+              onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
+              disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
               className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
-              aria-label={generationActive ? "Stop generation" : inputValid ? "Send context" : "Check hardware idea"}
-              title={generationActive ? "Stop generation" : inputValid ? "Send context" : "Check hardware idea"}
+              aria-label={primaryActionLabel}
+              title={primaryActionLabel}
             >
-              {generationActive ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+              {generationActive ? (
+                <Square className="h-4 w-4 fill-current" />
+              ) : retryMode ? (
+                <RefreshCw className={`h-4 w-4 ${retryingFailedBuild ? "animate-spin" : ""}`} />
+              ) : isLoading ? (
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              ) : (
+                <ArrowRight className="h-4 w-4" />
+              )}
             </button>
           </div>
 

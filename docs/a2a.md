@@ -82,6 +82,8 @@ Each line sent to the socket is an `A2AMessage` JSON object. Each line returned 
 
 Available tools:
 - `forma.generate_project`
+
+For a default or web-research project with a failed stage, call `forma.generate_project` again with the same `project_id`, workflow, and `retry_stage` (for example `wiring_netlist`). Forma reloads the persisted generation run, reuses successful upstream and independent artifacts, and reruns only the named stage and invalidated dependents. Reusing the same client job ID returns the completed retry idempotently.
 - `forma.debug_config`
 - `forma.validate_circuit`
 - `forma.a2a.send_message`

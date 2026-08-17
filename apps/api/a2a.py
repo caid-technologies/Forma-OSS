@@ -760,11 +760,47 @@ def build_generation_response(
     data_sources: Optional[List[str]] = None,
     past_job_context: Optional[PastJobContext] = None,
     project_id: Optional[str] = None,
+    retry_stage: Optional[str] = None,
 ) -> Dict[str, Any]:
     _apply_owner_user_integrations(owner_user_id)
 
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
+    normalized_retry_stage = str(retry_stage or "").strip() or None
+    prior_generation_run: Optional[Dict[str, Any]] = None
+    retry_stage_replay = False
+    if normalized_retry_stage:
+        if workflow_id not in {"default", "web_research"}:
+            raise ValueError("Named generation-stage retry is not supported by this workflow.")
+        if not project_id:
+            raise ValueError("project_id is required when retry_stage is provided.")
+        existing_project = get_generated_project(project_id)
+        if existing_project is None:
+            raise ValueError("The project containing the failed generation stage was not found.")
+        if owner_user_id and str(getattr(existing_project, "owner_user_id", "") or "") != str(owner_user_id):
+            raise ValueError("The failed generation stage is not owned by the requesting user.")
+        existing_ir = getattr(existing_project, "hardware_ir", None)
+        if hasattr(existing_ir, "model_dump"):
+            existing_ir = existing_ir.model_dump(mode="json")
+        existing_ir = existing_ir if isinstance(existing_ir, dict) else {}
+        existing_metadata = existing_ir.get("assembly_metadata") or {}
+        candidate_run = existing_metadata.get("generation_run")
+        if not isinstance(candidate_run, dict):
+            raise ValueError("The project does not contain persisted generation-stage artifacts.")
+        candidate_record = (candidate_run.get("records") or {}).get(normalized_retry_stage)
+        if not isinstance(candidate_record, dict):
+            raise ValueError(f"Generation stage '{normalized_retry_stage}' is not failed and cannot be retried.")
+        if candidate_record.get("status") == "succeeded":
+            retry_stage_replay = bool(
+                frontend_job_id
+                and existing_metadata.get("frontend_job_id") == frontend_job_id
+                and candidate_run.get("retry_stage") == normalized_retry_stage
+            )
+            if not retry_stage_replay:
+                raise ValueError(f"Generation stage '{normalized_retry_stage}' is not failed and cannot be retried.")
+        elif candidate_record.get("status") != "failed":
+            raise ValueError(f"Generation stage '{normalized_retry_stage}' is not failed and cannot be retried.")
+        prior_generation_run = candidate_run
     has_prompt = bool(prompt_text)
     if not has_prompt and not image_data:
         raise ValueError("Provide a prompt or reference image.")
@@ -849,6 +885,9 @@ def build_generation_response(
                     "data_sources": normalized_data_sources,
                     "past_jobs_context": past_jobs_metadata,
                     "project_prompt": prompt_text,
+                    "retry_stage": normalized_retry_stage,
+                    "prior_generation_run": prior_generation_run,
+                    "retry_stage_replay": retry_stage_replay,
                 },
             )
             ensure_agent_pipeline_active()
@@ -913,6 +952,10 @@ def build_generation_response(
                 "project_ir": ir.model_dump(),
                 "mermaid_code": generate_mermaid_chart(ir),
                 "svg_schematic": generate_svg_schematic(ir),
+                "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+                "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+                "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
+                "idempotent_stage_replay": bool((ir.assembly_metadata or {}).get("retry_stage_replay")),
             }
             update_observation(
                 root_observation,
@@ -985,6 +1028,7 @@ async def call_forma_action(action: str, payload: Dict[str, Any]) -> Dict[str, A
             data_sources,
             past_job_context,
             payload.get("project_id"),
+            payload.get("retry_stage"),
         )
 
     if normalized == "debug_config":
@@ -1087,7 +1131,16 @@ async def _process_server_message(message: A2AMessage) -> None:
             cancellation_check=lambda: JOB_STORE.is_cancelled(message.job_id),
         ):
             result = await call_forma_action(message.action, message.payload)
-        JOB_STORE.mark_succeeded(message.job_id, result)
+        generation_status = str(result.get("generation_status") or "succeeded").lower()
+        if generation_status == "partial":
+            JOB_STORE.mark_partial(message.job_id, result)
+        elif generation_status == "failed":
+            JOB_STORE.mark_failed(
+                message.job_id,
+                "A required root generation stage failed; partial diagnostics were preserved.",
+            )
+        else:
+            JOB_STORE.mark_succeeded(message.job_id, result)
         event = A2AEvent(
             job_id=message.job_id,
             message_id=message.message_id,
@@ -1247,6 +1300,14 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "prompt": {"type": "string"},
+                    "project_id": {
+                        "type": "string",
+                        "description": "Existing project ID when retrying a failed generation stage.",
+                    },
+                    "retry_stage": {
+                        "type": "string",
+                        "description": "Failed generation stage to retry while reusing successful artifacts.",
+                    },
                     "workflow": {
                         "type": "string",
                         "enum": ["default", "web_research"],

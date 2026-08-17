@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import logging
+import re
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -33,6 +34,44 @@ from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorTy
 
 router = APIRouter(prefix="/projects/{project_id}/context", tags=["context-gathering"])
 logger = logging.getLogger(__name__)
+
+
+_CONTEXT_FREE_USER_TURN = re.compile(
+    r"^(?:(?:please\s+)?(?:go|go ahead|continue|start|start now|build|build it|build it now|"
+    r"make it|make it now|do it|do it now|proceed|ready|skip|skip it|skip context gathering)|"
+    r"idk|i do not know|i don t know|don t know|not sure|unsure|no idea|you choose|up to you|"
+    r"hi|hello|hey)$",
+)
+
+
+def _contains_project_context(text: str) -> bool:
+    normalized = re.sub(r"[^a-z0-9]+", " ", str(text or "").casefold()).strip()
+    return bool(normalized and not _CONTEXT_FREE_USER_TURN.fullmatch(normalized))
+
+
+def _bootstrap_context_request(
+    request: ContextGatheringRequest,
+    existing_messages: list[dict],
+) -> ContextGatheringRequest | None:
+    """Recover project context when build intent arrives before a DesignBrief exists."""
+
+    context_parts: list[str] = []
+    seen: set[str] = set()
+    for message in existing_messages[-12:]:
+        if not isinstance(message, dict) or message.get("role") != "user":
+            continue
+        content = str(message.get("content") or "").strip()
+        key = content.casefold()
+        if _contains_project_context(content) and key not in seen:
+            seen.add(key)
+            context_parts.append(content)
+    current_text = request.text.strip()
+    current_key = current_text.casefold()
+    if _contains_project_context(current_text) and current_key not in seen:
+        context_parts.append(current_text)
+    if not context_parts and not request.attachments:
+        return None
+    return request.model_copy(update={"text": "\n".join(context_parts)})
 
 
 def _owner(user: UserContext) -> str:
@@ -112,7 +151,47 @@ def gather_project_context_endpoint(
 
     brief = previous
     questions: list[str] = []
+    suggestions = list(decision.suggestions) if decision.tool_name == "ask_question" else []
     build_execution: ContextBuildExecution | None = None
+    if decision.tool_name == "build_project" and brief is None:
+        bootstrap_request = _bootstrap_context_request(request, existing_messages)
+        if bootstrap_request is not None:
+            if workflow is None:
+                try:
+                    workflow = initialize_project_workflow(
+                        str(project_id),
+                        owner,
+                        actor_type=WorkflowActorType.USER,
+                        actor_id=owner,
+                        reason="Build request supplied initial project context.",
+                    ).workflow
+                except WorkflowStateError as exc:
+                    raise _workflow_error(exc) from exc
+            brief_create, _, questions, _ = agent.update(bootstrap_request, None)
+            try:
+                brief = create_design_brief_version(str(project_id), owner, brief_create)
+            except DesignBriefAccessError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"code": "project_not_found", "message": "Project not found."},
+                ) from exc
+            logger.info(
+                "Bootstrapped DesignBrief from first-turn build request: project_id=%s conversation_id=%s",
+                project_id,
+                request.conversation_id,
+            )
+    elif decision.tool_name == "build_project" and workflow is None:
+        try:
+            workflow = initialize_project_workflow(
+                str(project_id),
+                owner,
+                actor_type=WorkflowActorType.USER,
+                actor_id=owner,
+                reason="Build request resumed existing project context.",
+            ).workflow
+        except WorkflowStateError as exc:
+            raise _workflow_error(exc) from exc
+
     if decision.tool_name == "ask_question" and decision.save_context:
         if workflow is None:
             try:
@@ -146,7 +225,9 @@ def gather_project_context_endpoint(
                 },
             )
 
-        brief_create, _, questions = agent.update(request, previous)
+        brief_create, _, questions, generated_suggestions = agent.update(request, previous)
+        if not suggestions:
+            suggestions = generated_suggestions
         try:
             brief = create_design_brief_version(str(project_id), owner, brief_create)
         except DesignBriefAccessError as exc:
@@ -224,6 +305,9 @@ def gather_project_context_endpoint(
                 })
     if decision.tool_name == "build_project" and (workflow is None or brief is None):
         decision = decision.model_copy(update={
+            "turn_kind": "clarification",
+            "tool_name": "ask_question",
+            "save_context": False,
             "assistant_message": "Tell me what you want to build first, and I’ll help shape it and start the design.",
         })
 
@@ -256,6 +340,7 @@ def gather_project_context_endpoint(
             "status": "complete",
             "timestamp": now,
             "questions": questions,
+            "suggestions": suggestions,
             "turnKind": decision.turn_kind,
             "toolName": decision.tool_name,
         }
@@ -290,5 +375,6 @@ def gather_project_context_endpoint(
         design_brief=brief,
         assistant_message=decision.assistant_message,
         questions=questions,
+        suggestions=suggestions,
         build_execution=build_execution,
     )

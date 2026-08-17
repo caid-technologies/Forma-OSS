@@ -86,9 +86,12 @@ SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 # DATABASE_BACKEND=sqlite
 SQLITE_DATABASE_URL=sqlite:///./forma.db
 
-# Project gallery cache. Required when FORMA_DEV_MODE is false; development
-# mode may leave these unset to read directly from the database.
+# Project gallery cache. REDIS_CACHE_PREFIX plus either REDIS_URL or both
+# Upstash REST variables are required when FORMA_DEV_MODE is false;
+# development mode may leave these unset to read directly from the database.
 REDIS_URL=redis://localhost:6379/0
+# UPSTASH_REDIS_REST_URL=https://your-database.upstash.io
+# UPSTASH_REDIS_REST_TOKEN=your_rest_token
 # PROJECTS_CACHE_TTL_SECONDS=60
 # REDIS_CACHE_PREFIX=forma
 # REDIS_SOCKET_TIMEOUT_SECONDS=0.25

@@ -1,10 +1,11 @@
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
+from forma_core.jobs.metrics import summarize_job_metrics
 from forma_core.jobs.repositories import (
     JobCancelledError,
     JobRepository,
@@ -33,16 +34,18 @@ def _redact_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 def _operation_summary(operations: List[Dict[str, Any]]) -> Dict[str, Any]:
     failed = sum(1 for operation in operations if operation.get("status") == "failed")
+    partial = sum(1 for operation in operations if operation.get("status") == "partial")
     succeeded = sum(1 for operation in operations if operation.get("status") == "succeeded")
     pending = sum(1 for operation in operations if operation.get("status") == "pending")
     not_requested = sum(1 for operation in operations if operation.get("status") == "not_requested")
     return {
         "total": len(operations),
         "failed": failed,
+        "partial": partial,
         "succeeded": succeeded,
         "pending": pending,
         "not_requested": not_requested,
-        "ok": failed == 0,
+        "ok": failed == 0 and partial == 0,
     }
 
 
@@ -52,12 +55,13 @@ def _result_operation_statuses(project_ir: Dict[str, Any], metadata: Dict[str, A
     operation_ids = {str(item.get("id") or "") for item in operations}
     if "hardware_generation" not in operation_ids:
         validation = project_ir.get("validation") or {}
+        generation_status = str(metadata.get("generation_status") or "succeeded").lower()
         operations.insert(
             0,
             {
                 "id": "hardware_generation",
                 "label": "Hardware generation",
-                "status": "succeeded",
+                "status": generation_status,
                 "provider": metadata.get("runtime_provider") or metadata.get("llm_provider"),
                 "model": metadata.get("runtime_model") or metadata.get("model_name"),
                 "details": {
@@ -120,6 +124,10 @@ def summarize_result(result: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any
         "workflow": metadata.get("workflow"),
         "source_usage": source_usage,
         "pipeline": metadata.get("pipeline"),
+        "generation_status": metadata.get("generation_status", "succeeded"),
+        "project_readiness": metadata.get("project_readiness", "complete"),
+        "generation_stages": ((metadata.get("generation_run") or {}).get("records") or {}),
+        "generation_stage_failures": metadata.get("generation_stage_failures") or [],
     }
 
 
@@ -261,6 +269,18 @@ class JobMetadataStore:
         self._update_status(job_id, "routed")
 
     def mark_succeeded(self, job_id: str, result: Optional[Dict[str, Any]]) -> None:
+        self._mark_completed_result(job_id, result, status="succeeded")
+
+    def mark_partial(self, job_id: str, result: Optional[Dict[str, Any]]) -> None:
+        self._mark_completed_result(job_id, result, status="partial")
+
+    def _mark_completed_result(
+        self,
+        job_id: str,
+        result: Optional[Dict[str, Any]],
+        *,
+        status: str,
+    ) -> None:
         self.init_db()
         now = _utc_now()
         result_summary = summarize_result(result)
@@ -279,7 +299,7 @@ class JobMetadataStore:
             job_id,
             str(current.get("status") or ""),
             {
-                "status": "succeeded",
+                "status": status,
                 "completed_at": now,
                 "updated_at": now,
                 "result_summary_json": result_summary,
@@ -335,6 +355,40 @@ class JobMetadataStore:
         limit = max(1, min(limit, 200))
         assert self._repository is not None
         return self._repository.list(sender=sender, status=status, limit=limit)
+
+    def get_metrics(
+        self,
+        *,
+        days: int = 7,
+        hours: int = 24,
+        interval_hours: Optional[int] = None,
+        additional_rows: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Return UTC job-volume and failure metrics for the admin dashboard."""
+        self.init_db()
+        now = datetime.now(timezone.utc)
+        lookback_days = max(
+            max(1, min(days, 31)),
+            (max(1, min(hours, 168)) + 23) // 24,
+            (max(1, min(interval_hours or 1, 31 * 24)) + 23) // 24,
+        )
+        created_since = (now - timedelta(days=lookback_days + 1)).isoformat().replace("+00:00", "Z")
+        assert self._repository is not None
+        rows = self._repository.list_metric_rows(created_since=created_since)
+        if additional_rows:
+            existing_job_ids = {str(row.get("job_id") or "") for row in rows}
+            rows.extend(
+                row
+                for row in additional_rows
+                if str(row.get("job_id") or "") not in existing_job_ids
+            )
+        return summarize_job_metrics(
+            rows,
+            now=now,
+            days=days,
+            hours=hours,
+            interval_hours=interval_hours,
+        )
 
     def list_project_jobs(self, project_id: str) -> List[Dict[str, Any]]:
         """Return every persisted job whose payload or result references a project."""

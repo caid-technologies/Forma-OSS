@@ -166,6 +166,20 @@ def _display_name_from_clerk_user(user: Dict[str, Any]) -> Optional[str]:
     return _primary_email_local_part(user)
 
 
+def _github_username_from_clerk_user(user: Dict[str, Any]) -> Optional[str]:
+    external_accounts = user.get("external_accounts")
+    if not isinstance(external_accounts, list):
+        return None
+    for account in external_accounts:
+        if not isinstance(account, dict):
+            continue
+        provider = str(account.get("provider") or "").strip().lower()
+        username = account.get("username")
+        if provider in {"github", "oauth_github"} and isinstance(username, str) and username.strip():
+            return username.strip().lstrip("@") or None
+    return None
+
+
 @lru_cache(maxsize=512)
 def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
     normalized_user_id = str(user_id or "").strip()
@@ -196,6 +210,7 @@ def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
     return {
         "display_name": _display_name_from_clerk_user(payload),
         "email": _primary_email_address(payload),
+        "github_username": _github_username_from_clerk_user(payload),
         "image_url": image_url.strip() if isinstance(image_url, str) and image_url.strip().startswith(("http://", "https://")) else None,
     }
 

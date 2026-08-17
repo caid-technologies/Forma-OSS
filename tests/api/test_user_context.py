@@ -11,6 +11,7 @@ from starlette.requests import Request
 from apps.api.auth import (
     LOCAL_USER_ID,
     UserContext,
+    _github_username_from_clerk_user,
     optional_deployed_clerk_auth,
     optional_user_context,
     require_admin_user_context,
@@ -32,6 +33,21 @@ def request_with_authorization(value: str | None = None) -> Request:
 
 
 class UserContextTests(unittest.IsolatedAsyncioTestCase):
+    def test_extracts_github_username_from_clerk_external_account(self) -> None:
+        user = {
+            "external_accounts": [
+                {"provider": "oauth_google", "username": ""},
+                {"provider": "oauth_github", "username": "@octocat"},
+            ]
+        }
+
+        self.assertEqual("octocat", _github_username_from_clerk_user(user))
+
+    def test_ignores_non_github_external_username(self) -> None:
+        user = {"external_accounts": [{"provider": "oauth_google", "username": "google-user"}]}
+
+        self.assertIsNone(_github_username_from_clerk_user(user))
+
     async def test_local_mode_resolves_a_stable_authenticated_admin(self) -> None:
         request = request_with_authorization("Bearer ignored-in-local-mode")
 

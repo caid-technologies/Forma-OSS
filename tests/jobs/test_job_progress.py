@@ -46,6 +46,16 @@ class JobProgressTests(unittest.TestCase):
 
         self.assertEqual("job_frontend_abc-123", request.client_job_id)
 
+    def test_generate_request_accepts_named_stage_retry(self) -> None:
+        request = GenerateProjectRequest(
+            prompt="retry wiring",
+            project_id="11111111-1111-4111-8111-111111111111",
+            workflow="web_research",
+            retry_stage=" wiring_netlist ",
+        )
+
+        self.assertEqual("wiring_netlist", request.retry_stage)
+
     def test_cancelled_job_stays_cancelled_and_stops_progress(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".db") as file:
             store = JobMetadataStore(file.name, backend="sqlite")

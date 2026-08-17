@@ -364,6 +364,7 @@ def save_generated_project(
     chat_id: Optional[str] = None,
     owner_user_id: Optional[str] = None,
     visibility: Optional[str] = "public",
+    create_chat_record: bool = True,
 ) -> None:
     project_id = _canonical_project_id(project_id)
     source_project_id = (hardware_ir.get("assembly_metadata") or {}).get("source_project_id") if isinstance(hardware_ir, dict) else None
@@ -394,7 +395,7 @@ def save_generated_project(
         "status": "active",
     }
     chat_record = None
-    if normalized_chat_id and normalized_owner_user_id:
+    if create_chat_record and normalized_chat_id and normalized_owner_user_id:
         chat_record = {
             "chat_id": normalized_chat_id,
             "owner_user_id": normalized_owner_user_id,
@@ -407,9 +408,82 @@ def save_generated_project(
     invalidate_project_lists()
 
 
+def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> str:
+    """Project canonical state into the public gallery's generated-project store."""
+
+    project_id = _canonical_project_id(str(revision.project_id))
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id or normalized_owner_user_id != revision.owner_user_id:
+        raise ValueError("Project revision owner must match owner_user_id.")
+    if revision.project_id != brief.project_id or revision.design_brief_id != brief.design_brief_id:
+        raise ValueError("Project revision and DesignBrief identities must match.")
+
+    ir = revision.state.model_copy(deep=True)
+    ir.assembly_metadata = {
+        **(ir.assembly_metadata or {}),
+        "project_id": project_id,
+        "chat_id": brief.conversation_id,
+        "project_revision": revision.revision,
+        "design_brief_version": revision.design_brief_version,
+    }
+    hardware_ir = ir.model_dump(mode="json")
+    existing = get_generated_project(project_id, include_deleted=True)
+    if existing is not None:
+        if getattr(existing, "owner_user_id", None) != normalized_owner_user_id:
+            raise DesignBriefAccessError("Project is not owned by the revision owner.")
+        if getattr(existing, "status", "active") != "active":
+            raise RuntimeError("Cannot publish a deleted project revision.")
+        if not update_generated_project_hardware_ir(
+            project_id,
+            hardware_ir,
+            owner_user_id=normalized_owner_user_id,
+        ):
+            raise RuntimeError("Could not refresh the generated-project gallery projection.")
+        return project_id
+
+    save_generated_project(
+        project_id=project_id,
+        title=(ir.overview.title if ir.overview else brief.summary) or "Untitled Forma Project",
+        prompt=brief.summary,
+        hardware_ir=hardware_ir,
+        created_at=revision.created_at.isoformat().replace("+00:00", "Z"),
+        chat_id=brief.conversation_id,
+        owner_user_id=normalized_owner_user_id,
+        visibility="public",
+        # Context gathering already owns the chat and its messages. Publishing
+        # the gallery projection must not replace that thread with an empty one.
+        create_chat_record=False,
+    )
+    return project_id
+
+
 def list_generated_projects(owner_user_id: Optional[str] = None) -> List[Any]:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     return _DATABASE_REPOSITORY.list_generated_projects(normalized_owner_user_id)
+
+
+def list_generated_projects_page(
+    owner_user_id: Optional[str] = None,
+    *,
+    visibility: Optional[str] = None,
+    limit: int = 6,
+    offset: int = 0,
+    search: Optional[str] = None,
+) -> tuple[List[Any], int]:
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    normalized_visibility = str(visibility or "").strip().lower() or None
+    if normalized_visibility not in {None, "public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    normalized_limit = max(1, min(int(limit), 50))
+    normalized_offset = max(0, int(offset))
+    normalized_search = " ".join(str(search or "").split())[:100] or None
+    return _DATABASE_REPOSITORY.list_generated_projects_page(
+        normalized_owner_user_id,
+        visibility=normalized_visibility,
+        limit=normalized_limit,
+        offset=normalized_offset,
+        search=normalized_search,
+    )
 
 
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
@@ -701,6 +775,31 @@ def get_latest_project_revision(project_id: str, owner_user_id: str) -> ProjectR
     return ProjectStateService(_DATABASE_REPOSITORY).get_latest(project_id, owner_user_id)
 
 
+def list_latest_project_revisions(owner_user_id: str) -> List[ProjectRevision]:
+    """List each owned project's latest immutable canonical revision."""
+
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    revisions: List[ProjectRevision] = []
+    for record in _DATABASE_REPOSITORY.list_latest_project_revisions(owner):
+        payload = getattr(record, "payload_json", None)
+        if not isinstance(payload, dict):
+            logger.warning(
+                "Skipping project revision with invalid payload while listing owner projects: project_id=%s",
+                getattr(record, "project_id", "unknown"),
+            )
+            continue
+        try:
+            revisions.append(ProjectRevision.model_validate(payload))
+        except Exception:
+            logger.exception(
+                "Skipping invalid canonical project revision while listing owner projects: project_id=%s",
+                getattr(record, "project_id", "unknown"),
+            )
+    return revisions
+
+
 def append_project_revision(
     project_id: str,
     owner_user_id: str,
@@ -722,12 +821,14 @@ def append_project_revision(
         parent.design_brief_version,
     )
     draft = build_generation_draft(brief, HardwareIR.model_validate(state))
-    return service.create_revision(
+    revision = service.create_revision(
         draft,
         project_id=project_id,
         owner_user_id=owner_user_id,
         source_job_id=source_job_id,
     ).revision
+    invalidate_project_lists()
+    return revision
 
 
 def create_project_generation_plan(
@@ -797,6 +898,104 @@ def get_project_generation_plan(plan_id: str, owner_user_id: str):
     return orchestrator.get_plan(plan_id, owner)
 
 
+def list_project_generation_jobs(
+    *,
+    status: Optional[str] = None,
+    limit: int = 200,
+) -> List[Dict[str, Any]]:
+    """Project durable generation-plan tasks in the admin job record shape."""
+
+    from forma_core.workers import OrchestrationTaskStatus, WorkerExecutionPlan
+
+    normalized_status = str(status or "").strip().lower()
+    records = _DATABASE_REPOSITORY.list_worker_execution_plans(limit=limit)
+    jobs: List[Dict[str, Any]] = []
+    for record in records:
+        state = getattr(record, "state_json", None)
+        if not isinstance(state, dict):
+            logger.warning("Skipping worker execution plan with invalid state_json.")
+            continue
+        try:
+            plan = WorkerExecutionPlan.model_validate(state)
+        except Exception:
+            logger.exception("Skipping invalid worker execution plan while listing admin jobs.")
+            continue
+
+        for job_id, task in plan.jobs.items():
+            job_status = task.status.value
+            if task.status == OrchestrationTaskStatus.BLOCKED:
+                job_status = "failed"
+            if normalized_status and normalized_status != "all" and normalized_status != job_status:
+                continue
+
+            brief = task.request.payload.get("design_brief")
+            brief = brief if isinstance(brief, dict) else {}
+            progress_events = [
+                event
+                for progress in task.progress
+                for event in [progress.metadata.get("pipeline_event")]
+                if isinstance(event, dict)
+            ]
+            error = task.error.message if task.error is not None else None
+            completed_at = task.completed_at or (task.result.completed_at if task.result else None)
+            result_output = task.result.output if task.result is not None else {}
+            project_revision = result_output.get("project_revision")
+            project_revision = project_revision if isinstance(project_revision, dict) else {}
+            project_state = project_revision.get("state")
+            project_state = project_state if isinstance(project_state, dict) else {}
+            assembly_metadata = project_state.get("assembly_metadata")
+            assembly_metadata = assembly_metadata if isinstance(assembly_metadata, dict) else {}
+            image_status = assembly_metadata.get("image_output_status")
+            image_error = assembly_metadata.get("image_output_error") or assembly_metadata.get("product_image_error")
+            jobs.append(
+                {
+                    "job_id": job_id,
+                    "message_id": plan.plan_id,
+                    "correlation_id": plan.correlation_id,
+                    "action": "forma.generate_project",
+                    "sender": "conversation",
+                    "recipient": task.request.worker_id,
+                    "status": job_status,
+                    "server_owned": True,
+                    "created_at": plan.created_at.isoformat(),
+                    "updated_at": plan.updated_at.isoformat(),
+                    "started_at": task.started_at.isoformat() if task.started_at else None,
+                    "completed_at": completed_at.isoformat() if completed_at else None,
+                    "payload": {
+                        "owner_user_id": plan.owner_user_id,
+                        "project_id": plan.project_id,
+                        "prompt": brief.get("intent") or brief.get("summary"),
+                        "design_brief_id": str(task.request.design_brief_id),
+                        "design_brief_version": task.request.design_brief_version,
+                    },
+                    "result_summary": {
+                        "project_id": plan.project_id,
+                        "title": brief.get("summary") or brief.get("intent"),
+                        "workflow": "default",
+                        "image_output_status": image_status,
+                        "image_output_failed": bool(
+                            assembly_metadata.get("image_output_failed") or image_status == "failed"
+                        ),
+                        "image_output_error": image_error,
+                        "image_output_error_type": assembly_metadata.get("image_output_error_type"),
+                        "image_output_reason": assembly_metadata.get("image_output_reason"),
+                        "image_output_debug": assembly_metadata.get("image_output_debug"),
+                        "image_output_provider": assembly_metadata.get("image_output_provider"),
+                        "image_output_model": assembly_metadata.get("image_output_model"),
+                        "operation_statuses": assembly_metadata.get("operation_statuses") or [],
+                        "operation_summary": assembly_metadata.get("operation_summary"),
+                    },
+                    "source_usage": {"workflow": "default", "source_labels": ["Conversation"]},
+                    "progress_events": progress_events,
+                    "error": error,
+                    "error_debug": task.error.model_dump(mode="json") if task.error is not None else None,
+                }
+            )
+            if len(jobs) >= limit:
+                return jobs
+    return jobs
+
+
 async def execute_project_generation_plan(
     plan_id: str,
     owner_user_id: str,
@@ -813,6 +1012,7 @@ async def execute_project_generation_plan(
     worker = GenerationWorker(
         ProjectStateService(_DATABASE_REPOSITORY),
         HardwareIRGenerationEngine(provider_name=provider_name, model_name=model_name),
+        project_publisher=publish_project_revision,
     )
     orchestrator = WorkerOrchestrator(
         _DATABASE_REPOSITORY,
@@ -820,7 +1020,9 @@ async def execute_project_generation_plan(
         workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
         cancellation_check=cancellation_check,
     )
-    return await orchestrator.execute(plan_id, owner)
+    plan = await orchestrator.execute(plan_id, owner)
+    invalidate_project_lists()
+    return plan
 
 
 async def cancel_project_generation_plan(plan_id: str, owner_user_id: str):
@@ -835,6 +1037,20 @@ async def cancel_project_generation_plan(plan_id: str, owner_user_id: str):
         workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
     )
     return await orchestrator.cancel(plan_id, owner)
+
+
+async def reset_project_generation_plan(plan_id: str, owner_user_id: str):
+    """Reset failed generation work while preserving the frozen project brief."""
+
+    from forma_core.workers import GenerationWorker, WorkerOrchestrator
+
+    owner = _normalize_user_id(owner_user_id)
+    orchestrator = WorkerOrchestrator(
+        _DATABASE_REPOSITORY,
+        [GenerationWorker(ProjectStateService(_DATABASE_REPOSITORY))],
+        workflow_service=ProjectWorkflowService(_DATABASE_REPOSITORY),
+    )
+    return await orchestrator.reset(plan_id, owner)
 
 
 def list_project_workflow_transitions(

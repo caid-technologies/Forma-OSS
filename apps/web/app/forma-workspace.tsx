@@ -9,8 +9,9 @@ import {
   type GenerationLlmOption,
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
+import { normalizeContextSuggestions } from "../lib/context-suggestions";
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
-import { calculateProjectCostMetrics } from "../lib/project-cost-metrics";
+import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
   humanContextSkipChatSummary,
@@ -46,8 +47,10 @@ import {
   statusTone,
 } from "./forma-workspace/admin-panels";
 import HomeChatView from "./forma-workspace/home-chat-view";
+import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import {
   ProjectGallery,
+  PROJECT_GALLERY_PAGE_SIZE,
   buildProjectGalleryItems,
   previewableImageSrc,
   resolveProjectImageCandidates,
@@ -179,6 +182,7 @@ type ChatMessage = {
   contextProjectId?: string | null;
   workflowState?: string | null;
   contextQuestions?: string[];
+  contextSuggestions?: string[];
   buildPlanId?: string | null;
   buildJobId?: string | null;
 };
@@ -446,6 +450,7 @@ function normalizeChatMessage(value: any): ChatMessage | null {
     contextQuestions: (Array.isArray(value.contextQuestions) ? value.contextQuestions : value.questions)
       ?.filter((question: unknown): question is string => typeof question === "string" && Boolean(question.trim()))
       .map((question: string) => question.trim()) || [],
+    contextSuggestions: normalizeContextSuggestions(value.contextSuggestions ?? value.suggestions),
     buildPlanId: typeof value.buildPlanId === "string"
       ? value.buildPlanId
       : typeof value.build_plan_id === "string"
@@ -1129,8 +1134,17 @@ function messagesWithoutMissingProject(messages: ChatMessage[], projectId: strin
   return [...normalizedMessages, noticeMessage].slice(-MAX_PROJECT_CHAT_MESSAGES);
 }
 
-function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestion[] {
+function humanContextQuestionsForPrompt(promptText: string, hasImage = false): HumanContextQuestion[] {
   const lower = promptText.toLowerCase();
+  const physicalFormQuestion: HumanContextQuestion = {
+    id: "physical_form",
+    label: "Shape / Form Factor",
+    question: "What overall shape, silhouette, or form factor should the system have?",
+    placeholder: hasImage
+      ? "Example: preserve the reference silhouette, but make it handheld with a curved grip..."
+      : "Example: curved handheld pod, cylindrical wearable, folded frame, or exposed open assembly...",
+    suggestions: ["Curved handheld", "Cylindrical / radial", "Open frame"],
+  };
   if (/(lab[-\s]?on[-\s]?a[-\s]?chip|microfluid|assay|cartridge|diagnostic|reagent|sample)/.test(lower)) {
     return [
       {
@@ -1140,19 +1154,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
         placeholder: "Example: water sample, colorimetric nitrate assay, 3 reagent chambers...",
         suggestions: ["Water quality", "Colorimetric assay", "Fluorescence readout"],
       },
+      physicalFormQuestion,
       {
         id: "instrumentation",
         label: "Reader / Detection",
         question: "What detection and control method should the reader use?",
         placeholder: "Example: LED + photodiode absorbance, heater, pressure sensor, peristaltic pump...",
         suggestions: ["Optical absorbance", "Fluorescence", "Pressure-driven flow"],
-      },
-      {
-        id: "validation",
-        label: "Validation",
-        question: "What needs to be validated first?",
-        placeholder: "Example: leak test, limit of detection, repeatability, contamination control...",
-        suggestions: ["Leak testing", "Repeatability", "Research-only prototype"],
       },
     ];
   }
@@ -1166,19 +1174,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
         placeholder: "Example: camping rain/wind, sandy soil, one-person field setup, 35 mph gust target...",
         suggestions: ["Rain and wind", "Field work", "Portable camping"],
       },
+      physicalFormQuestion,
       {
         id: "motion_power",
         label: "Motion / Power",
         question: "How should deployment be powered and limited for safety?",
         placeholder: "Example: 12V battery, low-force servos, clutch release, manual crank fallback...",
         suggestions: ["12V battery", "Low-force actuators", "Manual release"],
-      },
-      {
-        id: "success",
-        label: "Success Criteria",
-        question: "What makes version one successful?",
-        placeholder: "Example: deploys in under 2 minutes, self-tensions guy lines, never pinches fabric or fingers...",
-        suggestions: ["Fast deployment", "Self-tensioning", "Emergency release"],
       },
     ];
   }
@@ -1192,19 +1194,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
         placeholder: "Example: ESP32-S3, SSD1306 OLED, SHT41, 5V relay module...",
         suggestions: ["ESP32", "Arduino", "Use generated choice"],
       },
+      physicalFormQuestion,
       {
         id: "power",
         label: "Power",
         question: "What power rails, battery, or adapter constraints matter?",
         placeholder: "Example: USB-C 5V only, 3S LiPo, no mains, separate motor rail...",
         suggestions: ["USB-C 5V", "Battery powered", "No mains"],
-      },
-      {
-        id: "outputs",
-        label: "Outputs",
-        question: "What should the system control or display?",
-        placeholder: "Example: fan PWM, warning LED, buzzer, OLED status, pump relay...",
-        suggestions: ["Display status", "Drive actuator", "Log sensor data"],
       },
     ];
   }
@@ -1217,19 +1213,13 @@ function humanContextQuestionsForPrompt(promptText: string): HumanContextQuestio
       placeholder: "Example: bench prototype, outdoor field tool, wearable, classroom demo...",
       suggestions: ["Bench prototype", "Field tool", "Consumer device"],
     },
+    physicalFormQuestion,
     {
       id: "constraints",
       label: "Constraints",
       question: "What hard constraints should the design preserve?",
       placeholder: "Example: USB-C only, under $100, waterproof, no enclosure, safe low voltage...",
       suggestions: ["Low voltage", "Low cost", "Weatherproof"],
-    },
-    {
-      id: "outputs",
-      label: "Artifacts",
-      question: "What should Forma optimize in the first version?",
-      placeholder: "Example: wiring accuracy, mechanical concept, product images, validation, BOM...",
-      suggestions: ["Wiring accuracy", "Mechanical design", "Product images"],
     },
   ];
 }
@@ -1281,7 +1271,7 @@ async function requestHumanContextQuestions(promptText: string, workflow: string
   } catch (error) {
     if (signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
     console.warn("Context Clarifier Agent unavailable; using local fallback questions.", error);
-    const questions = humanContextQuestionsForPrompt(promptText);
+    const questions = humanContextQuestionsForPrompt(promptText, hasImage);
     return {
       shouldAsk: questions.length > 0,
       reason: "Context Clarifier Agent is using local fallback questions.",
@@ -1445,7 +1435,7 @@ const workspaceTabs = [
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
   { id: "assembly", label: "DOCS", icon: Info },
-  { id: "video", label: "VIDEO", icon: Film },
+  { id: "video", label: "MEDIA", icon: Film },
 ];
 
 const workspaceTabNamespaces: Record<string, string> = {
@@ -1615,7 +1605,9 @@ export function FormaWorkspace({
   const contextProjectIdsRef = useRef<Record<string, string>>({});
   const contextBuildWatchersRef = useRef<Set<string>>(new Set());
   const [contextWorkflowStates, setContextWorkflowStates] = useState<Record<string, string>>({});
-  const [contextSkipping, setContextSkipping] = useState(false);
+  const [contextBuildStarting, setContextBuildStarting] = useState(false);
+  const [resettingBuildMessageId, setResettingBuildMessageId] = useState<string | null>(null);
+  const [contextSubmitting, setContextSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -1624,8 +1616,14 @@ export function FormaWorkspace({
   const [projectIR, setProjectIR] = useState<any>(null);
   const [projectHistory, setProjectHistory] = useState<any[]>([]);
   const [myProjectHistory, setMyProjectHistory] = useState<any[]>([]);
+  const [projectHistoryPage, setProjectHistoryPage] = useState(0);
+  const [myProjectHistoryPage, setMyProjectHistoryPage] = useState(0);
+  const [projectHistoryTotal, setProjectHistoryTotal] = useState(0);
+  const [myProjectHistoryTotal, setMyProjectHistoryTotal] = useState(0);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
   const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
+  const [projectSearchInput, setProjectSearchInput] = useState("");
+  const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
   const [privateChatItems, setPrivateChatItems] = useState<ChatListItem[]>([]);
   const [privateChatsLoaded, setPrivateChatsLoaded] = useState(false);
@@ -1694,9 +1692,9 @@ export function FormaWorkspace({
   const fileInputRefSidebar = useRef<HTMLInputElement>(null);
   const fileInputRefCenter = useRef<HTMLInputElement>(null);
   const projectsSectionRef = useRef<HTMLElement>(null);
-  const chatEndRef = useRef<HTMLDivElement>(null);
-  const projectChatEndRef = useRef<HTMLDivElement>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
+  const projectHistoryRequestIdRef = useRef(0);
+  const myProjectHistoryRequestIdRef = useRef(0);
   const generationLlmRequestIdRef = useRef(0);
   const pipelineStepsRequestIdRef = useRef(0);
   const pipelineStepsAbortRef = useRef<AbortController | null>(null);
@@ -1728,36 +1726,34 @@ export function FormaWorkspace({
   );
   const myProjectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
-      mergeProjectRecords(myProjectHistory, projectRecordsFromChatItems(chatListItems)),
+      myProjectHistory,
       projectGalleryImages,
       formaDevMode,
     ).map((item) => ({
       ...item,
       canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
     })),
-    [authRequired, formaDevMode, chatListItems, isSignedIn, myProjectHistory, projectGalleryImages]
+    [authRequired, formaDevMode, isSignedIn, myProjectHistory, projectGalleryImages]
   );
   const chatHistoryLoaded = myProjectHistoryLoaded && privateChatsLoaded;
   const projectsPageLoading = !projectHistoryLoaded;
   const myProjectsPageLoading = (authRequired && !authLoaded)
-    || !myProjectHistoryLoaded
-    || !privateChatsLoaded
-    || !chatIndexLoaded;
+    || !myProjectHistoryLoaded;
   const handleVisibleProjectGalleryIdsChange = useCallback((projectIds: string[]) => {
     setVisibleProjectGalleryIds((current) => (
       sameStringList(current, projectIds) ? current : projectIds
     ));
   }, []);
-  const chatMessageScrollKey = useMemo(
-    () => `${activeChatId || ""}:${chatMessageIdentityKey(chatMessages)}`,
-    [activeChatId, chatMessages]
-  );
-  const projectChatMessageScrollKey = useMemo(() => {
-    if (currentRouteProjectId) return "project-detail";
-    const chatId = projectIR ? (chatIdFromIR(projectIR) || projectIdFromIR(projectIR) || activeChatId) : activeChatId;
-    const messages = chatId ? chatThreads[chatId] || [] : [];
-    return `${chatId || ""}:${chatMessageIdentityKey(messages)}`;
-  }, [activeChatId, chatThreads, currentRouteProjectId, projectIR]);
+  const handleProjectHistoryPageChange = useCallback((page: number) => {
+    setProjectHistoryLoaded(false);
+    setVisibleProjectGalleryIds([]);
+    setProjectHistoryPage(page);
+  }, []);
+  const handleMyProjectHistoryPageChange = useCallback((page: number) => {
+    setMyProjectHistoryLoaded(false);
+    setVisibleProjectGalleryIds([]);
+    setMyProjectHistoryPage(page);
+  }, []);
   const inlineChatProjectId = useMemo(() => {
     const activeThread = activeChatId ? chatThreads[activeChatId] || [] : [];
     const messages = activeThread.length ? activeThread : chatMessages;
@@ -1811,6 +1807,12 @@ export function FormaWorkspace({
       projectId: message.projectId,
       pipelineProgress: message.pipelineProgress || null,
       imagePreview: message.imagePreview || null,
+      contextProjectId: message.contextProjectId || null,
+      workflowState: message.workflowState || null,
+      contextQuestions: message.contextQuestions || [],
+      contextSuggestions: message.contextSuggestions || [],
+      buildPlanId: message.buildPlanId || null,
+      buildJobId: message.buildJobId || null,
       timestamp: chatTimestamp(),
     };
     setChatMessages((current) => [...current, nextMessage]);
@@ -1859,6 +1861,12 @@ export function FormaWorkspace({
       projectId: message.projectId,
       pipelineProgress: message.pipelineProgress || null,
       imagePreview: message.imagePreview || null,
+      contextProjectId: message.contextProjectId || null,
+      workflowState: message.workflowState || null,
+      contextQuestions: message.contextQuestions || [],
+      contextSuggestions: message.contextSuggestions || [],
+      buildPlanId: message.buildPlanId || null,
+      buildJobId: message.buildJobId || null,
       timestamp: chatTimestamp(),
     };
     setChatThreads((current) => {
@@ -2127,6 +2135,10 @@ export function FormaWorkspace({
   const logsViewActive = canViewAdminTools && (homeView === "logs" || Boolean(projectIR && activeTab === "logs"));
   const {
     jobs: a2aJobs,
+    metrics: jobMetrics,
+    metricsError: jobMetricsError,
+    metricsWindow: jobMetricsWindow,
+    setMetricsWindow: setJobMetricsWindow,
     loading: jobsLoading,
     error: jobsError,
     statusFilter: jobStatusFilter,
@@ -2189,6 +2201,14 @@ export function FormaWorkspace({
     )) || null,
     [chatMessages],
   );
+  const retryableContextBuildMessage = useMemo(() => {
+    const latestBuildMessage = [...chatMessages].reverse().find((message) => (
+      Boolean(message.buildPlanId)
+      && Boolean(message.buildJobId)
+      && Boolean(message.contextProjectId)
+    ));
+    return latestBuildMessage?.status === "error" ? latestBuildMessage : null;
+  }, [chatMessages]);
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
@@ -2252,6 +2272,7 @@ export function FormaWorkspace({
     setChatRouteTransition(null);
     setProjectIR(null);
     setActiveTab("overview");
+    return nextChatId;
   };
 
   const goHome = () => {
@@ -2266,9 +2287,9 @@ export function FormaWorkspace({
   };
 
   const startNewProjectChat = () => {
-    if (!currentProjectChatHasStarted()) return;
-    resetToNewProjectChat();
-    router.push("/");
+    if (homeView === "chat" && !currentRouteProjectId && !currentProjectChatHasStarted()) return;
+    const nextChatId = resetToNewProjectChat();
+    router.push(chatRoute(nextChatId));
   };
 
   const openChatItem = (item: ChatListItem) => {
@@ -2347,17 +2368,29 @@ export function FormaWorkspace({
 
   useEffect(() => {
     if (homeView !== "projects") return;
-    void fetchProjectHistory();
+    void fetchProjectHistory(projectHistoryPage, projectSearchQuery);
     // Public gallery data becomes critical only when its route is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeView]);
+  }, [homeView, projectHistoryPage, projectSearchQuery]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQuery = projectSearchInput.trim();
+      if (nextQuery === projectSearchQuery) return;
+      setProjectHistoryLoaded(false);
+      setVisibleProjectGalleryIds([]);
+      setProjectHistoryPage(0);
+      setProjectSearchQuery(nextQuery);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [projectSearchInput, projectSearchQuery]);
 
   useDeferredTask(() => {
-    if (!projectHistoryLoaded) void fetchProjectHistory();
+    if (!projectHistoryLoaded) void fetchProjectHistory(projectHistoryPage, projectSearchQuery);
   }, {
     delayMs: 1200,
     enabled: homeView !== "projects" && !projectHistoryLoaded,
-    taskKey: homeView,
+    taskKey: `${homeView}:${projectHistoryPage}:${projectSearchQuery}`,
     timeoutMs: 1800,
   });
 
@@ -2393,16 +2426,23 @@ export function FormaWorkspace({
 
   useEffect(() => {
     if (authRequired && !authLoaded) {
-      setMyProjectHistoryLoaded(false);
       setPrivateChatsLoaded(false);
       return;
     }
-    setMyProjectHistoryLoaded(false);
+    setMyProjectHistoryPage(0);
     setPrivateChatsLoaded(false);
-    void fetchMyProjectHistory();
     void fetchPrivateChats();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authIdentityKey, authLoaded, authRequired, isSignedIn]);
+
+  useEffect(() => {
+    if (authRequired && !authLoaded) {
+      setMyProjectHistoryLoaded(false);
+      return;
+    }
+    void fetchMyProjectHistory(myProjectHistoryPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authIdentityKey, authLoaded, authRequired, isSignedIn, myProjectHistoryPage]);
 
   useDeferredTask(() => {
     void fetchAgentPipelineSteps(generationWorkflow);
@@ -2438,14 +2478,6 @@ export function FormaWorkspace({
       window.clearInterval(intervalId);
     };
   }, [isLoading]);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [chatMessageScrollKey]);
-
-  useEffect(() => {
-    projectChatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [projectChatMessageScrollKey]);
 
   const checkServerStatus = async () => {
     try {
@@ -2550,17 +2582,32 @@ export function FormaWorkspace({
   };
 
 
-  const fetchProjectHistory = async () => {
+  const fetchProjectHistory = async (
+    page: number = projectHistoryPage,
+    search: string = projectSearchQuery,
+  ) => {
+    const requestId = projectHistoryRequestIdRef.current + 1;
+    projectHistoryRequestIdRef.current = requestId;
+    setProjectHistoryLoaded(false);
     try {
-      const res = await fetch(`${API_URL}/projects`, {
+      const params = new URLSearchParams({
+        limit: String(PROJECT_GALLERY_PAGE_SIZE),
+        offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
+      });
+      const normalizedSearch = search.trim();
+      if (normalizedSearch) params.set("q", normalizedSearch);
+      const res = await fetch(`${API_URL}/projects?${params.toString()}`, {
         headers: await optionalAuthHeaders(),
       });
+      if (projectHistoryRequestIdRef.current !== requestId) return;
       if (res.ok) {
-        const projects = await res.json();
-        setProjectHistory(projects);
+        const result = normalizeProjectListPage(await res.json());
+        if (projectHistoryRequestIdRef.current !== requestId) return;
+        setProjectHistory(result.items);
+        setProjectHistoryTotal(result.total);
         if (!authRequired) {
           setLocalChatItems((current) => {
-            const repairedItems = buildChatListItems(projects, current);
+            const repairedItems = buildChatListItems(result.items, current);
             writeStoredChatIndex(repairedItems, chatStorageScope);
             return repairedItems;
           });
@@ -2569,36 +2616,49 @@ export function FormaWorkspace({
     } catch (e) {
       console.error("Error fetching project history", e);
     } finally {
-      setProjectHistoryLoaded(true);
+      if (projectHistoryRequestIdRef.current === requestId) setProjectHistoryLoaded(true);
     }
   };
 
-  const fetchMyProjectHistory = async () => {
+  const fetchMyProjectHistory = async (page: number = myProjectHistoryPage) => {
+    const requestId = myProjectHistoryRequestIdRef.current + 1;
+    myProjectHistoryRequestIdRef.current = requestId;
     if (authRequired && !authLoaded) {
       setMyProjectHistoryLoaded(false);
       return;
     }
     if (authRequired && !isSignedIn) {
       setMyProjectHistory([]);
+      setMyProjectHistoryTotal(0);
       setMyProjectHistoryLoaded(true);
       return;
     }
 
+    setMyProjectHistoryLoaded(false);
     try {
-      const res = await fetch(`${API_URL}/my/projects`, {
+      const params = new URLSearchParams({
+        limit: String(PROJECT_GALLERY_PAGE_SIZE),
+        offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
+      });
+      const res = await fetch(`${API_URL}/my/projects?${params.toString()}`, {
         headers: await generationRequestHeaders(),
       });
+      if (myProjectHistoryRequestIdRef.current !== requestId) return;
       if (res.ok) {
-        setMyProjectHistory(await res.json());
+        const result = normalizeProjectListPage(await res.json());
+        if (myProjectHistoryRequestIdRef.current !== requestId) return;
+        setMyProjectHistory(result.items);
+        setMyProjectHistoryTotal(result.total);
       } else if (res.status === 401) {
         setMyProjectHistory([]);
+        setMyProjectHistoryTotal(0);
       } else {
         throw new Error(await readApiErrorMessage(res));
       }
     } catch (e) {
       console.error("Error fetching my project history", e);
     } finally {
-      setMyProjectHistoryLoaded(true);
+      if (myProjectHistoryRequestIdRef.current === requestId) setMyProjectHistoryLoaded(true);
     }
   };
 
@@ -2967,22 +3027,30 @@ export function FormaWorkspace({
     planId: string,
     run?: ActiveGenerationRun,
   ) => {
-    try {
-      const response = await fetch(
-        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/execute`,
-        {
-          method: "POST",
-          headers: await generationRequestHeaders(),
-          signal: run?.controller.signal,
-        },
-      );
-      if (!response.ok) throw new Error(await readApiErrorMessage(response));
-    } catch (error) {
-      if (run?.cancelled || run?.controller.signal.aborted) return;
-      console.warn("The build execution request ended before the plan reached a terminal state.", error);
-      setGenerationInputNotice(
-        error instanceof Error ? error.message : "The build execution request ended unexpectedly.",
-      );
+    for (let attempt = 1; attempt <= 4; attempt += 1) {
+      try {
+        const response = await fetch(
+          `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/execute`,
+          {
+            method: "POST",
+            headers: await generationRequestHeaders(),
+            signal: run?.controller.signal,
+          },
+        );
+        if (!response.ok) throw new Error(await readApiErrorMessage(response));
+        return;
+      } catch (error) {
+        if (run?.cancelled || run?.controller.signal.aborted) return;
+        console.warn("The build execution request ended before the plan reached a terminal state.", error);
+        if (attempt === 4) {
+          setGenerationInputNotice(
+            error instanceof Error ? error.message : "The build execution request ended unexpectedly.",
+          );
+          return;
+        }
+        setGenerationInputNotice("Build connection interrupted. Resuming from the latest saved stage…");
+        await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      }
     }
   };
 
@@ -3071,9 +3139,9 @@ export function FormaWorkspace({
           );
           const progressJob: A2AJob = {
             job_id: jobId,
-            action: "blueprint.generate_project",
+            action: "forma.generate_project",
             sender: "worker-orchestrator",
-            recipient: "blueprint",
+            recipient: "forma",
             status: "running",
             started_at: typeof task?.started_at === "string" ? task.started_at : null,
             progress_events: progressEvents,
@@ -3144,6 +3212,41 @@ export function FormaWorkspace({
           if (run) finishGenerationRun(run);
           return;
         }
+        if (planStatus === "partial") {
+          try {
+            const projectResponse = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+              headers: await optionalAuthHeaders(),
+            });
+            if (projectResponse.ok) {
+              const projectData = await projectResponse.json();
+              setProjectIR(withProjectResponseMetadata(projectData.project_ir, projectData));
+            }
+          } catch (error) {
+            console.warn("Could not load the preserved partial project.", error);
+          }
+          const failedStage = task?.result?.metadata?.generation_retry?.retry_stage;
+          const partialMessage = typeof failedStage === "string" && failedStage
+            ? `The ${failedStage.replaceAll("_", " ")} stage failed. Earlier and independent work was preserved.`
+            : "One build stage failed. Earlier and independent work was preserved.";
+          updateChatMessage(assistantMessageId, {
+            content: partialMessage,
+            status: "error",
+            pipelineProgress: synchronizedProgress,
+            projectId,
+            workflowState: "awaiting_feedback",
+          });
+          updateThreadMessage(chatId, assistantMessageId, {
+            content: partialMessage,
+            status: "error",
+            pipelineProgress: synchronizedProgress,
+            projectId,
+            workflowState: "awaiting_feedback",
+          });
+          setGenerationInputNotice("Partial design saved. Retry will resume from the failed stage.");
+          contextBuildWatchersRef.current.delete(watcherKey);
+          if (run) finishGenerationRun(run);
+          return;
+        }
         if (planStatus === "failed") {
           const failureMessage = typeof task?.error?.message === "string"
             ? task.error.message
@@ -3170,6 +3273,65 @@ export function FormaWorkspace({
       if (attempts < 600) window.setTimeout(poll, 2000);
     };
     window.setTimeout(poll, 750);
+  };
+
+  const resetFailedContextBuild = async (message: ChatMessage) => {
+    const projectId = message.contextProjectId;
+    const planId = message.buildPlanId;
+    const jobId = message.buildJobId;
+    const chatId = activeChatId;
+    if (!projectId || !planId || !jobId || !chatId || activeGenerationRef.current) return;
+
+    setResettingBuildMessageId(message.id);
+    setGenerationInputNotice(null);
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(projectId)}/build/plans/${encodeURIComponent(planId)}/reset`,
+        { method: "POST", headers: await generationRequestHeaders() },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+
+      const resetPlan = await response.json();
+      const resetJobId = typeof resetPlan?.jobs?.[jobId]?.request?.job_id === "string"
+        ? resetPlan.jobs[jobId].request.job_id
+        : jobId;
+      const previousProgress = message.pipelineProgress;
+      const resetTask = resetPlan?.jobs?.[jobId];
+      const resetEvents = pipelineEventsFromWorkerTask(resetTask);
+      const seedProgress = createAgentPipelineProgress(
+        previousProgress?.steps || defaultAgentPipelineSteps,
+        progressIncludesImageStep(previousProgress),
+        chatTimestamp(),
+        resetJobId,
+      );
+      const progress = resetEvents.length
+        ? progressFromJobEvents({
+            job_id: resetJobId,
+            action: "forma.generate_project",
+            sender: "worker-orchestrator",
+            recipient: "forma",
+            status: "running",
+            progress_events: resetEvents,
+          }, seedProgress, false)
+        : seedProgress;
+      const patch: Partial<Omit<ChatMessage, "id">> = {
+        content: "Trying the design build again with the preserved project brief.",
+        status: "loading",
+        pipelineProgress: progress,
+        workflowState: "building",
+      };
+      updateChatMessage(message.id, patch);
+      updateThreadMessage(chatId, message.id, patch);
+      setContextWorkflowStates((current) => ({ ...current, [chatId]: "building" }));
+      setGenerationInputNotice("Job reset. The build agents are trying again.");
+
+      const run = beginContextBuildRun(projectId, planId, resetJobId, chatId, message.id);
+      watchContextBuild(projectId, planId, resetJobId, chatId, message.id, run);
+    } catch (error) {
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not reset the failed job.");
+    } finally {
+      setResettingBuildMessageId(null);
+    }
   };
 
   useEffect(() => {
@@ -3210,12 +3372,12 @@ export function FormaWorkspace({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeChatId, chatMessageIdentityKey(chatMessages)]);
 
-  const handleGatherContext = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (isLoading || activeGenerationRef.current) return;
+  const submitGatherContext = async (answer?: string) => {
+    if (contextSubmitting || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
 
-    const validation = validateGenerationInput(prompt, Boolean(selectedImage));
+    const submittedPrompt = answer ?? prompt;
+    const validation = validateGenerationInput(submittedPrompt, Boolean(selectedImage));
     if (!validation.isValid) {
       setGenerationInputNotice(validation.message);
       return;
@@ -3228,7 +3390,7 @@ export function FormaWorkspace({
         : newBuildChatId()
     );
     contextProjectIdsRef.current[requestChatId] = requestProjectId;
-    const text = prompt.trim();
+    const text = submittedPrompt.trim();
     const imageData = selectedImage;
     const userMessageId = newChatMessageId();
     const assistantMessageId = newChatMessageId();
@@ -3251,8 +3413,7 @@ export function FormaWorkspace({
     setSelectedImage(null);
     setSelectedImageSource("upload");
     setGenerationInputNotice(null);
-    setIsLoading(true);
-    let contextBuildStarted = false;
+    setContextSubmitting(true);
 
     try {
       const res = await fetch(`${API_URL}/projects/${encodeURIComponent(requestProjectId)}/context/messages`, {
@@ -3307,6 +3468,7 @@ export function FormaWorkspace({
         contextProjectId: persistedProjectId || null,
         workflowState: workflowState || null,
         contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        contextSuggestions: normalizeContextSuggestions(data?.suggestions),
         buildPlanId: buildPlanId || null,
         buildJobId: buildJobId || null,
       });
@@ -3317,6 +3479,7 @@ export function FormaWorkspace({
         contextProjectId: persistedProjectId || null,
         workflowState: workflowState || null,
         contextQuestions: Array.isArray(data?.questions) ? data.questions : [],
+        contextSuggestions: normalizeContextSuggestions(data?.suggestions),
         buildPlanId: buildPlanId || null,
         buildJobId: buildJobId || null,
       });
@@ -3330,7 +3493,6 @@ export function FormaWorkspace({
             : null,
       );
       if (buildPlanId && buildJobId && persistedProjectId) {
-        contextBuildStarted = true;
         const run = beginContextBuildRun(
           persistedProjectId,
           buildPlanId,
@@ -3353,12 +3515,17 @@ export function FormaWorkspace({
       updateThreadMessage(requestChatId, assistantMessageId, { content: message, status: "error" });
       setGenerationInputNotice(message);
     } finally {
-      if (!contextBuildStarted) setIsLoading(false);
+      setContextSubmitting(false);
     }
   };
 
-  const handleSkipContextGathering = async () => {
-    if (contextSkipping || isLoading) return;
+  const handleGatherContext = (event: React.FormEvent) => {
+    event.preventDefault();
+    void submitGatherContext();
+  };
+
+  const handleBuildNow = async () => {
+    if (contextBuildStarting || contextSubmitting || activeGenerationRef.current) return;
     const requestChatId = activeChatId;
     const availableMessages = requestChatId
       ? chatThreads[requestChatId] || chatMessages
@@ -3370,13 +3537,12 @@ export function FormaWorkspace({
       ? contextProjectIdsRef.current[requestChatId] || persistedContextMessage?.contextProjectId || ""
       : "";
     if (!requestChatId || !projectId) {
-      setGenerationInputNotice("Save the initial project context before skipping this stage.");
+      setGenerationInputNotice("Share the initial project context before starting the build.");
       return;
     }
 
-    setContextSkipping(true);
+    setContextBuildStarting(true);
     setGenerationInputNotice(null);
-    let contextBuildStarted = false;
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/context/messages`, {
         method: "POST",
@@ -3428,15 +3594,13 @@ export function FormaWorkspace({
         buildIsActive ? "Build started. Live agent progress is shown above." : "Design ready for review.",
       );
       if (buildPlanId && buildJobId) {
-        contextBuildStarted = true;
         const run = beginContextBuildRun(projectId, buildPlanId, buildJobId, requestChatId, message.id);
         watchContextBuild(projectId, buildPlanId, buildJobId, requestChatId, message.id, run);
       }
     } catch (error) {
-      setGenerationInputNotice(error instanceof Error ? error.message : "Could not skip context gathering.");
+      setGenerationInputNotice(error instanceof Error ? error.message : "Could not start the build.");
     } finally {
-      setContextSkipping(false);
-      if (!contextBuildStarted) setIsLoading(false);
+      setContextBuildStarting(false);
     }
   };
 
@@ -4342,7 +4506,12 @@ export function FormaWorkspace({
   };
 
   const metrics = calculateProjectCostMetrics(projectIR);
-  const components = projectIR?.components || [];
+  const components = useMemo(() => resolveProjectComponentInstances(projectIR), [projectIR]);
+  const bomLineItems = projectIR?.bom?.length ? projectIR.bom : components;
+  const schematicProject = useMemo(
+    () => projectIR ? { ...projectIR, components } : projectIR,
+    [components, projectIR]
+  );
   const assembly = projectIR?.assembly || [];
   const constraints = projectIR?.constraints || [];
   const imageFeatures = projectIR?.assembly_metadata?.image_features?.length
@@ -4421,6 +4590,7 @@ export function FormaWorkspace({
     activeSidebarChatItem?.projectId ||
     activeSidebarChatItem?.projectCount
   );
+  const newChatDisabled = homeView === "chat" && !routedProjectId && !activeSidebarChatStarted;
   const waitingChatIds = useMemo(() => {
     const ids = new Set<string>();
     Object.entries(chatThreads).forEach(([chatId, messages]) => {
@@ -4460,7 +4630,7 @@ export function FormaWorkspace({
       case "bom":
         return (
           <BomPanel
-            components={components}
+            components={bomLineItems}
             metrics={metrics}
             cadSources={(projectIR?.mechanical && Array.isArray(projectIR.mechanical.cad_sources)) ? projectIR.mechanical.cad_sources : []}
             fabricationCost={Number(projectIR?.mechanical?.fabrication_cost_estimate_usd || 0)}
@@ -4481,7 +4651,7 @@ export function FormaWorkspace({
           />
         );
       case "schematic":
-        return <SchematicCanvas project={projectIR} />;
+        return <SchematicCanvas project={schematicProject} />;
       case "assembly":
         return (
           <AssemblyPanel
@@ -4589,7 +4759,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4608,7 +4778,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4643,7 +4813,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={null}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4662,7 +4832,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={null}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4699,7 +4869,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4718,7 +4888,7 @@ export function FormaWorkspace({
             chats={chatListItems}
             activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
-            newChatDisabled={!activeSidebarChatStarted}
+            newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
@@ -4751,6 +4921,11 @@ export function FormaWorkspace({
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
+                totalItems={projectHistoryTotal}
+                currentPage={projectHistoryPage}
+                onPageChange={handleProjectHistoryPageChange}
+                searchValue={projectSearchInput}
+                onSearchValueChange={setProjectSearchInput}
                 standalone
               />
             </>
@@ -4769,6 +4944,9 @@ export function FormaWorkspace({
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
+                totalItems={myProjectHistoryTotal}
+                currentPage={myProjectHistoryPage}
+                onPageChange={handleMyProjectHistoryPageChange}
                 standalone
               />
             </>
@@ -4782,6 +4960,10 @@ export function FormaWorkspace({
               {canViewJobs ? (
                 <JobsPanel
                   jobs={a2aJobs}
+                  metrics={jobMetrics}
+                  metricsError={jobMetricsError}
+                  metricsWindow={jobMetricsWindow}
+                  onMetricsWindowChange={setJobMetricsWindow}
                   loading={jobsLoading}
                   error={jobsError}
                   statusFilter={jobStatusFilter}
@@ -4798,7 +4980,7 @@ export function FormaWorkspace({
                 />
               ) : (
                 <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
-                  {adminSessionLoaded ? "Admin access is required to view deployment jobs." : "Checking admin access..."}
+                  {adminSessionLoaded ? "Admin access is required to view jobs." : "Checking admin access..."}
                 </div>
               )}
             </>
@@ -4827,8 +5009,8 @@ export function FormaWorkspace({
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
+              conversationKey={activeChatId || "new-chat"}
               messages={chatMessages}
-              endRef={chatEndRef}
               renderPipelineProgress={(message) => (
                 <AgentPipelineProgressView
                   progress={message.pipelineProgress as AgentPipelineProgress | null}
@@ -4839,6 +5021,17 @@ export function FormaWorkspace({
                       ? () => stopContextBuildMessage(message as ChatMessage)
                       : undefined
                   }
+                  onReset={
+                    message.status === "error"
+                    && message.buildPlanId
+                    && message.buildJobId
+                    && message.contextProjectId
+                    && !activeGeneration
+                    && !pendingContextBuildMessage
+                      ? () => void resetFailedContextBuild(message as ChatMessage)
+                      : undefined
+                  }
+                  resetting={resettingBuildMessageId === message.id}
                 />
               )}
               projectArtifact={
@@ -4863,7 +5056,7 @@ export function FormaWorkspace({
                 setPrompt(example);
               }}
               onSubmit={handleGatherContext}
-              canSkipContext={(() => {
+              canBuildNow={(() => {
                 const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
                 const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
                 const state = contextWorkflowStates[activeChatId]
@@ -4871,9 +5064,12 @@ export function FormaWorkspace({
                   || (contextMessage?.contextProjectId ? "gathering_context" : "");
                 return state === "gathering_context";
               })()}
-              contextSkipping={contextSkipping}
-              onSkipContext={handleSkipContextGathering}
-              isLoading={isLoading}
+              buildNowLoading={contextBuildStarting}
+              onBuildNow={handleBuildNow}
+              onSelectContextSuggestion={(suggestion) => {
+                void submitGatherContext(suggestion);
+              }}
+              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage || resettingBuildMessageId)}
               generationReady
               needsGenerationProvider={false}
               needsImageProvider={false}
@@ -4889,6 +5085,11 @@ export function FormaWorkspace({
               onStop={() => {
                 if (activeGenerationRef.current) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
+              }}
+              canRetryFailedBuild={Boolean(retryableContextBuildMessage)}
+              retryingFailedBuild={resettingBuildMessageId === retryableContextBuildMessage?.id}
+              onRetryFailedBuild={() => {
+                if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
               }}
               hasGenerationInput={hasGenerationInput}
               inputValid={generationInputValidation.isValid}
@@ -4926,7 +5127,7 @@ export function FormaWorkspace({
           chats={chatListItems}
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
-          newChatDisabled={!activeSidebarChatStarted}
+          newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
@@ -4945,7 +5146,7 @@ export function FormaWorkspace({
           chats={chatListItems}
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
-          newChatDisabled={!activeSidebarChatStarted}
+          newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
@@ -4999,7 +5200,6 @@ export function FormaWorkspace({
                 canStop={activeGeneration?.kind === "project-chat"}
                 onStop={stopActiveGeneration}
                 canChat={currentUserOwnsProject}
-                endRef={projectChatEndRef}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
                 activeNamespaceLabel={activeWorkspaceTab.label}
@@ -5193,6 +5393,16 @@ function normalizePrivateChatItems(value: any): ChatListItem[] {
       };
     })
     .filter((item: ChatListItem | null): item is ChatListItem => Boolean(item));
+}
+
+function normalizeProjectListPage(value: any): { items: any[]; total: number } {
+  if (Array.isArray(value)) return { items: value, total: value.length };
+  const items = Array.isArray(value?.items) ? value.items : [];
+  const parsedTotal = Number(value?.total);
+  return {
+    items,
+    total: Number.isFinite(parsedTotal) ? Math.max(items.length, Math.trunc(parsedTotal)) : items.length,
+  };
 }
 
 function mergeChatListItems(primary: ChatListItem[], secondary: ChatListItem[]): ChatListItem[] {
@@ -6302,7 +6512,6 @@ function ChatWorkspace({
   canStop,
   onStop,
   canChat,
-  endRef,
   namespaceTabs,
   activeNamespace,
   activeNamespaceLabel,
@@ -6322,7 +6531,6 @@ function ChatWorkspace({
   canStop: boolean;
   onStop: () => void;
   canChat: boolean;
-  endRef: React.RefObject<HTMLDivElement | null>;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceLabel: string;
@@ -6330,6 +6538,8 @@ function ChatWorkspace({
   onNamespaceChange: (value: string) => void;
   projectContent: React.ReactNode;
 }) {
+  const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
+
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
       <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
@@ -6351,7 +6561,11 @@ function ChatWorkspace({
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {canChat && (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6">
+            <div
+              ref={containerRef}
+              onScroll={handleScroll}
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6"
+            >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
                 {messages.length ? (
                   messages.map((message) => {
@@ -6397,7 +6611,6 @@ function ChatWorkspace({
                     This chat has no project messages yet.
                   </div>
                 )}
-
                 <div ref={endRef} />
                 <ChatProjectArtifact
                   projectId={projectId}
@@ -6656,11 +6869,15 @@ function AgentPipelineProgressView({
   status,
   compact = false,
   onStop,
+  onReset,
+  resetting = false,
 }: {
   progress?: AgentPipelineProgress | null;
   status?: ChatMessage["status"];
   compact?: boolean;
   onStop?: () => void;
+  onReset?: () => void;
+  resetting?: boolean;
 }) {
   if (!progress) return null;
 
@@ -6737,6 +6954,19 @@ function AgentPipelineProgressView({
             >
               <Square className="h-3 w-3 fill-current" />
               Stop
+            </button>
+          )}
+          {isError && onReset && (
+            <button
+              type="button"
+              onClick={onReset}
+              disabled={resetting}
+              className="inline-flex h-7 items-center gap-1 border border-cyan-300/40 px-2 text-[10px] font-black uppercase text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:opacity-60"
+              aria-label="Reset failed generation job"
+              title="Reset failed generation job and try again"
+            >
+              <RefreshCw className={`h-3 w-3 ${resetting ? "animate-spin" : ""}`} />
+              {resetting ? "Resetting" : "Reset job"}
             </button>
           )}
           <div className="text-right">

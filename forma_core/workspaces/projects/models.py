@@ -1,5 +1,5 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import List, Optional, Dict, Any, Iterable, Mapping
 import re
 
 # ==========================================
@@ -23,6 +23,24 @@ class ComponentTemplate(BaseModel):
     pins: List[PinDefinition] = Field(default_factory=list, description="List of physical pins on the component")
     use_cases: List[str] = Field(default_factory=list, description="Common use cases or keywords")
 
+
+class PartDefinition(BaseModel):
+    """Source-agnostic identity and shared physical data for one selected part."""
+
+    part_definition_id: str = Field(..., description="Stable project-local ID referenced by component instances and BOM rows")
+    manufacturer: Optional[str] = Field(None, description="Part manufacturer when known")
+    part_number: str = Field(..., description="Manufacturer or generic part number")
+    name: str = Field(..., description="Human-readable part name")
+    category: str = Field(..., description="Electrical or mechanical part category")
+    description: str = Field("", description="Source-agnostic description of the selected part")
+    electrical_specs: Dict[str, Any] = Field(default_factory=dict, description="Shared electrical limits and ratings")
+    pins: List[PinDefinition] = Field(default_factory=list, description="Shared physical pin definitions")
+    dimensions_mm: Dict[str, float] = Field(default_factory=dict, description="Known physical dimensions in millimeters")
+    datasheet_url: Optional[str] = Field(None, description="Datasheet URL when known")
+    sourcing_url: Optional[str] = Field(None, description="Selected sourcing URL when known")
+    sourcing_offers: List[Dict[str, Any]] = Field(default_factory=list, description="Optional alternate sourcing offers")
+    unit_price: float = Field(0.0, ge=0.0, description="Selected estimated unit price in USD")
+
 # ==========================================
 # 2. Project-Level Hardware IR (Shared State)
 # ==========================================
@@ -43,15 +61,80 @@ class FunctionalRequirements(BaseModel):
     missing_info: List[str] = Field(default_factory=list, description="Clarifying questions or unknown requirements")
 
 class ComponentInstance(BaseModel):
+    """One independently addressable physical occurrence in a project.
+
+    The excluded identity fields keep Python callers and legacy records readable
+    during the 0.1 -> 0.2 transition. New serialized IR stores those values once
+    in ``part_definitions`` and emits only the definition reference here.
+    """
+
     ref_des: str = Field(..., description="Reference designator, e.g., 'U1', 'R1', 'SEN1'")
-    part_number: str = Field(..., description="Matching part number from the template database")
-    name: str = Field(..., description="Display name of this instance")
-    category: str = Field(..., description="Category of the component")
-    quantity: int = Field(1, description="Quantity required")
-    unit_price: float = Field(0.0, description="Estimated unit price in USD")
-    sourcing_url: Optional[str] = Field(None, description="Sourcing URL")
+    part_definition_id: Optional[str] = Field(None, description="ID of the shared PartDefinition")
     rationale: str = Field(..., description="Why this component was selected for this project")
-    pins: List[PinDefinition] = Field(default_factory=list, description="Full pinout of the instantiated component")
+    configuration: Dict[str, Any] = Field(default_factory=dict, description="Instance-specific configuration only")
+
+    # Transitional runtime fields. They are deliberately excluded from serialized
+    # Hardware IR; HardwareIR hydrates them from the referenced PartDefinition.
+    part_number: str = Field("", exclude=True, repr=False)
+    name: str = Field("", exclude=True, repr=False)
+    category: str = Field("", exclude=True, repr=False)
+    unit_price: float = Field(0.0, exclude=True, repr=False)
+    sourcing_url: Optional[str] = Field(None, exclude=True, repr=False)
+    pins: List[PinDefinition] = Field(default_factory=list, exclude=True, repr=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_quantity(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping) or "quantity" not in value:
+            return value
+        payload = dict(value)
+        try:
+            quantity = max(1, int(payload.pop("quantity") or 1))
+        except (TypeError, ValueError):
+            quantity = 1
+        configuration = dict(payload.get("configuration") or {})
+        if quantity > 1:
+            configuration["_legacy_aggregate_quantity"] = quantity
+        payload["configuration"] = configuration
+        return payload
+
+    @model_validator(mode="after")
+    def assign_part_definition_id(self) -> "ComponentInstance":
+        if not self.part_definition_id:
+            self.part_definition_id = _part_definition_id(self.part_number or self.name or self.ref_des)
+        return self
+
+    @property
+    def quantity(self) -> int:
+        """Every instance represents exactly one physical occurrence."""
+
+        return 1
+
+
+class BOMLineItem(BaseModel):
+    """Deterministic procurement aggregation over physical component instances."""
+
+    line_id: str = Field(..., description="Stable project-local BOM row ID")
+    part_definition_id: str = Field(..., description="Referenced shared part definition")
+    instance_refs: List[str] = Field(default_factory=list, description="Physical instances aggregated into this row")
+    quantity: int = Field(..., ge=1, description="Number of referenced physical instances")
+    manufacturer: Optional[str] = None
+    part_number: str
+    name: str
+    category: str
+    unit_price: float = Field(0.0, ge=0.0)
+    sourcing_url: Optional[str] = None
+    extended_price: float = Field(0.0, ge=0.0)
+    rationale: str = Field("", description="Combined project roles represented by this BOM row")
+
+    @model_validator(mode="after")
+    def quantity_matches_instances(self) -> "BOMLineItem":
+        if self.quantity != len(self.instance_refs):
+            raise ValueError(
+                f"BOM line '{self.line_id}' quantity {self.quantity} does not match "
+                f"its {len(self.instance_refs)} referenced component instances."
+            )
+        return self
 
 class PinReference(BaseModel):
     ref_des: str = Field(..., description="Component reference designator, e.g., 'U1'")
@@ -111,6 +194,13 @@ class MechanicalSpatialRelationship(BaseModel):
     notes: Optional[str] = Field(None, description="Additional placement or clearance rationale")
 
 class MechanicalNotes(BaseModel):
+    physical_form: str = Field(
+        "Unspecified",
+        description=(
+            "Overall product shape and silhouette, such as curved handheld, cylindrical, wearable, folded, "
+            "open-frame, or another explicitly requested form; do not assume a rectangular box"
+        ),
+    )
     enclosure_type: str = Field(..., description="Type of housing: 3D Printed, Off-the-shelf, Custom Acrylic, Waterproof, Acrylic laser cut")
     mounting_guidance: str = Field(..., description="Mounting and standoffs instructions")
     fabrication_details: List[str] = Field(default_factory=list, description="Enclosure dimensions, material recommendations, or printing instructions")
@@ -174,6 +264,8 @@ class SystemNode(BaseModel):
         items = value if isinstance(value, list) else [value]
         normalized: List[Any] = []
         for item in items:
+            if item is None:
+                continue
             if not isinstance(item, str):
                 normalized.append(item)
                 continue
@@ -196,6 +288,8 @@ class SystemNode(BaseModel):
         items = value if isinstance(value, list) else [value]
         normalized: List[Any] = []
         for item in items:
+            if item is None:
+                continue
             if not isinstance(item, str):
                 normalized.append(item)
                 continue
@@ -216,13 +310,176 @@ class SystemArchitecture(BaseModel):
     summary: str = Field(..., description="Concise explanation of the complete system decomposition")
     root: SystemNode = Field(..., description="Root of the hierarchical system tree")
 
+
+def _part_definition_id(value: str) -> str:
+    stem = re.sub(r"[^A-Z0-9]+", "_", str(value or "PART").upper()).strip("_") or "PART"
+    return f"PART_{stem}"
+
+
+def _instance_payload(value: ComponentInstance | Mapping[str, Any]) -> Dict[str, Any]:
+    if isinstance(value, ComponentInstance):
+        return {
+            "ref_des": value.ref_des,
+            "part_definition_id": value.part_definition_id,
+            "rationale": value.rationale,
+            "configuration": dict(value.configuration),
+            "part_number": value.part_number,
+            "name": value.name,
+            "category": value.category,
+            "unit_price": value.unit_price,
+            "sourcing_url": value.sourcing_url,
+            "pins": [pin.model_dump(mode="json") for pin in value.pins],
+        }
+    return dict(value)
+
+
+def _expanded_ref_des(base_ref: str, offset: int, used_refs: set[str]) -> str:
+    match = re.fullmatch(r"(.*?)(\d+)", base_ref.strip())
+    prefix = (match.group(1) if match else base_ref.strip()) or "X"
+    start = int(match.group(2)) if match else 1
+    candidate_index = start + offset
+    candidate = f"{prefix}{candidate_index}"
+    while candidate in used_refs:
+        candidate_index += 1
+        candidate = f"{prefix}{candidate_index}"
+    return candidate
+
+
+def expand_component_instances(
+    components: Iterable[ComponentInstance | Mapping[str, Any]],
+) -> List[ComponentInstance]:
+    """Expand legacy aggregate quantities into unique physical instances."""
+
+    expanded: List[ComponentInstance] = []
+    used_refs: set[str] = set()
+    for value in components:
+        payload = _instance_payload(value)
+        configuration = dict(payload.get("configuration") or {})
+        legacy_quantity = configuration.pop("_legacy_aggregate_quantity", None)
+        if legacy_quantity is None:
+            legacy_quantity = payload.pop("quantity", 1)
+        try:
+            quantity = max(1, int(legacy_quantity or 1))
+        except (TypeError, ValueError):
+            quantity = 1
+        payload["configuration"] = configuration
+        base_ref = str(payload.get("ref_des") or "X1").strip() or "X1"
+        for offset in range(quantity):
+            if offset == 0:
+                ref_des = base_ref
+            else:
+                ref_des = _expanded_ref_des(base_ref, offset, used_refs)
+            if ref_des in used_refs:
+                raise ValueError(f"Duplicate component reference designator '{ref_des}'.")
+            used_refs.add(ref_des)
+            expanded.append(ComponentInstance.model_validate({**payload, "ref_des": ref_des}))
+    return expanded
+
+
+def part_definition_from_instance(component: ComponentInstance) -> PartDefinition:
+    return PartDefinition(
+        part_definition_id=str(component.part_definition_id),
+        part_number=component.part_number or str(component.part_definition_id),
+        name=component.name or component.part_number or str(component.part_definition_id),
+        category=component.category or "Component",
+        pins=component.pins,
+        sourcing_url=component.sourcing_url,
+        unit_price=max(0.0, component.unit_price),
+    )
+
+
+def derive_part_definitions(
+    components: Iterable[ComponentInstance],
+    existing: Iterable[PartDefinition] = (),
+) -> List[PartDefinition]:
+    definitions = {item.part_definition_id: item for item in existing}
+    for component in components:
+        part_id = str(component.part_definition_id)
+        candidate = part_definition_from_instance(component)
+        current = definitions.get(part_id)
+        if current is None:
+            definitions[part_id] = candidate
+            continue
+        has_legacy_identity = bool(
+            component.part_number or component.name or component.category or component.pins
+        )
+        if not has_legacy_identity:
+            continue
+        if current.part_number != candidate.part_number:
+            raise ValueError(f"Part definition '{part_id}' is used for conflicting part numbers.")
+        if current.pins and candidate.pins and current.pins != candidate.pins:
+            raise ValueError(f"Part definition '{part_id}' has conflicting shared pin data.")
+    return list(definitions.values())
+
+
+def derive_bom_line_items(
+    part_definitions: Iterable[PartDefinition],
+    components: Iterable[ComponentInstance],
+) -> List[BOMLineItem]:
+    definitions = {item.part_definition_id: item for item in part_definitions}
+    grouped: Dict[str, List[ComponentInstance]] = {}
+    for component in components:
+        grouped.setdefault(str(component.part_definition_id), []).append(component)
+
+    rows: List[BOMLineItem] = []
+    for part_id, instances in grouped.items():
+        definition = definitions.get(part_id)
+        if definition is None:
+            raise ValueError(f"Component instance '{instances[0].ref_des}' references unknown part definition '{part_id}'.")
+        refs = [instance.ref_des for instance in instances]
+        rationales = list(dict.fromkeys(instance.rationale for instance in instances if instance.rationale.strip()))
+        quantity = len(refs)
+        rows.append(BOMLineItem(
+            line_id=f"BOM_{part_id}",
+            part_definition_id=part_id,
+            instance_refs=refs,
+            quantity=quantity,
+            manufacturer=definition.manufacturer,
+            part_number=definition.part_number,
+            name=definition.name,
+            category=definition.category,
+            unit_price=definition.unit_price,
+            sourcing_url=definition.sourcing_url,
+            extended_price=round(definition.unit_price * quantity, 2),
+            rationale="; ".join(rationales),
+        ))
+    return rows
+
+
+def component_instance_count(component: ComponentInstance) -> int:
+    """Return one for normalized instances or a pending legacy expansion count."""
+
+    try:
+        return max(1, int(component.configuration.get("_legacy_aggregate_quantity") or 1))
+    except (TypeError, ValueError):
+        return 1
+
+
+def component_detail_payload(component: ComponentInstance) -> Dict[str, Any]:
+    """Resolve the shared part fields needed by specialist-agent prompts."""
+
+    return {
+        "ref_des": component.ref_des,
+        "part_definition_id": component.part_definition_id,
+        "part_number": component.part_number,
+        "name": component.name,
+        "category": component.category,
+        "unit_price": component.unit_price,
+        "sourcing_url": component.sourcing_url,
+        "rationale": component.rationale,
+        "configuration": component.configuration,
+        "pins": [pin.model_dump(mode="json") for pin in component.pins],
+    }
+
 class HardwareIR(BaseModel):
     """The master typed document capturing the entire generated hardware design."""
-    hardware_ir_version: str = Field("0.1", description="Structured schema version")
+    hardware_ir_version: str = Field("0.2", description="Structured schema version")
     overview: Optional[ProjectOverview] = Field(None, description="Project overview metadata")
     requirements: Optional[FunctionalRequirements] = Field(None, description="Extracted constraints & requirements")
     system_architecture: Optional[SystemArchitecture] = Field(None, description="Hierarchical, purpose-driven decomposition of the complete product")
-    components: List[ComponentInstance] = Field(default_factory=list, description="Instantiated Bill of Materials")
+    part_definitions: List[PartDefinition] = Field(default_factory=list, description="Shared source-agnostic part definitions")
+    components: List[ComponentInstance] = Field(default_factory=list, description="Independently addressable physical component instances")
+    bom: List[BOMLineItem] = Field(default_factory=list, description="Deterministically aggregated procurement rows")
     nets: List[ConnectionNet] = Field(default_factory=list, description="Electrical netlist connections")
     buses: List[BusConnection] = Field(default_factory=list, description="Digital communication buses")
     pin_mappings: List[PinMappingEntry] = Field(default_factory=list, description="MCU functional pin map")
@@ -239,6 +496,112 @@ class HardwareIR(BaseModel):
     
     validation: ValidationSummary = Field(default_factory=ValidationSummary, description="Categorized safety and electrical checks")
     is_valid: bool = Field(True, description="True if project passes critical validation checks")
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_component_model(cls, value: Any) -> Any:
+        if not isinstance(value, Mapping):
+            return value
+        payload = dict(value)
+        components = expand_component_instances(payload.get("components") or [])
+        existing_definitions = [
+            item if isinstance(item, PartDefinition) else PartDefinition.model_validate(item)
+            for item in (payload.get("part_definitions") or [])
+        ]
+        definitions = derive_part_definitions(components, existing_definitions)
+        payload["hardware_ir_version"] = "0.2"
+        payload["components"] = components
+        payload["part_definitions"] = definitions
+        if not payload.get("bom"):
+            payload["bom"] = derive_bom_line_items(definitions, components)
+        return payload
+
+    @model_validator(mode="after")
+    def validate_component_model(self) -> "HardwareIR":
+        definitions = {item.part_definition_id: item for item in self.part_definitions}
+        component_refs: Dict[str, ComponentInstance] = {}
+        expected_bom_refs: Dict[str, List[str]] = {}
+        for component in self.components:
+            if component.ref_des in component_refs:
+                raise ValueError(f"Duplicate component reference designator '{component.ref_des}'.")
+            definition = definitions.get(str(component.part_definition_id))
+            if definition is None:
+                raise ValueError(
+                    f"Component instance '{component.ref_des}' references unknown part definition "
+                    f"'{component.part_definition_id}'."
+                )
+            component.part_number = definition.part_number
+            component.name = definition.name
+            component.category = definition.category
+            component.unit_price = definition.unit_price
+            component.sourcing_url = definition.sourcing_url
+            component.pins = list(definition.pins)
+            component_refs[component.ref_des] = component
+            expected_bom_refs.setdefault(str(component.part_definition_id), []).append(component.ref_des)
+
+        bom_refs: List[str] = []
+        bom_part_ids: set[str] = set()
+        bom_line_ids: set[str] = set()
+        for row in self.bom:
+            if row.line_id in bom_line_ids:
+                raise ValueError(f"Duplicate BOM line ID '{row.line_id}'.")
+            if row.part_definition_id in bom_part_ids:
+                raise ValueError(
+                    f"Part definition '{row.part_definition_id}' must aggregate into exactly one BOM line."
+                )
+            bom_line_ids.add(row.line_id)
+            bom_part_ids.add(row.part_definition_id)
+            definition = definitions.get(row.part_definition_id)
+            if definition is None:
+                raise ValueError(f"BOM line '{row.line_id}' references unknown part definition '{row.part_definition_id}'.")
+            if sorted(row.instance_refs) != sorted(expected_bom_refs.get(row.part_definition_id, [])):
+                raise ValueError(
+                    f"BOM line '{row.line_id}' must contain every physical instance of its part definition."
+                )
+            if (
+                row.part_number != definition.part_number
+                or row.name != definition.name
+                or row.category != definition.category
+                or row.manufacturer != definition.manufacturer
+                or round(row.unit_price, 2) != round(definition.unit_price, 2)
+                or row.sourcing_url != definition.sourcing_url
+            ):
+                raise ValueError(f"BOM line '{row.line_id}' does not match its shared part definition.")
+            for ref_des in row.instance_refs:
+                component = component_refs.get(ref_des)
+                if component is None:
+                    raise ValueError(f"BOM line '{row.line_id}' references unknown component instance '{ref_des}'.")
+                if component.part_definition_id != row.part_definition_id:
+                    raise ValueError(
+                        f"BOM line '{row.line_id}' includes instance '{ref_des}' from a different part definition."
+                    )
+                bom_refs.append(ref_des)
+            expected_extended = round(row.unit_price * row.quantity, 2)
+            if round(row.extended_price, 2) != expected_extended:
+                raise ValueError(f"BOM line '{row.line_id}' extended price is not deterministic.")
+        if sorted(bom_refs) != sorted(component_refs):
+            raise ValueError("Every component instance must appear exactly once in the BOM.")
+
+        for net in self.nets:
+            for pin_ref in net.pins:
+                component = component_refs.get(pin_ref.ref_des)
+                if component is None:
+                    raise ValueError(
+                        f"Net '{net.net_id}' references unknown component instance '{pin_ref.ref_des}'."
+                    )
+                valid_pins = {pin.pin_id for pin in component.pins}
+                if valid_pins and pin_ref.pin_id not in valid_pins:
+                    raise ValueError(
+                        f"Net '{net.net_id}' references unknown pin '{pin_ref.pin_id}' on instance '{pin_ref.ref_des}'."
+                    )
+
+        if self.mechanical:
+            for placement in self.mechanical.component_placements:
+                if placement.ref_des not in component_refs:
+                    raise ValueError(
+                        f"Mechanical placement references unknown component instance '{placement.ref_des}'."
+                    )
+        return self
 
 
 class Project(BaseModel):
@@ -261,6 +624,10 @@ class GenerateProjectRequest(BaseModel):
     project_id: Optional[str] = Field(
         None,
         description="Optional context project id whose workflow authorizes this generation.",
+    )
+    retry_stage: Optional[str] = Field(
+        None,
+        description="Retry one failed generation stage using persisted upstream artifacts.",
     )
     workflow: str = Field(
         "default",
@@ -309,7 +676,7 @@ class GenerateProjectRequest(BaseModel):
         description="Maximum number of relevant completed jobs to include when data_sources contains past_jobs.",
     )
 
-    @field_validator("provider", "model", "project_id", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
+    @field_validator("provider", "model", "project_id", "retry_stage", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod
     def strip_optional_generation_selector(cls, value: Any) -> Any:
         if isinstance(value, str):

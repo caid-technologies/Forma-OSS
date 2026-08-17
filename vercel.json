@@ -12,17 +12,17 @@
                 "apps.api.main:app": {
                     "includeFiles": "forma_core/**",
                     "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
-                    "maxDuration": 300
+                    "maxDuration": 1800
                 },
                 "apps/api/main.py": {
                     "includeFiles": "forma_core/**",
                     "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
-                    "maxDuration": 300
+                    "maxDuration": 1800
                 },
                 "main.py": {
                     "includeFiles": "forma_core/**",
                     "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
-                    "maxDuration": 300
+                    "maxDuration": 1800
                 }
             }
         }

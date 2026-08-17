@@ -1,7 +1,8 @@
 """Redis-backed cache for project gallery response payloads.
 
-The cache is deliberately optional. Deployments without ``REDIS_URL`` use the
-database exactly as before, and Redis errors never fail project reads or writes.
+The cache is deliberately optional in development. It supports either a Redis
+connection URL or Upstash's HTTP API, and Redis errors never fail project reads
+or writes.
 """
 
 from __future__ import annotations
@@ -9,11 +10,12 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from forma_core.config import config
 import threading
 import time
 from typing import Any, Optional
+from urllib import request
 
+from forma_core.config import config
 from forma_core.config.runtime import forma_dev_mode_enabled
 
 
@@ -25,9 +27,46 @@ _FAILURE_COOLDOWN_SECONDS = 30.0
 _VERSION_KEY_SUFFIX = "version"
 
 _client: Any = None
-_client_url: Optional[str] = None
+_client_identity: Optional[tuple[str, ...]] = None
 _client_lock = threading.Lock()
 _disabled_until = 0.0
+
+
+class _UpstashRedisRestClient:
+    """Minimal Redis command client for Upstash's REST endpoint."""
+
+    def __init__(self, url: str, token: str, timeout: float) -> None:
+        self._url = url.rstrip("/")
+        self._token = token
+        self._timeout = timeout
+
+    def _command(self, *parts: str) -> Any:
+        body = json.dumps(list(parts), separators=(",", ":")).encode("utf-8")
+        redis_request = request.Request(
+            self._url,
+            data=body,
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        with request.urlopen(redis_request, timeout=self._timeout) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        if not isinstance(payload, dict):
+            raise RuntimeError("Upstash Redis returned an invalid response")
+        if payload.get("error"):
+            raise RuntimeError(f"Upstash Redis command failed: {payload['error']}")
+        return payload.get("result")
+
+    def get(self, key: str) -> Any:
+        return self._command("GET", key)
+
+    def set(self, key: str, value: str, *, ex: int) -> Any:
+        return self._command("SET", key, value, "EX", str(ex))
+
+    def incr(self, key: str) -> Any:
+        return self._command("INCR", key)
 
 
 def require_project_list_cache_config() -> None:
@@ -35,18 +74,18 @@ def require_project_list_cache_config() -> None:
     if forma_dev_mode_enabled():
         return
 
-    missing = [
-        name
-        for name in ("REDIS_URL", "REDIS_CACHE_PREFIX")
-        if not config.get(name, "").strip()
-    ]
-    if not missing:
+    redis_url = config.get("REDIS_URL", "").strip()
+    upstash_url = config.get("UPSTASH_REDIS_REST_URL", "").strip()
+    upstash_token = config.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
+    cache_prefix = config.get("REDIS_CACHE_PREFIX", "").strip()
+    if cache_prefix and (redis_url or (upstash_url and upstash_token)):
         return
 
-    names = ", ".join(missing)
     message = (
         "FORMA_DEV_MODE=false requires Redis project caching. "
-        f"Set the following server-only environment variables: {names}."
+        "Set REDIS_CACHE_PREFIX and either REDIS_URL or both "
+        "UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN as server-only "
+        "environment variables."
     )
     logger.critical(message)
     raise RuntimeError(message)
@@ -75,29 +114,42 @@ def _version_key() -> str:
 
 def _get_redis_client() -> Any:
     """Return a lazy Redis client without importing redis for uncached installs."""
-    global _client, _client_url
+    global _client, _client_identity
 
     redis_url = config.get("REDIS_URL", "").strip()
-    if not redis_url:
+    upstash_url = config.get("UPSTASH_REDIS_REST_URL", "").strip()
+    upstash_token = config.get("UPSTASH_REDIS_REST_TOKEN", "").strip()
+    if redis_url:
+        identity = ("redis", redis_url)
+    elif upstash_url and upstash_token:
+        identity = ("upstash", upstash_url, upstash_token)
+    else:
         return None
-    if _client is not None and _client_url == redis_url:
+    if _client is not None and _client_identity == identity:
         return _client
 
     with _client_lock:
-        if _client is not None and _client_url == redis_url:
+        if _client is not None and _client_identity == identity:
             return _client
-        try:
-            import redis
-        except ImportError:
-            logger.warning("REDIS_URL is configured but the redis package is not installed; project caching is disabled.")
-            return None
-
         timeout = _bounded_float(
             "REDIS_SOCKET_TIMEOUT_SECONDS",
             _DEFAULT_SOCKET_TIMEOUT_SECONDS,
             0.05,
             5.0,
         )
+        if identity[0] == "upstash":
+            _client = _UpstashRedisRestClient(upstash_url, upstash_token, timeout)
+            _client_identity = identity
+            return _client
+        try:
+            import redis
+        except ImportError:
+            logger.warning(
+                "REDIS_URL is configured but the redis package is not installed; "
+                "project caching is disabled."
+            )
+            return None
+
         _client = redis.Redis.from_url(
             redis_url,
             decode_responses=True,
@@ -105,7 +157,7 @@ def _get_redis_client() -> Any:
             socket_timeout=timeout,
             health_check_interval=30,
         )
-        _client_url = redis_url
+        _client_identity = identity
         return _client
 
 

@@ -42,9 +42,19 @@ from forma_core.workspaces.projects.models import (
     ProjectOverview,
     SystemArchitecture,
     ValidationIssue,
+    component_detail_payload,
+    component_instance_count,
+    expand_component_instances,
 )
 from forma_core.observability import serialize_for_langfuse, start_observation, update_observation
-from forma_core.agents.pipeline import PipelineCancelledError, agent_pipeline_step, emit_agent_pipeline_event, ensure_agent_pipeline_active
+from forma_core.agents.pipeline import (
+    GenerationStageRun,
+    GenerationStageSpec,
+    PipelineCancelledError,
+    agent_pipeline_step,
+    emit_agent_pipeline_event,
+    ensure_agent_pipeline_active,
+)
 from forma_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_mode_enabled,
@@ -90,6 +100,29 @@ class CompletenessAudit(BaseModel):
     possible_risks: List[str] = Field(default_factory=list)
     recommended_next_checks: List[str] = Field(default_factory=list)
     summary: str = ""
+
+
+class ValidationStageOutput(BaseModel):
+    nets: List[ConnectionNet]
+    pin_mappings: List[PinMappingEntry]
+    issues: List[ValidationIssue]
+    is_valid: bool
+
+
+WEB_GENERATION_STAGE_SPECS = [
+    GenerationStageSpec(stage_id="external_research"),
+    GenerationStageSpec(stage_id="web_architect", dependencies=["external_research"]),
+    GenerationStageSpec(stage_id="web_component_sourcing", dependencies=["web_architect"]),
+    GenerationStageSpec(stage_id="wiring_netlist", dependencies=["web_component_sourcing"]),
+    GenerationStageSpec(stage_id="validation_repair", dependencies=["wiring_netlist"]),
+    GenerationStageSpec(stage_id="mechanical_fabrication", dependencies=["web_component_sourcing"]),
+    GenerationStageSpec(stage_id="assembly", dependencies=["wiring_netlist", "mechanical_fabrication"]),
+    GenerationStageSpec(
+        stage_id="completeness_audit",
+        dependencies=["validation_repair", "mechanical_fabrication", "assembly"],
+    ),
+    GenerationStageSpec(stage_id="package_project"),
+]
 
 
 class WebResearchHardwarePipeline:
@@ -281,6 +314,13 @@ class WebResearchHardwarePipeline:
             "has_human_context": "HUMAN-IN-THE-LOOP CONTEXT:" in user_prompt,
         }):
             pass
+        if self._active_generation_metadata.get("legacy_atomic_generation") is not True:
+            return self._generate_staged_project(
+                user_prompt,
+                image_bytes=image_bytes,
+                image_mime_type=image_mime_type,
+                model_validation=model_validation,
+            )
         logger.info("Starting Web Research Pipeline Execution...")
         logger.info("Invoking External Source Research Agent...")
         # Past-job context belongs in the architecture prompts, not in external
@@ -301,8 +341,8 @@ class WebResearchHardwarePipeline:
         logger.info("Invoking Web Component Sourcing Agent...")
         with agent_pipeline_step(self.workflow_id, "web_component_sourcing"):
             selection = self._select_components(user_prompt, plan, research_context)
-            components = selection.components
-            components_json = json.dumps([component.model_dump() for component in components], indent=2)
+            components = expand_component_instances(selection.components)
+            components_json = json.dumps([component_detail_payload(component) for component in components], indent=2)
 
         logger.info("Invoking Wiring/Netlist Agent...")
         with agent_pipeline_step(self.workflow_id, "wiring_netlist"):
@@ -322,7 +362,10 @@ class WebResearchHardwarePipeline:
                 validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
 
-        total_cost = sum(component.unit_price * component.quantity for component in components)
+        total_cost = sum(
+            component.unit_price * component_instance_count(component)
+            for component in components
+        )
         plan.overview.estimated_cost = round(total_cost, 2)
 
         logger.info("Invoking Mechanical/Fabrication Agent...")
@@ -402,6 +445,278 @@ class WebResearchHardwarePipeline:
             project_ir = build_mechanical_render_data(project_ir)
             self._save_project_to_db(user_prompt, project_ir)
         return project_ir
+
+    def _generate_staged_project(
+        self,
+        user_prompt: str,
+        *,
+        image_bytes: Optional[bytes],
+        image_mime_type: Optional[str],
+        model_validation: LLMProviderValidation,
+    ) -> HardwareIR:
+        """Run artifact-producing stages independently and checkpoint each result."""
+
+        metadata = self._active_generation_metadata
+        metadata["project_id"] = canonical_project_uuid(metadata.get("project_id"))
+        prior_run = metadata.get("prior_generation_run")
+        prior_run = prior_run if isinstance(prior_run, dict) else {}
+
+        def persist_stage_run(stage_run: GenerationStageRun, _record: Any = None) -> None:
+            snapshot = self._project_ir_from_stage_run(
+                stage_run,
+                user_prompt=user_prompt,
+                model_validation=model_validation,
+            )
+            if not self._save_project_to_db(user_prompt, snapshot):
+                raise RuntimeError("Generation stage checkpoint could not be persisted.")
+
+        stage_run = GenerationStageRun(
+            self.workflow_id,
+            WEB_GENERATION_STAGE_SPECS,
+            run_id=prior_run.get("generation_run_id") or metadata.get("frontend_job_id"),
+            prior_records=prior_run.get("records") if isinstance(prior_run.get("records"), dict) else None,
+            retry_stage=metadata.get("retry_stage"),
+            replay_retry=bool(metadata.get("retry_stage_replay")),
+            persist=persist_stage_run,
+        )
+        # The project and generation run become durable before the first costly call.
+        stage_run.checkpoint()
+
+        research_prompt = str(metadata.get("project_prompt") or user_prompt)
+        research_queries = self._research_queries(research_prompt)
+        research = stage_run.run(
+            "external_research",
+            lambda: self._research(research_queries),
+            schema=ExternalSourceLibrary,
+        )
+        research_context = research.as_prompt_context() if research is not None else ""
+
+        plan = stage_run.run(
+            "web_architect",
+            lambda: self._plan_project(
+                user_prompt,
+                research_context,
+                image_bytes,
+                image_mime_type,
+            ),
+            schema=WebProjectPlan,
+        )
+        selection = stage_run.run(
+            "web_component_sourcing",
+            lambda: self._select_components(user_prompt, plan, research_context),
+            schema=WebComponentSelection,
+        )
+        components = expand_component_instances(selection.components) if selection is not None else []
+        components_json = json.dumps(
+            [component_detail_payload(component) for component in components],
+            indent=2,
+        )
+        wiring = stage_run.run(
+            "wiring_netlist",
+            lambda: self._wire_project(user_prompt, plan, components_json),
+            schema=WiringWrapper,
+        )
+
+        def validate_and_repair() -> ValidationStageOutput:
+            nets = list(wiring.nets)
+            pin_mappings = list(wiring.pin_mappings)
+            issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
+            is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
+            if not is_valid:
+                corrected = self._repair_wiring(plan, components_json, nets, issues)
+                nets = corrected.nets
+                pin_mappings = corrected.pin_mappings
+                issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
+                is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
+            return ValidationStageOutput(
+                nets=nets,
+                pin_mappings=pin_mappings,
+                issues=issues,
+                is_valid=is_valid,
+            )
+
+        validation = stage_run.run(
+            "validation_repair",
+            validate_and_repair,
+            schema=ValidationStageOutput,
+        )
+        mechanical = stage_run.run(
+            "mechanical_fabrication",
+            lambda: self._generate_mechanical(plan, components_json, research_context),
+            schema=MechanicalNotes,
+        )
+        assembly_wrapper = stage_run.run(
+            "assembly",
+            lambda: AssemblyWrapper(steps=self._generate_assembly(
+                plan,
+                components_json,
+                list(validation.nets if validation is not None else wiring.nets),
+                mechanical,
+            )),
+            schema=AssemblyWrapper,
+        )
+        assembly = assembly_wrapper.steps if assembly_wrapper is not None else []
+        validation_issues = validation.issues if validation is not None else []
+        stage_run.run(
+            "completeness_audit",
+            lambda: self._audit_output(
+                plan,
+                components,
+                list(validation.nets),
+                mechanical,
+                assembly,
+                validation_issues,
+            ),
+            schema=CompletenessAudit,
+        )
+        stage_run.run(
+            "package_project",
+            lambda: {
+                "project_id": metadata["project_id"],
+                "project_readiness": self._project_readiness(stage_run),
+            },
+        )
+        return self._project_ir_from_stage_run(
+            stage_run,
+            user_prompt=user_prompt,
+            model_validation=model_validation,
+        )
+
+    def _project_ir_from_stage_run(
+        self,
+        stage_run: GenerationStageRun,
+        *,
+        user_prompt: str,
+        model_validation: LLMProviderValidation,
+    ) -> HardwareIR:
+        plan = stage_run.output("web_architect", WebProjectPlan)
+        selection = stage_run.output("web_component_sourcing", WebComponentSelection)
+        components = expand_component_instances(selection.components) if selection is not None else []
+        wiring = stage_run.output("wiring_netlist", WiringWrapper)
+        validation = stage_run.output("validation_repair", ValidationStageOutput)
+        mechanical = stage_run.output("mechanical_fabrication", MechanicalNotes)
+        assembly_wrapper = stage_run.output("assembly", AssemblyWrapper)
+        audit = stage_run.output("completeness_audit", CompletenessAudit)
+        research = stage_run.output("external_research", ExternalSourceLibrary)
+
+        nets = list(validation.nets if validation is not None else (wiring.nets if wiring is not None else []))
+        pin_mappings = list(
+            validation.pin_mappings
+            if validation is not None
+            else (wiring.pin_mappings if wiring is not None else [])
+        )
+        validation_issues = list(validation.issues if validation is not None else [])
+        all_issues = [*validation_issues, *(self._audit_to_validation_issues(audit) if audit is not None else [])]
+        assembly = list(assembly_wrapper.steps if assembly_wrapper is not None else [])
+        constraints = []
+        if plan is not None:
+            constraints = [
+                *plan.requirements.physical_constraints,
+                f"Operating Voltage: {plan.requirements.operating_voltage}V",
+            ]
+            plan.overview.estimated_cost = round(
+                sum(component.unit_price * component_instance_count(component) for component in components),
+                2,
+            )
+
+        generation_status = self._generation_status(stage_run)
+        stage_snapshot = stage_run.snapshot(include_outputs=True)
+        public_generation_metadata = {
+            key: value
+            for key, value in self._active_generation_metadata.items()
+            if key not in {"owner_user_id", "project_prompt", "prior_generation_run"}
+        }
+        failed_stages = [
+            record.model_dump(mode="json", exclude={"output"})
+            for record in stage_run.records.values()
+            if record.status.value in {"failed", "blocked"}
+        ]
+        project_ir = HardwareIR(
+            overview=plan.overview if plan is not None else None,
+            requirements=plan.requirements if plan is not None else None,
+            system_architecture=plan.system_architecture if plan is not None else None,
+            components=components,
+            nets=nets,
+            buses=extract_buses(nets),
+            pin_mappings=pin_mappings,
+            assembly=assembly,
+            mechanical=mechanical,
+            constraints=constraints,
+            power_rails=extract_power_rails(components, nets),
+            estimated_current_draw_ma=estimate_current_draw(components),
+            fabrication_notes=mechanical.fabrication_details if mechanical is not None else [],
+            assembly_metadata={
+                **public_generation_metadata,
+                "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "revision": 1,
+                "model_name": self.model_name,
+                "fallback_mode": model_validation.fallback_active,
+                "requested_model": model_validation.requested_model,
+                "actual_model": model_validation.actual_model,
+                "llm_provider": model_validation.provider,
+                "runtime_provider": self.runtime_config.provider,
+                "runtime_model": self.runtime_config.model,
+                "workflow": self.workflow_id,
+                "generation_status": generation_status,
+                "project_readiness": self._project_readiness(stage_run),
+                "generation_run": stage_snapshot,
+                "generation_stage_failures": failed_stages,
+                "source_usage": source_usage_for_workflow(
+                    self.workflow_id,
+                    external_provider=research.provider if research is not None else self.research_client.provider_name,
+                ),
+                "external_research": research.source_metadata() if research is not None else None,
+                "sourcing_notes": selection.sourcing_notes if selection is not None else [],
+                "completeness_audit": audit.model_dump(mode="json") if audit is not None else None,
+            },
+            project_version_history=[{
+                "version": "0.2",
+                "description": "Dependency-aware staged web research generation",
+            }],
+            validation=build_validation_summary(all_issues),
+            is_valid=bool(validation is not None and validation.is_valid and not any(
+                issue.severity.upper() == "CRITICAL" for issue in all_issues
+            )),
+        )
+        if mechanical is not None:
+            project_ir = build_mechanical_render_data(project_ir)
+        return project_ir
+
+    @staticmethod
+    def _generation_status(stage_run: GenerationStageRun) -> str:
+        architecture = stage_run.records["web_architect"].status.value
+        if architecture in {"failed", "blocked"}:
+            return "failed"
+        return stage_run.overall_status
+
+    @staticmethod
+    def _project_readiness(stage_run: GenerationStageRun) -> str:
+        statuses = {stage_id: record.status.value for stage_id, record in stage_run.records.items()}
+        if statuses.get("web_architect") != "succeeded":
+            return "draft"
+        non_package_statuses = [
+            status for stage_id, status in statuses.items()
+            if stage_id != "package_project"
+        ]
+        package_status = statuses.get("package_project")
+        if (
+            non_package_statuses
+            and all(status == "succeeded" for status in non_package_statuses)
+            and package_status in {"running", "succeeded"}
+        ):
+            return "complete"
+        if all(statuses.get(stage_id) == "succeeded" for stage_id in (
+            "web_architect",
+            "web_component_sourcing",
+            "wiring_netlist",
+            "validation_repair",
+        )):
+            return "core_ready"
+        if any(status == "succeeded" for status in statuses.values()) and any(
+            status in {"failed", "blocked"} for status in statuses.values()
+        ):
+            return "partial"
+        return "draft"
 
     def _research_queries(self, user_prompt: str) -> List[str]:
         return [
@@ -488,6 +803,8 @@ class WebResearchHardwarePipeline:
         - Include a realistic low-voltage power source/regulator path.
         - Include complete relevant pins for each selected component: power, ground, interfaces, control, analog, and outputs.
         - Give each project instance a unique ref_des such as U1, SEN1, DIS1, PWR1, REG1, ACT1, SW1, R1.
+        - Every ComponentInstance is one physical occurrence. Emit repeated parts as separate records with unique
+          reference designators (for example M1, M2, M3, and M4); never use aggregate quantity semantics.
         - For complex boards, include the pins needed for this build rather than every package pin.
 
         Return WebComponentSelection.
@@ -577,6 +894,7 @@ class WebResearchHardwarePipeline:
         Research context:
         {research_context}
 
+        Populate physical_form with the requested overall shape, silhouette, and form factor. Treat explicit human shape context as authoritative and do not default to a rectangular project box. If the project is exposed, structural, or open-frame, do not invent a closed case.
         Use CAD/enclosure URLs only when present in research or well-known source data. If no source exists, keep cad_sources empty.
         Return MechanicalNotes.
         """
@@ -634,7 +952,7 @@ class WebResearchHardwarePipeline:
         {plan.requirements.model_dump_json()}
 
         Components:
-        {json.dumps([component.model_dump() for component in components], indent=2)}
+        {json.dumps([component_detail_payload(component) for component in components], indent=2)}
 
         Nets:
         {json.dumps([net.model_dump() for net in nets], indent=2)}
@@ -726,7 +1044,7 @@ class WebResearchHardwarePipeline:
         public_generation_metadata = {
             key: value
             for key, value in generation_metadata.items()
-            if key not in {"owner_user_id", "project_prompt"}
+            if key not in {"owner_user_id", "project_prompt", "prior_generation_run"}
         }
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),

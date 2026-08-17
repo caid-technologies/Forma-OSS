@@ -56,7 +56,8 @@ LLM configuration behavior:
 - `FORMA_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `FORMA_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `FORMA_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
-- `REDIS_URL`: Redis connection URL for cached `/projects` and `/my/projects` responses. It and `REDIS_CACHE_PREFIX` are required at startup when `FORMA_DEV_MODE=false`; runtime cache failures still fall back to the database.
+- `REDIS_URL`: Redis connection URL for cached `/projects` and `/my/projects` responses. In production, set it or the complete Upstash REST pair below, plus `REDIS_CACHE_PREFIX`; runtime cache failures still fall back to the database.
+- `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`: server-only Upstash REST credentials that can replace `REDIS_URL`, which avoids persistent Redis socket requirements on serverless deployments.
 - `PROJECTS_CACHE_TTL_SECONDS`: project-list cache lifetime in seconds, default `60`; successful project writes invalidate all list variants immediately.
 - `REDIS_CACHE_PREFIX`: Redis key namespace, required when `FORMA_DEV_MODE=false` and defaulting to `forma` only for development-mode cache usage.
 - `REDIS_SOCKET_TIMEOUT_SECONDS`: Redis connect/read timeout, default `0.25`; failures open a 30-second local circuit breaker.

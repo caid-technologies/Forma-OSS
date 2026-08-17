@@ -32,6 +32,11 @@ export type A2AJob = {
   progress_events?: AgentPipelineEvent[];
   error?: string | null;
   error_debug?: Record<string, any> | null;
+  owner_user_id?: string | null;
+  owner_username?: string | null;
+  owner_display_name?: string | null;
+  owner_email?: string | null;
+  owner_github_username?: string | null;
 };
 
 export type BackendLogs = {
@@ -44,6 +49,35 @@ export type BackendLogs = {
   lines?: string[];
   message?: string;
   updated_at?: string;
+};
+
+export type JobMetricBucket = {
+  period: string;
+  count: number;
+};
+
+export type JobMetrics = {
+  generated_at: string;
+  timezone: string;
+  window_days: number;
+  window_hours: number;
+  interval_hours?: number | null;
+  total_jobs: number;
+  jobs_today: number;
+  jobs_last_hour: number;
+  completed_jobs: number;
+  failed_jobs: number;
+  failure_rate: number;
+  daily: JobMetricBucket[];
+  hourly: JobMetricBucket[];
+};
+
+export type JobMetricsWindow = "1h" | "24h" | "7d";
+
+const JOB_METRICS_WINDOW_QUERY: Record<JobMetricsWindow, { days: string; hours: string; intervalHours: string }> = {
+  "1h": { days: "1", hours: "1", intervalHours: "1" },
+  "24h": { days: "1", hours: "24", intervalHours: "24" },
+  "7d": { days: "7", hours: "24", intervalHours: "168" },
 };
 
 export type HeaderFactory = () => HeadersInit | Promise<HeadersInit>;
@@ -187,6 +221,10 @@ export type UseJobsOptions = ApiDependencies & {
 
 export type UseJobsResult = {
   jobs: A2AJob[];
+  metrics: JobMetrics | null;
+  metricsError: string | null;
+  metricsWindow: JobMetricsWindow;
+  setMetricsWindow: (window: JobMetricsWindow) => void;
   loading: boolean;
   error: string | null;
   statusFilter: string;
@@ -206,6 +244,9 @@ export function useJobs({
   initialStatusFilter = "all",
 }: UseJobsOptions): UseJobsResult {
   const [jobs, setJobs] = useState<A2AJob[]>([]);
+  const [metrics, setMetrics] = useState<JobMetrics | null>(null);
+  const [metricsError, setMetricsError] = useState<string | null>(null);
+  const [metricsWindow, setMetricsWindow] = useState<JobMetricsWindow>("7d");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState(initialStatusFilter);
@@ -224,7 +265,7 @@ export function useJobs({
   ) => {
     if (!enabled) return;
 
-    const refreshKey = status || "all";
+    const refreshKey = `${status || "all"}:${metricsWindow}`;
     if (refreshTokensRef.current[refreshKey]) return;
     const refreshToken = {};
     refreshTokensRef.current[refreshKey] = refreshToken;
@@ -232,9 +273,10 @@ export function useJobs({
     const requestId = ++requestIdRef.current;
     if (!options.silent) setLoading(true);
     setError(null);
+    setMetricsError(null);
 
     try {
-      const params = new URLSearchParams({ limit: "100" });
+      const params = new URLSearchParams({ limit: "200" });
       if (status !== "all") params.set("status", status);
       const nextJobs: A2AJob[] = [];
       const errors: string[] = [];
@@ -263,6 +305,26 @@ export function useJobs({
         errors.push("example jobs");
       }
 
+      try {
+        const metricWindow = JOB_METRICS_WINDOW_QUERY[metricsWindow];
+        const metricParams = new URLSearchParams({
+          days: metricWindow.days,
+          hours: metricWindow.hours,
+          interval_hours: metricWindow.intervalHours,
+        });
+        const response = await fetchWithTimeout(`${apiUrl}/a2a/jobs/metrics?${metricParams.toString()}`, {
+          headers: await getHeaders(),
+        });
+        if (!response.ok) throw new Error(`Job metrics endpoint returned ${response.status}`);
+        const payload = await response.json() as JobMetrics;
+        if (requestIdRef.current === requestId && enabledRef.current) setMetrics(payload);
+      } catch (requestError) {
+        console.error("Error fetching job metrics", requestError);
+        if (requestIdRef.current === requestId && enabledRef.current) {
+          setMetricsError("Job metrics are unavailable");
+        }
+      }
+
       nextJobs.sort((left, right) => {
         const leftTime = new Date(left.created_at || left.updated_at || 0).getTime();
         const rightTime = new Date(right.created_at || right.updated_at || 0).getTime();
@@ -288,7 +350,7 @@ export function useJobs({
         delete refreshTokensRef.current[refreshKey];
       }
     }
-  }, [apiUrl, enabled, getHeaders, statusFilter]);
+  }, [apiUrl, enabled, getHeaders, metricsWindow, statusFilter]);
 
   const fetchJob = useCallback(async (jobId: string): Promise<A2AJob | null> => {
     if (!jobId) return null;
@@ -349,6 +411,10 @@ export function useJobs({
 
   return {
     jobs,
+    metrics,
+    metricsError,
+    metricsWindow,
+    setMetricsWindow,
     loading,
     error,
     statusFilter,

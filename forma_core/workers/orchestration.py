@@ -35,6 +35,7 @@ class OrchestrationTaskStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
     FAILED = "failed"
     BLOCKED = "blocked"
     CANCELLED = "cancelled"
@@ -44,18 +45,21 @@ class WorkerPlanStatus(str, Enum):
     PLANNED = "planned"
     RUNNING = "running"
     SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
     FAILED = "failed"
     CANCELLED = "cancelled"
 
 
 TERMINAL_JOB_STATUSES = frozenset({
     OrchestrationTaskStatus.SUCCEEDED,
+    OrchestrationTaskStatus.PARTIAL,
     OrchestrationTaskStatus.FAILED,
     OrchestrationTaskStatus.BLOCKED,
     OrchestrationTaskStatus.CANCELLED,
 })
 TERMINAL_PLAN_STATUSES = frozenset({
     WorkerPlanStatus.SUCCEEDED,
+    WorkerPlanStatus.PARTIAL,
     WorkerPlanStatus.FAILED,
     WorkerPlanStatus.CANCELLED,
 })
@@ -82,6 +86,7 @@ class WorkerExecutionPlan(BaseModel):
     owner_user_id: NonEmptyString
     project_id: str
     correlation_id: NonEmptyString
+    attempt: int = Field(default=1, ge=1)
     status: WorkerPlanStatus = WorkerPlanStatus.PLANNED
     max_concurrency: int = Field(default=4, ge=1, le=64)
     jobs: dict[str, OrchestrationTaskState]
@@ -136,6 +141,58 @@ def _record_to_plan(record: Any) -> WorkerExecutionPlan:
     if not isinstance(payload, dict):
         raise RuntimeError("Persisted worker execution plan state is invalid.")
     return WorkerExecutionPlan.model_validate(payload)
+
+
+def _generation_run_from_progress(progress: list[WorkerProgress]) -> dict[str, Any] | None:
+    records: dict[str, dict[str, Any]] = {}
+    generation_run_id = None
+    workflow = None
+    retry_stage = None
+    status = None
+    for item in progress:
+        checkpoint = item.metadata.get("generation_stage_checkpoint")
+        if not isinstance(checkpoint, dict):
+            continue
+        generation_run_id = checkpoint.get("generation_run_id") or generation_run_id
+        workflow = checkpoint.get("workflow") or workflow
+        retry_stage = checkpoint.get("retry_stage") or retry_stage
+        status = checkpoint.get("status") or status
+        record = checkpoint.get("record")
+        if isinstance(record, dict) and record.get("stage_id"):
+            records[str(record["stage_id"])] = record
+    if not generation_run_id or not records:
+        return None
+    return {
+        "generation_run_id": generation_run_id,
+        "workflow": workflow or "default",
+        "retry_stage": retry_stage,
+        "status": status or "running",
+        "records": records,
+    }
+
+
+def _preserved_retry_progress(
+    progress: list[WorkerProgress],
+    invalidated_stage_ids: set[str],
+) -> list[WorkerProgress]:
+    preserved: list[WorkerProgress] = []
+    for item in progress:
+        checkpoint = item.metadata.get("generation_stage_checkpoint")
+        if isinstance(checkpoint, dict):
+            record = checkpoint.get("record")
+            stage_id = str(record.get("stage_id") or "") if isinstance(record, dict) else ""
+            if stage_id and stage_id not in invalidated_stage_ids:
+                preserved.append(item)
+            continue
+        event = item.metadata.get("pipeline_event")
+        if not isinstance(event, dict):
+            continue
+        stage_id = str(event.get("step_id") or "")
+        if stage_id in invalidated_stage_ids:
+            continue
+        if str(event.get("status") or "").lower() in {"completed", "skipped"}:
+            preserved.append(item)
+    return preserved
 
 
 class WorkerOrchestrator:
@@ -313,13 +370,16 @@ class WorkerOrchestrator:
         plan.aggregate = {
             job_id: job.result.model_dump(mode="json")
             for job_id, job in plan.jobs.items()
-            if job.status == OrchestrationTaskStatus.SUCCEEDED and job.result is not None
+            if job.status in {OrchestrationTaskStatus.SUCCEEDED, OrchestrationTaskStatus.PARTIAL}
+            and job.result is not None
         }
         plan.status = (
             WorkerPlanStatus.CANCELLED
             if any(job.status == OrchestrationTaskStatus.CANCELLED for job in plan.jobs.values())
             else WorkerPlanStatus.SUCCEEDED
             if all(job.status == OrchestrationTaskStatus.SUCCEEDED for job in plan.jobs.values())
+            else WorkerPlanStatus.PARTIAL
+            if any(job.status == OrchestrationTaskStatus.PARTIAL for job in plan.jobs.values())
             else WorkerPlanStatus.FAILED
         )
         plan.completed_at = _utc_now()
@@ -347,6 +407,121 @@ class WorkerOrchestrator:
         await self._advance_workflow(plan)
         return plan
 
+    async def reset(self, plan_id: str, owner_user_id: str) -> WorkerExecutionPlan:
+        """Reset failed work so a user can make another execution attempt."""
+
+        plan = self.get_plan(plan_id, owner_user_id)
+        if plan.status not in {WorkerPlanStatus.FAILED, WorkerPlanStatus.PARTIAL}:
+            raise WorkerPlanningError(
+                "worker_plan_not_failed",
+                "Only a failed worker plan can be reset.",
+                context={"plan_id": plan.plan_id, "status": plan.status.value},
+            )
+
+        for job in plan.jobs.values():
+            if job.status not in {
+                OrchestrationTaskStatus.PARTIAL,
+                OrchestrationTaskStatus.FAILED,
+                OrchestrationTaskStatus.BLOCKED,
+            }:
+                continue
+            retry_context = (
+                job.result.metadata.get("generation_retry")
+                if job.result is not None and isinstance(job.result.metadata, dict)
+                else None
+            )
+            job.status = OrchestrationTaskStatus.QUEUED
+            if isinstance(retry_context, dict):
+                invalidated = {
+                    str(stage_id)
+                    for stage_id in (retry_context.get("invalidated_stage_ids") or [])
+                }
+                job.progress = _preserved_retry_progress(job.progress, invalidated)
+                job.request = job.request.model_copy(update={
+                    "metadata": {
+                        **job.request.metadata,
+                        "prior_generation_run": retry_context.get("prior_generation_run"),
+                        "retry_stage": retry_context.get("retry_stage"),
+                    }
+                })
+            else:
+                job.progress = []
+            job.result = None
+            job.error = None
+            job.started_at = None
+            job.completed_at = None
+
+        plan.attempt += 1
+        plan.status = WorkerPlanStatus.PLANNED
+        plan.aggregate = {}
+        plan.completed_at = None
+        self._workflow.transition(
+            plan.project_id,
+            plan.owner_user_id,
+            ProjectWorkflowState.BUILDING,
+            actor_type=WorkflowActorType.USER,
+            actor_id=plan.owner_user_id,
+            reason=f"User reset failed worker execution plan {plan.plan_id} for another attempt.",
+            idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:reset",
+        )
+        await self._persist(plan)
+        return plan
+
+    async def reset_job(self, plan_id: str, owner_user_id: str, job_id: str) -> WorkerExecutionPlan:
+        """Retry one failed stage plus only the downstream work invalidated by it."""
+
+        plan = self.get_plan(plan_id, owner_user_id)
+        target = plan.jobs.get(job_id)
+        if target is None:
+            raise WorkerPlanningError("worker_job_not_found", f"Worker job '{job_id}' was not found.")
+        if target.status not in {OrchestrationTaskStatus.FAILED, OrchestrationTaskStatus.PARTIAL}:
+            raise WorkerPlanningError(
+                "worker_job_not_failed",
+                "Only a failed worker job can be retried independently.",
+                context={"job_id": job_id, "status": target.status.value},
+            )
+
+        invalidated = {job_id}
+        changed = True
+        while changed:
+            changed = False
+            for candidate_id, candidate in plan.jobs.items():
+                if candidate_id in invalidated:
+                    continue
+                if any(dependency.job_id in invalidated for dependency in candidate.request.dependencies):
+                    invalidated.add(candidate_id)
+                    changed = True
+
+        for candidate_id in invalidated:
+            job = plan.jobs[candidate_id]
+            job.status = OrchestrationTaskStatus.QUEUED
+            job.progress = []
+            job.result = None
+            job.error = None
+            job.started_at = None
+            job.completed_at = None
+        plan.attempt += 1
+        plan.status = WorkerPlanStatus.PLANNED
+        plan.aggregate = {
+            candidate_id: job.result.model_dump(mode="json")
+            for candidate_id, job in plan.jobs.items()
+            if candidate_id not in invalidated
+            and job.status in {OrchestrationTaskStatus.SUCCEEDED, OrchestrationTaskStatus.PARTIAL}
+            and job.result is not None
+        }
+        plan.completed_at = None
+        self._workflow.transition(
+            plan.project_id,
+            plan.owner_user_id,
+            ProjectWorkflowState.BUILDING,
+            actor_type=WorkflowActorType.USER,
+            actor_id=plan.owner_user_id,
+            reason=f"User retried worker job {job_id} in execution plan {plan.plan_id}.",
+            idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:retry:{job_id}",
+        )
+        await self._persist(plan)
+        return plan
+
     def _ready_jobs(self, plan: WorkerExecutionPlan) -> list[str]:
         ready: list[str] = []
         for job_id, job in plan.jobs.items():
@@ -369,6 +544,7 @@ class WorkerOrchestrator:
                 if dependency.required
                 and plan.jobs[dependency.job_id].status in {
                     OrchestrationTaskStatus.FAILED,
+                    OrchestrationTaskStatus.PARTIAL,
                     OrchestrationTaskStatus.BLOCKED,
                 }
             ]
@@ -432,6 +608,8 @@ class WorkerOrchestrator:
                 state.status = (
                     OrchestrationTaskStatus.SUCCEEDED
                     if result.status == WorkerResultStatus.SUCCEEDED
+                    else OrchestrationTaskStatus.PARTIAL
+                    if result.status == WorkerResultStatus.PARTIAL
                     else OrchestrationTaskStatus.CANCELLED
                     if result.status == WorkerResultStatus.CANCELLED
                     else OrchestrationTaskStatus.FAILED
@@ -455,6 +633,8 @@ class WorkerOrchestrator:
             )
             for dependency in request.dependencies
         }
+        task_progress = plan.jobs[request.job_id].progress
+        checkpoint_run = _generation_run_from_progress(task_progress)
         return request.model_copy(update={
             "payload": (
                 {**request.payload, "dependency_results": dependency_results}
@@ -464,6 +644,16 @@ class WorkerOrchestrator:
             "metadata": {
                 **request.metadata,
                 "execution_owner_user_id": plan.owner_user_id,
+                "execution_attempt": plan.attempt,
+                "progress_sequence_start": max(
+                    (progress.sequence for progress in task_progress),
+                    default=0,
+                ),
+                **(
+                    {"prior_generation_run": checkpoint_run}
+                    if checkpoint_run is not None and not isinstance(request.metadata.get("prior_generation_run"), dict)
+                    else {}
+                ),
                 **(
                     {"pipeline_cancellation_check": self._cancellation_check}
                     if self._cancellation_check is not None
@@ -523,7 +713,7 @@ class WorkerOrchestrator:
             actor_type=WorkflowActorType.SYSTEM,
             actor_id="worker-orchestrator",
             reason=f"Worker execution plan {plan.plan_id} reached a terminal result.",
-            idempotency_key=f"worker-plan:{plan.plan_id}:terminal",
+            idempotency_key=f"worker-plan:{plan.plan_id}:attempt:{plan.attempt}:terminal",
         )
 
     async def _persist(self, plan: WorkerExecutionPlan) -> None:

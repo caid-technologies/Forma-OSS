@@ -44,6 +44,20 @@ Outputs are written to `examples/results/`:
 The examples run in strict test mode. Provider failures raise and are recorded as
 failed jobs; they do not fall back to simulation.
 
+## Forma Core samples
+
+Focused Forma Core examples live in `examples/forma_core/`:
+
+```bash
+python examples/forma_core/sample.py
+python examples/forma_core/sample1.py
+python examples/forma_core/sample2.py
+```
+
+- `sample.py` generates a simulated project from a frozen design brief.
+- `sample1.py` generates a project with a local Ollama model.
+- `sample2.py` combines Ollama generation with Firecrawl web research.
+
 Useful overrides:
 
 ```bash

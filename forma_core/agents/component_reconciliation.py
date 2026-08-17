@@ -84,7 +84,6 @@ def reconcile_explicit_catalog_components(
             part_number=part_number,
             name=str(template.get("name") or part_number),
             category=str(template.get("category") or "Component"),
-            quantity=1,
             unit_price=float(template.get("price") or template.get("unit_price") or 0.0),
             sourcing_url=template.get("sourcing_url"),
             rationale="Explicitly requested catalog part; restored by deterministic component reconciliation.",

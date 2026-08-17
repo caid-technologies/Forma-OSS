@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -76,6 +77,36 @@ class SqlAlchemyRepository:
             if owner_user_id:
                 query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
             return query.order_by(DBGeneratedProject.id.desc()).all()
+
+    def list_generated_projects_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]:
+        with self._session() as session:
+            query = session.query(DBGeneratedProject).filter(DBGeneratedProject.status == "active")
+            if owner_user_id:
+                query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
+            if visibility:
+                query = query.filter(DBGeneratedProject.visibility == visibility)
+            if search:
+                pattern = f"%{search}%"
+                query = query.filter(or_(
+                    DBGeneratedProject.title.ilike(pattern),
+                    DBGeneratedProject.prompt.ilike(pattern),
+                ))
+            total = query.count()
+            rows = (
+                query.order_by(DBGeneratedProject.created_at.desc(), DBGeneratedProject.id.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+            return rows, total
 
     def get_generated_project(self, project_id: str, include_deleted: bool = False) -> Optional[Any]:
         with self._session() as session:
@@ -285,6 +316,15 @@ class SqlAlchemyRepository:
                 DBWorkerExecutionPlan.owner_user_id == owner_user_id,
             ).first()
 
+    def list_worker_execution_plans(self, limit: int = 200) -> List[Any]:
+        with self._session() as session:
+            return (
+                session.query(DBWorkerExecutionPlan)
+                .order_by(DBWorkerExecutionPlan.created_at.desc())
+                .limit(max(1, min(int(limit), 1000)))
+                .all()
+            )
+
     def update_worker_execution_plan(
         self,
         plan_id: str,
@@ -315,6 +355,25 @@ class SqlAlchemyRepository:
                 )
                 .order_by(DBProjectRevision.revision.desc())
                 .first()
+            )
+
+    def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            rows = (
+                session.query(DBProjectRevision)
+                .filter(DBProjectRevision.owner_user_id == owner_user_id)
+                .order_by(DBProjectRevision.created_at.desc())
+                .all()
+            )
+            latest_by_project: Dict[str, Any] = {}
+            for row in rows:
+                current = latest_by_project.get(row.project_id)
+                if current is None or row.revision > current.revision:
+                    latest_by_project[row.project_id] = row
+            return sorted(
+                latest_by_project.values(),
+                key=lambda row: str(row.created_at or ""),
+                reverse=True,
             )
 
     def get_project_revision(

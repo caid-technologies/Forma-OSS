@@ -4,7 +4,7 @@ Forma is AI for full-stack hardware design. It turns text and images into a real
 
 This is in **alpha** and **research-based** stage focused on **low-voltage maker electronics** (3.3V–5V) and safe, educational projects.
 
-![Forma project workspace showing a generated 3D printer concept and validated parts list](docs/assets/forma-project-3d-printer.png)
+[![Forma main user flow demo creating a security camera](docs/assets/forma-security-camera-demo.gif)](https://www.youtube.com/watch?v=XaIIJT7OX4M)
 
 ## What you can do
 - Compile a hardware idea into structured **hardware plan**
@@ -113,6 +113,7 @@ forma-core generate "plant watering monitor" --simulation --output project.json
 forma-core generate "plant watering monitor" --llm openai/gpt-5.5 --output project.json
 forma-core validate project.json
 forma-core iterate project.json "Make the enclosure splash resistant" --namespace product.mech --output revised.json
+forma-core iterate project.json "Keep the components but reshape the product as a curved handheld pod" --namespace product.mech --output reshaped.json
 python -m forma_core --help
 ```
 
@@ -137,7 +138,7 @@ curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Typ
 
 `scripts/quality/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/models/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/models/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
 
-Generation and project iteration logic lives in the reusable `forma_core` package, published as the `caid-forma-core` PyPI distribution. New code should import from `forma_core.generation`, `forma_core.iteration`, `forma_core.project_objects`, `forma_core.models`, `forma_core.validation`, `forma_core.llm`, `forma_core.images`, `forma_core.runtime`, and `forma_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
+Generation and project iteration logic lives in the reusable `forma_core` package, published as the `caid-forma-core` PyPI distribution. New code should import from `forma_core.generation`, `forma_core.iteration`, `forma_core.project_objects`, `forma_core.models`, `forma_core.validation`, `forma_core.llm`, `forma_core.images`, `forma_core.runtime`, and `forma_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. A `product.mech` chat or CLI iteration can change shape, dimensions, placement, materials, and fabrication details while preserving the BOM and electrical connectivity. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
 
 Performance benchmarks live under `evals/performance/` and save JSON reports under `.logs/benchmarks/`. See [`evals/README.md`](evals/README.md) for the performance/quality distinction, shared datasets, reports, and extension guidance.
 ```bash

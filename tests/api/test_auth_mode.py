@@ -74,7 +74,7 @@ class AuthModeTests(unittest.IsolatedAsyncioTestCase):
             clear=True,
         ), patch.object(main, "init_db") as init_db:
             with self.assertLogs("forma_core.project_list_cache", level="CRITICAL"):
-                with self.assertRaisesRegex(RuntimeError, "REDIS_URL, REDIS_CACHE_PREFIX"):
+                with self.assertRaisesRegex(RuntimeError, "UPSTASH_REDIS_REST_URL"):
                     await main.startup_event()
         init_db.assert_not_called()
 

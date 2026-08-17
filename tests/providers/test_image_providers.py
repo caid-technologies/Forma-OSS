@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from unittest.mock import patch
 
-from blueprint_core.image_providers import GeneratedImage, GMIImageProvider, HuggingFaceImageProvider, OpenAIImageProvider, TogetherImageProvider, VertexAIImageProvider, build_image_provider
+from forma_core.image_providers import GeneratedImage, GMIImageProvider, HuggingFaceImageProvider, OpenAIImageProvider, TogetherImageProvider, VertexAIImageProvider, build_image_provider
 
 
 class ImageProviderRoutingTests(unittest.TestCase):
@@ -84,7 +84,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
                 "VERTEX_AI_IMAGE_ASPECT_RATIO": "16:9",
             },
             clear=True,
-        ), patch("blueprint_core.image_providers.genai", fake_genai):
+        ), patch("forma_core.image_providers.genai", fake_genai):
             provider = build_image_provider(force_enabled=True)
             assert isinstance(provider, VertexAIImageProvider)
             image = provider.generate_test_image("Render a compact environmental monitor")
@@ -111,7 +111,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
             os.environ,
             {"GOOGLE_CLOUD_PROJECT": "forma-image-test"},
             clear=True,
-        ), patch("blueprint_core.image_providers.genai", fake_genai):
+        ), patch("forma_core.image_providers.genai", fake_genai):
             provider = build_image_provider(force_enabled=True)
 
         self.assertIsInstance(provider, VertexAIImageProvider)
@@ -128,8 +128,8 @@ class ImageProviderRoutingTests(unittest.TestCase):
                 "GOOGLE_CLOUD_PROJECT": "forma-image-test",
             },
             clear=True,
-        ), patch("blueprint_core.image_providers.genai", fake_genai), patch(
-            "blueprint_core.image_providers.build_vertex_credentials",
+        ), patch("forma_core.image_providers.genai", fake_genai), patch(
+            "forma_core.image_providers.build_vertex_credentials",
             return_value=credentials,
         ):
             provider = build_image_provider(force_enabled=True)
@@ -278,7 +278,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
                 return responses.pop(0)
 
             with patch.object(provider, "_request_queue_json", side_effect=fake_queue_request), patch(
-                "blueprint_core.image_providers.time.sleep"
+                "forma_core.image_providers.time.sleep"
             ):
                 image = provider._generate_image_from_prompt(
                     "render a hardware enclosure",

@@ -13,7 +13,7 @@ from starlette.requests import Request
 
 from apps.api import main
 from apps.api.auth import UserContext, optional_user_context
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
     HardwareIR,
@@ -81,7 +81,7 @@ def _project(
 
 class LocalProjectIdentityTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_user_context_owns_local_dev_user_projects(self) -> None:
-        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=False):
+        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "local"}, clear=False):
             context = await optional_user_context(_request())
 
         self.assertEqual("local", context.provider)

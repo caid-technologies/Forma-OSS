@@ -4,7 +4,7 @@ import json
 import unittest
 from unittest.mock import patch
 
-from blueprint_core import project_list_cache
+from forma_core import project_list_cache
 
 
 class _FakeRedis:
@@ -74,11 +74,11 @@ class ProjectListCacheTests(unittest.TestCase):
         self.assertIsNone(generation)
 
     def test_development_mode_allows_missing_redis_config(self) -> None:
-        with patch.dict("os.environ", {"BLUEPRINT_DEV_MODE": "true"}, clear=True):
+        with patch.dict("os.environ", {"FORMA_DEV_MODE": "true"}, clear=True):
             project_list_cache.require_project_list_cache_config()
 
     def test_non_development_mode_requires_url_and_prefix(self) -> None:
-        with patch.dict("os.environ", {"BLUEPRINT_DEV_MODE": "false"}, clear=True):
+        with patch.dict("os.environ", {"FORMA_DEV_MODE": "false"}, clear=True):
             with self.assertLogs(project_list_cache.logger, level="CRITICAL"):
                 with self.assertRaisesRegex(RuntimeError, "REDIS_URL, REDIS_CACHE_PREFIX"):
                     project_list_cache.require_project_list_cache_config()
@@ -87,9 +87,9 @@ class ProjectListCacheTests(unittest.TestCase):
         with patch.dict(
             "os.environ",
             {
-                "BLUEPRINT_DEV_MODE": "false",
+                "FORMA_DEV_MODE": "false",
                 "REDIS_URL": "rediss://default:secret@example.test:6379/0",
-                "REDIS_CACHE_PREFIX": "blueprint-preview",
+                "REDIS_CACHE_PREFIX": "forma-preview",
             },
             clear=True,
         ):

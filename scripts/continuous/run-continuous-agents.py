@@ -15,7 +15,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.agents.continuous import ContinuousAgentCoordinator, ContinuousAgentCycleReport, JsonlStreamStore
+from forma_core.agents.continuous import ContinuousAgentCoordinator, ContinuousAgentCycleReport, JsonlStreamStore
 
 
 def now_ms() -> int:

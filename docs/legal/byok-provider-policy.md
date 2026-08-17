@@ -32,8 +32,8 @@ This policy controls which provider credentials Forma Cloud may accept from user
 
 - Per-user hosted BYOK is stored in encrypted Supabase `user_integration_configs`.
 - Workspace/server-owned provider defaults are stored in encrypted Supabase `workspace_integration_configs`.
-- `BLUEPRINT_USER_SECRETS_KEY` encrypts per-user BYOK.
-- `BLUEPRINT_WORKSPACE_SECRETS_KEY` encrypts workspace defaults.
+- `FORMA_USER_SECRETS_KEY` encrypts per-user BYOK.
+- `FORMA_WORKSPACE_SECRETS_KEY` encrypts workspace defaults.
 - OpenAI API key writes are rejected for hosted per-user Supabase stores; local and self-hosted file-backed stores may still read local OpenAI keys.
 - Generic image API key writes are rejected for hosted per-user Supabase stores by default; local and self-hosted file-backed stores may still use compatible image endpoints.
 - Hugging Face hosted BYOK token writes require confirmation that the token is fine-grained inference-only or an equivalent enterprise service-account token.

@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import FormaWorkspace from "../blueprint-workspace";
+import FormaWorkspace from "../forma-workspace";
 
 type WorkspaceRouteShellProps = {
   showDeveloperTools: boolean;

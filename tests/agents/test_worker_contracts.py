@@ -5,7 +5,7 @@ import uuid
 
 from pydantic import ValidationError
 
-from blueprint_core.workers import (
+from forma_core.workers import (
     WORKER_CONTRACT_VERSION,
     WorkerArtifact,
     WorkerCapability,

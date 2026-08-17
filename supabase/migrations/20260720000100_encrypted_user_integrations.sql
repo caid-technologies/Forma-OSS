@@ -1,7 +1,7 @@
 -- Encrypted per-user BYOK/provider settings.
 --
 -- The backend stores only encrypted config blobs here. Decryption requires the
--- server-only BLUEPRINT_USER_SECRETS_KEY and never happens in browser clients.
+-- server-only FORMA_USER_SECRETS_KEY and never happens in browser clients.
 
 create table if not exists public.user_integration_configs (
   owner_user_id text primary key,
@@ -16,7 +16,7 @@ comment on table public.user_integration_configs is
   'Encrypted BYOK/provider settings keyed by Clerk owner_user_id. API keys must not be stored in plaintext columns.';
 
 comment on column public.user_integration_configs.encrypted_config is
-  'Fernet-encrypted UserIntegrationConfig JSON. Requires server-only BLUEPRINT_USER_SECRETS_KEY to decrypt.';
+  'Fernet-encrypted UserIntegrationConfig JSON. Requires server-only FORMA_USER_SECRETS_KEY to decrypt.';
 
 alter table public.user_integration_configs enable row level security;
 

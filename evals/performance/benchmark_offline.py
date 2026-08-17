@@ -22,7 +22,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.config import config
+from forma_core.config import config
 
 DEFAULT_ITERATIONS = 1000
 DEFAULT_CONCURRENCY = 4
@@ -31,7 +31,7 @@ DEFAULT_SCHEDULER_SLEEP_MS = 10.0
 DEFAULT_OUTPUT_DIR = ".logs/benchmarks"
 LATEST_REPORT_NAME = "offline-latest.json"
 
-from blueprint_core.integrations.huggingface import (
+from forma_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     upload_artifacts_to_huggingface,
@@ -127,7 +127,7 @@ def measure_operation(
 
 
 def make_sample_circuit() -> tuple[list[Any], list[Any]]:
-    from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet, PinDefinition, PinReference
+    from forma_core.workspaces.projects.models import ComponentInstance, ConnectionNet, PinDefinition, PinReference
 
     esp32 = ComponentInstance(
         ref_des="U1",
@@ -233,7 +233,7 @@ def make_sample_circuit() -> tuple[list[Any], list[Any]]:
 
 
 def benchmark_selector_parsing(iterations: int) -> BenchmarkResult:
-    from blueprint_core.selectors import parse_llm_selector
+    from forma_core.selectors import parse_llm_selector
 
     selectors = [
         "openai/gpt-5.5",
@@ -268,7 +268,7 @@ def benchmark_runtime_resolution(iterations: int) -> BenchmarkResult:
     }
 
     with isolated_environment(overrides):
-        from blueprint_core.llm import resolve_llm_runtime_config
+        from forma_core.llm import resolve_llm_runtime_config
 
         selections = [
             ("openai", "gpt-5.5"),
@@ -302,7 +302,7 @@ def benchmark_pydantic_netlist_build(iterations: int) -> BenchmarkResult:
 
 
 def benchmark_circuit_validation(iterations: int) -> BenchmarkResult:
-    from blueprint_core.validation import validate_circuit
+    from forma_core.validation import validate_circuit
 
     components, nets = make_sample_circuit()
 
@@ -322,7 +322,7 @@ def benchmark_circuit_validation(iterations: int) -> BenchmarkResult:
 
 def benchmark_async_scheduler(task_count: int, concurrency: int, sleep_ms: float) -> BenchmarkResult:
     from scripts.models import sample_async
-    from blueprint_core.selectors import LLMSelector
+    from forma_core.selectors import LLMSelector
 
     candidates = [LLMSelector("benchmark", f"model-{index}") for index in range(task_count)]
     active_count = 0
@@ -390,9 +390,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--json", action="store_true", help="Print the full JSON report.")
     parser.add_argument("--no-save", action="store_true", help="Do not save a JSON report.")
     parser.add_argument("--upload-huggingface", action="store_true", help="Upload saved benchmark artifacts to a Hugging Face dataset repo.")
-    parser.add_argument("--hf-repo-id", help="Hugging Face dataset repo id, for example username/blueprint-metrics. Defaults to HF_ARTIFACT_REPO_ID.")
+    parser.add_argument("--hf-repo-id", help="Hugging Face dataset repo id, for example username/forma-metrics. Defaults to HF_ARTIFACT_REPO_ID.")
     parser.add_argument("--hf-repo-type", default="dataset", help="Hugging Face repo type. Defaults to dataset.")
-    parser.add_argument("--hf-path-prefix", default="blueprint", help="Path prefix inside the Hugging Face repo. Defaults to blueprint.")
+    parser.add_argument("--hf-path-prefix", default="forma", help="Path prefix inside the Hugging Face repo. Defaults to forma.")
     parser.add_argument("--hf-private", action="store_true", help="Create the Hugging Face repo as private when it does not exist.")
     parser.add_argument("--hf-no-create-repo", action="store_true", help="Do not create the Hugging Face repo before uploading.")
     parser.add_argument("--hf-commit-message", default="Upload Forma offline benchmark artifacts", help="Commit message for Hugging Face uploads.")

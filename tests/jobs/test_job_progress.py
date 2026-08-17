@@ -3,8 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-from blueprint_core.jobs.store import JobCancelledError, JobMetadataStore
-from blueprint_core.workspaces.projects.models import GenerateProjectRequest
+from forma_core.jobs.store import JobCancelledError, JobMetadataStore
+from forma_core.workspaces.projects.models import GenerateProjectRequest
 
 
 class JobProgressTests(unittest.TestCase):
@@ -15,9 +15,9 @@ class JobProgressTests(unittest.TestCase):
                 job_id="job_frontend_progress",
                 message_id="msg_frontend_progress",
                 correlation_id=None,
-                action="blueprint.generate_project",
+                action="forma.generate_project",
                 sender="frontend",
-                recipient="blueprint",
+                recipient="forma",
                 payload={"prompt": "blink an LED", "workflow": "default"},
                 server_owned=True,
             )
@@ -53,9 +53,9 @@ class JobProgressTests(unittest.TestCase):
                 job_id="job_frontend_cancelled",
                 message_id="msg_frontend_cancelled",
                 correlation_id=None,
-                action="blueprint.generate_project",
+                action="forma.generate_project",
                 sender="frontend",
-                recipient="blueprint",
+                recipient="forma",
                 payload={"prompt": "blink an LED", "workflow": "default"},
                 server_owned=True,
             )

@@ -6,12 +6,12 @@ import unittest
 import uuid
 from pathlib import Path
 
-from blueprint_core.jobs.store import JobMetadataStore
-from blueprint_core import database
-from blueprint_core.persistence import APPLICATION_SCHEMA
-from blueprint_core.jobs.migrations import import_legacy_job_database
-from blueprint_core.persistence.providers import SupabaseProvider, create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.jobs.store import JobMetadataStore
+from forma_core import database
+from forma_core.persistence import APPLICATION_SCHEMA
+from forma_core.jobs.migrations import import_legacy_job_database
+from forma_core.persistence.providers import SupabaseProvider, create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             provider = create_sqlite_provider(
                 source="test primary",
-                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
                 import_legacy_jobs=False,
             )
             assert provider.session_factory is not None
@@ -60,9 +60,9 @@ class PersistenceArchitectureTests(unittest.TestCase):
                     job_id=job_id,
                     message_id=f"msg_{uuid.uuid4().hex}",
                     correlation_id=None,
-                    action="blueprint.generate_project",
+                    action="forma.generate_project",
                     sender="test",
-                    recipient="blueprint",
+                    recipient="forma",
                     payload={"prompt": "shared database"},
                     server_owned=True,
                 )
@@ -84,7 +84,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             provider = create_sqlite_provider(
                 source="test primary",
-                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
                 import_legacy_jobs=False,
             )
             assert provider.session_factory is not None
@@ -120,8 +120,8 @@ class PersistenceArchitectureTests(unittest.TestCase):
 
     def test_legacy_job_import_is_idempotent_and_does_not_overwrite_primary_rows(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            primary_path = Path(directory) / "blueprint.db"
-            legacy_path = Path(directory) / "blueprint_jobs.db"
+            primary_path = Path(directory) / "forma.db"
+            legacy_path = Path(directory) / "forma_jobs.db"
             provider = create_sqlite_provider(
                 source="test",
                 url=f"sqlite:///{primary_path}",
@@ -148,7 +148,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             provider = create_sqlite_provider(
                 source="test primary",
-                url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
                 import_legacy_jobs=False,
             )
             assert provider.session_factory is not None
@@ -210,9 +210,9 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 (
                     "job_legacy",
                     "msg_legacy",
-                    "blueprint.generate_project",
+                    "forma.generate_project",
                     "test",
-                    "blueprint",
+                    "forma",
                     "succeeded",
                     1,
                     "2026-07-01T00:00:00Z",

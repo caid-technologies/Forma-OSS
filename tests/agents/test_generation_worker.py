@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.agents.pipeline import emit_agent_pipeline_event
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workers import (
+from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
+from forma_core.agents.pipeline import emit_agent_pipeline_event
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workers import (
     GENERATION_CAPABILITY_ID,
     GENERATION_INPUT_VERSION,
     GENERATION_OUTPUT_VERSION,
@@ -26,20 +26,20 @@ from blueprint_core.workers import (
     WorkerRegistry,
     WorkerRequest,
 )
-from blueprint_core.workspaces.design_briefs import (
+from forma_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
     DesignBrief,
     DesignBriefReference,
 )
-from blueprint_core.workspaces.projects import (
+from forma_core.workspaces.projects import (
     ProjectArtifact,
     ProjectRevisionDraft,
     ProjectStateError,
     ProjectStateService,
     ProjectSystem,
 )
-from blueprint_core.workspaces.projects.models import ComponentInstance, HardwareIR, ProjectOverview
-from blueprint_core.workspaces.workflow import (
+from forma_core.workspaces.projects.models import ComponentInstance, HardwareIR, ProjectOverview
+from forma_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -126,7 +126,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="generation worker test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()
@@ -156,8 +156,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             assembly_metadata={"project_id": str(self.project_id)},
         )
         with (
-            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
-            patch("blueprint_core.workers.generation.attach_product_image") as attach_image,
+            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("forma_core.workers.generation.attach_product_image") as attach_image,
         ):
             orchestrator_type.return_value.generate_project.return_value = state
 
@@ -427,8 +427,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(persisted.revision_id), second.output["project_revision"]["revision_id"])
         self.assertEqual(1, len(engine.received))
 
-    @patch("blueprint_core.agents.orchestrator.ensure_agent_pipeline_active")
-    @patch("blueprint_core.agents.orchestrator.save_generated_project")
+    @patch("forma_core.agents.orchestrator.ensure_agent_pipeline_active")
+    @patch("forma_core.agents.orchestrator.save_generated_project")
     def test_generation_engine_mode_disables_legacy_direct_project_write(
         self,
         save_generated_project: Any,

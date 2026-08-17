@@ -18,7 +18,7 @@ frontend_pid=""
 cleaned_up="false"
 
 log() {
-  printf '[blueprint-dev] %s\n' "$*"
+  printf '[forma-dev] %s\n' "$*"
 }
 
 is_port_open() {

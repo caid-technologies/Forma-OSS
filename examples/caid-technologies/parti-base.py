@@ -23,7 +23,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.config import config  # noqa: E402
+from forma_core.config import config  # noqa: E402
 
 MODEL = "caid-technologies/parti-base"
 ENV_FILE = ".env"
@@ -230,8 +230,8 @@ def configure_runpod_env() -> None:
             "RUNPOD_FALLBACK_MODEL": "",
             "RUNPOD_OPENAI_FALLBACK_MODEL": "",
             "LLM_FALLBACK_MODEL": "",
-            "BLUEPRINT_DISABLE_GENERATION_FALLBACK": "true",
-            "BLUEPRINT_STRICT_GENERATION": "true",
+            "FORMA_DISABLE_GENERATION_FALLBACK": "true",
+            "FORMA_STRICT_GENERATION": "true",
             "LLM_DISABLE_FALLBACK": "true",
         }
     )
@@ -349,7 +349,7 @@ def main() -> int:
     load_env_file(repo_path(ENV_FILE))
     configure_runpod_env()
 
-    from blueprint_core.llm_providers import OpenAICompatibleProvider
+    from forma_core.llm_providers import OpenAICompatibleProvider
 
     run_id = utc_run_id()
     output_dir = repo_path(OUTPUT_DIR)

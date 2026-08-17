@@ -32,7 +32,7 @@ tmp/
 
 # Runtime logs
 .logs/
-.blueprint/
+.forma/
 .spacebase/
 *.log
 

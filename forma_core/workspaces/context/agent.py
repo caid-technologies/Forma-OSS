@@ -140,7 +140,7 @@ def _assistant_reply(text: str, questions: list[str], previous: DesignBrief | No
         return (
             "That’s okay—you don’t need to choose technical parts yet. "
             "Tell me any outcome, operating condition, or constraint you do know, and the build agents can propose the open technical choices. "
-            "Choose Build Now whenever you’re ready, and the build agents will resolve the remaining technical choices."
+            "Choose Default whenever you’re ready, and the build agents will resolve the remaining technical choices."
         )
     if previous:
         if questions:

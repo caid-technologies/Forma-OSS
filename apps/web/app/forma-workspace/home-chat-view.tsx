@@ -109,9 +109,6 @@ export default function HomeChatView({
   onImagePaste,
 }: HomeChatViewProps) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
-  const latestBuildNowMessageId = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant" && message.workflowState === "gathering_context")?.id;
   const latestChoiceMessageId = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
@@ -212,15 +209,17 @@ export default function HomeChatView({
                         ))}
                       </div>
                     )}
-                    {!isUser && canBuildNow && message.id === latestBuildNowMessageId && (
+                    {!isUser && canBuildNow && (message.workflowState === "gathering_context" || Boolean(message.contextProjectId)) && (
                       <button
                         type="button"
                         onClick={onBuildNow}
                         disabled={buildNowLoading || isLoading}
                         className="mt-3 inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                        aria-label="Default — proceed with safe prototype defaults"
+                        title="Default — proceed with safe prototype defaults"
                       >
                         {buildNowLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                        Build now
+                        Default
                       </button>
                     )}
                     {message.imagePreview && (

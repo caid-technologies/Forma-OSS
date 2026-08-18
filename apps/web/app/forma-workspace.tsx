@@ -7,6 +7,7 @@ import {
   generationLlmImageSupport,
   generationLlmKey,
   type GenerationLlmOption,
+  shouldShowProductImageSection,
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
 import { normalizeContextSuggestions } from "../lib/context-suggestions";
@@ -1426,6 +1427,7 @@ type VideoGenerationConfig = {
 
 type ImageGenerationConfig = {
   configured: boolean | null;
+  requestCapable: boolean | null;
   provider: string | null;
   reason: string | null;
 };
@@ -1671,6 +1673,7 @@ export function FormaWorkspace({
   });
   const [imageGenerationConfig, setImageGenerationConfig] = useState<ImageGenerationConfig>({
     configured: null,
+    requestCapable: null,
     provider: null,
     reason: null,
   });
@@ -2453,7 +2456,7 @@ export function FormaWorkspace({
     setGenerationLlmsLoaded(false);
     setGenerationLlms([]);
     setGenerationLlmKeyValue("");
-    setImageGenerationConfig({ configured: null, provider: null, reason: null });
+    setImageGenerationConfig({ configured: null, requestCapable: null, provider: null, reason: null });
     setImageGenerationConfigLoaded(false);
     setProviderSetup({ llmRequired: false, imageRequired: false });
     setAuthSecurityError(false);
@@ -2580,6 +2583,7 @@ export function FormaWorkspace({
       }
       setImageGenerationConfig({
         configured: config.images.configured,
+        requestCapable: config.images.request_capable,
         provider: config.images.provider,
         reason: config.images.reason,
       });
@@ -4587,6 +4591,18 @@ export function FormaWorkspace({
     () => resolveProjectImageCandidates(projectIR?.assembly_metadata || {}, formaDevMode),
     [formaDevMode, projectIR]
   );
+  const showProductImageSection = shouldShowProductImageSection({
+    imageCandidates: projectImageCandidates,
+    llms: generationLlms,
+    imageGeneration: imageGenerationConfigLoaded
+      ? {
+          configured: imageGenerationConfig.configured,
+          requestCapable: imageGenerationConfig.requestCapable,
+          provider: imageGenerationConfig.provider,
+        }
+      : null,
+    metadata: projectIR?.assembly_metadata || {},
+  });
   const videoImageOptions = useMemo(
     () => projectImageCandidates.filter((candidate) => !candidate.label.toLowerCase().includes("uploaded")),
     [projectImageCandidates]
@@ -4683,6 +4699,7 @@ export function FormaWorkspace({
             metadata={projectIR?.assembly_metadata || {}}
             systemArchitecture={projectIR?.system_architecture || null}
             showModelName={formaDevMode}
+            showImageSection={showProductImageSection}
           />
         );
       case "bom":

@@ -63,6 +63,7 @@ export function OverviewPanel({
   metadata,
   systemArchitecture,
   showModelName = false,
+  showImageSection = true,
 }: {
   title: string;
   description: string;
@@ -72,6 +73,7 @@ export function OverviewPanel({
   metadata: Record<string, any>;
   systemArchitecture?: Record<string, any> | null;
   showModelName?: boolean;
+  showImageSection?: boolean;
 }) {
   const imageKey = imageCandidates.map((candidate) => candidate.src).join("|");
   const [imageIndex, setImageIndex] = useState(0);
@@ -83,34 +85,37 @@ export function OverviewPanel({
   const activeImage = imageCandidates[imageIndex] || null;
   const llmProvider = metadata.runtime_provider || metadata.llm_provider || metadata.requested_provider;
   const llmModel = metadata.runtime_model || metadata.actual_model || metadata.model_name || metadata.requested_model;
+  const showProductImage = showImageSection || Boolean(activeImage);
 
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] px-4 py-6 sm:px-5 sm:py-8">
       <div className="mx-auto min-w-0 max-w-[890px]">
-        <div className="relative border border-[#2a2c33] bg-[#d5d5d3]">
-          {activeImage ? (
-            <img
-              src={activeImage.src}
-              alt={activeImage.label}
-              onError={() => setImageIndex((current) => current + 1)}
-              className="h-[320px] w-full object-contain sm:h-[440px]"
-            />
-          ) : (
-            <ImageUnavailableState failed={metadata.image_output_failed === true || metadata.image_output_status === "failed"} />
-          )}
-          {activeImage && (
-            <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-blue-600 shadow-lg" title={activeImage.label}>
-              <Eye className="h-5 w-5" />
-            </button>
-          )}
-          {activeImage && (
-            <div className="absolute left-4 top-4 max-w-[calc(100%-6.5rem)] border border-black/10 bg-white/90 px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#202127] shadow-lg">
-              {activeImage.label}
-            </div>
-          )}
-        </div>
+        {showProductImage && (
+          <div className="relative border border-[#2a2c33] bg-[#d5d5d3]">
+            {activeImage ? (
+              <img
+                src={activeImage.src}
+                alt={activeImage.label}
+                onError={() => setImageIndex((current) => current + 1)}
+                className="h-[320px] w-full object-contain sm:h-[440px]"
+              />
+            ) : (
+              <ImageUnavailableState failed={metadata.image_output_failed === true || metadata.image_output_status === "failed"} />
+            )}
+            {activeImage && (
+              <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-blue-600 shadow-lg" title={activeImage.label}>
+                <Eye className="h-5 w-5" />
+              </button>
+            )}
+            {activeImage && (
+              <div className="absolute left-4 top-4 max-w-[calc(100%-6.5rem)] border border-black/10 bg-white/90 px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#202127] shadow-lg">
+                {activeImage.label}
+              </div>
+            )}
+          </div>
+        )}
 
-        {imageCandidates.length > 1 && (
+        {showProductImage && imageCandidates.length > 1 && (
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
             {imageCandidates.slice(0, 3).map((candidate, index) => (
               <button
@@ -128,7 +133,7 @@ export function OverviewPanel({
           </div>
         )}
 
-        <div className="mt-6 min-w-0 border-t border-[#282a30] px-2 py-6 sm:px-8 sm:py-8">
+        <div className={`min-w-0 px-2 py-6 sm:px-8 sm:py-8 ${showProductImage ? "mt-6 border-t border-[#282a30]" : ""}`}>
           <h1 className="break-words text-xl font-black uppercase tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.18em]">{title}</h1>
           <div className="mt-5 flex flex-wrap gap-2">
             {metadata.workflow && (

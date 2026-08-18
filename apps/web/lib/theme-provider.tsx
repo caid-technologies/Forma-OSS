@@ -46,7 +46,7 @@ function applyThemeToDocument(theme: FormaTheme) {
 }
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<FormaTheme>("dark");
+  const [theme, setThemeState] = useState<FormaTheme>("solarized-dark");
   const [autoConfig, setAutoConfigState] = useState<AutoThemeConfig>(() => ({
     mode: "manual",
     dayTheme: "light",

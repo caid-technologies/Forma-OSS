@@ -4902,7 +4902,7 @@ export function FormaWorkspace({
           />
         )}
       >
-        <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} serverStatus={serverStatus} authRequired={authRequired} />
+        <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} authRequired={authRequired} />
 	        <main className={`mx-auto w-full ${homeView === "chat" ? "max-w-none" : "max-w-6xl"} ${
 	          homeView === "chat"
 	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-3 sm:pt-4"

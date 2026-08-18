@@ -56,20 +56,15 @@ function ApiConnectionStatus({ status }: { status: ServerConnectionStatus }) {
 
 export function MobileWorkspaceBar({
   onOpenSidebar,
-  serverStatus = "disconnected",
   authRequired,
 }: {
   onOpenSidebar: () => void;
-  serverStatus?: ServerConnectionStatus;
   authRequired: boolean;
 }) {
   return (
     <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
-      <div className="min-w-0 flex flex-1 items-center gap-2">
-        <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
-      </div>
-      <ApiConnectionStatus status={serverStatus} />
+      <div className="min-w-0 flex-1" />
       <AuthStatusControl authRequired={authRequired} compact />
     </header>
   );
@@ -272,7 +267,7 @@ export function ChatSidebar({
           </button>
         </div>
 
-        <div className="px-4 pb-4">
+        <div className={compact ? "px-3 py-3" : "px-4 py-4"}>
           <button
             type="button"
             onClick={() => {
@@ -296,7 +291,7 @@ export function ChatSidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-          {!compact && <div className="mb-3 text-sm text-slate-500">Chats</div>}
+          {!compact && <div className="mb-2 mt-1 text-sm text-slate-500">Chats</div>}
           <div className="space-y-1">
             {chatsLoading ? (
               Array.from({ length: compact ? 5 : 7 }, (_, index) => (

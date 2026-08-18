@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Database,
@@ -10,12 +10,15 @@ import {
   Layers,
   Menu,
   MessageSquare,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pin,
   Plus,
   RefreshCw,
   Settings,
   Terminal,
+  Trash2,
   X,
 } from "lucide-react";
 
@@ -29,6 +32,7 @@ export type ChatListItem = {
   projectId: string;
   createdAt: string | null;
   projectCount: number;
+  pinned?: boolean;
 };
 
 export function EditableWorkspaceTitle({
@@ -208,6 +212,8 @@ export function MobileSidebarDrawer({
   newChatDisabled,
   onOpenChat,
   onRenameChat,
+  onPinChat,
+  onDeleteChat,
   waitingChatIds,
   chatsLoading,
   showJobs,
@@ -226,6 +232,8 @@ export function MobileSidebarDrawer({
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
   onRenameChat?: (item: ChatListItem, title: string) => void;
+  onPinChat?: (item: ChatListItem) => void;
+  onDeleteChat?: (item: ChatListItem) => void;
   waitingChatIds: Set<string>;
   chatsLoading?: boolean;
   showJobs: boolean;
@@ -257,6 +265,8 @@ export function MobileSidebarDrawer({
           newChatDisabled={newChatDisabled}
           onOpenChat={onOpenChat}
           onRenameChat={onRenameChat}
+          onPinChat={onPinChat}
+          onDeleteChat={onDeleteChat}
           waitingChatIds={waitingChatIds}
           chatsLoading={chatsLoading}
           showJobs={showJobs}
@@ -265,6 +275,218 @@ export function MobileSidebarDrawer({
           authRequired={authRequired}
         />
       </div>
+    </div>
+  );
+}
+
+function ChatSidebarRow({
+  chat,
+  compact,
+  active,
+  waiting,
+  renaming,
+  renameDraft,
+  dateLabel,
+  menuOpen,
+  canRename,
+  onRenameDraftChange,
+  onCommitRename,
+  onCancelRename,
+  onStartRename,
+  onOpen,
+  onPin,
+  onDelete,
+  onToggleMenu,
+  onCloseMenu,
+}: {
+  chat: ChatListItem;
+  compact: boolean;
+  active: boolean;
+  waiting: boolean;
+  renaming: boolean;
+  renameDraft: string;
+  dateLabel: string;
+  menuOpen: boolean;
+  canRename: boolean;
+  onRenameDraftChange: (value: string) => void;
+  onCommitRename: () => void;
+  onCancelRename: () => void;
+  onStartRename: () => void;
+  onOpen: () => void;
+  onPin?: () => void;
+  onDelete?: () => void;
+  onToggleMenu: () => void;
+  onCloseMenu: () => void;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const showActions = Boolean(!compact && !renaming && (onPin || onDelete));
+  const rowClassName = `group relative flex w-full min-w-0 items-center gap-1 rounded-lg text-left text-xs font-medium transition-colors ${
+    active
+      ? "bg-emerald-500/10 text-emerald-400"
+      : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
+  } ${compact ? "justify-center px-0 py-2" : "pr-1"}`;
+
+  useEffect(() => {
+    if (!menuOpen) {
+      setMenuPos(null);
+      return;
+    }
+    const updatePosition = () => {
+      const rect = menuRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const menuHeight = 88;
+      const openUpward = rect.bottom + menuHeight > window.innerHeight - 8;
+      setMenuPos({
+        top: openUpward ? Math.max(8, rect.top - menuHeight - 4) : rect.bottom + 4,
+        right: Math.max(8, window.innerWidth - rect.right),
+      });
+    };
+    updatePosition();
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) onCloseMenu();
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCloseMenu();
+    };
+    document.addEventListener("mousedown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    window.addEventListener("resize", onCloseMenu);
+    window.addEventListener("scroll", onCloseMenu, true);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+      window.removeEventListener("resize", onCloseMenu);
+      window.removeEventListener("scroll", onCloseMenu, true);
+    };
+  }, [menuOpen, onCloseMenu]);
+
+  const titleBlock = compact ? (
+    waiting ? (
+      <RefreshCw className={`h-4 w-4 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+    ) : chat.pinned ? (
+      <Pin className={`h-4 w-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+    ) : (
+      <MessageSquare className={`h-4 w-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+    )
+  ) : (
+    <>
+      <div className="min-w-0 flex-1">
+        {renaming ? (
+          <input
+            value={renameDraft}
+            onChange={(event) => onRenameDraftChange(event.target.value)}
+            onBlur={onCommitRename}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                event.preventDefault();
+                onCancelRename();
+              }
+            }}
+            onClick={(event) => event.stopPropagation()}
+            autoFocus
+            aria-label={`Rename ${chat.title}`}
+            className="w-full bg-transparent text-xs font-medium text-zinc-100 outline-none"
+          />
+        ) : (
+          <div className="flex min-w-0 items-center gap-1.5">
+            {chat.pinned && (
+              <Pin className={`h-3 w-3 shrink-0 ${active ? "text-emerald-400" : "text-zinc-500"}`} aria-hidden="true" />
+            )}
+            <div className="truncate">{chat.title}</div>
+          </div>
+        )}
+        {chat.projectCount > 1 && (
+          <div className="mt-0.5 text-[10px] text-zinc-600">{chat.projectCount} projects</div>
+        )}
+      </div>
+      {waiting && (
+        <RefreshCw className={`h-3.5 w-3.5 shrink-0 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+      )}
+      {dateLabel && <div className="shrink-0 text-[10px] text-zinc-600">{dateLabel}</div>}
+    </>
+  );
+
+  if (renaming) {
+    return <div className={`${rowClassName} px-3 py-2`}>{titleBlock}</div>;
+  }
+
+  return (
+    <div className={rowClassName}>
+      <button
+        type="button"
+        onClick={onOpen}
+        onDoubleClick={(event) => {
+          if (compact || !canRename) return;
+          event.preventDefault();
+          event.stopPropagation();
+          onStartRename();
+        }}
+        className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 text-left ${compact ? "justify-center px-0" : "px-3"}`}
+        title={waiting ? `${chat.title} is waiting` : canRename ? `${chat.title}. Double-click to rename.` : chat.title}
+        aria-label={`Open chat ${chat.title}${waiting ? " (waiting)" : ""}${chat.pinned ? ", pinned" : ""}`}
+      >
+        {titleBlock}
+      </button>
+      {showActions && (
+        <div ref={menuRef} className="relative shrink-0">
+          <button
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation();
+              onToggleMenu();
+            }}
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 opacity-0 transition-opacity hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+            aria-label={`More options for ${chat.title}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              className="fixed z-50 w-36 overflow-hidden rounded-lg border border-white/10 bg-[#1f232c] py-1 shadow-xl shadow-black/50"
+              style={menuPos ? { top: menuPos.top, right: menuPos.right } : { visibility: "hidden" }}
+            >
+              {onPin && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCloseMenu();
+                    onPin();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                >
+                  <Pin className="h-3.5 w-3.5" />
+                  {chat.pinned ? "Unpin" : "Pin"}
+                </button>
+              )}
+              {onDelete && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onCloseMenu();
+                    onDelete();
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  Delete
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -324,6 +546,8 @@ export function ChatSidebar({
   newChatDisabled,
   onOpenChat,
   onRenameChat,
+  onPinChat,
+  onDeleteChat,
   waitingChatIds,
   chatsLoading = false,
   showJobs,
@@ -343,6 +567,8 @@ export function ChatSidebar({
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
   onRenameChat?: (item: ChatListItem, title: string) => void;
+  onPinChat?: (item: ChatListItem) => void;
+  onDeleteChat?: (item: ChatListItem) => void;
   waitingChatIds: Set<string>;
   chatsLoading?: boolean;
   showJobs: boolean;
@@ -355,6 +581,7 @@ export function ChatSidebar({
   const compact = !isDrawer && collapsed;
   const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [menuChatId, setMenuChatId] = useState<string | null>(null);
 
   const commitSidebarRename = (chat: ChatListItem) => {
     const nextTitle = renameDraft.trim() || chat.title;
@@ -440,89 +667,40 @@ export function ChatSidebar({
                 </div>
               ))
             ) : chats.length ? (
-              chats.map((chat) => {
-                const active = chat.chatId === activeChatId;
-                const dateLabel = formatSidebarDate(chat.createdAt);
-                const waiting = waitingChatIds.has(chat.chatId);
-                const renaming = !compact && Boolean(onRenameChat) && renamingChatId === chat.chatId;
-                const rowClassName = `flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors ${
-                  active
-                    ? "bg-emerald-500/10 text-emerald-400"
-                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
-                } ${compact ? "justify-center px-0" : ""}`;
-                const rowContent = compact ? (
-                  waiting ? (
-                    <RefreshCw className={`h-4 w-4 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
-                  ) : (
-                    <MessageSquare className={`h-4 w-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
-                  )
-                ) : (
-                  <>
-                    <div className="min-w-0 flex-1">
-                      {renaming ? (
-                        <input
-                          value={renameDraft}
-                          onChange={(event) => setRenameDraft(event.target.value)}
-                          onBlur={() => commitSidebarRename(chat)}
-                          onKeyDown={(event) => {
-                            if (event.key === "Enter") {
-                              event.preventDefault();
-                              event.currentTarget.blur();
-                            }
-                            if (event.key === "Escape") {
-                              event.preventDefault();
-                              setRenameDraft(chat.title);
-                              setRenamingChatId(null);
-                            }
-                          }}
-                          onClick={(event) => event.stopPropagation()}
-                          autoFocus
-                          aria-label={`Rename ${chat.title}`}
-                          className="w-full bg-transparent text-xs font-medium text-zinc-100 outline-none"
-                        />
-                      ) : (
-                        <div className="truncate">{chat.title}</div>
-                      )}
-                      {chat.projectCount > 1 && (
-                        <div className="mt-0.5 text-[10px] text-zinc-600">{chat.projectCount} projects</div>
-                      )}
-                    </div>
-                    {waiting && (
-                      <RefreshCw className={`h-3.5 w-3.5 shrink-0 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
-                    )}
-                    {dateLabel && <div className="shrink-0 text-[10px] text-zinc-600">{dateLabel}</div>}
-                  </>
-                );
-                if (renaming) {
-                  return (
-                    <div key={chat.chatId} className={rowClassName}>
-                      {rowContent}
-                    </div>
-                  );
-                }
-                return (
-                  <button
-                    key={chat.chatId}
-                    type="button"
-                    onClick={() => {
-                      onOpenChat(chat);
-                      onNavigate?.();
-                    }}
-                    onDoubleClick={(event) => {
-                      if (compact || !onRenameChat) return;
-                      event.preventDefault();
-                      event.stopPropagation();
-                      setRenameDraft(chat.title);
-                      setRenamingChatId(chat.chatId);
-                    }}
-                    className={rowClassName}
-                    title={waiting ? `${chat.title} is waiting` : onRenameChat ? `${chat.title}. Double-click to rename.` : chat.title}
-                    aria-label={`Open chat ${chat.title}${waiting ? " (waiting)" : ""}`}
-                  >
-                    {rowContent}
-                  </button>
-                );
-              })
+              chats.map((chat) => (
+                <ChatSidebarRow
+                  key={chat.chatId}
+                  chat={chat}
+                  compact={compact}
+                  active={chat.chatId === activeChatId}
+                  waiting={waitingChatIds.has(chat.chatId)}
+                  renaming={!compact && Boolean(onRenameChat) && renamingChatId === chat.chatId}
+                  renameDraft={renameDraft}
+                  dateLabel={formatSidebarDate(chat.createdAt)}
+                  menuOpen={menuChatId === chat.chatId}
+                  canRename={!compact && Boolean(onRenameChat)}
+                  onRenameDraftChange={setRenameDraft}
+                  onCommitRename={() => commitSidebarRename(chat)}
+                  onCancelRename={() => {
+                    setRenameDraft(chat.title);
+                    setRenamingChatId(null);
+                  }}
+                  onStartRename={() => {
+                    setMenuChatId(null);
+                    setRenameDraft(chat.title);
+                    setRenamingChatId(chat.chatId);
+                  }}
+                  onOpen={() => {
+                    setMenuChatId(null);
+                    onOpenChat(chat);
+                    onNavigate?.();
+                  }}
+                  onPin={onPinChat ? () => onPinChat(chat) : undefined}
+                  onDelete={onDeleteChat ? () => onDeleteChat(chat) : undefined}
+                  onToggleMenu={() => setMenuChatId((current) => (current === chat.chatId ? null : chat.chatId))}
+                  onCloseMenu={() => setMenuChatId(null)}
+                />
+              ))
             ) : (
               !compact && <div className="px-3 py-2 text-xs leading-5 text-zinc-500">No saved chats yet.</div>
             )}

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -16,6 +16,8 @@ from forma_core.persistence.models import (
     DBProjectChat,
     DBProjectBuild,
     DBProjectDeletionAudit,
+    DBProjectRemix,
+    DBProjectSave,
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
     DBProjectRevision,
@@ -574,6 +576,15 @@ class SqlAlchemyRepository:
             session.query(DBProjectWorkflow).filter(DBProjectWorkflow.project_id == project_id).delete(
                 synchronize_session=False
             )
+            session.query(DBProjectSave).filter(DBProjectSave.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBProjectRemix).filter(
+                or_(
+                    DBProjectRemix.remix_project_id == project_id,
+                    DBProjectRemix.source_project_id == project_id,
+                )
+            ).delete(synchronize_session=False)
             session.delete(project)
             session.flush()
             if chat_id and project_owner_user_id:
@@ -664,6 +675,15 @@ class SqlAlchemyRepository:
             session.query(DBProjectWorkflow).filter(DBProjectWorkflow.project_id == project_id).delete(
                 synchronize_session=False
             )
+            session.query(DBProjectSave).filter(DBProjectSave.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBProjectRemix).filter(
+                or_(
+                    DBProjectRemix.remix_project_id == project_id,
+                    DBProjectRemix.source_project_id == project_id,
+                )
+            ).delete(synchronize_session=False)
             session.delete(project)
             return True
 
@@ -901,6 +921,75 @@ class SqlAlchemyRepository:
             session.refresh(signup)
             session.expunge(signup)
             return signup
+
+    def insert_project_save(self, record: Dict[str, Any]) -> bool:
+        try:
+            with self._session() as session, session.begin():
+                existing = session.query(DBProjectSave).filter(
+                    DBProjectSave.project_id == record["project_id"],
+                    DBProjectSave.owner_user_id == record["owner_user_id"],
+                ).first()
+                if existing:
+                    return False
+                session.add(DBProjectSave(**record))
+                return True
+        except IntegrityError:
+            return False
+
+    def delete_project_save(self, project_id: str, owner_user_id: str) -> bool:
+        with self._session() as session, session.begin():
+            deleted = session.query(DBProjectSave).filter(
+                DBProjectSave.project_id == project_id,
+                DBProjectSave.owner_user_id == owner_user_id,
+            ).delete(synchronize_session=False)
+            return bool(deleted)
+
+    def count_project_saves(self, project_ids: List[str]) -> Dict[str, int]:
+        if not project_ids:
+            return {}
+        with self._session() as session:
+            rows = (
+                session.query(DBProjectSave.project_id, func.count(DBProjectSave.id))
+                .filter(DBProjectSave.project_id.in_(project_ids))
+                .group_by(DBProjectSave.project_id)
+                .all()
+            )
+            return {str(project_id): int(count) for project_id, count in rows}
+
+    def list_saved_project_ids(self, owner_user_id: str, project_ids: List[str]) -> List[str]:
+        if not project_ids:
+            return []
+        with self._session() as session:
+            rows = (
+                session.query(DBProjectSave.project_id)
+                .filter(
+                    DBProjectSave.owner_user_id == owner_user_id,
+                    DBProjectSave.project_id.in_(project_ids),
+                )
+                .all()
+            )
+            return [str(row[0]) for row in rows]
+
+    def insert_project_remix(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            remix = DBProjectRemix(**record)
+            session.add(remix)
+            session.flush()
+            session.refresh(remix)
+            session.expunge(remix)
+            return remix
+
+    def count_project_remixes(self, project_ids: List[str]) -> Dict[str, int]:
+        if not project_ids:
+            return {}
+        with self._session() as session:
+            rows = (
+                session.query(DBProjectRemix.source_project_id, func.count(DBProjectRemix.id))
+                .filter(DBProjectRemix.source_project_id.in_(project_ids))
+                .group_by(DBProjectRemix.source_project_id)
+                .all()
+            )
+            return {str(project_id): int(count) for project_id, count in rows}
 
     def get_user_settings(self, owner_user_id: str) -> Optional[Any]:
         with self._session() as session:

@@ -4,11 +4,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   ArrowRight,
+  Bookmark,
   Clock3,
+  GitFork,
   MessageSquare,
   Search,
-  Star,
-  Trash2,
   X,
 } from "lucide-react";
 
@@ -22,7 +22,9 @@ export type ProjectGalleryItem = {
   creatorImageUrl: string | null;
   createdAt: string | null;
   partsCount: number;
-  starCount: number;
+  saveCount: number;
+  remixCount: number;
+  saved: boolean;
   image: ProjectImageCandidate | null;
   imageLoading: boolean;
 };
@@ -208,7 +210,9 @@ export function buildProjectGalleryItems(
               : null,
         createdAt: typeof project.created_at === "string" && project.created_at ? project.created_at : null,
         partsCount: Math.max(0, Number(project.parts_count || project.partsCount || 0)),
-        starCount: Math.max(0, Number(project.star_count || project.starCount || 0)),
+        saveCount: Math.max(0, Number(project.save_count || project.saveCount || 0)),
+        remixCount: Math.max(0, Number(project.remix_count || project.remixCount || 0)),
+        saved: Boolean(project.saved),
         image: fetchedImage || summaryImage,
         imageLoading: !summaryImage && fetchedImage === undefined,
       };
@@ -221,7 +225,8 @@ export function ProjectGallery({
   title = "Projects",
   loading = false,
   onOpenProjectPage,
-  onDeleteProject,
+  onToggleSave,
+  onRemixProject,
   onVisibleProjectIdsChange,
   totalItems,
   currentPage: controlledPage,
@@ -235,7 +240,8 @@ export function ProjectGallery({
   title?: string;
   loading?: boolean;
   onOpenProjectPage: (projectId: string) => void;
-  onDeleteProject?: (item: ProjectGalleryItem) => void;
+  onToggleSave?: (item: ProjectGalleryItem) => void | Promise<void>;
+  onRemixProject?: (item: ProjectGalleryItem) => void | Promise<void>;
   onVisibleProjectIdsChange?: (projectIds: string[]) => void;
   totalItems?: number;
   currentPage?: number;
@@ -333,7 +339,8 @@ export function ProjectGallery({
                 key={item.key}
                 item={item}
                 onOpen={() => onOpenProjectPage(item.projectId)}
-                onDelete={onDeleteProject && item.canChat ? () => onDeleteProject(item) : undefined}
+                onToggleSave={onToggleSave ? () => onToggleSave(item) : undefined}
+                onRemix={onRemixProject ? () => onRemixProject(item) : undefined}
               />
             ))}
           </div>
@@ -486,16 +493,110 @@ function ProjectGalleryPlaceholderThumb() {
   );
 }
 
+function formatGalleryMetricCount(count: number) {
+  if (count < 10) return null;
+  if (count < 1000) return String(count);
+  if (count < 10_000) {
+    const compact = Math.round(count / 100) / 10;
+    return `${compact.toString().replace(/\.0$/, "")}k`;
+  }
+  if (count < 1_000_000) return `${Math.round(count / 1000)}k`;
+  const compact = Math.round(count / 100_000) / 10;
+  return `${compact.toString().replace(/\.0$/, "")}M`;
+}
+
+function ProjectGalleryMetric({
+  icon: Icon,
+  count,
+  label,
+  active = false,
+  interactive = false,
+  busy = false,
+  pressed,
+  onClick,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  count: number;
+  label: string;
+  active?: boolean;
+  interactive?: boolean;
+  busy?: boolean;
+  pressed?: boolean;
+  onClick?: () => void;
+}) {
+  const visibleCount = formatGalleryMetricCount(count);
+  const className = `inline-flex items-center gap-1 whitespace-nowrap ${
+    active ? "text-emerald-400" : "text-zinc-500"
+  }`;
+  const content = (
+    <>
+      <Icon className={`h-3.5 w-3.5 ${active ? "fill-current" : ""}`} />
+      {visibleCount ? <span className="tabular-nums">{visibleCount}</span> : null}
+    </>
+  );
+  if (!interactive || !onClick) {
+    return (
+      <span className={className} title={`${count} ${label}`}>
+        {content}
+        <span className="sr-only">{`${count} ${label}`}</span>
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      onKeyDown={(event) => event.stopPropagation()}
+      className={`${className} rounded-md transition-colors hover:text-zinc-200 disabled:opacity-50`}
+      aria-label={label}
+      aria-pressed={typeof pressed === "boolean" ? pressed : undefined}
+      title={`${count} ${label}`}
+    >
+      {content}
+    </button>
+  );
+}
+
 function ProjectGalleryCard({
   item,
   onOpen,
-  onDelete,
+  onToggleSave,
+  onRemix,
 }: {
   item: ProjectGalleryItem;
   onOpen: () => void;
-  onDelete?: () => void;
+  onToggleSave?: () => void | Promise<void>;
+  onRemix?: () => void | Promise<void>;
 }) {
   const ageLabel = formatProjectAge(item.createdAt);
+  const [saveBusy, setSaveBusy] = useState(false);
+  const [remixBusy, setRemixBusy] = useState(false);
+  const interactive = Boolean(onToggleSave || onRemix);
+
+  const handleSave = async () => {
+    if (!onToggleSave || saveBusy) return;
+    setSaveBusy(true);
+    try {
+      await onToggleSave();
+    } finally {
+      setSaveBusy(false);
+    }
+  };
+
+  const handleRemix = async () => {
+    if (!onRemix || remixBusy) return;
+    setRemixBusy(true);
+    try {
+      await onRemix();
+    } finally {
+      setRemixBusy(false);
+    }
+  };
+
   return (
     <article
       role="link"
@@ -525,15 +626,33 @@ function ProjectGalleryCard({
       </div>
 
       <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
-        <h3 className="line-clamp-2 min-h-10 break-words text-sm font-medium leading-5 text-zinc-100">
-          {item.title}
-        </h3>
+        <div className="flex min-w-0 items-start gap-2">
+          <h3 className="min-h-10 min-w-0 flex-1 line-clamp-2 break-words text-sm font-medium leading-5 text-zinc-100">
+            {item.title}
+          </h3>
+          <div className="flex shrink-0 items-center gap-2 pt-0.5 text-xs font-medium">
+            <ProjectGalleryMetric
+              icon={Bookmark}
+              count={item.saveCount}
+              label={item.saved ? "saves" : interactive ? "Save project" : "saves"}
+              active={item.saved}
+              pressed={item.saved}
+              interactive={Boolean(onToggleSave)}
+              busy={saveBusy}
+              onClick={handleSave}
+            />
+            <ProjectGalleryMetric
+              icon={GitFork}
+              count={item.remixCount}
+              label={interactive ? "Remix project" : "remixes"}
+              interactive={Boolean(onRemix)}
+              busy={remixBusy}
+              onClick={handleRemix}
+            />
+          </div>
+        </div>
         <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-zinc-500">
           <span className="whitespace-nowrap">{item.partsCount} parts</span>
-          <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-300">
-            <Star className="h-3.5 w-3.5 fill-current" />
-            {item.starCount}
-          </span>
           {ageLabel && (
             <span className="inline-flex items-center gap-1 whitespace-nowrap">
               <Clock3 className="h-3.5 w-3.5" />
@@ -554,28 +673,12 @@ function ProjectGalleryCard({
             )}
             <span className="truncate">{item.creatorDisplay}</span>
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {onDelete && (
-              <button
-                type="button"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onDelete();
-                }}
-                onKeyDown={(event) => event.stopPropagation()}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-400/35 text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
-                aria-label={`Delete ${item.title}`}
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
-            )}
-            {item.canChat && (
-              <span className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400 transition-colors">
-                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">Your project</span>
-              </span>
-            )}
-          </div>
+          {item.canChat && (
+            <span className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400 transition-colors">
+              <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">Your project</span>
+            </span>
+          )}
         </div>
       </div>
     </article>

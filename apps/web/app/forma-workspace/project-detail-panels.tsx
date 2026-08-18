@@ -30,7 +30,7 @@ const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const MechanicalScene = dynamic(() => import("../../components/mechanical-scene"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full min-h-[420px] items-center justify-center bg-[#0a0b0e] text-xs font-black uppercase tracking-[0.16em] text-slate-600">
+    <div className="flex h-full min-h-[420px] items-center justify-center bg-[var(--forma-page)] text-xs font-black uppercase tracking-[0.16em] text-[var(--forma-text-muted)]">
       Loading mechanical preview...
     </div>
   ),
@@ -474,7 +474,7 @@ export function MechanicalPanel({
   const relationships = mechanical.spatial_relationships || metadata.spatial_relationships || [];
 
   return (
-    <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[#0a0b0e]">
+    <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[var(--forma-page)]">
       <MechanicalScene
         dimensions={dimensions}
         components={components}

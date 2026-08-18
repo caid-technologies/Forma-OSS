@@ -61,6 +61,7 @@ import {
   buildProjectGalleryItems,
   previewableImageSrc,
   resolveProjectImageCandidates,
+  type ProjectGalleryItem,
   type ProjectImageCandidate,
 } from "./forma-workspace/project-gallery";
 import {
@@ -133,6 +134,7 @@ const RECOVERY_JOB_MAX_BACKOFF_MS = 60000;
 const LOG_POLL_INTERVAL_MS = 5000;
 const CHAT_THREAD_STORAGE_PREFIX = "forma.chat.";
 const CHAT_INDEX_STORAGE_KEY = "forma.chatIndex";
+const PINNED_CHATS_STORAGE_KEY = "forma.pinnedChats";
 const LEGACY_PROJECT_CHAT_STORAGE_PREFIX = "forma.projectChat.";
 const MAX_PROJECT_CHAT_MESSAGES = 80;
 const MAX_CHAT_INDEX_ITEMS = 200;
@@ -576,7 +578,9 @@ function normalizeProjectHistoryRecord(value: any): any | null {
     creator_username: creatorDisplay,
     creator_image_url: creatorImageUrl,
     parts_count: Math.max(0, Number(value.parts_count || value.partsCount || 0)),
-    star_count: Math.max(0, Number(value.star_count || value.starCount || 0)),
+    save_count: Math.max(0, Number(value.save_count || value.saveCount || 0)),
+    remix_count: Math.max(0, Number(value.remix_count || value.remixCount || 0)),
+    saved: Boolean(value.saved),
   };
 }
 
@@ -1061,6 +1065,44 @@ function writeStoredChatIndex(items: ChatListItem[], scope = "local") {
   }
 }
 
+function pinnedChatsStorageKey(scope = "local") {
+  return scope === "local"
+    ? PINNED_CHATS_STORAGE_KEY
+    : `${PINNED_CHATS_STORAGE_KEY}.${encodeURIComponent(scope)}`;
+}
+
+function readPinnedChatIds(scope = "local"): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(pinnedChatsStorageKey(scope));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? parsed.filter((value: unknown): value is string => typeof value === "string" && Boolean(value.trim()))
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writePinnedChatIds(ids: Iterable<string>, scope = "local") {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(pinnedChatsStorageKey(scope), JSON.stringify(Array.from(ids)));
+  } catch {
+    // Pinned chat ids are best-effort.
+  }
+}
+
+function removeStoredChatThread(chatId: string, scope = "local") {
+  if (typeof window === "undefined" || !chatId) return;
+  try {
+    window.localStorage.removeItem(chatThreadStorageKey(chatId, scope));
+  } catch {
+    // Local chat history is best-effort.
+  }
+}
+
 function chatListItemTime(value: string | null | undefined): number {
   const normalizedValue = value?.trim() || "";
   // Project creation timestamps have historically been emitted as UTC without a
@@ -1082,9 +1124,10 @@ function latestChatListItemDate(
 }
 
 function sortChatListItems(items: ChatListItem[]): ChatListItem[] {
-  return [...items].sort(
-    (left, right) => chatListItemTime(right.createdAt) - chatListItemTime(left.createdAt)
-  );
+  return [...items].sort((left, right) => {
+    if (Boolean(left.pinned) !== Boolean(right.pinned)) return left.pinned ? -1 : 1;
+    return chatListItemTime(right.createdAt) - chatListItemTime(left.createdAt);
+  });
 }
 
 function upsertChatListItem(items: ChatListItem[], item: Partial<ChatListItem> & { chatId: string }): ChatListItem[] {
@@ -1647,6 +1690,7 @@ export function FormaWorkspace({
   const [privateChatsLoaded, setPrivateChatsLoaded] = useState(false);
   const [chatIndexLoaded, setChatIndexLoaded] = useState(false);
   const [sessionChatItems, setSessionChatItems] = useState<ChatListItem[]>([]);
+  const [pinnedChatIds, setPinnedChatIds] = useState<Set<string>>(new Set());
   const [projectGalleryImages, setProjectGalleryImages] = useState<Record<string, ProjectImageCandidate | null>>({});
   const [visibleProjectGalleryIds, setVisibleProjectGalleryIds] = useState<string[]>([]);
   const [routeProjectError, setRouteProjectError] = useState<string | null>(null);
@@ -1731,8 +1775,13 @@ export function FormaWorkspace({
     [authRequired, localChatItems, privateChatItems, sessionChatItems]
   );
   const chatListItems = useMemo(
-    () => buildChatListItems(visibleChatSourceProjects, visibleChatSourceItems),
-    [visibleChatSourceProjects, visibleChatSourceItems]
+    () => sortChatListItems(
+      buildChatListItems(visibleChatSourceProjects, visibleChatSourceItems).map((item) => ({
+        ...item,
+        pinned: pinnedChatIds.has(item.chatId),
+      }))
+    ),
+    [pinnedChatIds, visibleChatSourceProjects, visibleChatSourceItems]
   );
   const projectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
@@ -2084,6 +2133,81 @@ export function FormaWorkspace({
     }
   }, [getToken, isSignedIn]);
 
+  const canInteractWithGallery = !authRequired || Boolean(isSignedIn);
+
+  const patchProjectEngagement = useCallback((
+    projectId: string,
+    updates: { saved?: boolean; save_count?: number; remix_count?: number },
+  ) => {
+    const apply = (projects: any[]) => projects.map((project) => (
+      project?.project_id === projectId ? { ...project, ...updates } : project
+    ));
+    setProjectHistory(apply);
+    setMyProjectHistory(apply);
+  }, []);
+
+  const handleToggleProjectSave = useCallback(async (item: ProjectGalleryItem) => {
+    if (!canInteractWithGallery) return;
+    const nextSaved = !item.saved;
+    const nextCount = Math.max(0, item.saveCount + (nextSaved ? 1 : -1));
+    patchProjectEngagement(item.projectId, { saved: nextSaved, save_count: nextCount });
+    try {
+      const response = await fetch(`${API_URL}/projects/${encodeURIComponent(item.projectId)}/save`, {
+        method: nextSaved ? "POST" : "DELETE",
+        headers: await generationRequestHeaders(),
+      });
+      if (!response.ok) {
+        noteAuthResponseStatus(response.status);
+        throw new Error(await readApiErrorMessage(response));
+      }
+      const data = await response.json();
+      patchProjectEngagement(item.projectId, {
+        saved: Boolean(data.saved),
+        save_count: Math.max(0, Number(data.save_count ?? nextCount)),
+      });
+    } catch (error) {
+      patchProjectEngagement(item.projectId, { saved: item.saved, save_count: item.saveCount });
+      console.error("Could not update project save", error);
+    }
+  }, [canInteractWithGallery, generationRequestHeaders, noteAuthResponseStatus, patchProjectEngagement]);
+
+  const handleRemixProject = useCallback(async (item: ProjectGalleryItem) => {
+    if (!canInteractWithGallery) return;
+    try {
+      const response = await fetch(`${API_URL}/projects/${encodeURIComponent(item.projectId)}/remix`, {
+        method: "POST",
+        headers: await generationRequestHeaders(),
+      });
+      if (!response.ok) {
+        noteAuthResponseStatus(response.status);
+        throw new Error(await readApiErrorMessage(response));
+      }
+      const data = await response.json();
+      patchProjectEngagement(item.projectId, {
+        remix_count: Math.max(0, Number(data.remix_count ?? item.remixCount + 1)),
+      });
+      if (data.project_id) {
+        rememberProjectRecord({
+          project_id: data.project_id,
+          chat_id: data.chat_id || "",
+          title: data.title || `${item.title} remix`,
+          prompt: data.prompt || item.title,
+          created_at: data.created_at || chatTimestamp(),
+          can_chat: true,
+          creator_display: "you",
+          creator_image_url: userImageUrl,
+          parts_count: item.partsCount,
+          save_count: 0,
+          remix_count: 0,
+          saved: false,
+        });
+        router.push(projectRoute(String(data.project_id)));
+      }
+    } catch (error) {
+      console.error("Could not remix project", error);
+    }
+  }, [canInteractWithGallery, generationRequestHeaders, noteAuthResponseStatus, patchProjectEngagement, router, userImageUrl]);
+
   const openProjectDeletion = useCallback((project: PendingProjectDeletion) => {
     setPendingProjectDeletion(project);
     setDeletionAcknowledged(false);
@@ -2096,6 +2220,40 @@ export function FormaWorkspace({
     setPendingProjectDeletion(null);
     setProjectDeletionError(null);
   }, [projectDeletionBusy]);
+
+  const forgetChatRecords = (chatIds: string[]) => {
+    if (!chatIds.length) return;
+    const idSet = new Set(chatIds);
+    chatIds.forEach((chatId) => {
+      const existingTimer = chatPersistenceTimersRef.current[chatId];
+      if (existingTimer) window.clearTimeout(existingTimer);
+      delete chatPersistenceTimersRef.current[chatId];
+      removeStoredChatThread(chatId, chatStorageScope);
+    });
+    setLocalChatItems((current) => {
+      const nextItems = current.filter((item) => !idSet.has(item.chatId));
+      writeStoredChatIndex(nextItems, chatStorageScope);
+      return nextItems;
+    });
+    setPrivateChatItems((current) => current.filter((item) => !idSet.has(item.chatId)));
+    setSessionChatItems((current) => current.filter((item) => !idSet.has(item.chatId)));
+    setChatThreads((current) => {
+      const next = { ...current };
+      chatIds.forEach((chatId) => {
+        delete next[chatId];
+      });
+      return next;
+    });
+    setPinnedChatIds((current) => {
+      let changed = false;
+      const next = new Set(current);
+      chatIds.forEach((chatId) => {
+        if (next.delete(chatId)) changed = true;
+      });
+      if (changed) writePinnedChatIds(next, chatStorageScope);
+      return changed ? next : current;
+    });
+  };
 
   const confirmProjectDeletion = async () => {
     if (!pendingProjectDeletion || !deletionAcknowledged || projectDeletionBusy) return;
@@ -2124,6 +2282,9 @@ export function FormaWorkspace({
         headers,
       });
       if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const relatedChatIds = chatListItems
+        .filter((item) => item.projectId === projectId)
+        .map((item) => item.chatId);
       setProjectHistory((projects) => projects.filter((project: any) => project?.project_id !== projectId));
       setMyProjectHistory((projects) => projects.filter((project: any) => project?.project_id !== projectId));
       setProjectGalleryImages((images) => {
@@ -2131,8 +2292,20 @@ export function FormaWorkspace({
         delete next[projectId];
         return next;
       });
+      forgetChatRecords(relatedChatIds);
+      relatedChatIds.forEach((chatId) => {
+        void fetch(`${API_URL}/chats/${encodeURIComponent(chatId)}`, {
+          method: "DELETE",
+          headers,
+        }).catch(() => {});
+      });
       setPendingProjectDeletion(null);
-      if (currentRouteProjectId && safeDecodeProjectId(currentRouteProjectId) === projectId) goHome();
+      if (
+        (currentRouteProjectId && safeDecodeProjectId(currentRouteProjectId) === projectId) ||
+        (activeChatId && relatedChatIds.includes(activeChatId))
+      ) {
+        goHome();
+      }
       void fetchProjectHistory();
       void fetchMyProjectHistory();
       void fetchPrivateChats();
@@ -2418,6 +2591,7 @@ export function FormaWorkspace({
 
   useLayoutEffect(() => {
     setLocalChatItems(authRequired ? [] : readStoredChatIndex(chatStorageScope));
+    setPinnedChatIds(new Set(readPinnedChatIds(chatStorageScope)));
     setChatIndexLoaded(true);
     setChatMessages((current) => (
       current.length === 1 && current[0]?.id === "assistant-welcome"
@@ -3236,7 +3410,9 @@ export function FormaWorkspace({
             creator_display: "you",
             creator_image_url: userImageUrl,
             parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
-            star_count: 0,
+            save_count: 0,
+            remix_count: 0,
+            saved: false,
           });
           rememberChatItem({
             chatId,
@@ -3951,7 +4127,9 @@ export function FormaWorkspace({
         creator_display: "you",
         creator_image_url: userImageUrl,
         parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
-        star_count: 0,
+        save_count: 0,
+        remix_count: 0,
+        saved: false,
       });
       const successMessage = `${ir?.overview?.title || "Project"} is ready. I generated the project object, wiring view, BOM, docs, and validation metadata.`;
       rememberChatItem({
@@ -4013,7 +4191,9 @@ export function FormaWorkspace({
           creator_display: "you",
           creator_image_url: userImageUrl,
           parts_count: Array.isArray(mockRes.project_ir?.components) ? mockRes.project_ir.components.length : 0,
-          star_count: 0,
+          save_count: 0,
+          remix_count: 0,
+          saved: false,
         });
         rememberChatItem({
           chatId: requestChatId,
@@ -4157,7 +4337,9 @@ export function FormaWorkspace({
         creator_display: "you",
         creator_image_url: userImageUrl,
         parts_count: Array.isArray(ir?.components) ? ir.components.length : 0,
-        star_count: 0,
+        save_count: 0,
+        remix_count: 0,
+        saved: false,
       });
       const revision = data?.iteration?.revision || ir?.assembly_metadata?.revision;
       const successMessage = `${ir?.overview?.title || "Project"} was updated${revision ? ` to revision ${revision}` : ""}.`;
@@ -4718,6 +4900,36 @@ export function FormaWorkspace({
   const renameSidebarChat = (item: ChatListItem, title: string) => {
     void commitOwnedWorkspaceTitle(title, { chatId: item.chatId, projectId: item.projectId || null });
   };
+  const togglePinnedChat = (item: ChatListItem) => {
+    setPinnedChatIds((current) => {
+      const next = new Set(current);
+      if (next.has(item.chatId)) next.delete(item.chatId);
+      else next.add(item.chatId);
+      writePinnedChatIds(next, chatStorageScope);
+      return next;
+    });
+  };
+  const deleteSidebarChat = (item: ChatListItem) => {
+    if (item.projectId) {
+      openProjectDeletion({ projectId: item.projectId, title: item.title });
+      return;
+    }
+    forgetChatRecords([item.chatId]);
+    void (async () => {
+      try {
+        const res = await fetch(`${API_URL}/chats/${encodeURIComponent(item.chatId)}`, {
+          method: "DELETE",
+          headers: await generationRequestHeaders(),
+        });
+        if (!res.ok && res.status !== 404) throw new Error(await readApiErrorMessage(res));
+      } catch (error) {
+        console.error("Error deleting chat", error);
+      }
+    })();
+    if (activeChatId === item.chatId || (typeof window !== "undefined" && window.location.pathname === chatRoute(item.chatId))) {
+      goHome();
+    }
+  };
   const newChatDisabled = homeView === "chat" && !routedProjectId && !activeSidebarChatStarted;
   const homeChromeRef = useRef<HTMLDivElement>(null);
   const { headerAway: homeHeaderAway, bindCapture: bindHomeChromeScroll } = useChromeHeaderScroll(
@@ -4897,6 +5109,8 @@ export function FormaWorkspace({
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
+            onPinChat={togglePinnedChat}
+            onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4916,6 +5130,8 @@ export function FormaWorkspace({
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
+            onPinChat={togglePinnedChat}
+            onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4929,6 +5145,17 @@ export function FormaWorkspace({
           transition={visibleChatRouteTransition}
           onHome={goHome}
           onOpenSidebar={() => setMobileSidebarOpen(true)}
+        />
+        <ProjectDeletionDialog
+          project={pendingProjectDeletion}
+          acknowledged={deletionAcknowledged}
+          contribute={contributeDeletedProject}
+          busy={projectDeletionBusy}
+          error={projectDeletionError}
+          onAcknowledgedChange={setDeletionAcknowledged}
+          onContributeChange={setContributeDeletedProject}
+          onCancel={closeProjectDeletion}
+          onConfirm={confirmProjectDeletion}
         />
       </WorkspaceFrame>
     );
@@ -4952,6 +5179,8 @@ export function FormaWorkspace({
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
+            onPinChat={togglePinnedChat}
+            onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4971,6 +5200,8 @@ export function FormaWorkspace({
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
+            onPinChat={togglePinnedChat}
+            onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4985,6 +5216,17 @@ export function FormaWorkspace({
           error={routeProjectError}
           onHome={goHome}
           onOpenSidebar={() => setMobileSidebarOpen(true)}
+        />
+        <ProjectDeletionDialog
+          project={pendingProjectDeletion}
+          acknowledged={deletionAcknowledged}
+          contribute={contributeDeletedProject}
+          busy={projectDeletionBusy}
+          error={projectDeletionError}
+          onAcknowledgedChange={setDeletionAcknowledged}
+          onContributeChange={setContributeDeletedProject}
+          onCancel={closeProjectDeletion}
+          onConfirm={confirmProjectDeletion}
         />
       </WorkspaceFrame>
     );
@@ -5009,6 +5251,8 @@ export function FormaWorkspace({
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
+            onPinChat={togglePinnedChat}
+            onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -5028,6 +5272,8 @@ export function FormaWorkspace({
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
+            onPinChat={togglePinnedChat}
+            onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -5085,7 +5331,8 @@ export function FormaWorkspace({
                 title="Community"
                 loading={projectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
-                onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
+                onToggleSave={canInteractWithGallery ? handleToggleProjectSave : undefined}
+                onRemixProject={canInteractWithGallery ? handleRemixProject : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 totalItems={projectHistoryTotal}
                 currentPage={projectHistoryPage}
@@ -5101,7 +5348,8 @@ export function FormaWorkspace({
                 title="My projects"
                 loading={myProjectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
-                onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
+                onToggleSave={canInteractWithGallery ? handleToggleProjectSave : undefined}
+                onRemixProject={canInteractWithGallery ? handleRemixProject : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 totalItems={myProjectHistoryTotal}
                 currentPage={myProjectHistoryPage}
@@ -5313,6 +5561,8 @@ export function FormaWorkspace({
           newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
+          onPinChat={togglePinnedChat}
+          onDeleteChat={deleteSidebarChat}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
           showJobs={canViewJobs}
@@ -5332,6 +5582,8 @@ export function FormaWorkspace({
           newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
+          onPinChat={togglePinnedChat}
+          onDeleteChat={deleteSidebarChat}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
           showJobs={canViewJobs}
@@ -5446,7 +5698,7 @@ function ProjectDeletionDialog({
           </div>
         </div>
         <p className="mt-5 text-sm leading-6 text-zinc-300">
-          The project will be removed from your workspace immediately and permanently deleted after the configured retention period (30 days by default).
+          Removed from your workspace now. Permanently deleted after 30 days.
         </p>
         <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-[#0f1117] p-4 text-sm leading-5 text-zinc-300">
           <input
@@ -5456,7 +5708,7 @@ function ProjectDeletionDialog({
             disabled={busy}
             className="mt-0.5 h-4 w-4 accent-red-400"
           />
-          <span>I understand this project will no longer be accessible from my workspace.</span>
+          <span>I understand I will lose access to this project.</span>
         </label>
         <div className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
           <label className="flex cursor-pointer items-start gap-3 text-sm font-medium leading-5 text-zinc-200">
@@ -5467,10 +5719,10 @@ function ProjectDeletionDialog({
               disabled={busy}
               className="mt-0.5 h-4 w-4 accent-emerald-400"
             />
-            <span>Allow CAID Technologies to retain a sanitized copy of this project for product research, evaluations, and AI system improvement.</span>
+            <span>Keep a sanitized copy for product research.</span>
           </label>
           <p className="mt-3 text-xs leading-5 text-zinc-500">
-            CAID Technologies may retain an aggregate copy that removes account identifiers, prompts, credentials, URLs, and identifying metadata. You may withdraw permission before it is irreversibly anonymized; after anonymization it can no longer be linked back or withdrawn.
+            Personal details are removed. You can withdraw until the copy is anonymized.
           </p>
           <div className="mt-3 flex flex-wrap gap-4 text-xs font-medium">
             <a href="/legal/privacy-policy" target="_blank" rel="noreferrer" className="text-emerald-400 transition-colors hover:text-emerald-300">Privacy policy</a>
@@ -5631,7 +5883,9 @@ function projectRecordsFromChatItems(chatItems: ChatListItem[]): any[] {
       creator_username: "unknown",
       creator_image_url: null,
       parts_count: 0,
-      star_count: 0,
+      save_count: 0,
+      remix_count: 0,
+      saved: false,
     }));
 }
 

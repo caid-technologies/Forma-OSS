@@ -226,6 +226,26 @@ class DBProjectChat(Base):
     updated_at = Column(String, nullable=False)
 
 
+class DBProjectSave(Base):
+    __tablename__ = "project_saves"
+    __table_args__ = (UniqueConstraint("project_id", "owner_user_id", name="uq_project_saves_project_user"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
+class DBProjectRemix(Base):
+    __tablename__ = "project_remixes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    remix_project_id = Column(String, unique=True, index=True, nullable=False)
+    source_project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    created_at = Column(String, nullable=False)
+
+
 class DBAlphaSignup(Base):
     __tablename__ = "alpha_signups"
 

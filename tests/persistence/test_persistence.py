@@ -82,6 +82,8 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIn("error_debug_json", client.projections["a2a_jobs"])
         self.assertIn("visibility", client.projections["generated_projects"])
         self.assertIn("model_training_opt_out", client.projections["user_settings"])
+        self.assertIn("remix_project_id", client.projections["project_remixes"])
+        self.assertIn("project_id", client.projections["project_saves"])
 
     def test_supabase_provider_propagates_original_readiness_error(self) -> None:
         failure = ConnectionError("[Errno 111] Connection refused")
@@ -415,6 +417,64 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIsNone(default_settings)
         self.assertTrue(opted_out.model_training_opt_out)
         self.assertEqual(["user_opted_out"], opted_out_ids)
+
+    def test_project_saves_and_remixes_are_counted_from_persisted_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            repository = SqlAlchemyRepository(provider.session_factory)
+            provider.initialize()
+            original_repository = database._DATABASE_REPOSITORY
+            try:
+                database._DATABASE_REPOSITORY = repository
+                source_id = str(uuid.uuid4())
+                database.save_generated_project(
+                    project_id=source_id,
+                    title="Desk lamp",
+                    prompt="Build a desk lamp.",
+                    hardware_ir={"assembly_metadata": {}},
+                    created_at="2026-08-18T12:00:00Z",
+                    chat_id="chat-source",
+                    owner_user_id="owner-a",
+                    visibility="public",
+                )
+                first_save = database.save_project_for_user(source_id, "user-b")
+                second_save = database.save_project_for_user(source_id, "user-b")
+                database.save_project_for_user(source_id, "user-c")
+                remixed = database.remix_generated_project(source_id, "user-b")
+                remixed_id = remixed.project_id if remixed is not None else None
+                remixed_owner = getattr(remixed, "owner_user_id", None) if remixed is not None else None
+                remixed_source = (
+                    ((remixed.hardware_ir or {}).get("assembly_metadata") or {}).get("source_project_id")
+                    if remixed is not None
+                    else None
+                )
+                engagement = database.project_engagement_for_ids([source_id], "user-b")
+                unsaved = database.unsave_project_for_user(source_id, "user-b")
+                after_unsave = database.project_engagement_for_ids([source_id], "user-b")
+            finally:
+                database._DATABASE_REPOSITORY = original_repository
+
+        self.assertTrue(first_save["saved"])
+        self.assertEqual(1, first_save["save_count"])
+        self.assertTrue(second_save["saved"])
+        self.assertEqual(1, second_save["save_count"])
+        self.assertIsNotNone(remixed_id)
+        self.assertNotEqual(source_id, remixed_id)
+        self.assertEqual("user-b", remixed_owner)
+        self.assertEqual(source_id, remixed_source)
+        self.assertEqual(2, engagement[source_id]["save_count"])
+        self.assertEqual(1, engagement[source_id]["remix_count"])
+        self.assertTrue(engagement[source_id]["saved"])
+        self.assertFalse(unsaved["saved"])
+        self.assertEqual(1, unsaved["save_count"])
+        self.assertFalse(after_unsave[source_id]["saved"])
+        self.assertEqual(1, after_unsave[source_id]["save_count"])
+        self.assertEqual(1, after_unsave[source_id]["remix_count"])
 
     @staticmethod
     def _create_legacy_job_database(path: Path) -> None:

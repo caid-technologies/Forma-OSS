@@ -1673,15 +1673,11 @@ function ThemeSettingsPanel() {
         {/* Compact Auto Day/Night Banner & Switch */}
         <div className="flex flex-col gap-3 rounded-xl border border-[#2c2f37] bg-[#101115] p-3.5 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
-            <div
-              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
-                themeMode === "auto"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
-                  : "border-zinc-700/40 bg-zinc-800/30 text-slate-400"
+            <Sparkles
+              className={`h-4 w-4 shrink-0 ${
+                themeMode === "auto" ? "text-emerald-400" : "text-slate-400"
               }`}
-            >
-              <Sparkles className="h-4 w-4" />
-            </div>
+            />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-xs font-semibold text-white">Auto Day / Night Schedule</span>

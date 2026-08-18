@@ -121,6 +121,67 @@ export const arcticLight = {
   violet: "#7e22ce",
 } as const;
 
+/** Lighting and clear-color for the 3D canvas so it matches each appearance. */
+export type MechanicalSceneAppearance = {
+  background: string;
+  fog: string;
+  ambientIntensity: number;
+  hemisphereSky: string;
+  hemisphereGround: string;
+  hemisphereIntensity: number;
+  keyLight: string;
+  keyLightIntensity: number;
+  selectedEdge: string;
+  fillOpacity: number;
+  selectedFillOpacity: number;
+};
+
+export const mechanicalSceneAppearance: Record<FormaTheme, MechanicalSceneAppearance> = {
+  "solarized-dark": {
+    background: solarizedDark.base03,
+    fog: solarizedDark.base03,
+    ambientIntensity: 0.72,
+    hemisphereSky: solarizedDark.base02,
+    hemisphereGround: solarizedDark.base04,
+    hemisphereIntensity: 0.55,
+    keyLight: solarizedDark.base1,
+    keyLightIntensity: 0.62,
+    selectedEdge: solarizedDark.base3,
+    fillOpacity: 0.06,
+    selectedFillOpacity: 0.16,
+  },
+  light: {
+    background: solarizedLight.base2,
+    fog: solarizedLight.base2,
+    ambientIntensity: 1.05,
+    hemisphereSky: solarizedLight.base3,
+    hemisphereGround: solarizedLight.base2,
+    hemisphereIntensity: 0.7,
+    keyLight: solarizedLight.base3,
+    keyLightIntensity: 0.85,
+    selectedEdge: solarizedLight.base02,
+    fillOpacity: 0.12,
+    selectedFillOpacity: 0.22,
+  },
+  arctic: {
+    background: arcticLight.page,
+    fog: arcticLight.page,
+    ambientIntensity: 1.12,
+    hemisphereSky: arcticLight.surface,
+    hemisphereGround: arcticLight.page,
+    hemisphereIntensity: 0.78,
+    keyLight: arcticLight.surface,
+    keyLightIntensity: 0.9,
+    selectedEdge: arcticLight.textStrong,
+    fillOpacity: 0.1,
+    selectedFillOpacity: 0.2,
+  },
+};
+
+export function sceneAppearanceForTheme(theme: FormaTheme): MechanicalSceneAppearance {
+  return mechanicalSceneAppearance[theme] || mechanicalSceneAppearance["solarized-dark"];
+}
+
 export function normalizeTheme(value: unknown): FormaTheme {
   if (value === "solarized-light" || value === "light") return "light";
   if (value === "arctic") return "arctic";

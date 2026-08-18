@@ -69,7 +69,7 @@ export default function PartnersPage() {
           </div>
           <div className="grid gap-3 p-5 sm:grid-cols-2 xl:grid-cols-4">
             {aboutMarqueePartners.map((partner) => {
-              const lightSurface = partner.logoSurface === "light";
+              const lightSurface = "logoSurface" in partner && partner.logoSurface === "light";
               return (
                 <div
                   key={partner.slug}

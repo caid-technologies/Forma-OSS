@@ -10,8 +10,8 @@
 !apps/__init__.py
 !apps/api
 !apps/api/**
-!blueprint_core
-!blueprint_core/**
+!forma_core
+!forma_core/**
 !apps/web
 !apps/web/**
 
@@ -46,7 +46,7 @@ __pycache__
 *.db
 *.log
 .logs
-.blueprint
+.forma
 .spacebase
 tmp
 data

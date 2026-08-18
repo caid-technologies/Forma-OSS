@@ -9,9 +9,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.api import a2a
-from blueprint_core import user_integrations
-from blueprint_core.image_providers import build_image_provider
-from blueprint_core.user_integrations import UserIntegrationStore
+from forma_core import user_integrations
+from forma_core.image_providers import build_image_provider
+from forma_core.user_integrations import UserIntegrationStore
 
 
 class A2AUserIntegrationTests(unittest.TestCase):
@@ -93,7 +93,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
                 },
             )
 
-            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none", "BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch.object(
+            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none", "FORMA_AUTH_MODE": "clerk"}, clear=True), patch.object(
                 UserIntegrationStore, "for_user", return_value=store
             ), patch.object(a2a, "get_workflow_debug_config", return_value={"runtime": {}}), patch.object(
                 a2a, "deployment_runtime_config", return_value={"alpha_generation_gate_active": False}
@@ -155,7 +155,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
             store.update_integration("image", enabled=True, field_values={"provider": "gmi"})
             store.update_integration("gmi", enabled=True, field_values={"api_key": "gmi-secret"})
 
-            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none", "BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch.object(
+            with patch.dict(os.environ, {"IMAGE_PROVIDER": "none", "FORMA_AUTH_MODE": "clerk"}, clear=True), patch.object(
                 UserIntegrationStore, "for_user", return_value=store
             ), patch.object(a2a, "get_workflow_debug_config", return_value={"runtime": {}}), patch.object(
                 a2a, "deployment_runtime_config", return_value={"alpha_generation_gate_active": False}
@@ -215,11 +215,15 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     "image_inference_provider": "fal-ai",
                 },
             )
+            store.update_integration(
+                "image",
+                field_values={"provider": "huggingface"},
+            )
 
             with patch.dict(
                 os.environ,
                 {
-                    "BLUEPRINT_AUTH_MODE": "clerk",
+                    "FORMA_AUTH_MODE": "clerk",
                     "IMAGE_PROVIDER": "openai",
                     "OPENAI_API_KEY": "sk-invalid-openai",
                     "OPENAI_IMAGE_MODEL": "gpt-image-2",
@@ -232,8 +236,8 @@ class A2AUserIntegrationTests(unittest.TestCase):
             ):
                 try:
                     asyncio.run(
-                        a2a.call_blueprint_action(
-                            "blueprint.generate_project",
+                        a2a.call_forma_action(
+                            "forma.generate_project",
                             {
                                 "prompt": "test",
                                 "generate_image": True,

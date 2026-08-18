@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
@@ -11,7 +11,7 @@ from blueprint_core.workspaces.projects.models import (
     PinDefinition,
     PinReference,
 )
-from blueprint_core.validation import validate_circuit
+from forma_core.validation import validate_circuit
 
 
 class ValidationAndModelTests(unittest.TestCase):

@@ -13,7 +13,7 @@ export type RuntimeWorkflowOption = {
 export type RuntimeConfigContract = {
   contract_version: number;
   authority: "backend" | string;
-  blueprint_dev_mode: boolean;
+  forma_dev_mode: boolean;
   generation: {
     ready: boolean;
     available: boolean;

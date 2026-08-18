@@ -6,18 +6,18 @@ import pathlib
 import tomllib
 import unittest
 
-import blueprint_core
+import forma_core
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]
-CORE_DIR = ROOT_DIR / "blueprint_core"
-DIST_NAME = "caid-blueprint-core"
+CORE_DIR = ROOT_DIR / "forma_core"
+DIST_NAME = "caid-forma-core"
 
 
 class CorePackageTests(unittest.TestCase):
-    def test_blueprint_core_exports_package_version(self) -> None:
-        self.assertRegex(blueprint_core.__version__, r"^\d+\.\d+\.\d+")
-        self.assertEqual(["__version__"], blueprint_core.__all__)
+    def test_forma_core_exports_package_version(self) -> None:
+        self.assertRegex(forma_core.__version__, r"^\d+\.\d+\.\d+")
+        self.assertEqual(["__version__"], forma_core.__all__)
 
     def test_pyproject_declares_installable_typed_core_package(self) -> None:
         pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))
@@ -25,16 +25,16 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual(DIST_NAME, pyproject["project"]["name"])
         self.assertEqual(["version"], pyproject["project"]["dynamic"])
         self.assertEqual("apps.api.main:app", pyproject["tool"]["vercel"]["entrypoint"])
-        self.assertEqual("blueprint_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
-        self.assertEqual("blueprint_core.cli.main:main", pyproject["project"]["scripts"]["blueprint-core"])
+        self.assertEqual("forma_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
+        self.assertEqual("forma_core.cli.main:main", pyproject["project"]["scripts"]["forma-core"])
         self.assertEqual(
-            "blueprint_core.fabricator.main:main",
+            "forma_core.fabricator.main:main",
             pyproject["project"]["scripts"]["fabricator"],
         )
         self.assertNotIn("fibricator", pyproject["project"]["scripts"])
-        self.assertIn("blueprint_core", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
-        self.assertIn("blueprint_core.*", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
-        self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["blueprint_core"])
+        self.assertIn("forma_core", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
+        self.assertIn("forma_core.*", pyproject["tool"]["setuptools"]["packages"]["find"]["include"])
+        self.assertIn("py.typed", pyproject["tool"]["setuptools"]["package-data"]["forma_core"])
         self.assertTrue((CORE_DIR / "py.typed").exists())
         self.assertTrue((CORE_DIR / "fabricator" / "main.py").exists())
         self.assertFalse((ROOT_DIR / "fabricator").exists())
@@ -100,7 +100,7 @@ class CorePackageTests(unittest.TestCase):
         self.assertNotIn("installCommand", backend)
         for function_key in ("apps.api.main:app", "apps/api/main.py", "main.py"):
             function_config = backend["functions"][function_key]
-            self.assertEqual("blueprint_core/**", function_config["includeFiles"])
+            self.assertEqual("forma_core/**", function_config["includeFiles"])
             exclude_files = function_config["excludeFiles"]
             self.assertIn("apps/web/**", exclude_files)
             self.assertIn("*.db", exclude_files)
@@ -130,14 +130,14 @@ class CorePackageTests(unittest.TestCase):
         except importlib.metadata.PackageNotFoundError:
             self.skipTest(f"{DIST_NAME} is not installed in this interpreter")
 
-        import_path = pathlib.Path(blueprint_core.__file__).resolve()
+        import_path = pathlib.Path(forma_core.__file__).resolve()
         distribution_root = pathlib.Path(distribution.locate_file("")).resolve()
         if not import_path.is_relative_to(distribution_root):
             self.skipTest(f"{DIST_NAME} distribution metadata belongs to {distribution_root}, but source import is {import_path}")
 
-        self.assertEqual(blueprint_core.__version__, distribution.version)
+        self.assertEqual(forma_core.__version__, distribution.version)
 
-    def test_blueprint_core_does_not_import_backend_modules(self) -> None:
+    def test_forma_core_does_not_import_backend_modules(self) -> None:
         offenders: list[str] = []
         for path in CORE_DIR.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
@@ -147,8 +147,8 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual([], offenders)
 
     def test_generation_package_imports(self) -> None:
-        from blueprint_core.generation import HardwarePipelineOrchestrator, list_workflows
-        from blueprint_core.workspaces.projects.models import HardwareIR
+        from forma_core.generation import HardwarePipelineOrchestrator, list_workflows
+        from forma_core.workspaces.projects.models import HardwareIR
 
         self.assertEqual("HardwarePipelineOrchestrator", HardwarePipelineOrchestrator.__name__)
         self.assertEqual("HardwareIR", HardwareIR.__name__)
@@ -159,10 +159,10 @@ class CorePackageTests(unittest.TestCase):
         import apps.api.llm_providers as backend_llm
         import apps.api.models as backend_models
         import apps.api.validation as backend_validation
-        from blueprint_core.agents import orchestrator as core_orchestrator
-        from blueprint_core import validation as core_validation
-        from blueprint_core import llm as core_llm
-        from blueprint_core.workspaces.projects import models as core_models
+        from forma_core.agents import orchestrator as core_orchestrator
+        from forma_core import validation as core_validation
+        from forma_core import llm as core_llm
+        from forma_core.workspaces.projects import models as core_models
 
         self.assertIs(backend_models.HardwareIR, core_models.HardwareIR)
         self.assertIs(backend_validation.validate_circuit, core_validation.validate_circuit)

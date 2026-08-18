@@ -9,6 +9,7 @@
   --forma-surface-muted: #101115;
   --forma-border: #2c2f37;
   --forma-text: #f8fafc;
+  --forma-composer-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
 }
 
 /*
@@ -70,6 +71,11 @@
   --forma-scrim-rgb: 238 232 213;
   --forma-scroll-thumb: #93a1a1;
   --forma-card-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
+  --forma-composer-shadow: 0 6px 16px rgb(88 110 117 / 0.12);
+  --forma-selected-wash-alpha: 0.07;
+  --forma-accent-primary: #1f7e77;
+  --forma-accent-primary-hover: #17655f;
+  --forma-accent-text: #ffffff;
 }
 
 /*
@@ -107,6 +113,61 @@
   --forma-scrim-rgb: 238 242 247;
   --forma-scroll-thumb: #94a3b8;
   --forma-card-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
+  --forma-composer-shadow: 0 6px 16px rgb(15 23 42 / 0.08);
+  --forma-selected-wash-alpha: 0.18;
+  --forma-accent-primary: #047857;
+  --forma-accent-primary-hover: #059669;
+  --forma-accent-text: #ffffff;
+}
+
+/*
+ * Solarized Dark+: Ryan Olson / Ethan Schoonover.
+ * https://marketplace.visualstudio.com/items?itemName=ryanolsonx.solarized
+ *
+ *   base03 #002b36  primary page background
+ *   base04 #001f26  sidebar & panel surfaces
+ *   base02 #073642  recessed wells & input backgrounds
+ *   base01 #586e75  subtle borders & secondary details
+ *   base00 #657b83  muted text & structural rules
+ *   base0  #839496  primary body text
+ *   base1  #93a1a1  secondary text
+ *   base3  #fdf6e3  brightest emphasis
+ */
+:root[data-theme="solarized-dark"] {
+  color-scheme: dark;
+  --forma-page: #002b36;
+  --forma-surface: #001f26;
+  --forma-surface-muted: #073642;
+  --forma-border: rgb(101 123 131 / 0.35);
+  --forma-text: #839496;
+
+  --forma-text-strong: #fdf6e3;
+  --forma-text-body: #839496;
+  --forma-text-secondary: #93a1a1;
+  --forma-text-muted: #657b83;
+
+  --forma-cyan-rgb: 42 161 152;
+  --forma-green-rgb: 133 153 0;
+  --forma-yellow-rgb: 181 137 0;
+  --forma-red-rgb: 220 50 47;
+  --forma-violet-rgb: 108 113 196;
+
+  --forma-cyan-soft: #2aa198;
+  --forma-green-soft: #859900;
+  --forma-yellow-soft: #b58900;
+  --forma-red-soft: #dc322f;
+  --forma-violet-soft: #6c71c4;
+
+  --forma-neutral-rgb: 131 148 150;
+  --forma-chrome-rgb: 0 31 38;
+  --forma-scrim-rgb: 0 43 54;
+  --forma-scroll-thumb: #586e75;
+  --forma-card-shadow: 0 18px 38px rgb(0 0 0 / 0.35);
+  --forma-composer-shadow: 0 8px 20px rgb(0 0 0 / 0.28);
+  --forma-selected-wash-alpha: 0.15;
+  --forma-accent-primary: #2aa198;
+  --forma-accent-primary-hover: #35b3aa;
+  --forma-accent-text: #002b36;
 }
 
 * {
@@ -374,10 +435,11 @@ html:is([data-theme="light"], [data-theme="arctic"]) .caid-logo-on-light {
  * and supply their own values, so a fix here lands in both at once.
  *
  * `:is()` takes the specificity of its most specific argument, so
- * `html:is([data-theme="light"], [data-theme="arctic"])` is an exact
+ * `html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"])` is an exact
  * specificity match for the `html[data-theme="light"]` these rules replaced.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#141519]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1117]'] {
   background-color: var(--forma-page);
 }
 
@@ -385,46 +447,103 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'] {
  * Sticky and floating chrome keeps its translucency over the theme's chrome
  * tone, so the wells nested inside it still read as recessed.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]/95'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]/95'] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#141519]/95'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1117]/95'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#111216]/95'] {
   background-color: rgb(var(--forma-chrome-rgb) / 0.95);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]/90'] {
-  background-color: rgb(var(--forma-chrome-rgb) / 0.9);
-}
-
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]/80'] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1117]/80'] {
   background-color: rgb(var(--forma-chrome-rgb) / 0.8);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]/85'] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#15161b]/90'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.9);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#17181d]/80'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.8);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#050609]/85'] {
   background-color: rgb(var(--forma-scrim-rgb) / 0.85);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101116]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1013]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1720]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111820]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#1d1f26]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#1d2027]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#20242d]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#242832]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#252832]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0c0d10]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-slate-900"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#17181d]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#181b22]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#181b22]/70'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#15161b]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#111216]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#101116]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1014]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1013]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1720]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#111820]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#1d1f26]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#1d2027]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#20242d]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#242832]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#252832]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0c0d10]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#050609]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-black"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-slate-900"] {
   background-color: var(--forma-surface);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#101115]/70'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-[#0f1014]'] {
+  background-color: var(--forma-surface-muted);
+}
+
+/*
+ * Sidebar links use this dark-theme utility for hover feedback. Translate the
+ * state as well as the static fill so it cannot flash a near-black rectangle
+ * in either light theme. Keep the text on the theme's strong foreground.
+ */
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-[#17181d]']:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800/40']:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800/50']:hover {
+  background-color: var(--forma-surface-muted);
+}
+
+/* Cards that solidify on hover take the theme surface instead of a dark fill. */
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-[#181b22]']:hover {
+  background-color: var(--forma-surface);
+}
+
+/* Static zinc wells: disabled fills and loading-skeleton bars. */
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-zinc-800/40'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-zinc-800/60'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='bg-zinc-800/80'] {
+  background-color: var(--forma-surface-muted);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:text-white"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:text-zinc-100"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:text-zinc-200"]:hover {
+  color: var(--forma-text-strong);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-white"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-zinc-100"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-zinc-200"] {
+  color: var(--forma-text-strong);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-emerald-400"] {
+  color: rgb(var(--forma-green-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-white/5"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-white/10"] {
+  background-color: var(--forma-surface-muted);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:bg-white/5"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:bg-white/10"]:hover {
   background-color: var(--forma-surface-muted);
 }
 
@@ -433,30 +552,30 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
  * muddy blocks once the surface below them is light. Matching on the class
  * prefix covers every alpha step in one rule.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-rose-950/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-red-950/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-rose-950/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-red-950/"] {
   background-color: rgb(var(--forma-red-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-emerald-950/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-green-950/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-emerald-950/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-green-950/"] {
   background-color: rgb(var(--forma-green-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-amber-950/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-yellow-950/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-amber-950/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-yellow-950/"] {
   background-color: rgb(var(--forma-yellow-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-cyan-950/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-cyan-950/"] {
   background-color: rgb(var(--forma-cyan-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-violet-950/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-violet-950/"] {
   background-color: rgb(var(--forma-violet-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-slate-950/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="bg-slate-950/"] {
   background-color: rgb(var(--forma-neutral-rgb) / 0.14);
 }
 
@@ -464,9 +583,9 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class*="bg-slate-950/"] {
  * Low-alpha black is used for quiet wells. Heavier black is a modal scrim and
  * still needs to dim the page, so it is deliberately left alone.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/20"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/25"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/30"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-black/20"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-black/25"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-black/30"] {
   background-color: rgb(var(--forma-neutral-rgb) / 0.16);
 }
 
@@ -475,23 +594,25 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-black/30"] {
  * low-alpha wash variants are remapped; the solid /60 and /70 fills stay put so
  * that filled controls keep their weight.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/5"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/10"] {
-  background-color: rgb(var(--forma-cyan-rgb) / 0.1);
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-cyan-300/5"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-cyan-300/10"] {
+  background-color: rgb(var(--forma-cyan-rgb) / var(--forma-selected-wash-alpha));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-emerald-400/10"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-emerald-500/10"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-emerald-500/[0.06]"] {
   background-color: rgb(var(--forma-green-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-amber-300/10"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-amber-400/10"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-amber-300/10"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-amber-400/10"] {
   background-color: rgb(var(--forma-yellow-rgb) / 0.1);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-violet-300/10"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-violet-200/25"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-fuchsia-400/10"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-violet-300/10"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-violet-200/25"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-fuchsia-400/10"] {
   background-color: rgb(var(--forma-violet-rgb) / 0.1);
 }
 
@@ -499,174 +620,442 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-fuchsia-400/10"
  * Accent borders. The dark theme draws these from the 300-400 range at low
  * alpha; each theme's accent stands in at the same weight.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-rose-400/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-rose-300/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-red-400/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-rose-400/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-rose-300/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-red-400/"] {
   border-color: rgb(var(--forma-red-rgb) / 0.45);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-400/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-300/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-emerald-400/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-emerald-300/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="border-emerald-500/20"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="border-emerald-500/25"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="border-emerald-500/30"] {
   border-color: rgb(var(--forma-green-rgb) / 0.45);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-amber-300/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-amber-400/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-amber-300/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-amber-400/"] {
   border-color: rgb(var(--forma-yellow-rgb) / 0.45);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-cyan-300/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-cyan-400/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-cyan-300/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-cyan-400/"] {
   border-color: rgb(var(--forma-cyan-rgb) / 0.45);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-300/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-400/"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-violet-300/"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class*="border-violet-400/"] {
   border-color: rgb(var(--forma-violet-rgb) / 0.45);
 }
 
 /* The slate text ramp collapses onto each theme's content tiers. */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-white"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-100"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-white"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-100"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-100"] {
   color: var(--forma-text-strong);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-300"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-300"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-300"] {
   color: var(--forma-text-body);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-400"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-400"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-400"] {
   color: var(--forma-text-secondary);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-500"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-600"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-700"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-500"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-600"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-slate-700"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-500"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-600"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-zinc-700"] {
   color: var(--forma-text-muted);
 }
 
 /* The quiet 50 and 100 steps of each accent ramp. */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-50"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-100"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-cyan-50"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-cyan-100"] {
   color: var(--forma-cyan-soft);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-50"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-100"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-emerald-50"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-emerald-100"] {
   color: var(--forma-green-soft);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-50"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-100"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-amber-50"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-amber-100"] {
   color: var(--forma-yellow-soft);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-100"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-100"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-red-100"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-rose-100"] {
   color: var(--forma-red-soft);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-100"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-violet-100"] {
   color: var(--forma-violet-soft);
 }
 
 /* The 200 and 300 steps are the visible accent: icons, labels, and emphasis. */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-300"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-cyan-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-cyan-300"] {
   color: rgb(var(--forma-cyan-rgb));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-300"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-emerald-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-emerald-300"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-emerald-400"] {
   color: rgb(var(--forma-green-rgb));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-amber-300"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-amber-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-amber-300"] {
   color: rgb(var(--forma-yellow-rgb));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-red-300"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-rose-300"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-red-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-red-300"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-rose-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-rose-300"] {
   color: rgb(var(--forma-red-rgb));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-violet-300"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-fuchsia-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-fuchsia-300"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-violet-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-violet-300"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-fuchsia-200"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="text-fuchsia-300"] {
   color: rgb(var(--forma-violet-rgb));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#24262c]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#242832]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#25272e]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#282a30]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#292b31]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2a2c33]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2b3038]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2c2f37]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#2f333c]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30323a]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30333b]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30333d]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#30343d]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333640]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333844]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#34363f]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#343740]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#3a3d46]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#4b4d56]'] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#24262c]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#242832]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#25272e]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#282a30]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#292b31]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#2a2c33]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#2b3038]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#2c2f37]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#2f333c]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#30323a]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#30333b]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#30333d]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#30343d]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#333640]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#333844]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#34363f]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#343740]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#3a3d46]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-[#4b4d56]'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-zinc-700/40'] {
+  border-color: var(--forma-border);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-white/5'],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='border-white/10'] {
+  border-color: var(--forma-border);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:border-zinc-600']:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:border-zinc-700/60']:hover {
   border-color: var(--forma-border);
 }
 
 /* Inverted fills darken to the strongest text tone rather than staying white. */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-white"][class~="text-black"] {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-white"][class~="text-black"] {
   background-color: var(--forma-text-strong);
   color: var(--forma-surface);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:bg-white"]:hover {
+/*
+ * Primary action buttons and focus rings translate onto each theme's accent.
+ */
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-emerald-500"] {
+  background-color: var(--forma-accent-primary);
+  color: var(--forma-accent-text);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:bg-emerald-400"]:hover {
+  background-color: var(--forma-accent-primary-hover);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="focus-visible:outline-emerald-500"]:focus-visible {
+  outline-color: var(--forma-accent-primary);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:bg-white"]:hover {
   background-color: var(--forma-text-strong);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-black"]:hover,
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="group-hover:text-black"]:where(.group:hover *) {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:text-black"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-black"] {
   color: var(--forma-surface);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) .schematic-card,
-html:is([data-theme="light"], [data-theme="arctic"]) .schematic-controller-card {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .schematic-card,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .schematic-controller-card {
   background: var(--forma-surface);
   color: var(--forma-text);
   box-shadow: var(--forma-card-shadow);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) .schematic-pin-row {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .schematic-pin-row {
   border-color: var(--forma-border);
   background: var(--forma-surface-muted);
 }
 
 /* The dark theme selects edges with white, which disappears on a light canvas. */
-html:is([data-theme="light"], [data-theme="arctic"]) .react-flow__edge.selected .react-flow__edge-path {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--forma-text-strong) !important;
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) .react-flow__controls-button {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .react-flow__controls-button {
   background: var(--forma-surface) !important;
   border-bottom-color: var(--forma-border) !important;
   color: var(--forma-text-body) !important;
   fill: var(--forma-text-body) !important;
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-track {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) ::-webkit-scrollbar-track {
   background: var(--forma-page);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-thumb {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) ::-webkit-scrollbar-thumb {
   background: var(--forma-scroll-thumb);
   border-color: var(--forma-page);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .status-badge-ok {
+  color: rgb(var(--forma-green-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .status-badge-error {
+  color: rgb(var(--forma-red-rgb));
+}
+
+.workspace-chrome-header {
+  border-bottom: 0;
+  background: linear-gradient(
+    180deg,
+    rgb(24 36 58 / 0.94) 0%,
+    rgb(16 22 36 / 0.62) 52%,
+    rgb(15 17 23 / 0) 100%
+  );
+  backdrop-filter: blur(16px);
+  transition: opacity 380ms ease, transform 380ms ease, filter 380ms ease;
+}
+
+.workspace-chrome-header.is-away {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-12px);
+  filter: blur(10px);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .workspace-chrome-header {
+  background: linear-gradient(
+    180deg,
+    rgb(var(--forma-chrome-rgb) / 0.96) 0%,
+    rgb(var(--forma-chrome-rgb) / 0.62) 52%,
+    transparent 100%
+  );
+}
+
+/* Same gray glass wash as sidebar menu rows (`hover:bg-zinc-800/40`). */
+.workspace-beta-badge {
+  user-select: none;
+  border-radius: 0.375rem;
+  border: 1px solid rgb(255 255 255 / 0.12);
+  background: rgb(255 255 255 / 0.08);
+  padding: 0.125rem 0.375rem;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgb(161 161 170);
+  backdrop-filter: blur(12px);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .workspace-beta-badge {
+  border-color: var(--forma-border);
+  background: rgb(var(--forma-neutral-rgb) / 0.18);
+  color: var(--forma-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-chrome-header {
+    transition: none;
+  }
+
+  .workspace-chrome-header.is-away {
+    filter: none;
+    transform: none;
+  }
+}
+
+.home-example-card {
+  background-color: var(--forma-surface);
+  border-color: var(--forma-border);
+  color: var(--forma-text-strong);
+}
+
+.home-example-card:hover {
+  background-color: var(--forma-surface-muted);
+  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
+  color: var(--forma-text-strong);
+}
+
+.home-example-card:hover .home-example-card-label {
+  color: var(--forma-text-strong);
+}
+
+.home-example-card:hover .home-example-card-icon {
+  color: rgb(var(--forma-cyan-rgb));
+}
+
+.prompt-composer {
+  border: 1px solid var(--forma-border);
+  box-shadow: var(--forma-composer-shadow);
+  transition: box-shadow 220ms ease, border-color 220ms ease;
+}
+
+.prompt-composer-idle:focus-within {
+  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
+  box-shadow:
+    var(--forma-composer-shadow),
+    0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.28),
+    0 8px 20px rgb(var(--forma-cyan-rgb) / 0.1);
+}
+
+.forma-action-fill {
+  background-color: var(--forma-text-strong, #f8fafc);
+  color: var(--forma-surface, #17181d);
+}
+
+.forma-action-fill:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--forma-text-strong, #f8fafc) 86%, var(--forma-surface, #17181d));
+}
+
+.forma-action-fill:focus-visible {
+  outline-color: var(--forma-text-strong, #f8fafc);
+}
+
+.prompt-composer-illuminate {
+  animation: prompt-composer-illuminate 1.8s ease-in-out infinite;
+}
+
+@keyframes prompt-composer-illuminate {
+  0%,
+  100% {
+    box-shadow:
+      var(--forma-composer-shadow),
+      0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.38),
+      0 0 18px 3px rgb(var(--forma-cyan-rgb) / 0.16);
+  }
+  50% {
+    box-shadow:
+      var(--forma-composer-shadow),
+      0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.62),
+      0 0 26px 6px rgb(var(--forma-cyan-rgb) / 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-composer-illuminate {
+    animation: none;
+    box-shadow:
+      var(--forma-composer-shadow),
+      0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.5),
+      0 0 16px 3px rgb(var(--forma-cyan-rgb) / 0.16);
+  }
+}
+
+.status-badge {
+  position: relative;
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+}
+
+.status-badge-dot {
+  position: relative;
+  z-index: 1;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, currentColor 28%, transparent),
+    0 0 12px currentColor;
+}
+
+.status-badge-ping {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: currentColor;
+  opacity: 0.55;
+  transform-origin: center;
+}
+
+.status-badge-ok {
+  color: #34d399;
+}
+
+.status-badge-error {
+  color: #f87171;
+}
+
+.status-badge-pulse .status-badge-ping,
+.status-badge-idle .status-badge-ping {
+  animation: status-badge-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+.status-badge-pulse .status-badge-ping {
+  animation-duration: 1.6s;
+}
+
+.status-badge-idle .status-badge-dot {
+  animation: status-badge-glow 2.8s ease-in-out infinite;
+}
+
+.status-badge-pulse .status-badge-dot {
+  animation: status-badge-glow 1.6s ease-in-out infinite;
+}
+
+@keyframes status-badge-ping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  75%,
+  100% {
+    transform: scale(2.6);
+    opacity: 0;
+  }
+}
+
+@keyframes status-badge-glow {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 0 8px currentColor;
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 16px currentColor;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-badge-ping,
+  .status-badge-dot {
+    animation: none !important;
+  }
 }

@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import FormaWorkspace from "../blueprint-workspace";
+import FormaWorkspace from "../forma-workspace";
 import { showDeveloperTools } from "../../lib/server-feature-flags";
 
 export default function BackendLogsPage() {

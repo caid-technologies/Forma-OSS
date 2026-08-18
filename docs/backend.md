@@ -106,6 +106,7 @@ LLM configuration behavior:
 - `HF_TOKEN` / `HUGGINGFACE_API_KEY` / `HUGGINGFACE_HUB_TOKEN`: Hugging Face Inference Providers token when `LLM_PROVIDER=huggingface` or a request uses `provider=huggingface`
 - `HUGGINGFACE_BASE_URL`: Hugging Face OpenAI-compatible router URL. Defaults to `https://router.huggingface.co/v1`
 - `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`: Anthropic Claude key when `LLM_PROVIDER=anthropic` or a request uses `provider=anthropic`
+- `ANTHROPIC_MODEL`: Claude model ID. Defaults to `claude-opus-5`.
 - `ANTHROPIC_BASE_URL`: Claude API base URL. Defaults to `https://api.anthropic.com/v1`
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`: Cloudflare AI configuration when `LLM_PROVIDER=cloudflare` or a request uses `provider=cloudflare`. The OpenAI-compatible base URL is derived from the account ID; `CLOUDFLARE_BASE_URL` can override it.
@@ -173,8 +174,8 @@ Smoke-test configured LLM providers with a tiny structured prompt:
 
 Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `scripts/models/sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `scripts/models/sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
 
-Run against first-party OpenAI:
+Run against Claude:
 
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=your_anthropic_api_key_here ANTHROPIC_MODEL=claude-opus-5 uvicorn apps.api.main:app --reload --port 8000
 ```

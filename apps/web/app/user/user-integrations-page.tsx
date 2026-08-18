@@ -245,8 +245,8 @@ const INTEGRATION_NAV_GROUPS: Array<{
     id: "llm",
     label: "Language models",
     basic: [
-      { integrationId: "openai", view: "llm", label: "OpenAI" },
       { integrationId: "anthropic", view: "llm", label: "Anthropic" },
+      { integrationId: "openai", view: "llm", label: "OpenAI" },
       { integrationId: "gemini", view: "llm", label: "Gemini" },
     ],
     advanced: [

@@ -38,6 +38,7 @@ _PROVIDER_LABELS = {
 _MODEL_LABELS = {
     ("cloudflare", "@cf/google/gemma-4-26b-a4b-it"): "Cloudflare Gemma 4 26B A4B",
     ("gmi", "anthropic/claude-fable-5"): "GMI Claude Fable 5",
+    ("anthropic", "claude-opus-5"): "Claude Opus 5",
     ("anthropic", "claude-sonnet-5"): "Claude Sonnet 5",
     ("baseten", "zai-org/GLM-5.2"): "GLM 5.2",
     ("runpod", "caid-technologies/parti-base"): "Runpod Parti Base",

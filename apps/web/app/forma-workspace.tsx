@@ -227,6 +227,7 @@ const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
 const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
+const ANTHROPIC_OPUS_MODEL = "claude-opus-5";
 const ANTHROPIC_SONNET_MODEL = "claude-sonnet-5";
 const CLOUDFLARE_GEMMA_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const NVIDIA_GLM_MODEL = "nvidia/z-ai/glm-5.2";
@@ -336,6 +337,7 @@ function generationLlmLabel(provider: string, model: string) {
   if (provider === "runpod" && model === RUNPOD_PARTI_BASE_MODEL) return "Runpod Parti Base";
   if (provider === "baseten" && model === BASETEN_GLM_MODEL) return "GLM 5.2";
   if (provider === "baseten" && model === BASETEN_DEEPSEEK_MODEL) return "Baseten DeepSeek V4 Pro";
+  if (provider === "anthropic" && model === ANTHROPIC_OPUS_MODEL) return "Claude Opus 5";
   if (provider === "anthropic" && model === ANTHROPIC_SONNET_MODEL) return "Claude Sonnet 5";
   if (provider === "huggingface") return `Hugging Face ${model}`;
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";

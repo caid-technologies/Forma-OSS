@@ -444,6 +444,16 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIn("anthropic", runtime.allowed_providers or [])
         self.assertIn("claude-sonnet-5", runtime.allowed_models or [])
 
+    def test_anthropic_defaults_to_opus_5(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("anthropic", runtime.provider)
+        self.assertEqual("claude-opus-5", runtime.model)
+
     def test_local_runtime_allows_configured_provider_model_override(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="baseten",

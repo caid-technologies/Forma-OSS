@@ -230,8 +230,8 @@ const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: Integrat
     id: "llm",
     label: "Language Model Providers",
     items: [
-      { integrationId: "openai", view: "llm", label: "OpenAI LLM" },
       { integrationId: "anthropic", view: "llm" },
+      { integrationId: "openai", view: "llm", label: "OpenAI LLM" },
       { integrationId: "gemini", view: "llm" },
       { integrationId: "vertex", view: "llm" },
       { integrationId: "baseten", view: "llm" },

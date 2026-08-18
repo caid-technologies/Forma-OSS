@@ -12,17 +12,18 @@ function model(value: string, label: string, detail?: string, group?: string): P
 // These are discovery suggestions, not an allowlist. Provider catalogs change often,
 // so every model picker also accepts an arbitrary provider model ID.
 export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
+  anthropic: [
+    model("claude-opus-5", "Claude Opus 5", "Forma default; complex agentic and coding work"),
+    model("claude-fable-5", "Claude Fable 5", "Most capable widely available Claude model"),
+    model("claude-opus-4-8", "Claude Opus 4.8", "Previous-generation Opus"),
+    model("claude-sonnet-5", "Claude Sonnet 5", "Balanced intelligence and speed"),
+    model("claude-haiku-4-5", "Claude Haiku 4.5", "Fast, cost-efficient Claude model"),
+  ],
   openai: [
     model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
     model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
     model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
     model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
-  ],
-  anthropic: [
-    model("claude-fable-5", "Claude Fable 5", "Most capable widely available Claude model"),
-    model("claude-opus-4-8", "Claude Opus 4.8", "Complex agentic and coding work"),
-    model("claude-sonnet-5", "Claude Sonnet 5", "Balanced intelligence and speed"),
-    model("claude-haiku-4-5", "Claude Haiku 4.5", "Fast, cost-efficient Claude model"),
   ],
   gemini: [
     model("gemini-3.6-flash", "Gemini 3.6 Flash", "Agentic and multimodal workloads"),

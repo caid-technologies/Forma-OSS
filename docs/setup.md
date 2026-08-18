@@ -100,12 +100,15 @@ REDIS_URL=redis://localhost:6379/0
 # FORMA_DEPLOYMENT=true
 
 # Live LLM generation
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your_openai_api_key_here
-OPENAI_MODEL=gpt-5.6-sol
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_MODEL=claude-opus-5
 STRICT_LLM=true
 
 # Optional first-party OpenAI settings
+# LLM_PROVIDER=openai
+# OPENAI_API_KEY=your_openai_api_key_here
+# OPENAI_MODEL=gpt-5.6-sol
 # OPENAI_RESPONSE_FORMAT=json_schema
 # OPENAI_VALIDATE_MODELS=false
 # OPENAI_TIMEOUT_SECONDS=300
@@ -250,9 +253,9 @@ Run from the repo root so `apps.api.*` imports resolve correctly:
 uvicorn apps.api.main:app --reload --port 8000
 ```
 
-OpenAI one-liner:
+Claude one-liner:
 ```bash
-LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=your_anthropic_api_key_here ANTHROPIC_MODEL=claude-opus-5 uvicorn apps.api.main:app --reload --port 8000
 ```
 
 API docs: http://localhost:8000/api/docs

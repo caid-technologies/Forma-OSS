@@ -14,6 +14,11 @@ import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "
 import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import {
+  isAuthOrSecurityHttpStatus,
+  workspaceStatusBadge,
+  WORKSPACE_STATUS_STALE_AFTER_MS,
+} from "../lib/connection-status";
+import {
   humanContextSkipChatSummary,
   humanContextSkipPromptSection,
 } from "../lib/human-context-defaults";
@@ -114,7 +119,7 @@ const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
 const JOB_POLL_INTERVAL_MS = 5000;
 const ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS = 1200;
 const PIPELINE_UI_HEARTBEAT_MS = 5000;
-const PIPELINE_STALE_AFTER_MS = 30000;
+const PIPELINE_STALE_AFTER_MS = WORKSPACE_STATUS_STALE_AFTER_MS;
 const RECOVERY_JOB_BATCH_SIZE = 3;
 const RECOVERY_JOB_MAX_BACKOFF_MS = 60000;
 const LOG_POLL_INTERVAL_MS = 5000;
@@ -1651,6 +1656,8 @@ export function FormaWorkspace({
   const [serverStatus, setServerStatus] = useState<"connected" | "disconnected">(
     () => lastKnownServerStatus || "disconnected"
   );
+  const [authSecurityError, setAuthSecurityError] = useState(false);
+  const [statusClockMs, setStatusClockMs] = useState(() => Date.now());
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageSource, setSelectedImageSource] = useState<"upload" | "clipboard">("upload");
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
@@ -2043,11 +2050,16 @@ export function FormaWorkspace({
     const token = await getToken();
     if (!token) {
       openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" });
+      if (isSignedIn) setAuthSecurityError(true);
       throw new Error("Sign in to talk in chat and make projects.");
     }
     headers.Authorization = `Bearer ${token}`;
     return headers;
-  }, [authRequired, getToken, openSignIn]);
+  }, [authRequired, getToken, isSignedIn, openSignIn]);
+
+  const noteAuthResponseStatus = useCallback((status: number) => {
+    if (isAuthOrSecurityHttpStatus(status)) setAuthSecurityError(true);
+  }, []);
 
   const optionalAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
     if (!isSignedIn) return {};
@@ -2210,6 +2222,38 @@ export function FormaWorkspace({
     ));
     return latestBuildMessage?.status === "error" ? latestBuildMessage : null;
   }, [chatMessages]);
+
+  const latestAgentOperation = useMemo(() => {
+    return [...chatMessages].reverse().find((message) => (
+      message.role === "assistant"
+      && (message.status === "loading" || message.status === "success" || message.status === "error" || message.status === "cancelled")
+    )) || null;
+  }, [chatMessages]);
+
+  useEffect(() => {
+    if (latestAgentOperation?.status !== "loading") return;
+    const intervalId = window.setInterval(() => setStatusClockMs(Date.now()), 1000);
+    return () => window.clearInterval(intervalId);
+  }, [latestAgentOperation?.status]);
+
+  const workspaceStatus = useMemo(() => {
+    const progress = latestAgentOperation?.pipelineProgress;
+    const events = progress?.events;
+    const lastEvent = Array.isArray(events) && events.length ? events[events.length - 1] : null;
+    return workspaceStatusBadge({
+      connection: serverStatus,
+      authError: authSecurityError,
+      agent: latestAgentOperation
+        ? {
+            status: latestAgentOperation.status,
+            content: latestAgentOperation.content,
+            startedAt: progress?.startedAt || latestAgentOperation.timestamp,
+            lastEventAt: lastEvent?.observed_at || progress?.uiUpdatedAt || null,
+          }
+        : null,
+      nowMs: statusClockMs,
+    });
+  }, [authSecurityError, latestAgentOperation, serverStatus, statusClockMs]);
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
@@ -2412,6 +2456,7 @@ export function FormaWorkspace({
     setImageGenerationConfig({ configured: null, provider: null, reason: null });
     setImageGenerationConfigLoaded(false);
     setProviderSetup({ llmRequired: false, imageRequired: false });
+    setAuthSecurityError(false);
   }, [authIdentityKey, authLoaded, authRequired, isSignedIn]);
 
   useDeferredTask(() => {
@@ -2650,7 +2695,9 @@ export function FormaWorkspace({
         if (myProjectHistoryRequestIdRef.current !== requestId) return;
         setMyProjectHistory(result.items);
         setMyProjectHistoryTotal(result.total);
-      } else if (res.status === 401) {
+        setAuthSecurityError(false);
+      } else if (isAuthOrSecurityHttpStatus(res.status)) {
+        if (isSignedIn) setAuthSecurityError(true);
         setMyProjectHistory([]);
         setMyProjectHistoryTotal(0);
       } else {
@@ -2680,6 +2727,7 @@ export function FormaWorkspace({
         headers: await generationRequestHeaders(),
       });
       if (res.ok) {
+        setAuthSecurityError(false);
         const chats = await res.json();
         setPrivateChatItems(normalizePrivateChatItems(chats));
         const threadUpdates: Record<string, ChatMessage[]> = {};
@@ -2705,7 +2753,8 @@ export function FormaWorkspace({
             setChatMessages((current) => mergeFetchedChatMessages(threadUpdates[activeChatId], current));
           }
         }
-      } else if (res.status === 401) {
+      } else if (isAuthOrSecurityHttpStatus(res.status)) {
+        if (isSignedIn) setAuthSecurityError(true);
         setPrivateChatItems([]);
         setSessionChatItems([]);
       } else {
@@ -3433,7 +3482,10 @@ export function FormaWorkspace({
           }] : [],
         }),
       });
-      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+      if (!res.ok) {
+        noteAuthResponseStatus(res.status);
+        throw new Error(await readApiErrorMessage(res));
+      }
       const data = await res.json();
       const turnKind = typeof data?.turn_kind === "string" ? data.turn_kind : "context";
       const persistedProjectId = typeof data?.design_brief?.project_id === "string"
@@ -3553,7 +3605,10 @@ export function FormaWorkspace({
           requested_tool: "build_project",
         }),
       });
-      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      if (!response.ok) {
+        noteAuthResponseStatus(response.status);
+        throw new Error(await readApiErrorMessage(response));
+      }
       const outcome = await response.json();
       const workflowState = typeof outcome?.workflow?.state === "string"
         ? outcome.workflow.state
@@ -3815,6 +3870,7 @@ export function FormaWorkspace({
       });
 
       if (!res.ok) {
+        noteAuthResponseStatus(res.status);
         const apiError = await readApiError(res);
         if (apiError.debug) {
           console.error("Forma API debug trace", apiError);
@@ -4056,6 +4112,7 @@ export function FormaWorkspace({
       });
 
       if (!res.ok) {
+        noteAuthResponseStatus(res.status);
         const apiError = await readApiError(res);
         if (apiError.debug) {
           console.error("Forma API debug trace", apiError);
@@ -4768,7 +4825,7 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            serverStatus={serverStatus}
+            workspaceStatus={workspaceStatus}
           />
         )}
         desktopSidebar={(
@@ -4787,7 +4844,7 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            serverStatus={serverStatus}
+            workspaceStatus={workspaceStatus}
           />
         )}
       >
@@ -4822,7 +4879,7 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            serverStatus={serverStatus}
+            workspaceStatus={workspaceStatus}
           />
         )}
         desktopSidebar={(
@@ -4841,7 +4898,7 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            serverStatus={serverStatus}
+            workspaceStatus={workspaceStatus}
           />
         )}
       >
@@ -4878,7 +4935,7 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            serverStatus={serverStatus}
+            workspaceStatus={workspaceStatus}
           />
         )}
         desktopSidebar={(
@@ -4897,7 +4954,7 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            serverStatus={serverStatus}
+            workspaceStatus={workspaceStatus}
           />
         )}
       >
@@ -5122,7 +5179,7 @@ export function FormaWorkspace({
           jobsPending={sidebarJobsPending}
           showDeveloperTools={showDeveloperTools}
           authRequired={authRequired}
-          serverStatus={serverStatus}
+          workspaceStatus={workspaceStatus}
         />
       )}
       desktopSidebar={(
@@ -5141,7 +5198,7 @@ export function FormaWorkspace({
           jobsPending={sidebarJobsPending}
           showDeveloperTools={showDeveloperTools}
           authRequired={authRequired}
-          serverStatus={serverStatus}
+          workspaceStatus={workspaceStatus}
         />
       )}
     >

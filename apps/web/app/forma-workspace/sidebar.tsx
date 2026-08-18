@@ -20,7 +20,10 @@ import {
 
 import CaidLogo from "../../components/caid-logo";
 import { FormaUserButton, useFormaAuth } from "../../lib/forma-auth";
-import { connectionStatusPresentation, type ServerConnectionStatus } from "../../lib/connection-status";
+import {
+  workspaceStatusBadge,
+  type WorkspaceStatusPresentation,
+} from "../../lib/connection-status";
 
 export type ChatListItem = {
   chatId: string;
@@ -37,19 +40,19 @@ function formatSidebarDate(value: string | null) {
   return date.toLocaleDateString([], { month: "short", day: "numeric" });
 }
 
-function ApiConnectionStatus({ status }: { status: ServerConnectionStatus }) {
-  const presentation = connectionStatusPresentation(status);
-  const accessibleLabel = `API ${presentation.label.toLowerCase()}`;
-
+function ApiConnectionStatus({ status }: { status: WorkspaceStatusPresentation }) {
   return (
     <span
-      className="inline-flex shrink-0 items-center"
+      className={`status-badge ${status.tone === "error" ? "status-badge-error" : "status-badge-ok"} ${
+        status.pulse ? "status-badge-pulse" : "status-badge-idle"
+      }`}
       role="status"
       aria-live="polite"
-      aria-label={accessibleLabel}
-      title={accessibleLabel}
+      aria-label={status.label}
+      title={status.label}
     >
-      <span className={`inline-flex h-2 w-2 shrink-0 rounded-full ${presentation.dotClassName}`} aria-hidden="true" />
+      <span className="status-badge-ping" aria-hidden="true" />
+      <span className="status-badge-dot" aria-hidden="true" />
     </span>
   );
 }
@@ -128,7 +131,7 @@ export function MobileSidebarDrawer({
   jobsPending,
   showDeveloperTools,
   authRequired,
-  serverStatus,
+  workspaceStatus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -146,7 +149,7 @@ export function MobileSidebarDrawer({
   jobsPending?: boolean;
   showDeveloperTools: boolean;
   authRequired: boolean;
-  serverStatus: "connected" | "disconnected";
+  workspaceStatus: WorkspaceStatusPresentation;
 }) {
   if (!open) return null;
 
@@ -177,7 +180,7 @@ export function MobileSidebarDrawer({
           jobsPending={jobsPending}
           showDeveloperTools={showDeveloperTools}
           authRequired={authRequired}
-          serverStatus={serverStatus}
+          workspaceStatus={workspaceStatus}
         />
       </div>
     </div>
@@ -244,7 +247,7 @@ export function ChatSidebar({
   jobsPending = false,
   showDeveloperTools,
   authRequired,
-  serverStatus = "disconnected",
+  workspaceStatus = workspaceStatusBadge({ connection: "disconnected" }),
   mode = "desktop",
 }: {
   collapsed: boolean;
@@ -263,7 +266,7 @@ export function ChatSidebar({
   jobsPending?: boolean;
   showDeveloperTools: boolean;
   authRequired: boolean;
-  serverStatus?: ServerConnectionStatus;
+  workspaceStatus?: WorkspaceStatusPresentation;
   mode?: "desktop" | "drawer";
 }) {
   const isDrawer = mode === "drawer";
@@ -291,12 +294,12 @@ export function ChatSidebar({
           >
             <CaidLogo className="h-5 w-9" sizes="36px" />
           </button>
-          {!compact && (
-            <div className="flex min-w-0 items-center gap-2">
+          <div className={`flex min-w-0 items-center ${compact ? "flex-col gap-1.5" : "gap-2"}`}>
+            {!compact && (
               <span className="truncate text-sm font-semibold tracking-tight text-zinc-100">Forma</span>
-              <ApiConnectionStatus status={serverStatus} />
-            </div>
-          )}
+            )}
+            <ApiConnectionStatus status={workspaceStatus} />
+          </div>
           <button
             type="button"
             onClick={isDrawer ? onClose : onToggle}

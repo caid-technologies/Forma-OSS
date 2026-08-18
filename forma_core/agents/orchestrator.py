@@ -305,7 +305,11 @@ def extract_power_rails(components: List[ComponentInstance], nets: List[Connecti
                 source = "U1"
             
             rails.append(PowerRail(
-                rail_id=f"RAIL_{str(net.voltage).replace('.', 'V')}",
+                # Separate nets can intentionally carry the same nominal voltage
+                # (for example, always-on logic power and switched actuator power).
+                # The net ID identifies the electrical domain; voltage alone does
+                # not and can produce duplicate ProjectSystem IDs downstream.
+                rail_id=f"RAIL_{net.net_id}",
                 voltage=net.voltage,
                 max_current_capacity_ma=500.0 if net.voltage == 3.3 else 1000.0,
                 source_component=source

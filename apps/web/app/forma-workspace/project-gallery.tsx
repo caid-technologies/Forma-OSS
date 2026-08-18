@@ -476,6 +476,16 @@ function ProjectImageLoadingPanel() {
   );
 }
 
+function ProjectGalleryPlaceholderThumb() {
+  return (
+    <img
+      src="/project-placeholder.jpg"
+      alt=""
+      className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.015]"
+    />
+  );
+}
+
 function ProjectGalleryCard({
   item,
   onOpen,
@@ -510,9 +520,7 @@ function ProjectGalleryCard({
         ) : item.imageLoading ? (
           <ProjectImageLoadingPanel />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs font-medium text-zinc-600">
-            No image
-          </div>
+          <ProjectGalleryPlaceholderThumb />
         )}
       </div>
 

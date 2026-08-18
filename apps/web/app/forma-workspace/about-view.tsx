@@ -3,13 +3,18 @@ import Image from "next/image";
 import Link from "next/link";
 import {
   ArrowUpRight,
+  ChevronDown,
   Cpu,
   Handshake,
   Mail,
   ShieldCheck,
 } from "lucide-react";
 import { ProviderMark } from "../../components/provider-mark";
-import { legalContactEmail, legalDocuments, legalEntityName } from "../../lib/legal-docs";
+import {
+  legalContactEmail,
+  legalDocuments,
+  legalEntityName,
+} from "../../lib/legal-docs";
 import { aboutMarqueePartners } from "../../lib/partners";
 
 const CARD_SURFACE_CLASS = "rounded-xl border border-[#2c2f37] bg-[#181b22]";
@@ -58,22 +63,6 @@ const companyLinks = [
   },
 ];
 
-const primaryLegalSlugs = [
-  "terms-of-service",
-  "privacy-policy",
-  "acceptable-use-policy",
-  "hardware-safety-disclaimer",
-  "cookie-and-local-storage-notice",
-];
-
-const secondaryLegalSlugs = ["copyright-dmca-policy", "security-policy", "accessibility-statement"];
-
-function documentsFor(slugs: string[]) {
-  return slugs
-    .map((slug) => legalDocuments.find((document) => document.slug === slug))
-    .filter((document): document is (typeof legalDocuments)[number] => Boolean(document));
-}
-
 function AboutPaneHeader({
   eyebrow,
   title,
@@ -86,7 +75,7 @@ function AboutPaneHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-[#2c2f37] px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
+    <div className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
       <div className="min-w-0">
         {eyebrow ? <p className="text-xs text-slate-500">{eyebrow}</p> : null}
         <h2 className={`${eyebrow ? "mt-1" : ""} text-lg font-semibold tracking-tight text-white`}>{title}</h2>
@@ -98,22 +87,14 @@ function AboutPaneHeader({
 }
 
 export default function AboutView() {
-  const primaryLegal = documentsFor(primaryLegalSlugs);
-  const secondaryLegal = documentsFor(secondaryLegalSlugs);
-
   return (
     <div className="mx-auto w-full max-w-7xl font-sans text-zinc-100">
-      <div className="mb-6">
-        <div className="hidden min-w-0 items-center gap-2 md:flex">
-          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-            <Handshake className="h-3 w-3" />
-            General
-          </span>
-          <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">About</h1>
-        </div>
-        <p className="mt-2 text-sm leading-6 text-zinc-500 md:mt-2">
-          CAID Technologies, Forma, partners, and legal resources.
-        </p>
+      <div className="mb-6 hidden min-w-0 items-center gap-2 md:flex">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+          <Handshake className="h-3 w-3" />
+          General
+        </span>
+        <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">About</h1>
       </div>
 
       <div className="space-y-5 pb-4">
@@ -121,7 +102,7 @@ export default function AboutView() {
           <AboutPaneHeader
             eyebrow={legalEntityName}
             title="Forma"
-            description="Forma helps builders turn early hardware ideas into structured project plans with parts, wiring, validation, build notes, and generated artifacts."
+            description="Forma helps builders turn early hardware ideas into project plans with parts, wiring, validation, build notes, and generated artifacts."
             actions={
               <>
                 <a href={`mailto:${legalContactEmail}`} className={BUTTON_OUTLINE_CLASS}>
@@ -203,23 +184,29 @@ export default function AboutView() {
         </article>
 
         <article className={CARD_SURFACE_CLASS}>
-          <AboutPaneHeader
-            title="Legal"
-            description="Terms, privacy, safety, and acceptable-use documents for Forma."
-          />
-
-          <nav className="grid gap-1 p-3 sm:grid-cols-2" aria-label="Legal">
-            {[...primaryLegal, ...secondaryLegal].map((document) => (
-              <Link
-                key={document.slug}
-                href={`/legal/${document.slug}`}
-                className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800/40 hover:text-zinc-100"
-              >
-                <span className="min-w-0 truncate">{document.title}</span>
-                <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden="true" />
-              </Link>
-            ))}
-          </nav>
+          <details className="group">
+            <summary className="flex cursor-pointer list-none items-center gap-3 px-5 py-4 marker:content-none [&::-webkit-details-marker]:hidden">
+              <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-500 transition-transform group-open:rotate-0" />
+              <div className="min-w-0 flex-1">
+                <h2 className="text-lg font-semibold tracking-tight text-white">Legal</h2>
+                <p className="mt-1 text-sm leading-6 text-slate-400">
+                  Terms, privacy, safety, and acceptable-use documents for Forma.
+                </p>
+              </div>
+            </summary>
+            <nav className="grid gap-1 border-t border-[#2c2f37] p-3 sm:grid-cols-2" aria-label="Legal">
+              {legalDocuments.map((document) => (
+                <Link
+                  key={document.slug}
+                  href={`/legal/${document.slug}`}
+                  className="flex items-center justify-between gap-3 rounded-lg px-3 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800/40 hover:text-zinc-100"
+                >
+                  <span className="min-w-0 truncate">{document.title}</span>
+                  <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-zinc-600" aria-hidden="true" />
+                </Link>
+              ))}
+            </nav>
+          </details>
         </article>
       </div>
     </div>

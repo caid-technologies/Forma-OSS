@@ -932,6 +932,19 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
     0 8px 20px rgb(var(--forma-cyan-rgb) / 0.1);
 }
 
+.forma-action-fill {
+  background-color: var(--forma-text-strong, #f8fafc);
+  color: var(--forma-surface, #17181d);
+}
+
+.forma-action-fill:hover:not(:disabled) {
+  background-color: color-mix(in srgb, var(--forma-text-strong, #f8fafc) 86%, var(--forma-surface, #17181d));
+}
+
+.forma-action-fill:focus-visible {
+  outline-color: var(--forma-text-strong, #f8fafc);
+}
+
 .prompt-composer-illuminate {
   animation: prompt-composer-illuminate 1.8s ease-in-out infinite;
 }

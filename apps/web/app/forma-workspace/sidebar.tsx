@@ -406,10 +406,10 @@ export function ChatSidebar({
               if (!newChatDisabled) onNavigate?.();
             }}
             disabled={newChatDisabled}
-            className={`flex h-9 w-full items-center justify-center gap-2 rounded-lg text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${
+            className={`flex h-9 w-full items-center justify-center gap-2 rounded-lg text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${
               newChatDisabled
                 ? "cursor-not-allowed bg-zinc-800/40 text-zinc-600"
-                : "bg-emerald-500 text-zinc-950 shadow-sm hover:bg-emerald-400"
+                : "forma-action-fill shadow-sm"
             } ${compact ? "px-0" : "px-3"}`}
             aria-label="New chat"
             title={newChatDisabled ? "Send a message before starting another chat" : "New chat"}

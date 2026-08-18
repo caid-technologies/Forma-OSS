@@ -419,10 +419,12 @@ function navigationGroupItems(group: IntegrationNavigationGroup) {
     ...group.items,
     ...group.basic,
     ...group.advanced,
-    ...group.sections.flatMap((section) =>
-      section.blocks.flatMap((block) => (block.type === "brand" ? block.brand.items : block.items))
-    ),
+    ...group.sections.flatMap(navigationSectionItems),
   ];
+}
+
+function navigationSectionItems(section: IntegrationNavSection) {
+  return section.blocks.flatMap((block) => (block.type === "brand" ? block.brand.items : block.items));
 }
 
 function aggregateNavBadge(badges: SettingsNavBadgeModel[]): SettingsNavBadgeModel {
@@ -566,10 +568,9 @@ function SettingsPaneHeader({
   actions?: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col gap-4 border-b border-[#2c2f37] px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
+    <div className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
       <div className="min-w-0">
-        <p className="text-xs text-slate-500">Settings</p>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="text-lg font-semibold tracking-tight text-white">{title}</h2>
           {badges}
         </div>
@@ -581,8 +582,47 @@ function SettingsPaneHeader({
   );
 }
 
-function SettingsNavSubhead({ children }: { children: React.ReactNode }) {
-  return <div className="px-2 pb-1 pt-2 text-[11px] font-medium text-slate-500">{children}</div>;
+function SettingsNavFolder({
+  label,
+  defaultOpen = false,
+  children,
+}: {
+  label: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <details
+      className="group space-y-0.5"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 pb-1 pt-2 marker:content-none [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-3 w-3 shrink-0 -rotate-90 text-slate-600 transition-transform group-open:rotate-0" />
+        <span className="text-[11px] font-medium text-slate-500">{label}</span>
+      </summary>
+      <div className="space-y-0.5">{children}</div>
+    </details>
+  );
+}
+
+function SettingsCollapsible({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group rounded-xl border border-[#2c2f37] bg-[#101115]/70">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-500 transition-transform group-open:rotate-0" />
+        <span className="text-sm font-medium text-white">{title}</span>
+      </summary>
+      <div className="space-y-2 border-t border-[#2c2f37] px-4 py-3 text-xs leading-5 text-slate-500">{children}</div>
+    </details>
+  );
 }
 
 function SettingsAdvancedDisclosure({
@@ -2344,17 +2384,12 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
     : `${contentWidth} grid gap-5 px-4 py-5 md:grid-cols-[240px_minmax(0,1fr)]`;
 
   const pageHeading = (
-    <div className={embedded ? "mb-6" : "min-w-0"}>
-      <div className={`flex min-w-0 items-center gap-2 ${embedded ? "hidden md:flex" : ""}`}>
-        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-          <Settings className="h-3 w-3" />
-          General
-        </span>
-        <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">Settings</h1>
-      </div>
-      <p className={`${embedded ? "mt-2 md:mt-2" : "mt-1"} text-sm leading-6 text-zinc-500`}>
-        Appearance, provider credentials, model defaults, and account data preferences.
-      </p>
+    <div className={embedded ? "mb-6 hidden min-w-0 items-center gap-2 md:flex" : "flex min-w-0 items-center gap-2"}>
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+        <Settings className="h-3 w-3" />
+        General
+      </span>
+      <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">Settings</h1>
     </div>
   );
 
@@ -2410,13 +2445,13 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
         </section>
       ) : (
         <section className={signedInGrid}>
-        <aside className={`h-fit min-h-0 ${CARD_SURFACE_CLASS} md:sticky md:top-4`}>
-          <div className="border-b border-[#2c2f37] px-3 py-3">
+        <aside className={`h-fit min-h-0 max-h-[calc(100vh-180px)] overflow-y-auto ${CARD_SURFACE_CLASS} md:sticky md:top-4`}>
+          <div className="px-3 py-3">
             <div className="text-sm font-semibold text-white">Settings</div>
             <p className="mt-1 text-[11px] leading-4 text-slate-400">Account, models, and workspace defaults.</p>
           </div>
 
-          <nav aria-label="Settings" className="max-h-[calc(100vh-180px)] space-y-4 overflow-y-auto p-2">
+          <nav aria-label="Settings" className="space-y-4 p-2">
             <SettingsNavSection title="Account">
               <SettingsNavRow
                 label="Appearance"
@@ -2454,19 +2489,40 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
                   </button>
                 </div>
               ) : (
-                navigationGroups.map((group) => (
-                  <div key={group.id} className="space-y-0.5">
-                    {group.id !== "workspace" && <SettingsNavSubhead>{group.label}</SettingsNavSubhead>}
-                    {group.sections.length
-                      ? group.sections.map((section) => (
-                          <div key={section.id} className="space-y-0.5">
-                            <SettingsNavSubhead>{section.label}</SettingsNavSubhead>
-                            {section.blocks.map((block, index) => renderNavBlock(block, `${group.id}:${section.id}:${index}`))}
-                          </div>
-                        ))
-                      : navigationGroupItems(group).map(renderIntegrationNavRow)}
-                  </div>
-                ))
+                navigationGroups.map((group) => {
+                  const groupItems = navigationGroupItems(group);
+                  const groupSelected = groupItems.some((item) => item.key === selectedNavigationKey);
+                  const sectionFolders = group.sections.map((section) => {
+                    const sectionSelected = navigationSectionItems(section).some((item) => item.key === selectedNavigationKey);
+                    return (
+                      <SettingsNavFolder
+                        key={`${section.id}:${sectionSelected ? "on" : "off"}`}
+                        label={section.label}
+                        defaultOpen={sectionSelected}
+                      >
+                        {section.blocks.map((block, index) => renderNavBlock(block, `${group.id}:${section.id}:${index}`))}
+                      </SettingsNavFolder>
+                    );
+                  });
+
+                  if (group.id === "workspace") {
+                    return (
+                      <div key={group.id} className="space-y-0.5">
+                        {groupItems.map(renderIntegrationNavRow)}
+                      </div>
+                    );
+                  }
+
+                  return (
+                    <SettingsNavFolder
+                      key={`${group.id}:${groupSelected ? "on" : "off"}`}
+                      label={group.label}
+                      defaultOpen={groupSelected}
+                    >
+                      {group.sections.length ? sectionFolders : groupItems.map(renderIntegrationNavRow)}
+                    </SettingsNavFolder>
+                  );
+                })
               )}
             </SettingsNavSection>
           </nav>
@@ -2499,7 +2555,7 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
             <article className={CARD_SURFACE_CLASS}>
               <SettingsPaneHeader
                 title="Data & Privacy"
-                description="Set an account-wide limit on future dataset use. This setting never grants project contribution consent."
+                description="Account-wide training-dataset limit. This never grants project contribution consent."
                 badges={<SettingsNavBadge tone="allowed">Account preference</SettingsNavBadge>}
                 actions={
                   <>
@@ -2519,52 +2575,47 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
                 }
               />
 
-              <div className="space-y-8 p-5">
-                <section>
-                  <h3 className="text-sm font-medium text-white">Account-wide contribution limit</h3>
-                  <p className="mt-1 text-xs leading-5 text-slate-500">
-                    Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice.
-                  </p>
-                  <div className="mt-4">
-                    <SettingsFieldCard
-                      title="Model training eligibility"
-                      help="Turn this off to block account-linked outputs from future training-dataset exports. Eligibility alone does not contribute a project."
-                      extraHelp="Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy."
-                      chips={<SettingsNavBadge tone={allowModelTraining ? "allowed" : "warn"}>{allowModelTraining ? "Eligible" : "Opted out"}</SettingsNavBadge>}
-                    >
-                      <label
-                        className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium ${
-                          dataUsageLoading
-                            ? "cursor-wait text-slate-600"
-                            : allowModelTraining
-                              ? "bg-emerald-500/10 text-emerald-400"
-                              : "text-slate-300"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={allowModelTraining}
-                          onChange={(event) => setAllowModelTraining(event.target.checked)}
-                          disabled={dataUsageLoading || dataUsageSaving}
-                          className="h-3.5 w-3.5 accent-emerald-400"
-                        />
-                        {allowModelTraining ? "Eligible" : "Opted out"}
-                      </label>
-                    </SettingsFieldCard>
+              <div className="space-y-3 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-medium text-white">Model training eligibility</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
+                      {dataUsagePreference?.source === "user"
+                        ? `Saved ${formatTimestamp(dataUsagePreference.updated_at)}`
+                        : "No account preference saved yet."}
+                    </p>
                   </div>
-                  <p className="mt-4 text-xs leading-5 text-slate-500">
-                    {dataUsagePreference?.source === "user"
-                      ? `Saved ${formatTimestamp(dataUsagePreference.updated_at)}`
-                      : "Using the default setting; no account preference has been saved yet."}
-                  </p>
-                </section>
+                  <label
+                    className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium ${
+                      dataUsageLoading
+                        ? "cursor-wait text-slate-600"
+                        : allowModelTraining
+                          ? "bg-emerald-500/10 text-emerald-400"
+                          : "text-slate-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allowModelTraining}
+                      onChange={(event) => setAllowModelTraining(event.target.checked)}
+                      disabled={dataUsageLoading || dataUsageSaving}
+                      className="h-3.5 w-3.5 accent-emerald-400"
+                    />
+                    {allowModelTraining ? "Eligible" : "Opted out"}
+                  </label>
+                </div>
 
-                <section>
-                  <h3 className="text-sm font-medium text-white">How opt-outs are tracked</h3>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                <SettingsCollapsible title="How this setting works">
+                  <p>Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice.</p>
+                  <p>Turn this off to block account-linked outputs from future training-dataset exports. Eligibility alone does not contribute a project.</p>
+                  <p>Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy.</p>
+                </SettingsCollapsible>
+
+                <SettingsCollapsible title="How opt-outs are tracked">
+                  <p>
                     Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set, and eligibility never replaces a project-specific consent record.
                   </p>
-                </section>
+                </SettingsCollapsible>
               </div>
             </article>
           ) : payload && selectedIntegration && selectedView === "image" ? (

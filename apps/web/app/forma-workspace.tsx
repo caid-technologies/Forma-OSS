@@ -108,6 +108,7 @@ import {
   Settings,
   Handshake,
   Database,
+  ChevronDown,
 } from "lucide-react";
 
 const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), {
@@ -6830,7 +6831,7 @@ function ChatWorkspace({
                       type={canStop ? "button" : "submit"}
                       onClick={canStop ? onStop : undefined}
                       disabled={!canStop && (isLoading || !projectId || !input.trim())}
-                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-zinc-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-30"
+                      className="forma-action-fill inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-30"
                       aria-label={canStop ? "Stop project update" : "Apply change to project"}
                       title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName}`}
                     >
@@ -7062,6 +7063,32 @@ function ProjectWorkspacePanel({
   );
 }
 
+function AgentPipelineEventsDisclosure({
+  eventCount,
+  children,
+}: {
+  eventCount: number;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <details
+      className="group mt-3 border-t border-white/5 pt-3"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-2 marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex min-w-0 items-center gap-1.5">
+          <ChevronDown className="h-3 w-3 shrink-0 -rotate-90 text-zinc-600 transition-transform group-open:rotate-0" />
+          <span className="text-[10px] font-medium text-zinc-600">Recent events</span>
+        </span>
+        <span className="font-mono text-[10px] text-zinc-600">{eventCount}</span>
+      </summary>
+      <div className="mt-2">{children}</div>
+    </details>
+  );
+}
+
 function AgentPipelineProgressView({
   progress,
   status,
@@ -7224,11 +7251,7 @@ function AgentPipelineProgressView({
       </div>
 
       {!isLoading && (
-        <div className="mt-3 border-t border-white/5 pt-3">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-[10px] font-medium text-zinc-600">Recent events</span>
-            <span className="font-mono text-[10px] text-zinc-600">{events.length}</span>
-          </div>
+        <AgentPipelineEventsDisclosure eventCount={events.length}>
           {visibleEvents.length ? (
             <div className="space-y-1.5">
               {visibleEvents.map((event, index) => {
@@ -7252,7 +7275,7 @@ function AgentPipelineProgressView({
               Polling job metadata. Backend pipeline events will appear here as agents report progress.
             </div>
           )}
-        </div>
+        </AgentPipelineEventsDisclosure>
       )}
     </div>
   );

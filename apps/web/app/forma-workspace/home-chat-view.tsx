@@ -387,7 +387,7 @@ export default function HomeChatView({
                 type={generationActive || retryMode ? "button" : "submit"}
                 onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
                 disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
-                className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-zinc-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-30"
+                className="forma-action-fill flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-30"
                 aria-label={primaryActionLabel}
                 title={primaryActionLabel}
               >

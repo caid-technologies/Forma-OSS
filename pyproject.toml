@@ -45,8 +45,8 @@ fabricator = "forma_core.fabricator.main:main"
 entrypoint = "apps.api.main:app"
 
 [project.optional-dependencies]
-gemini = ["google-genai>=1.0.0"]
-vertex = ["google-auth>=2.29.0", "google-genai>=1.0.0"]
+gemini = ["google-genai>=1.21.0"]
+vertex = ["google-auth>=2.29.0", "google-genai>=1.21.0"]
 huggingface = ["huggingface-hub>=0.34.0"]
 observability = ["langfuse>=4.0.0"]
 supabase = ["supabase==2.31.0"]
@@ -62,7 +62,7 @@ backend = [
 ]
 s3 = ["boto3==1.35.99"]
 all = [
-    "google-genai>=1.0.0",
+    "google-genai>=1.21.0",
     "boto3==1.35.99",
     "cryptography>=42.0.0",
     "fastapi>=0.124.1",

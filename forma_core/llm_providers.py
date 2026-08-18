@@ -1200,7 +1200,12 @@ class GeminiProvider(StructuredLLMProvider):
             contents=contents,
             config=genai_types.GenerateContentConfig(
                 response_mime_type="application/json",
-                response_schema=schema_class,
+                # Keep recursive Pydantic schemas intact. The legacy
+                # response_schema converter inlines $defs and reduces a
+                # self-reference such as SystemNode.children to {}, leaving
+                # those values unconstrained. Native JSON Schema preserves
+                # the $defs/$ref relationship sent to Gemini and Vertex AI.
+                response_json_schema=schema_class.model_json_schema(),
                 temperature=0.2,
             ),
         )

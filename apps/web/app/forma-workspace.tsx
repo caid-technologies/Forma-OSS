@@ -46,12 +46,14 @@ import {
   type StoredVideoInfo,
 } from "./forma-workspace/use-project-video";
 import {
+  ContributionExportPanel,
   JobsPanel,
   LogsPanel,
   formatBytes,
   isFinalVideoStatus,
   statusTone,
 } from "./forma-workspace/admin-panels";
+import AdminAlphaMedia from "./forma-workspace/admin-alpha-media";
 import HomeChatView from "./forma-workspace/home-chat-view";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
@@ -1452,7 +1454,7 @@ const workspaceTabs = [
   { id: "bom", label: "BOM", icon: ShoppingBag },
   { id: "mechanical", label: "MECH", icon: Box },
   { id: "schematic", label: "WIRE", icon: Cpu },
-  { id: "assembly", label: "DOCS", icon: Info },
+  { id: "assembly", label: "ASSEMBLY", icon: Info },
   { id: "video", label: "MEDIA", icon: Film },
 ];
 
@@ -2155,6 +2157,7 @@ export function FormaWorkspace({
   });
   const canViewJobs = !authRequired || isAdmin;
   const canViewAdminTools = !authRequired || showDeveloperTools || isAdmin;
+  const canUseAdminAlphaMedia = !authRequired || isAdmin;
   const sidebarChatsLoading = !chatIndexLoaded || !chatHistoryLoaded;
   const sidebarJobsPending = authRequired && !adminSessionLoaded;
   const jobsViewActive = canViewJobs && (homeView === "jobs" || Boolean(projectIR && activeTab === "jobs"));
@@ -2204,7 +2207,7 @@ export function FormaWorkspace({
     setAspectRatio: setVideoAspectRatio,
   } = useVideoModels({
     apiUrl: API_URL,
-    enabled: Boolean(projectIR && activeTab === "video"),
+    enabled: Boolean(projectIR && activeTab === "video" && canUseAdminAlphaMedia),
     onAvailabilityChange: setVideoGenerationConfig,
   });
   const waitingGenerationJobKey = useMemo(() => {
@@ -4623,11 +4626,11 @@ export function FormaWorkspace({
   const currentProjectCanDownloadAssets = currentUserOwnsProject;
   const projectVideo = useProjectVideo({
     apiUrl: API_URL,
-    enabled: Boolean(projectIR && activeTab === "video"),
+    enabled: Boolean(projectIR && activeTab === "video" && canUseAdminAlphaMedia),
     projectId: currentProjectId,
     authIdentityKey,
-    canManageProject: currentUserOwnsProject,
-    canLoadProjectVideos: currentProjectCanDownloadAssets,
+    canManageProject: canUseAdminAlphaMedia,
+    canLoadProjectVideos: canUseAdminAlphaMedia,
     imageOptions: videoImageOptions,
     defaultImage: defaultVideoImage,
     authorizeGeneration: requireSignedInForGeneration,
@@ -4643,7 +4646,9 @@ export function FormaWorkspace({
       aspectRatio: videoAspectRatio,
       setAspectRatio: setVideoAspectRatio,
     },
-    generationAvailability: videoGenerationConfig,
+    generationAvailability: canUseAdminAlphaMedia
+      ? videoGenerationConfig
+      : { configured: false, reason: "Video generation is limited to the admin alpha." },
     reviewAvailability: videoSelfCorrectionConfig,
     globalBusy: isLoading,
     setGlobalBusy: setIsLoading,
@@ -4798,7 +4803,25 @@ export function FormaWorkspace({
         );
       case "video":
         return (
-          <VideoPanel {...projectVideo} />
+          <div className="flex h-full min-h-0 flex-col overflow-hidden bg-[#141519]">
+            {canUseAdminAlphaMedia && (
+              <AdminAlphaMedia
+                apiUrl={API_URL}
+                projectId={currentProjectId}
+                hasGeneratedImage={videoImageOptions.length > 0}
+                disabled={isLoading}
+                getRequestHeaders={generationRequestHeaders}
+                readError={readApiErrorMessage}
+                onGenerated={(nextProjectIR, response) => {
+                  setProjectIR(withProjectResponseMetadata(nextProjectIR, response));
+                  void refreshProjectAndChatLists();
+                }}
+              />
+            )}
+            <div className="min-h-0 flex-1">
+              <VideoPanel {...projectVideo} />
+            </div>
+          </div>
         );
       case "jobs":
         return (
@@ -5116,26 +5139,33 @@ export function FormaWorkspace({
                 description="Generated-project jobs, pipeline events, image status, and operation errors."
               />
               {canViewJobs ? (
-                <JobsPanel
-                  jobs={a2aJobs}
-                  metrics={jobMetrics}
-                  metricsError={jobMetricsError}
-                  metricsWindow={jobMetricsWindow}
-                  onMetricsWindowChange={setJobMetricsWindow}
-                  loading={jobsLoading}
-                  error={jobsError}
-                  statusFilter={jobStatusFilter}
-                  onStatusFilterChange={changeJobStatusFilter}
-                  onRefresh={() => fetchA2aJobs(jobStatusFilter)}
-                  onOpenProject={loadProjectForJob}
-                  findProjectForJob={findProjectForJob}
-                  lastUpdatedAt={jobsLastUpdatedAt}
-                  pollIntervalMs={JOB_POLL_INTERVAL_MS}
-                  title="Jobs"
-                  description="Generation and example project job metadata. Polling stays active while this page is open."
-                  emptyMessage="No jobs recorded for this filter."
-                  formatLlmLabel={generationLlmLabel}
-                />
+                <>
+                  <ContributionExportPanel
+                    apiUrl={API_URL}
+                    getHeaders={generationRequestHeaders}
+                    readError={readApiErrorMessage}
+                  />
+                  <JobsPanel
+                    jobs={a2aJobs}
+                    metrics={jobMetrics}
+                    metricsError={jobMetricsError}
+                    metricsWindow={jobMetricsWindow}
+                    onMetricsWindowChange={setJobMetricsWindow}
+                    loading={jobsLoading}
+                    error={jobsError}
+                    statusFilter={jobStatusFilter}
+                    onStatusFilterChange={changeJobStatusFilter}
+                    onRefresh={() => fetchA2aJobs(jobStatusFilter)}
+                    onOpenProject={loadProjectForJob}
+                    findProjectForJob={findProjectForJob}
+                    lastUpdatedAt={jobsLastUpdatedAt}
+                    pollIntervalMs={JOB_POLL_INTERVAL_MS}
+                    title="Jobs"
+                    description="Generation and example project job metadata. Polling stays active while this page is open."
+                    emptyMessage="No jobs recorded for this filter."
+                    formatLlmLabel={generationLlmLabel}
+                  />
+                </>
               ) : (
                 <div className="rounded-xl border border-white/5 bg-[#181b22] p-6 text-sm leading-6 text-zinc-400">
                   {adminSessionLoaded ? "Admin access is required to view jobs." : "Checking admin access..."}

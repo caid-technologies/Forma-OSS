@@ -7025,35 +7025,37 @@ function AgentPipelineProgressView({
         ))}
       </div>
 
-      <div className="mt-3 border-t border-[#25272e] pt-3">
-        <div className="mb-2 flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">Recent events</span>
-          <span className="font-mono text-[10px] text-slate-600">{events.length}</span>
-        </div>
-        {visibleEvents.length ? (
-          <div className="space-y-1.5">
-            {visibleEvents.map((event, index) => {
-              const details = formatPipelineDetails(event.details);
-              return (
-                <div key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className="min-w-0 border border-[#25272e] bg-[#0f1014] px-2 py-1.5">
-                  <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] uppercase">
-                    <span className="max-w-[160px] truncate font-black text-slate-300">{event.label || event.step_id}</span>
-                    <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-cyan-300"}`}>
-                      {String(event.status).replace(/_/g, " ")}
-                    </span>
-                    <span className="text-slate-600">{formatPipelineAge(event.observed_at, nowMs)} ago</span>
+      {!isLoading && (
+        <div className="mt-3 border-t border-[#25272e] pt-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">Recent events</span>
+            <span className="font-mono text-[10px] text-slate-600">{events.length}</span>
+          </div>
+          {visibleEvents.length ? (
+            <div className="space-y-1.5">
+              {visibleEvents.map((event, index) => {
+                const details = formatPipelineDetails(event.details);
+                return (
+                  <div key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className="min-w-0 border border-[#25272e] bg-[#0f1014] px-2 py-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] uppercase">
+                      <span className="max-w-[160px] truncate font-black text-slate-300">{event.label || event.step_id}</span>
+                      <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-cyan-300"}`}>
+                        {String(event.status).replace(/_/g, " ")}
+                      </span>
+                      <span className="text-slate-600">{formatPipelineAge(event.observed_at, nowMs)} ago</span>
+                    </div>
+                    {details && !compact && <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">{details}</div>}
                   </div>
-                  {details && !compact && <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">{details}</div>}
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <div className="border border-[#25272e] bg-[#0f1014] px-2 py-2 text-[11px] leading-4 text-slate-500">
-            Polling job metadata. Backend pipeline events will appear here as agents report progress.
-          </div>
-        )}
-      </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="border border-[#25272e] bg-[#0f1014] px-2 py-2 text-[11px] leading-4 text-slate-500">
+              Polling job metadata. Backend pipeline events will appear here as agents report progress.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

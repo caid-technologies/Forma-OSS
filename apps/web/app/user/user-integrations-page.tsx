@@ -1298,6 +1298,28 @@ function navBodyId(collapseKey: string) {
   return `settings-nav-${collapseKey.replace(/[^a-z0-9]+/gi, "-")}`;
 }
 
+function SettingsHeading({
+  as: TitleTag = "h2",
+  icon: Icon,
+  title,
+  description,
+}: {
+  as?: "h1" | "h2";
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="flex items-center gap-2">
+        <Icon className="h-4 w-4 shrink-0 text-cyan-300" />
+        <TitleTag className="truncate text-sm font-black uppercase tracking-wide text-white">{title}</TitleTag>
+      </div>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
+    </div>
+  );
+}
+
 function SettingsNavSection({
   collapseKey,
   title,
@@ -1882,15 +1904,12 @@ export default function UserIntegrationsPage() {
               <ArrowLeft className="h-4 w-4" />
               Home
             </Link>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-cyan-300" />
-                <h1 className="truncate text-lg font-black uppercase tracking-wide text-white">Settings</h1>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Appearance, provider credentials, model defaults, and account data preferences for your Forma workspace.
-              </p>
-            </div>
+            <SettingsHeading
+              as="h1"
+              icon={KeyRound}
+              title="Settings"
+              description="Appearance, provider credentials, model defaults, and account data preferences for your Forma workspace."
+            />
           </div>
           {!isLocalSettingsView && (
             <button
@@ -1944,11 +1963,11 @@ export default function UserIntegrationsPage() {
         <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside className="min-h-0 border border-[#2c2f37] bg-[#17181d]">
           <div className="border-b border-[#2c2f37] p-4">
-            <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
-              <SlidersHorizontal className="h-4 w-4 text-cyan-300" />
-              Settings Navigation
-            </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">Choose a settings area, then a category and its specific page.</p>
+            <SettingsHeading
+              icon={SlidersHorizontal}
+              title="Settings Navigation"
+              description="Choose a settings area, then a category and its specific page."
+            />
           </div>
 
           <nav aria-label="Settings" className="max-h-[calc(100vh-220px)] space-y-3 overflow-y-auto p-3">

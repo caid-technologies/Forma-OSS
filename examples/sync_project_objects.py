@@ -19,7 +19,7 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from forma_core.config import config  # noqa: E402
+from blueprint_core.config import config  # noqa: E402
 
 DEFAULT_PROMPT = (
     "Design a compact blue desktop environmental monitor with an OLED display, "
@@ -185,14 +185,14 @@ def slug(value: str) -> str:
 def common_settings(timeout_seconds: float, *, generate_image: bool = False) -> tuple[EnvSetting, ...]:
     timeout_value = str(timeout_seconds)
     return (
-        EnvSetting("FORMA_DEV_MODE", "true"),
-        EnvSetting("FORMA_DEPLOYMENT", "false"),
-        EnvSetting("FORMA_DEPLOYMENT_MODE", "false"),
+        EnvSetting("BLUEPRINT_DEV_MODE", "true"),
+        EnvSetting("BLUEPRINT_DEPLOYMENT", "false"),
+        EnvSetting("BLUEPRINT_DEPLOYMENT_MODE", "false"),
         EnvSetting("DEPLOYMENT", "false"),
         EnvSetting("DEPLOYMENT_MODE", "false"),
-        EnvSetting("NEXT_PUBLIC_FORMA_DEPLOYMENT", "false"),
-        EnvSetting("FORMA_DISABLE_GENERATION_FALLBACK", "true"),
-        EnvSetting("FORMA_STRICT_GENERATION", "true"),
+        EnvSetting("NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT", "false"),
+        EnvSetting("BLUEPRINT_DISABLE_GENERATION_FALLBACK", "true"),
+        EnvSetting("BLUEPRINT_STRICT_GENERATION", "true"),
         EnvSetting("LLM_DISABLE_FALLBACK", "true"),
         EnvSetting("IMAGE_OUTPUT_ENABLED", "true" if generate_image else "false"),
         EnvSetting("LLM_TIMEOUT_SECONDS", timeout_value),
@@ -205,7 +205,7 @@ def ollama_job(model: str, base_url: str, timeout_seconds: float, *, generate_im
         dict.fromkeys(
             [
                 model,
-                config.get("OLLAMA_FORMA_MODEL", ""),
+                config.get("OLLAMA_BLUEPRINT_MODEL", ""),
                 "qwen3:0.6b",
                 "qwen3:8b",
                 "qwen3-vl:8b",
@@ -413,8 +413,8 @@ def run_project_object_job(
     generate_image: bool = False,
 ) -> ProjectObjectRunResult:
     from apps.api.a2a import build_generation_response
-    from forma_core.workspaces.projects.models import HardwareIR
-    from forma_core.workspaces.projects.objects import attach_project_object_metadata, build_project_object
+    from blueprint_core.workspaces.projects.models import HardwareIR
+    from blueprint_core.workspaces.projects.objects import attach_project_object_metadata, build_project_object
 
     apply_job_environment(base_environment, job)
     started = time.monotonic()
@@ -554,15 +554,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help=f"Directory for JSON output. Defaults to {DEFAULT_OUTPUT_DIR}.")
     parser.add_argument("--run-id", default=None, help="Stable run id for output filenames.")
     parser.add_argument("--only", action="append", choices=("ollama", "runpod", "baseten", "gmi", "huggingface"), help="Run only one provider. Can be repeated.")
-    parser.add_argument("--ollama-model", default=config.get("OLLAMA_FORMA_MODEL", DEFAULT_OLLAMA_MODEL))
+    parser.add_argument("--ollama-model", default=config.get("OLLAMA_BLUEPRINT_MODEL", DEFAULT_OLLAMA_MODEL))
     parser.add_argument("--ollama-base-url", default=config.get("OLLAMA_OPENAI_BASE_URL", DEFAULT_OLLAMA_BASE_URL))
-    parser.add_argument("--runpod-model", default=config.get("RUNPOD_FORMA_MODEL", DEFAULT_RUNPOD_MODEL))
+    parser.add_argument("--runpod-model", default=config.get("RUNPOD_BLUEPRINT_MODEL", DEFAULT_RUNPOD_MODEL))
     parser.add_argument("--runpod-base-url", default=config.get("RUNPOD_OPENAI_BASE_URL"), help="Optional Runpod OpenAI-compatible base URL override.")
-    parser.add_argument("--baseten-model", default=config.get("BASETEN_FORMA_MODEL", DEFAULT_BASETEN_GLM_MODEL))
+    parser.add_argument("--baseten-model", default=config.get("BASETEN_BLUEPRINT_MODEL", DEFAULT_BASETEN_GLM_MODEL))
     parser.add_argument("--baseten-base-url", default=config.get("BASETEN_BASE_URL", DEFAULT_BASETEN_BASE_URL))
-    parser.add_argument("--gmi-model", default=config.get("GMI_FORMA_MODEL", config.get("GMI_MODEL", DEFAULT_GMI_FABLE_MODEL)))
+    parser.add_argument("--gmi-model", default=config.get("GMI_BLUEPRINT_MODEL", config.get("GMI_MODEL", DEFAULT_GMI_FABLE_MODEL)))
     parser.add_argument("--gmi-base-url", default=config.get("GMI_BASE_URL", DEFAULT_GMI_BASE_URL))
-    parser.add_argument("--huggingface-model", default=config.get("HUGGINGFACE_FORMA_MODEL", DEFAULT_HUGGINGFACE_QWEN_MODEL))
+    parser.add_argument("--huggingface-model", default=config.get("HUGGINGFACE_BLUEPRINT_MODEL", DEFAULT_HUGGINGFACE_QWEN_MODEL))
     parser.add_argument("--huggingface-base-url", default=config.get("HUGGINGFACE_BASE_URL", DEFAULT_HUGGINGFACE_BASE_URL))
     parser.add_argument("--timeout-seconds", type=float, default=1200.0, help="Provider timeout for slow jobs.")
     parser.add_argument("--generate-image", action="store_true", help="Request product image generation for each project object.")

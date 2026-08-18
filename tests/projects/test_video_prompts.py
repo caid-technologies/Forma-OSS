@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from forma_core.workspaces.projects.models import (
+from blueprint_core.workspaces.projects.models import (
     AssemblyStep,
     ComponentInstance,
     FunctionalRequirements,
@@ -11,7 +11,7 @@ from forma_core.workspaces.projects.models import (
     PinDefinition,
     ProjectOverview,
 )
-from forma_core.video_prompts import generate_image_to_video_prompt_from_namespaces
+from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 
 
 class VideoPromptGenerationTests(unittest.TestCase):

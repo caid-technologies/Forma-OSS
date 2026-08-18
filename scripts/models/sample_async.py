@@ -17,7 +17,7 @@ if str(ROOT_DIR) not in sys.path:
 
 
 from scripts.models import sample
-from forma_core.selectors import LLMSelector
+from blueprint_core.selectors import LLMSelector
 
 
 DEFAULT_CONCURRENCY = 4

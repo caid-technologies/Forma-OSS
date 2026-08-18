@@ -6,52 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from unittest.mock import patch
 
-from forma_core.image_providers import (
-    GeneratedImage,
-    GMIImageProvider,
-    HuggingFaceImageProvider,
-    OpenAIImageProvider,
-    TogetherImageProvider,
-    VertexAIImageProvider,
-    build_image_provider,
-    build_project_image_prompt,
-    build_project_image_sequence_prompts,
-)
+from blueprint_core.image_providers import GeneratedImage, GMIImageProvider, HuggingFaceImageProvider, OpenAIImageProvider, TogetherImageProvider, VertexAIImageProvider, build_image_provider
 
 
 class ImageProviderRoutingTests(unittest.TestCase):
-    def test_project_image_prompts_keep_measurements_and_text_out_of_rendered_pixels(self) -> None:
-        ir = SimpleNamespace(
-            overview=SimpleNamespace(title="Pocket monitor", description="A compact sensor monitor"),
-            mechanical=SimpleNamespace(
-                render_dimensions=SimpleNamespace(x_mm=120, y_mm=70, z_mm=28),
-                enclosure_type="3D printed enclosure",
-                physical_form="Crescent-shaped open-frame wearable",
-            ),
-            components=[],
-            constraints=[],
-            fabrication_notes=[],
-            assembly_metadata={},
-        )
-
-        product_prompt = build_project_image_prompt("Build a pocket monitor", ir)
-        self.assertIn("rendered pixels must contain no text", product_prompt.lower())
-        self.assertIn("never print or annotate this in the image", product_prompt.lower())
-        self.assertIn("crescent-shaped open-frame wearable", product_prompt.lower())
-        self.assertIn("do not default to a rectangular project box", product_prompt.lower())
-
-        sequence = build_project_image_sequence_prompts("Build a pocket monitor", ir)
-        self.assertEqual(["case", "inside"], [item["view_id"] for item in sequence])
-        self.assertEqual("Product exterior", sequence[0]["label"])
-        for item in sequence:
-            prompt = item["prompt"].lower()
-            self.assertIn("rendered pixels must contain no text", prompt)
-            self.assertIn("do not draw dimension lines", prompt)
-            self.assertIn("crescent-shaped open-frame wearable", prompt)
-            self.assertIn("do not default to a rectangular project box", prompt)
-            self.assertNotIn("dimension callouts must", prompt)
-        self.assertIn("without inventing a shell", sequence[1]["prompt"].lower())
-
     def test_openai_image_provider_does_not_inherit_llm_base_url(self) -> None:
         with patch.dict(
             os.environ,
@@ -126,7 +84,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
                 "VERTEX_AI_IMAGE_ASPECT_RATIO": "16:9",
             },
             clear=True,
-        ), patch("forma_core.image_providers.genai", fake_genai):
+        ), patch("blueprint_core.image_providers.genai", fake_genai):
             provider = build_image_provider(force_enabled=True)
             assert isinstance(provider, VertexAIImageProvider)
             image = provider.generate_test_image("Render a compact environmental monitor")
@@ -153,7 +111,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
             os.environ,
             {"GOOGLE_CLOUD_PROJECT": "forma-image-test"},
             clear=True,
-        ), patch("forma_core.image_providers.genai", fake_genai):
+        ), patch("blueprint_core.image_providers.genai", fake_genai):
             provider = build_image_provider(force_enabled=True)
 
         self.assertIsInstance(provider, VertexAIImageProvider)
@@ -170,8 +128,8 @@ class ImageProviderRoutingTests(unittest.TestCase):
                 "GOOGLE_CLOUD_PROJECT": "forma-image-test",
             },
             clear=True,
-        ), patch("forma_core.image_providers.genai", fake_genai), patch(
-            "forma_core.image_providers.build_vertex_credentials",
+        ), patch("blueprint_core.image_providers.genai", fake_genai), patch(
+            "blueprint_core.image_providers.build_vertex_credentials",
             return_value=credentials,
         ):
             provider = build_image_provider(force_enabled=True)
@@ -320,7 +278,7 @@ class ImageProviderRoutingTests(unittest.TestCase):
                 return responses.pop(0)
 
             with patch.object(provider, "_request_queue_json", side_effect=fake_queue_request), patch(
-                "forma_core.image_providers.time.sleep"
+                "blueprint_core.image_providers.time.sleep"
             ):
                 image = provider._generate_image_from_prompt(
                     "render a hardware enclosure",

@@ -17,8 +17,8 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-from forma_core.selectors import LLMSelector
-from forma_core.selectors import parse_llm_selector as parse_core_llm_selector
+from blueprint_core.selectors import LLMSelector
+from blueprint_core.selectors import parse_llm_selector as parse_core_llm_selector
 
 
 DEFAULT_ENV_FILE = ".env"
@@ -75,7 +75,7 @@ def load_env_file(path: Path) -> None:
 
 
 def discover_candidates(*, include_simulation: bool, only_default_model: bool) -> list[LLMSelector]:
-    from forma_core.llm import LLMProviderConfigError, resolve_llm_runtime_config
+    from blueprint_core.llm import LLMProviderConfigError, resolve_llm_runtime_config
 
     default_runtime = resolve_llm_runtime_config()
     providers = default_runtime.allowed_providers or [default_runtime.provider]
@@ -100,7 +100,7 @@ def resolve_candidates(args: argparse.Namespace) -> list[LLMSelector]:
     if args.llm:
         return dedupe_candidates(args.llm)
     if args.provider:
-        from forma_core.llm import resolve_llm_runtime_config
+        from blueprint_core.llm import resolve_llm_runtime_config
 
         runtime = resolve_llm_runtime_config(args.provider, args.model)
         return [LLMSelector(runtime.provider, runtime.model)]
@@ -122,7 +122,7 @@ def run_candidate(
     timeout_seconds: float | None,
     config_only: bool,
 ) -> dict[str, Any]:
-    from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
+    from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
 
     started_at = time.monotonic()
     result: dict[str, Any] = {

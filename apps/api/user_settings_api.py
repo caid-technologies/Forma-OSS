@@ -8,8 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from apps.api.auth import UserContext, require_user_context
-from forma_core.database import get_user_settings, set_user_model_training_preference
-from forma_core.debug import api_error_detail
+from blueprint_core.database import get_user_settings, set_user_model_training_preference
+from blueprint_core.debug import api_error_detail
 
 
 router = APIRouter(prefix="/user/settings", tags=["user"])

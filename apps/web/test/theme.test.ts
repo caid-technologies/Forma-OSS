@@ -4,12 +4,8 @@ import { test } from "node:test";
 
 import {
   arcticLight,
-  DEFAULT_AUTO_THEME_CONFIG,
   FORMA_THEMES,
   normalizeTheme,
-  parseAutoThemeConfig,
-  resolveAutoTheme,
-  solarizedDark,
   solarizedLight,
   solarizedPublishedAccents,
   themeBootstrapScript,
@@ -73,16 +69,14 @@ test("theme preferences use a stable local storage key", () => {
 test("theme preferences accept every known theme and default the rest to dark", () => {
   assert.equal(normalizeTheme("light"), "light");
   assert.equal(normalizeTheme("arctic"), "arctic");
-  assert.equal(normalizeTheme("solarized-dark"), "solarized-dark");
-  assert.equal(normalizeTheme("dark"), "solarized-dark");
-  assert.equal(normalizeTheme(null), "solarized-dark");
-  assert.equal(normalizeTheme("system"), "solarized-dark");
-  assert.equal(normalizeTheme("solarized"), "solarized-dark");
+  assert.equal(normalizeTheme("dark"), "dark");
+  assert.equal(normalizeTheme(null), "dark");
+  assert.equal(normalizeTheme("system"), "dark");
+  assert.equal(normalizeTheme("solarized"), "dark");
 });
 
 test("every theme resolves to a native colour scheme", () => {
   // `color-scheme: arctic` is not a thing, so the theme id cannot be passed through.
-  assert.equal(themeColorScheme("solarized-dark"), "dark");
   assert.equal(themeColorScheme("dark"), "dark");
   assert.equal(themeColorScheme("light"), "light");
   assert.equal(themeColorScheme("arctic"), "light");
@@ -143,7 +137,6 @@ test("the Solarized block declares the exported palette", () => {
   assert.match(block, new RegExp(`--forma-text: ${solarizedLight.base01};`));
   assert.match(block, new RegExp(`--forma-text-strong: ${solarizedLight.base02};`));
   assert.match(block, new RegExp(`--forma-text-muted: ${solarizedLight.base00};`));
-  assert.match(block, /--forma-selected-wash-alpha: 0\.07;/);
   // Rules and wells are base1 at low alpha so they track whatever sits behind them.
   const [red, green, blue] = channels(solarizedLight.base1);
   assert.match(block, new RegExp(`--forma-surface-muted: rgb\\(${red} ${green} ${blue} / 0\\.18\\);`));
@@ -169,7 +162,6 @@ test("the Arctic block preserves the slate theme Forma shipped before Solarized"
   assert.match(block, new RegExp(`--forma-text-body: ${arcticLight.textBody};`));
   assert.match(block, new RegExp(`--forma-text-secondary: ${arcticLight.textSecondary};`));
   assert.match(block, new RegExp(`--forma-text-muted: ${arcticLight.textMuted};`));
-  assert.match(block, /--forma-selected-wash-alpha: 0\.18;/);
   for (const [name, hex] of Object.entries({
     cyan: arcticLight.cyan,
     green: arcticLight.green,
@@ -188,28 +180,6 @@ test("every Arctic tone clears WCAG AA for normal text on its own page", () => {
     if (["page", "surface", "surfaceMuted", "border"].includes(name)) continue;
     const ratio = contrastRatio(hex, arcticLight.page);
     assert.ok(ratio >= 4.2, `${name} ${hex} is ${ratio.toFixed(2)}:1 on the Arctic page`);
-  }
-});
-
-test("the Solarized Dark+ block declares the exported palette", () => {
-  const block = themeBlock("solarized-dark");
-  assert.match(block, new RegExp(`--forma-page: ${solarizedDark.base03};`));
-  assert.match(block, new RegExp(`--forma-surface: ${solarizedDark.base04};`));
-  assert.match(block, new RegExp(`--forma-surface-muted: ${solarizedDark.base02};`));
-  assert.match(block, new RegExp(`--forma-text: ${solarizedDark.base0};`));
-  assert.match(block, new RegExp(`--forma-text-strong: ${solarizedDark.base3};`));
-  assert.match(block, new RegExp(`--forma-text-secondary: ${solarizedDark.base1};`));
-  assert.match(block, new RegExp(`--forma-text-muted: ${solarizedDark.base00};`));
-  assert.match(block, /--forma-selected-wash-alpha: 0\.15;/);
-  for (const [name, hex] of Object.entries({
-    cyan: solarizedDark.cyan,
-    green: solarizedDark.green,
-    yellow: solarizedDark.yellow,
-    red: solarizedDark.red,
-    violet: solarizedDark.violet,
-  })) {
-    assert.match(block, new RegExp(`--forma-${name}-rgb: ${channels(hex).join(" ")};`), `${name} is missing`);
-    assert.match(block, new RegExp(`--forma-${name}-soft: ${hex};`), `${name} soft tone is missing`);
   }
 });
 
@@ -233,25 +203,4 @@ test("shared rules resolve their colours through variables, not literals", () =>
       `a literal colour leaked into a shared rule:\n${selector.trim()}\n{${declarations}}`,
     );
   }
-});
-
-test("light-theme interaction states use theme tokens instead of dark utilities", () => {
-  const rules = scopedRules();
-  const sidebarHover = rules.find(({ selector }) => selector.includes("hover:bg-[#17181d]"));
-  assert.ok(sidebarHover, "the sidebar hover utility is not translated for light themes");
-  assert.match(sidebarHover.declarations, /background-color: var\(--forma-surface-muted\)/);
-
-  const selectedWash = rules.find(({ selector }) => selector.includes("bg-cyan-300/10"));
-  assert.ok(selectedWash, "the selected-state wash rule is missing");
-  assert.match(selectedWash.declarations, /var\(--forma-selected-wash-alpha\)/);
-
-  const groupHoverText = rules.find(({ selector }) => selector.includes("group-hover:text-zinc-100"));
-  assert.ok(groupHoverText, "group-hover light text is not translated for light themes");
-  assert.match(groupHoverText.selector, /\.group:hover/);
-  assert.doesNotMatch(groupHoverText.selector, /:where\(/);
-  assert.match(groupHoverText.declarations, /color: var\(--forma-text-strong\)/);
-
-  const whiteWash = rules.find(({ selector }) => selector.includes("hover:bg-white/5"));
-  assert.ok(whiteWash, "the white hover wash is not translated for light themes");
-  assert.match(whiteWash.declarations, /background-color: var\(--forma-surface-muted\)/);
 });

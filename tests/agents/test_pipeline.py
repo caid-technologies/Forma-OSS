@@ -4,9 +4,9 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
-from forma_core.llm import LLMProviderPreflightError
-from forma_core.agents.pipeline import (
+from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.llm import LLMProviderPreflightError
+from blueprint_core.agents.pipeline import (
     PipelineCancelledError,
     agent_pipeline_step,
     ensure_agent_pipeline_active,
@@ -23,7 +23,7 @@ class PipelineMetadataTests(unittest.TestCase):
             side_effect=LLMProviderPreflightError("production provider unavailable")
         )
 
-        with patch("forma_core.agents.orchestrator.emit_agent_pipeline_event") as emit_event:
+        with patch("blueprint_core.agents.orchestrator.emit_agent_pipeline_event") as emit_event:
             with self.assertRaises(LLMProviderPreflightError):
                 orchestrator.generate_project("environment monitor")
 

@@ -1,7 +1,7 @@
 import base64
 from collections import defaultdict, deque
 import json
-from forma_core.config import config
+from blueprint_core.config import config
 import threading
 import time
 from dataclasses import dataclass, field
@@ -166,20 +166,6 @@ def _display_name_from_clerk_user(user: Dict[str, Any]) -> Optional[str]:
     return _primary_email_local_part(user)
 
 
-def _github_username_from_clerk_user(user: Dict[str, Any]) -> Optional[str]:
-    external_accounts = user.get("external_accounts")
-    if not isinstance(external_accounts, list):
-        return None
-    for account in external_accounts:
-        if not isinstance(account, dict):
-            continue
-        provider = str(account.get("provider") or "").strip().lower()
-        username = account.get("username")
-        if provider in {"github", "oauth_github"} and isinstance(username, str) and username.strip():
-            return username.strip().lstrip("@") or None
-    return None
-
-
 @lru_cache(maxsize=512)
 def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
     normalized_user_id = str(user_id or "").strip()
@@ -193,7 +179,7 @@ def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
         headers={
             "Authorization": f"Bearer {secret_key}",
             "Accept": "application/json",
-            "User-Agent": "Forma/1.0 (+https://github.com/caid-technologies/forma-oss)",
+            "User-Agent": "Forma/1.0 (+https://github.com/caid-technologies/blueprint-oss)",
         },
         method="GET",
     )
@@ -210,7 +196,6 @@ def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
     return {
         "display_name": _display_name_from_clerk_user(payload),
         "email": _primary_email_address(payload),
-        "github_username": _github_username_from_clerk_user(payload),
         "image_url": image_url.strip() if isinstance(image_url, str) and image_url.strip().startswith(("http://", "https://")) else None,
     }
 
@@ -257,7 +242,7 @@ def clerk_user_is_admin(auth_claims: Optional[Dict[str, Any]]) -> bool:
     if not user_id:
         return False
 
-    admin_user_ids = _csv_env("FORMA_ADMIN_USER_IDS") | _csv_env("CLERK_ADMIN_USER_IDS")
+    admin_user_ids = _csv_env("BLUEPRINT_ADMIN_USER_IDS") | _csv_env("CLERK_ADMIN_USER_IDS")
     if user_id in admin_user_ids:
         return True
 
@@ -269,7 +254,7 @@ def clerk_user_is_admin(auth_claims: Optional[Dict[str, Any]]) -> bool:
         if isinstance(metadata, dict) and metadata.get("admin") is True:
             return True
 
-    admin_emails = {email.lower() for email in (_csv_env("FORMA_ADMIN_EMAILS") | _csv_env("CLERK_ADMIN_EMAILS"))}
+    admin_emails = {email.lower() for email in (_csv_env("BLUEPRINT_ADMIN_EMAILS") | _csv_env("CLERK_ADMIN_EMAILS"))}
     if not admin_emails:
         return False
     email = clerk_user_email(user_id)

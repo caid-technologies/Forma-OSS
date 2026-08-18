@@ -3,29 +3,29 @@ from __future__ import annotations
 from pathlib import Path
 import unittest
 
-from forma_core.signups.models import AlphaSignupRequest
-from forma_core.workspaces.chats.models import (
+from blueprint_core.signups.models import AlphaSignupRequest
+from blueprint_core.workspaces.chats.models import (
     Chat,
     ChatMessage,
     ChatUpsertRequest,
     ProjectChat,
     ProjectChatUpsertRequest,
 )
-from forma_core.workspaces.models import Workspace
-from forma_core.workspaces.projects.iteration import ProjectIterator
-from forma_core.workspaces.projects.models import HardwareIR, Project
-from forma_core.workspaces.projects.objects import build_project_object
+from blueprint_core.workspaces.models import Workspace
+from blueprint_core.workspaces.projects.iteration import ProjectIterator
+from blueprint_core.workspaces.projects.models import HardwareIR, Project
+from blueprint_core.workspaces.projects.objects import build_project_object
 
 
 class DomainPackageTests(unittest.TestCase):
     def test_project_and_signup_models_have_canonical_domain_modules(self) -> None:
-        self.assertEqual("forma_core.workspaces.projects.models", HardwareIR.__module__)
-        self.assertEqual("forma_core.workspaces.projects.iteration", ProjectIterator.__module__)
-        self.assertEqual("forma_core.workspaces.projects.objects", build_project_object.__module__)
-        self.assertEqual("forma_core.signups.models", AlphaSignupRequest.__module__)
+        self.assertEqual("blueprint_core.workspaces.projects.models", HardwareIR.__module__)
+        self.assertEqual("blueprint_core.workspaces.projects.iteration", ProjectIterator.__module__)
+        self.assertEqual("blueprint_core.workspaces.projects.objects", build_project_object.__module__)
+        self.assertEqual("blueprint_core.signups.models", AlphaSignupRequest.__module__)
 
     def test_legacy_domain_modules_are_removed(self) -> None:
-        package_root = Path(__file__).resolve().parents[2] / "forma_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         legacy_modules = ("iteration.py", "models.py", "project_objects.py")
         self.assertEqual([], [name for name in legacy_modules if (package_root / name).exists()])
 

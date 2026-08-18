@@ -10,19 +10,19 @@
             "entrypoint": "apps.api.main:app",
             "functions": {
                 "apps.api.main:app": {
-                    "includeFiles": "forma_core/**",
+                    "includeFiles": "blueprint_core/**",
                     "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
-                    "maxDuration": 1800
+                    "maxDuration": 300
                 },
                 "apps/api/main.py": {
-                    "includeFiles": "forma_core/**",
+                    "includeFiles": "blueprint_core/**",
                     "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
-                    "maxDuration": 1800
+                    "maxDuration": 300
                 },
                 "main.py": {
-                    "includeFiles": "forma_core/**",
+                    "includeFiles": "blueprint_core/**",
                     "excludeFiles": "{apps/web/**,.venv/**,node_modules/**,.vercel/**,build/**,dist/**,data/**,tmp/**,.logs/**,*.db,*.log,**/__pycache__/**,**/*.pyc}",
-                    "maxDuration": 1800
+                    "maxDuration": 300
                 }
             }
         }

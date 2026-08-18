@@ -6,14 +6,13 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
-from forma_core.agents.orchestrator import HardwarePipelineOrchestrator, extract_power_rails
-from forma_core.agents.pipeline import emit_agent_pipeline_event
-from forma_core.database import list_project_generation_jobs
-from forma_core.persistence.providers import create_sqlite_provider
-from forma_core.persistence.repositories import SqlAlchemyRepository
-from forma_core.workers import (
+from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from blueprint_core.agents.pipeline import emit_agent_pipeline_event
+from blueprint_core.persistence.providers import create_sqlite_provider
+from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workers import (
     GENERATION_CAPABILITY_ID,
     GENERATION_INPUT_VERSION,
     GENERATION_OUTPUT_VERSION,
@@ -26,30 +25,21 @@ from forma_core.workers import (
     WorkerPlanStatus,
     WorkerRegistry,
     WorkerRequest,
-    build_generation_draft,
 )
-from forma_core.workspaces.design_briefs import (
+from blueprint_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
     DesignBrief,
     DesignBriefReference,
 )
-from forma_core.workspaces.projects import (
+from blueprint_core.workspaces.projects import (
     ProjectArtifact,
     ProjectRevisionDraft,
     ProjectStateError,
     ProjectStateService,
     ProjectSystem,
 )
-from forma_core.workspaces.projects.models import (
-    BusConnection,
-    ComponentInstance,
-    ConnectionNet,
-    HardwareIR,
-    PinReference,
-    PowerRail,
-    ProjectOverview,
-)
-from forma_core.workspaces.workflow import (
+from blueprint_core.workspaces.projects.models import ComponentInstance, HardwareIR, ProjectOverview
+from blueprint_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -60,16 +50,9 @@ OWNER = "generation-worker-user"
 
 
 class FakeGenerationEngine:
-    def __init__(
-        self,
-        *,
-        fail: bool = False,
-        target_project_id: str | None = None,
-        assembly_metadata: dict[str, Any] | None = None,
-    ) -> None:
+    def __init__(self, *, fail: bool = False, target_project_id: str | None = None) -> None:
         self.fail = fail
         self.target_project_id = target_project_id
-        self.assembly_metadata = assembly_metadata or {}
         self.received: list[DesignBrief] = []
 
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
@@ -94,7 +77,6 @@ class FakeGenerationEngine:
             assembly_metadata={
                 "project_id": self.target_project_id or str(design_brief.project_id),
                 "revision": 1,
-                **self.assembly_metadata,
             },
         )
         return ProjectRevisionDraft(
@@ -120,16 +102,6 @@ class FakeGenerationEngine:
         )
 
 
-class ProviderDeadlineError(RuntimeError):
-    code = 504
-
-
-class ProviderDeadlineGenerationEngine(FakeGenerationEngine):
-    def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
-        del design_brief
-        raise ProviderDeadlineError("504 DEADLINE_EXCEEDED: Deadline expired before operation could complete.")
-
-
 class ObservableGenerationEngine(HardwareIRGenerationEngine):
     def generate(self, design_brief: DesignBrief) -> ProjectRevisionDraft:
         emit_agent_pipeline_event(None, "intent_parser", "started")
@@ -149,69 +121,12 @@ class CancellableGenerationEngine(HardwareIRGenerationEngine):
         return FakeGenerationEngine().generate(design_brief)
 
 
-class RetryableStagedGenerationEngine(HardwareIRGenerationEngine):
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    def generate(
-        self,
-        design_brief: DesignBrief,
-        *,
-        generation_metadata: dict[str, Any] | None = None,
-    ) -> ProjectRevisionDraft:
-        metadata = dict(generation_metadata or {})
-        self.calls.append(metadata)
-        first_attempt = len(self.calls) == 1
-        generation_run = {
-            "generation_run_id": "default-retry-run",
-            "workflow": "default",
-            "retry_stage": metadata.get("retry_stage"),
-            "status": "partial" if first_attempt else "succeeded",
-            "records": {
-                "component_selection": {
-                    "stage_id": "component_selection",
-                    "status": "succeeded",
-                    "dependencies": [],
-                },
-                "wiring_netlist": {
-                    "stage_id": "wiring_netlist",
-                    "status": "failed" if first_attempt else "succeeded",
-                    "dependencies": ["component_selection"],
-                },
-                "package_project": {
-                    "stage_id": "package_project",
-                    "status": "succeeded",
-                    "dependencies": [],
-                },
-            },
-        }
-        checkpoint = metadata.get("stage_checkpoint")
-        if first_attempt and callable(checkpoint):
-            for stage_id in ("component_selection", "wiring_netlist", "package_project"):
-                checkpoint({
-                    "generation_run_id": generation_run["generation_run_id"],
-                    "workflow": "default",
-                    "retry_stage": None,
-                    "status": generation_run["status"],
-                    "record": generation_run["records"][stage_id],
-                })
-        return FakeGenerationEngine(assembly_metadata={
-            "generation_status": "partial" if first_attempt else "succeeded",
-            "project_readiness": "partial" if first_attempt else "complete",
-            "generation_run": generation_run,
-            "generation_stage_failures": ([{
-                "stage_id": "wiring_netlist",
-                "status": "failed",
-            }] if first_attempt else []),
-        }).generate(design_brief)
-
-
 class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="generation worker test",
-            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()
@@ -241,8 +156,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             assembly_metadata={"project_id": str(self.project_id)},
         )
         with (
-            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
-            patch("forma_core.workers.generation.attach_product_image") as attach_image,
+            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("blueprint_core.workers.generation.attach_product_image") as attach_image,
         ):
             orchestrator_type.return_value.generate_project.return_value = state
 
@@ -251,141 +166,6 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         attach_image.assert_called_once()
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
         self.assertEqual("Vertex Image Project", draft.state.overview.title)
-
-    def test_hardware_engine_returns_contained_staged_root_failure(self) -> None:
-        state = HardwareIR(assembly_metadata={
-            "generation_status": "failed",
-            "status": "failed",
-            "generation_error": {"type": "TimeoutError", "message": "architecture timed out"},
-            "generation_run": {"generation_run_id": "failed-run", "records": {}},
-        })
-        with (
-            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
-            patch("forma_core.workers.generation.attach_product_image"),
-        ):
-            orchestrator_type.return_value.generate_project.return_value = state
-
-            draft = HardwareIRGenerationEngine().generate(self.brief)
-
-        self.assertEqual("failed", draft.state.assembly_metadata["generation_status"])
-
-    def test_hardware_ir_rejects_dangling_component_references(self) -> None:
-        component = ComponentInstance(
-            ref_des="U1",
-            part_number="ESP32-DEVKIT",
-            name="ESP32 controller",
-            category="Microcontroller",
-            rationale="Provides processing and connectivity.",
-        )
-        with self.assertRaisesRegex(ValueError, "unknown component instance 'R2'"):
-            HardwareIR(
-                components=[component],
-                nets=[
-                    ConnectionNet(
-                        net_id="NET_I2C_SDA",
-                        name="I2C data",
-                        net_type="I2C",
-                        pins=[
-                            PinReference(ref_des="U1", pin_id="SDA"),
-                            PinReference(ref_des="R2", pin_id="1"),
-                        ],
-                    )
-                ],
-                buses=[BusConnection(bus_id="I2C_1", bus_type="I2C", nets=["NET_I2C_SDA"])],
-                power_rails=[
-                    PowerRail(
-                        rail_id="3V3",
-                        voltage=3.3,
-                        max_current_capacity_ma=500,
-                        source_component="R2",
-                    )
-                ],
-            )
-
-    def test_generation_draft_keeps_same_voltage_power_nets_as_unique_systems(self) -> None:
-        component = ComponentInstance(
-            ref_des="U1",
-            part_number="ESP32-DEVKIT",
-            name="ESP32 controller",
-            category="Microcontroller",
-            rationale="Provides processing and connectivity.",
-        )
-        nets = [
-            ConnectionNet(
-                net_id="NET_VCC_5V",
-                name="Always-on logic power",
-                net_type="Power",
-                voltage=5.0,
-                pins=[PinReference(ref_des="U1", pin_id="VIN")],
-            ),
-            ConnectionNet(
-                net_id="NET_SERVO_VCC",
-                name="Switched servo power",
-                net_type="Power",
-                voltage=5.0,
-                pins=[PinReference(ref_des="U1", pin_id="VIN")],
-            ),
-        ]
-        rails = extract_power_rails([component], nets)
-        state = HardwareIR(components=[component], nets=nets, power_rails=rails)
-
-        draft = build_generation_draft(self.brief, state)
-
-        self.assertEqual(["RAIL_NET_VCC_5V", "RAIL_NET_SERVO_VCC"], [rail.rail_id for rail in rails])
-        self.assertEqual(
-            ["system-primary", "power-RAIL_NET_VCC_5V", "power-RAIL_NET_SERVO_VCC"],
-            [system.system_id for system in draft.systems],
-        )
-
-    def test_generation_draft_reuses_persisted_stage_artifact_references(self) -> None:
-        stage_artifact = ProjectArtifact(
-            artifact_id="run-1:web_architect:attempt:1",
-            kind="generation-stage:web_architect",
-            uri="forma://generation-runs/run-1/stages/web_architect/attempts/1",
-            media_type="application/json",
-            checksum="sha256:abc123",
-        )
-        state = HardwareIR(assembly_metadata={
-            "generation_run": {
-                "records": {
-                    "web_architect": {
-                        "status": "succeeded",
-                        "artifact": stage_artifact.model_dump(mode="json"),
-                    }
-                }
-            }
-        })
-
-        draft = build_generation_draft(self.brief, state)
-
-        self.assertIn(stage_artifact, draft.artifacts)
-
-    def test_generation_draft_disambiguates_duplicate_power_and_bus_system_ids(self) -> None:
-        component = ComponentInstance(
-            ref_des="U1",
-            part_number="ESP32-DEVKIT",
-            name="ESP32 controller",
-            category="Microcontroller",
-            rationale="Provides processing and connectivity.",
-        )
-        state = HardwareIR(
-            components=[component],
-            power_rails=[
-                PowerRail(rail_id="RAIL_5V", voltage=5.0, max_current_capacity_ma=1000, source_component="U1"),
-                PowerRail(rail_id="RAIL_5V", voltage=5.0, max_current_capacity_ma=500, source_component="U1"),
-            ],
-            buses=[
-                BusConnection(bus_id="I2C_1", bus_type="I2C", nets=[]),
-                BusConnection(bus_id="I2C_1", bus_type="I2C", nets=[]),
-            ],
-        )
-
-        draft = build_generation_draft(self.brief, state)
-
-        self.assertEqual(
-            ["system-primary", "power-RAIL_5V", "power-RAIL_5V-2", "bus-I2C_1", "bus-I2C_1-2"],
-            [system.system_id for system in draft.systems],
-        )
 
     def tearDown(self) -> None:
         self.directory.cleanup()
@@ -447,8 +227,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_registered_worker_persists_initial_revision_through_orchestrator(self) -> None:
         engine = FakeGenerationEngine()
-        publisher = Mock(return_value=str(self.project_id))
-        worker = GenerationWorker(self.state, engine, project_publisher=publisher)
+        worker = GenerationWorker(self.state, engine)
         registry = WorkerRegistry([worker])
         orchestrator = WorkerOrchestrator(
             self.repository,
@@ -481,60 +260,6 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(self.project_id), OWNER).state)
         self.assertEqual(self.brief, engine.received[0])
         self.assertEqual(["ref-datasheet"], [item.reference_id for item in engine.received[0].references])
-        publisher.assert_called_once_with(revision, self.brief, OWNER)
-
-    async def test_idempotent_replay_retries_the_gallery_projection(self) -> None:
-        engine = FakeGenerationEngine()
-        publisher = Mock(side_effect=[RuntimeError("gallery unavailable"), str(self.project_id)])
-        worker = GenerationWorker(self.state, engine, project_publisher=publisher)
-        request = self.request().model_copy(update={"metadata": {"execution_owner_user_id": OWNER}})
-
-        async def progress(_: Any) -> None:
-            return None
-
-        first = await worker.execute(request, progress)
-        second = await worker.execute(request, progress)
-
-        self.assertEqual("failed", first.status.value)
-        self.assertTrue(first.error.retryable)
-        self.assertIn("gallery unavailable", first.error.message)
-        self.assertEqual("succeeded", second.status.value)
-        self.assertTrue(second.output["idempotent_replay"])
-        self.assertEqual(2, publisher.call_count)
-        self.assertEqual(1, len(engine.received))
-
-    async def test_partial_default_generation_retry_appends_revision_and_reuses_run(self) -> None:
-        engine = RetryableStagedGenerationEngine()
-        worker = GenerationWorker(self.state, engine)
-        orchestrator = WorkerOrchestrator(
-            self.repository,
-            [worker],
-            workflow_service=self.workflow,
-        )
-        plan = orchestrator.create_plan([self.request()], OWNER)
-
-        partial = await orchestrator.execute(plan.plan_id, OWNER)
-
-        self.assertEqual(WorkerPlanStatus.PARTIAL, partial.status)
-        self.assertEqual(1, self.state.get_latest(self.project_id, OWNER).revision)
-        reset = await orchestrator.reset(plan.plan_id, OWNER)
-        self.assertEqual("wiring_netlist", reset.jobs["job-generation-initial"].request.metadata["retry_stage"])
-        preserved_checkpoints = [
-            progress.metadata["generation_stage_checkpoint"]["record"]["stage_id"]
-            for progress in reset.jobs["job-generation-initial"].progress
-            if "generation_stage_checkpoint" in progress.metadata
-        ]
-        self.assertEqual(["component_selection"], preserved_checkpoints)
-
-        completed = await orchestrator.execute(plan.plan_id, OWNER)
-
-        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
-        self.assertEqual(2, self.state.get_latest(self.project_id, OWNER).revision)
-        self.assertEqual("wiring_netlist", engine.calls[1]["retry_stage"])
-        self.assertEqual(
-            "default-retry-run",
-            engine.calls[1]["prior_generation_run"]["generation_run_id"],
-        )
 
     async def test_project_chat_iteration_appends_an_immutable_revision(self) -> None:
         engine = FakeGenerationEngine()
@@ -628,45 +353,6 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             self.state.get_latest(self.project_id, OWNER)
         self.assertEqual("project_revision_not_found", missing.exception.code)
 
-    async def test_admin_job_projection_includes_image_failure_output(self) -> None:
-        engine = FakeGenerationEngine(assembly_metadata={
-            "image_output_status": "failed",
-            "image_output_failed": True,
-            "image_output_error": "Image provider returned no images.",
-            "image_output_error_type": "empty_response",
-            "operation_statuses": [
-                {"id": "image_generation", "label": "Image generation", "status": "failed"},
-            ],
-        })
-        worker = GenerationWorker(self.state, engine)
-        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
-        plan = orchestrator.create_plan([self.request()], OWNER)
-        await orchestrator.execute(plan.plan_id, OWNER)
-
-        with patch("forma_core.database._DATABASE_REPOSITORY", self.repository):
-            jobs = list_project_generation_jobs(limit=10)
-
-        projected = next(job for job in jobs if job["job_id"] == "job-generation-initial")
-        summary = projected["result_summary"]
-        self.assertTrue(summary["image_output_failed"])
-        self.assertEqual("failed", summary["image_output_status"])
-        self.assertEqual("Image provider returned no images.", summary["image_output_error"])
-        self.assertEqual("failed", summary["operation_statuses"][0]["status"])
-
-    async def test_numeric_provider_status_is_preserved_as_a_retryable_worker_error(self) -> None:
-        worker = GenerationWorker(self.state, ProviderDeadlineGenerationEngine())
-        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
-        plan = orchestrator.create_plan([self.request()], OWNER)
-
-        completed = await orchestrator.execute(plan.plan_id, OWNER)
-        result = completed.jobs["job-generation-initial"].result
-
-        self.assertEqual(WorkerPlanStatus.FAILED, completed.status)
-        self.assertEqual("504", result.error.code)
-        self.assertTrue(result.error.retryable)
-        self.assertIn("DEADLINE_EXCEEDED", result.error.message)
-        self.assertEqual("ProviderDeadlineError", result.error.details["exception_type"])
-
     async def test_extra_conversation_input_is_rejected_before_generation(self) -> None:
         engine = FakeGenerationEngine()
         worker = GenerationWorker(self.state, engine)
@@ -741,8 +427,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(persisted.revision_id), second.output["project_revision"]["revision_id"])
         self.assertEqual(1, len(engine.received))
 
-    @patch("forma_core.agents.orchestrator.ensure_agent_pipeline_active")
-    @patch("forma_core.agents.orchestrator.save_generated_project")
+    @patch("blueprint_core.agents.orchestrator.ensure_agent_pipeline_active")
+    @patch("blueprint_core.agents.orchestrator.save_generated_project")
     def test_generation_engine_mode_disables_legacy_direct_project_write(
         self,
         save_generated_project: Any,

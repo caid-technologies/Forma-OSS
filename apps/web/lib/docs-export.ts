@@ -116,7 +116,7 @@ export function docsExportFilename(title?: string | null) {
     .toLowerCase()
     .replace(/[’']/g, "")
     .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "") || "forma_project";
+    .replace(/^_+|_+$/g, "") || "blueprint_project";
 
   return `${basename}_build_instructions.md`;
 }

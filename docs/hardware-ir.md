@@ -9,15 +9,13 @@ Forma’s **Hardware IR** is a typed, versioned JSON schema built with Pydantic.
 - **Diffable:** Changes across versions are explicit and comparable.
 
 ## Top-level structure
-The core schema lives in `forma_core/workspaces/projects/models.py` and includes:
+The core schema lives in `apps/api/models.py` and includes:
 
 - **hardware_ir_version** – schema version string.
 - **overview** – `ProjectOverview` with title, description, difficulty, category.
 - **requirements** – `FunctionalRequirements` with power, constraints, safety notes.
 - **system_architecture** – purpose-driven `SystemArchitecture` tree of discipline and nested subsystem nodes.
-- **part_definitions** – shared, source-agnostic `PartDefinition` identity, specifications, pinout, dimensions, datasheet, sourcing, and unit-price records.
-- **components** – physical `ComponentInstance` occurrences; every record has one unique reference designator and points to a part definition.
-- **bom** – deterministic `BOMLineItem` aggregation over physical instance references.
+- **components** – list of `ComponentInstance` objects (instantiated BOM).
 - **nets** – list of `ConnectionNet` objects (netlist connections).
 - **buses** – `BusConnection` definitions (I2C/SPI/UART groups).
 - **pin_mappings** – `PinMappingEntry` for MCU signal mapping.
@@ -38,8 +36,7 @@ Additional fields commonly populated at runtime:
 
 ## Key relationships
 - **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.
-- **ComponentInstance → PartDefinition:** Each physical occurrence references shared part identity and pin data by `part_definition_id`.
-- **BOMLineItem → ComponentInstance:** Each procurement row aggregates `instance_refs`; its quantity must equal the number of those references.
+- **ComponentInstance → PinDefinition:** Each instance carries a full pinout.
 - **ConnectionNet → PinReference:** Nets reference component pins by `ref_des` + `pin_id`.
 - **BusConnection → ConnectionNet:** Buses group nets for higher-level comms.
 - **ValidationSummary → ValidationIssue:** Structured diagnostics live inside the IR.
@@ -53,13 +50,7 @@ The IR is produced in a loop:
 
 This makes the IR more than a snapshot—it’s a record of what was checked and why the design is considered safe within MVP scope.
 
-## Hardware IR 0.2 migration
-
-Hardware IR 0.2 separates physical design state from procurement aggregation. Repeated parts are represented as independently addressable instances (`M1`, `M2`, `M3`, `M4`), while the BOM can still contain one row with quantity four. Nets and mechanical placements always target a physical instance, and validation rejects duplicate or unknown references, unknown pins when a pinout is defined, mismatched BOM quantities, and non-deterministic extended prices.
-
-The validator reads 0.1 quantity-bearing component records and expands them deterministically. Shared legacy identity and pin fields are moved into `part_definitions`, BOM rows are derived, and the serialized result is emitted as 0.2. Runtime compatibility properties remain available to existing Python consumers during the transition, but new JSON must not use aggregate component quantities.
-
 ## Image inputs
-When `image_data` is provided to `POST /api/generate`, the backend uploads the reference image to Supabase Storage when the Supabase service-role/secret key is configured and `FORMA_DEV_MODE` is not enabled, then records `assembly_metadata.reference_image_url`, `reference_image_s3_bucket`, and `reference_image_s3_key`. If storage is not configured or `FORMA_DEV_MODE=true`, it falls back to `assembly_metadata.reference_image_data`.
+When `image_data` is provided to `POST /api/generate`, the backend uploads the reference image to Supabase Storage when the Supabase service-role/secret key is configured and `BLUEPRINT_DEV_MODE` is not enabled, then records `assembly_metadata.reference_image_url`, `reference_image_s3_bucket`, and `reference_image_s3_key`. If storage is not configured or `BLUEPRINT_DEV_MODE=true`, it falls back to `assembly_metadata.reference_image_data`.
 
-When image output is requested, the backend records `assembly_metadata.image_output_status` as `succeeded` or `failed`. It also records structured operation entries in `assembly_metadata.operation_statuses`, including `image_generation` and, when applicable, `image_storage`. On success, it uploads the generated product concept image to Supabase Storage when the Supabase service-role/secret key is configured and `FORMA_DEV_MODE` is not enabled, then records `assembly_metadata.product_image_url`, `product_image_s3_bucket`, and `product_image_s3_key` along with `product_image_provider`, `product_image_model`, and `product_image_size`. In dev mode, the product image stays inline in the SQLite project record. If the image model is unavailable, misconfigured, returns no image, or errors, the job still keeps the hardware IR and records `assembly_metadata.image_output_error`, `image_output_error_type`, and `product_image_error`.
+When image output is requested, the backend records `assembly_metadata.image_output_status` as `succeeded` or `failed`. It also records structured operation entries in `assembly_metadata.operation_statuses`, including `image_generation` and, when applicable, `image_storage`. On success, it uploads the generated product concept image to Supabase Storage when the Supabase service-role/secret key is configured and `BLUEPRINT_DEV_MODE` is not enabled, then records `assembly_metadata.product_image_url`, `product_image_s3_bucket`, and `product_image_s3_key` along with `product_image_provider`, `product_image_model`, and `product_image_size`. In dev mode, the product image stays inline in the SQLite project record. If the image model is unavailable, misconfigured, returns no image, or errors, the job still keeps the hardware IR and records `assembly_metadata.image_output_error`, `image_output_error_type`, and `product_image_error`.

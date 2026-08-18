@@ -11,9 +11,9 @@ from typing import Any
 
 from PIL import Image, ImageDraw
 
-from forma_core.persistence.providers import create_sqlite_provider
-from forma_core.persistence.repositories import SqlAlchemyRepository
-from forma_core.workers import (
+from blueprint_core.persistence.providers import create_sqlite_provider
+from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workers import (
     REVERSE_ENGINEERING_CAPABILITY_ID,
     REVERSE_ENGINEERING_INPUT_VERSION,
     REVERSE_ENGINEERING_OUTPUT_VERSION,
@@ -31,16 +31,16 @@ from forma_core.workers import (
     WorkerResultStatus,
     build_reverse_engineering_request,
 )
-from forma_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
-from forma_core.workspaces.projects import ProjectStateError, ProjectStateService
-from forma_core.workspaces.reverse_engineering import (
+from blueprint_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
+from blueprint_core.workspaces.projects import ProjectStateError, ProjectStateService
+from blueprint_core.workspaces.reverse_engineering import (
     ReverseEngineeringArtifactReference,
     ReverseEngineeringConfidence,
     ReverseEngineeringEvidenceSource,
     ReverseEngineeringFindingKind,
     ReverseEngineeringReport,
 )
-from forma_core.workspaces.workflow import (
+from blueprint_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -100,7 +100,7 @@ class ReverseEngineeringWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase)
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="reverse-engineering worker test",
-            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()

@@ -4,7 +4,6 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 
 ## Core UI features
 - **Prompt input** with optional image upload.
-- **Shape clarification** that asks for the intended silhouette or form factor before generation.
 - **Example presets** for quick exploration.
 - **React Flow schematic** showing components and nets.
 - **Vector schematic** rendered from SVG output.
@@ -12,12 +11,6 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 - **Assembly instructions** and **mechanical notes** views.
 - **Export** of the Hardware IR package as JSON and build instructions as Markdown.
 - **3D mechanical scene** for enclosure and component placements.
-
-## Shape and form-factor iteration
-
-The initial chat asks for the system's overall shape, silhouette, or form factor. Answers can describe enclosed products as well as curved, cylindrical, radial, wearable, folded, structural, and open-frame designs; Forma should not assume a rectangular case.
-
-To redesign an existing project's shape without changing its components, open the project, select the **MECH** tab, and describe the new form in project chat—for example, “Keep these components, but change the body to a curved handheld pod with a thumb rest.” The `product.mech` namespace allows mechanical form, dimensions, placement, material, and fabrication details to change while keeping the BOM and electrical connectivity fixed. Use the BOM or WIRE tab when the requested revision should also change components or wiring.
 
 ## Primary tabs
 The main dashboard exposes several focused views:

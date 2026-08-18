@@ -10,7 +10,7 @@ import time
 import unittest
 from contextlib import redirect_stdout
 
-from forma_core.providers import ProviderEvent, ProviderRequest
+from blueprint_core.providers import ProviderEvent, ProviderRequest
 
 
 ROOT_DIR = pathlib.Path(__file__).resolve().parents[2]

@@ -23,8 +23,8 @@ if str(ROOT_DIR) not in sys.path:
 
 
 from scripts.models import sample, sample_async
-from forma_core.selectors import LLMSelector
-from forma_core.integrations.huggingface import (
+from blueprint_core.selectors import LLMSelector
+from blueprint_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     upload_artifacts_to_huggingface,
@@ -189,9 +189,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="Per-job log format: jsonl, csv, or both. Defaults to both.",
     )
     parser.add_argument("--upload-huggingface", action="store_true", help="Upload saved benchmark artifacts to a Hugging Face dataset repo.")
-    parser.add_argument("--hf-repo-id", help="Hugging Face dataset repo id, for example username/forma-metrics. Defaults to HF_ARTIFACT_REPO_ID.")
+    parser.add_argument("--hf-repo-id", help="Hugging Face dataset repo id, for example username/blueprint-metrics. Defaults to HF_ARTIFACT_REPO_ID.")
     parser.add_argument("--hf-repo-type", default="dataset", help="Hugging Face repo type. Defaults to dataset.")
-    parser.add_argument("--hf-path-prefix", default="forma", help="Path prefix inside the Hugging Face repo. Defaults to forma.")
+    parser.add_argument("--hf-path-prefix", default="blueprint", help="Path prefix inside the Hugging Face repo. Defaults to blueprint.")
     parser.add_argument("--hf-private", action="store_true", help="Create the Hugging Face repo as private when it does not exist.")
     parser.add_argument("--hf-no-create-repo", action="store_true", help="Do not create the Hugging Face repo before uploading.")
     parser.add_argument("--hf-commit-message", default="Upload Forma model benchmark artifacts", help="Commit message for Hugging Face uploads.")

@@ -19,7 +19,7 @@ This checklist tracks document and policy work before Forma is published as a pu
 - [ ] Confirm deletion/export behavior for accounts, projects, logs, backups, and provider-side data.
 - [ ] Decide whether user content may be used for model evaluation, fine-tuning, examples, or marketing.
 - [ ] Add a consent flow for any non-essential cookies, analytics, or marketing tools where required.
-- [ ] Confirm BYOK/API-key storage uses encrypted Supabase `user_integration_configs`, server-only `FORMA_USER_SECRETS_KEY`, and no plaintext credential columns or logs.
+- [ ] Confirm BYOK/API-key storage uses encrypted Supabase `user_integration_configs`, server-only `BLUEPRINT_USER_SECRETS_KEY`, and no plaintext credential columns or logs.
 - [ ] Confirm Supabase plan, DPA, subprocessor list, data residency, retention, and backup deletion posture for the jurisdictions where the app is offered.
 - [ ] For HIPAA/PHI workloads, execute a Supabase BAA and enable the required HIPAA environment controls before allowing PHI. If no BAA is in place, prohibit PHI in product copy and policy.
 

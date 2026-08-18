@@ -1,6 +1,6 @@
 import logging
 import mimetypes
-from forma_core.config import config
+from blueprint_core.config import config
 import re
 import urllib.request
 from dataclasses import dataclass
@@ -10,7 +10,7 @@ from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
 
-from forma_core.runtime import forma_dev_mode_enabled
+from blueprint_core.runtime import blueprint_dev_mode_enabled
 
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
@@ -104,14 +104,14 @@ def _supabase_service_key() -> Optional[str]:
 
 
 def _supabase_client_enabled() -> bool:
-    if forma_dev_mode_enabled():
+    if blueprint_dev_mode_enabled():
         return False
     return bool(_supabase_url() and _supabase_service_key())
 
 
 def _supabase_storage_bucket(bucket: str):
-    if forma_dev_mode_enabled():
-        raise RuntimeError("Supabase video storage is disabled while FORMA_DEV_MODE=true.")
+    if blueprint_dev_mode_enabled():
+        raise RuntimeError("Supabase video storage is disabled while BLUEPRINT_DEV_MODE=true.")
 
     supabase_url = _supabase_url()
     service_key = _supabase_service_key()
@@ -151,7 +151,7 @@ def get_video_storage_config() -> Dict[str, Any]:
     has_static_keys = bool(_env("AWS_ACCESS_KEY_ID") and _env("AWS_SECRET_ACCESS_KEY"))
     has_credential_source = _has_aws_credential_source()
     supabase_client_enabled = _supabase_client_enabled()
-    if forma_dev_mode_enabled():
+    if blueprint_dev_mode_enabled():
         return {
             "enabled": False,
             "bucket": bucket,
@@ -167,7 +167,7 @@ def get_video_storage_config() -> Dict[str, Any]:
             "supabase_url_configured": bool(_supabase_url()),
             "supabase_service_key_configured": bool(_supabase_service_key()),
             "dev_mode": True,
-            "disabled_reason": "FORMA_DEV_MODE disables remote video storage to avoid Supabase writes.",
+            "disabled_reason": "BLUEPRINT_DEV_MODE disables remote video storage to avoid Supabase writes.",
         }
     return {
         "enabled": bool(bucket and region and (has_credential_source or supabase_client_enabled)),
@@ -190,7 +190,7 @@ def get_video_storage_config() -> Dict[str, Any]:
 def ensure_video_storage_configured() -> Dict[str, Any]:
     config = get_video_storage_config()
     if config.get("dev_mode"):
-        raise RuntimeError("Video storage is disabled while FORMA_DEV_MODE=true.")
+        raise RuntimeError("Video storage is disabled while BLUEPRINT_DEV_MODE=true.")
     if not config["bucket_configured"]:
         raise RuntimeError("Video S3 storage is missing VIDEO_S3_BUCKET.")
     if not config["region_configured"]:
@@ -579,7 +579,7 @@ def list_project_videos(project_id: str) -> List[StoredVideo]:
     if not project_id or not str(project_id).strip():
         raise ValueError("Video gallery requires projectId.")
 
-    if forma_dev_mode_enabled():
+    if blueprint_dev_mode_enabled():
         return []
 
     config = get_video_storage_config()

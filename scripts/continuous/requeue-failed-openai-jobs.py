@@ -12,9 +12,9 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from forma_core.agents.continuous import JsonlStreamStore
-from forma_core.jobs.continuous import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobQueue, ContinuousOpenAIJobResult, now_seconds
-from forma_core.prompt_continuity import DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS
+from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.jobs.continuous import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobQueue, ContinuousOpenAIJobResult, now_seconds
+from blueprint_core.prompt_continuity import DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS
 
 
 LOG_PREFIX = "[requeue-llm-jobs]"

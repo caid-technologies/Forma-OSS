@@ -5,7 +5,7 @@ import unittest
 import uuid
 from pathlib import Path
 
-from forma_core.jobs.store import JobMetadataStore
+from blueprint_core.jobs.store import JobMetadataStore
 
 
 class ProjectDeletionJobTests(unittest.TestCase):
@@ -27,9 +27,9 @@ class ProjectDeletionJobTests(unittest.TestCase):
                     job_id=job_id,
                     message_id=f"message-{index}",
                     correlation_id=None,
-                    action="forma.generate_project",
+                    action="blueprint.generate_project",
                     sender="test-user",
-                    recipient="forma",
+                    recipient="blueprint",
                     payload=payload,
                     server_owned=True,
                 )

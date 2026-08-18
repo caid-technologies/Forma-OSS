@@ -4,13 +4,13 @@ import asyncio
 import unittest
 from types import SimpleNamespace
 
-from forma_core.jobs.context import (
+from blueprint_core.jobs.context import (
     PastJobContextSource,
     compose_prompt_with_past_jobs,
     normalize_generation_data_sources,
 )
-from forma_core.jobs.source_usage import infer_source_usage, normalize_source_usage
-from forma_core.workspaces.projects.models import GenerateProjectRequest
+from blueprint_core.jobs.source_usage import infer_source_usage, normalize_source_usage
+from blueprint_core.workspaces.projects.models import GenerateProjectRequest
 
 
 class FakeJobStore:
@@ -56,7 +56,7 @@ class PastJobContextTests(unittest.TestCase):
         jobs = [
             {
                 "job_id": "job-lamp",
-                "action": "forma.generate_project",
+                "action": "blueprint.generate_project",
                 "status": "succeeded",
                 "created_at": "2026-07-30T12:03:00Z",
                 "payload": {"owner_user_id": "user-a"},
@@ -64,7 +64,7 @@ class PastJobContextTests(unittest.TestCase):
             },
             {
                 "job_id": "job-other",
-                "action": "forma.generate_project",
+                "action": "blueprint.generate_project",
                 "status": "succeeded",
                 "created_at": "2026-07-30T12:02:00Z",
                 "payload": {"owner_user_id": "user-b"},
@@ -72,7 +72,7 @@ class PastJobContextTests(unittest.TestCase):
             },
             {
                 "job_id": "job-plant",
-                "action": "forma.generate_project",
+                "action": "blueprint.generate_project",
                 "status": "succeeded",
                 "created_at": "2026-07-30T12:01:00Z",
                 "payload": {"owner_user_id": "user-a"},
@@ -97,7 +97,7 @@ class PastJobContextTests(unittest.TestCase):
 
     def test_source_usage_tracks_past_jobs(self) -> None:
         requested = infer_source_usage(
-            action="forma.generate_project",
+            action="blueprint.generate_project",
             payload={"workflow": "default", "data_sources": ["past_jobs"]},
         )
         used = normalize_source_usage({"workflow": "default", "past_jobs": True})

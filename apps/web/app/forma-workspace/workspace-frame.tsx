@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
 
+import { WorkspaceStatusCorner } from "./sidebar";
+import type { WorkspaceStatusPresentation } from "../../lib/connection-status";
+
 type WorkspaceFrameProps = {
   collapsed: boolean;
   mobileSidebar: ReactNode;
   desktopSidebar: ReactNode;
   children: ReactNode;
   homeMobileTopPadding?: boolean;
+  workspaceStatus: WorkspaceStatusPresentation;
 };
 
 export default function WorkspaceFrame({
@@ -14,16 +18,18 @@ export default function WorkspaceFrame({
   desktopSidebar,
   children,
   homeMobileTopPadding = false,
+  workspaceStatus,
 }: WorkspaceFrameProps) {
   return (
     <div
       className={
         homeMobileTopPadding
-          ? "h-[100dvh] w-full overflow-hidden bg-[#0f1117] font-sans text-zinc-100"
-          : "h-[100dvh] w-full overflow-hidden bg-[#0f1117] font-sans text-zinc-200"
+          ? "relative h-[100dvh] w-full overflow-hidden bg-[#0f1117] font-sans text-zinc-100"
+          : "relative h-[100dvh] w-full overflow-hidden bg-[#0f1117] font-sans text-zinc-200"
       }
     >
       {mobileSidebar}
+      <WorkspaceStatusCorner status={workspaceStatus} />
       <div
         className={`grid h-full min-h-0 min-w-0 overflow-hidden ${
           collapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[260px_minmax(0,1fr)]"

@@ -73,6 +73,17 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("meta/llama-3.1-70b-instruct", "Llama 3.1 70B Instruct"),
     model("meta/llama-3.3-70b-instruct", "Llama 3.3 70B Instruct"),
   ],
+  xai: [
+    model("grok-4", "Grok 4", "xAI flagship model"),
+    model("grok-4-1-fast", "Grok 4.1 Fast", "Lower-latency Grok 4"),
+    model("grok-3", "Grok 3"),
+    model("grok-3-mini", "Grok 3 Mini"),
+  ],
+  together: [
+    model("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B Instruct Turbo"),
+    model("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen 2.5 72B Instruct Turbo"),
+    model("deepseek-ai/DeepSeek-R1", "DeepSeek R1"),
+  ],
   runpod: [
     model("caid-technologies/parti-base", "Parti Base", "Forma Runpod deployment"),
   ],
@@ -289,10 +300,12 @@ function providerLabel(provider: string) {
     vertex: "Google Vertex AI",
     gmi: "GMI Cloud",
     huggingface: "Hugging Face",
-    cloudflare: "Cloudflare AI",
+    cloudflare: "Cloudflare Workers AI",
     nvidia: "NVIDIA",
     ollama: "Ollama",
     openai: "OpenAI",
     runpod: "Runpod",
+    together: "Together AI",
+    xai: "xAI",
   } as Record<string, string>)[provider] || provider;
 }

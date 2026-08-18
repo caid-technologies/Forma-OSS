@@ -4807,6 +4807,7 @@ export function FormaWorkspace({
     return (
       <WorkspaceFrame
         collapsed={sidebarCollapsed}
+        workspaceStatus={workspaceStatus}
         mobileSidebar={(
           <MobileSidebarDrawer
             open={mobileSidebarOpen}
@@ -4825,7 +4826,6 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            workspaceStatus={workspaceStatus}
           />
         )}
         desktopSidebar={(
@@ -4844,7 +4844,6 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            workspaceStatus={workspaceStatus}
           />
         )}
       >
@@ -4861,6 +4860,7 @@ export function FormaWorkspace({
     return (
       <WorkspaceFrame
         collapsed={sidebarCollapsed}
+        workspaceStatus={workspaceStatus}
         mobileSidebar={(
           <MobileSidebarDrawer
             open={mobileSidebarOpen}
@@ -4879,7 +4879,6 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            workspaceStatus={workspaceStatus}
           />
         )}
         desktopSidebar={(
@@ -4898,7 +4897,6 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            workspaceStatus={workspaceStatus}
           />
         )}
       >
@@ -4916,6 +4914,7 @@ export function FormaWorkspace({
     return (
       <WorkspaceFrame
         collapsed={sidebarCollapsed}
+        workspaceStatus={workspaceStatus}
         homeMobileTopPadding
         mobileSidebar={(
           <MobileSidebarDrawer
@@ -4935,7 +4934,6 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            workspaceStatus={workspaceStatus}
           />
         )}
         desktopSidebar={(
@@ -4954,7 +4952,6 @@ export function FormaWorkspace({
             jobsPending={sidebarJobsPending}
             showDeveloperTools={showDeveloperTools}
             authRequired={authRequired}
-            workspaceStatus={workspaceStatus}
           />
         )}
       >
@@ -5161,6 +5158,7 @@ export function FormaWorkspace({
   return (
     <WorkspaceFrame
       collapsed={sidebarCollapsed}
+      workspaceStatus={workspaceStatus}
       mobileSidebar={(
         <MobileSidebarDrawer
           open={mobileSidebarOpen}
@@ -5179,7 +5177,6 @@ export function FormaWorkspace({
           jobsPending={sidebarJobsPending}
           showDeveloperTools={showDeveloperTools}
           authRequired={authRequired}
-          workspaceStatus={workspaceStatus}
         />
       )}
       desktopSidebar={(
@@ -5198,7 +5195,6 @@ export function FormaWorkspace({
           jobsPending={sidebarJobsPending}
           showDeveloperTools={showDeveloperTools}
           authRequired={authRequired}
-          workspaceStatus={workspaceStatus}
         />
       )}
     >

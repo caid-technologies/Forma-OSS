@@ -32,7 +32,8 @@ import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
 import { arcticLight, solarizedLight } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
-import { imageOutputIsEnabled, parsePreferredLlmProvider, settingsNavBadge } from "../../lib/settings-nav-status";
+import { ProviderMarkTile } from "../../components/provider-mark";
+import { imageOutputIsEnabled, parsePreferredLlmProvider, settingsNavBadge, type SettingsNavBadge as SettingsNavBadgeModel } from "../../lib/settings-nav-status";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 
@@ -241,7 +242,25 @@ type IntegrationNavigationDefinition = {
   integrationId: string;
   view: IntegrationView;
   label?: string;
+  logo?: string;
   imageProviderId?: string;
+};
+
+type ProviderBrandNavDefinition = {
+  id: string;
+  label: string;
+  logo: string;
+  items: IntegrationNavigationDefinition[];
+};
+
+type IntegrationNavBlockDefinition =
+  | { type: "items"; items: IntegrationNavigationDefinition[] }
+  | { type: "brand"; brand: ProviderBrandNavDefinition };
+
+type IntegrationNavSectionDefinition = {
+  id: string;
+  label: string;
+  blocks: IntegrationNavBlockDefinition[];
 };
 
 const INTEGRATION_NAV_GROUPS: Array<{
@@ -250,42 +269,87 @@ const INTEGRATION_NAV_GROUPS: Array<{
   items?: IntegrationNavigationDefinition[];
   basic?: IntegrationNavigationDefinition[];
   advanced?: IntegrationNavigationDefinition[];
+  sections?: IntegrationNavSectionDefinition[];
 }> = [
   { id: "workspace", label: "Runtime defaults", items: [{ integrationId: "runtime", view: "all", label: "Runtime defaults" }] },
   {
     id: "llm",
     label: "Model providers",
-    basic: [
-      { integrationId: "anthropic", view: "llm", label: "Anthropic" },
-      { integrationId: "openai", view: "llm", label: "OpenAI" },
-      { integrationId: "gemini", view: "llm", label: "Gemini" },
-    ],
-    advanced: [
-      { integrationId: "vertex", view: "llm", label: "Vertex AI" },
-      { integrationId: "baseten", view: "llm" },
-      { integrationId: "gmi", view: "llm", label: "GMI Cloud" },
-      { integrationId: "huggingface", view: "llm", label: "Hugging Face" },
-      { integrationId: "cloudflare", view: "llm", label: "Cloudflare AI" },
-      { integrationId: "nvidia", view: "llm" },
-      { integrationId: "runpod", view: "llm" },
-      { integrationId: "ollama", view: "llm" },
+    sections: [
+      {
+        id: "foundational",
+        label: "Foundational models",
+        blocks: [
+          {
+            type: "items",
+            items: [
+              { integrationId: "openai", view: "llm", label: "OpenAI", logo: "openai" },
+              { integrationId: "anthropic", view: "llm", label: "Anthropic", logo: "anthropic" },
+            ],
+          },
+          {
+            type: "brand",
+            brand: {
+              id: "google",
+              label: "Google",
+              logo: "google",
+              items: [
+                { integrationId: "gemini", view: "llm", label: "Gemini", logo: "gemini" },
+                { integrationId: "vertex", view: "llm", label: "Vertex AI", logo: "vertex" },
+              ],
+            },
+          },
+          {
+            type: "items",
+            items: [{ integrationId: "xai", view: "llm", label: "Grok", logo: "xai" }],
+          },
+        ],
+      },
+      {
+        id: "inference",
+        label: "Inference providers",
+        blocks: [
+          {
+            type: "items",
+            items: [
+              { integrationId: "baseten", view: "llm", label: "Baseten", logo: "baseten" },
+              { integrationId: "together", view: "llm", label: "Together AI", logo: "together" },
+              { integrationId: "gmi", view: "llm", label: "GMI Cloud", logo: "gmi" },
+              { integrationId: "huggingface", view: "llm", label: "Hugging Face", logo: "huggingface" },
+              { integrationId: "cloudflare", view: "llm", label: "Cloudflare Workers AI", logo: "workersai" },
+              { integrationId: "nvidia", view: "llm", label: "NVIDIA", logo: "nvidia" },
+              { integrationId: "runpod", view: "llm", label: "Runpod", logo: "runpod" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "custom",
+        label: "Custom / open-source",
+        blocks: [
+          {
+            type: "items",
+            items: [{ integrationId: "ollama", view: "llm", label: "Ollama", logo: "ollama" }],
+          },
+        ],
+      },
     ],
   },
   {
     id: "image",
-    label: "Image providers",
+    label: "Image / Video",
     basic: [
-      { integrationId: "openai", view: "image", label: "OpenAI Images", imageProviderId: "openai" },
+      { integrationId: "openai", view: "image", label: "OpenAI Images", logo: "openai", imageProviderId: "openai" },
     ],
     advanced: [
-      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", imageProviderId: "vertex" },
-      { integrationId: "gmi", view: "image", label: "GMI Cloud", imageProviderId: "gmi" },
-      { integrationId: "huggingface", view: "image", label: "Hugging Face", imageProviderId: "huggingface" },
-      { integrationId: "together", view: "image", label: "Together AI", imageProviderId: "together" },
-      { integrationId: "image", view: "image", label: "Custom / OpenAI-compatible" },
+      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", logo: "vertex", imageProviderId: "vertex" },
+      { integrationId: "gmi", view: "image", label: "GMI Cloud", logo: "gmi", imageProviderId: "gmi" },
+      { integrationId: "huggingface", view: "image", label: "Hugging Face", logo: "huggingface", imageProviderId: "huggingface" },
+      { integrationId: "together", view: "image", label: "Together AI", logo: "together", imageProviderId: "together" },
+      { integrationId: "image", view: "image", label: "Custom / OpenAI-compatible", logo: "custom" },
     ],
   },
-  { id: "tools", label: "Tool providers", basic: [{ integrationId: "firecrawl", view: "all" }] },
+  { id: "tools", label: "Tool providers", basic: [{ integrationId: "firecrawl", view: "all", logo: "firecrawl" }] },
 ];
 
 type IntegrationNavigationItem = IntegrationNavigationDefinition & {
@@ -294,12 +358,23 @@ type IntegrationNavigationItem = IntegrationNavigationDefinition & {
   integration: IntegrationStatus;
 };
 
+type IntegrationNavBlock =
+  | { type: "items"; items: IntegrationNavigationItem[] }
+  | { type: "brand"; brand: { id: string; label: string; logo: string; items: IntegrationNavigationItem[] } };
+
+type IntegrationNavSection = {
+  id: string;
+  label: string;
+  blocks: IntegrationNavBlock[];
+};
+
 type IntegrationNavigationGroup = {
   id: string;
   label: string;
   items: IntegrationNavigationItem[];
   basic: IntegrationNavigationItem[];
   advanced: IntegrationNavigationItem[];
+  sections: IntegrationNavSection[];
 };
 
 function navItemsFromDefs(defs: IntegrationNavigationDefinition[] | undefined, integrations: IntegrationStatus[]) {
@@ -310,8 +385,39 @@ function navItemsFromDefs(defs: IntegrationNavigationDefinition[] | undefined, i
   });
 }
 
+function defsFromNavBlocks(blocks: IntegrationNavBlockDefinition[] | undefined) {
+  return (blocks || []).flatMap((block) => (block.type === "brand" ? block.brand.items : block.items));
+}
+
+function resolveNavBlocks(blocks: IntegrationNavBlockDefinition[] | undefined, integrations: IntegrationStatus[]): IntegrationNavBlock[] {
+  const resolved: IntegrationNavBlock[] = [];
+  for (const block of blocks || []) {
+    if (block.type === "brand") {
+      const items = navItemsFromDefs(block.brand.items, integrations);
+      if (items.length) resolved.push({ type: "brand", brand: { ...block.brand, items } });
+      continue;
+    }
+    const items = navItemsFromDefs(block.items, integrations);
+    if (items.length) resolved.push({ type: "items", items });
+  }
+  return resolved;
+}
+
 function navigationGroupItems(group: IntegrationNavigationGroup) {
-  return [...group.items, ...group.basic, ...group.advanced];
+  return [
+    ...group.items,
+    ...group.basic,
+    ...group.advanced,
+    ...group.sections.flatMap((section) =>
+      section.blocks.flatMap((block) => (block.type === "brand" ? block.brand.items : block.items))
+    ),
+  ];
+}
+
+function aggregateNavBadge(badges: SettingsNavBadgeModel[]): SettingsNavBadgeModel {
+  if (badges.some((badge) => badge.label === "Ready")) return { tone: "ready", label: "Ready" };
+  if (badges.some((badge) => badge.label === "Off")) return { tone: "warn", label: "Off" };
+  return { tone: "muted", label: "Unset" };
 }
 
 function integrationNavigationGroups(integrations: IntegrationStatus[]) {
@@ -320,6 +426,7 @@ function integrationNavigationGroups(integrations: IntegrationStatus[]) {
       ...(group.items || []),
       ...(group.basic || []),
       ...(group.advanced || []),
+      ...(group.sections || []).flatMap((section) => defsFromNavBlocks(section.blocks)),
     ]).map((item) => item.integrationId)
   );
   const groups: IntegrationNavigationGroup[] = INTEGRATION_NAV_GROUPS.map((group) => ({
@@ -328,6 +435,13 @@ function integrationNavigationGroups(integrations: IntegrationStatus[]) {
     items: navItemsFromDefs(group.items, integrations),
     basic: navItemsFromDefs(group.basic, integrations),
     advanced: navItemsFromDefs(group.advanced, integrations),
+    sections: (group.sections || [])
+      .map((section) => ({
+        id: section.id,
+        label: section.label,
+        blocks: resolveNavBlocks(section.blocks, integrations),
+      }))
+      .filter((section) => section.blocks.length > 0),
   })).filter((group) => navigationGroupItems(group).length > 0);
 
   const other = integrations.filter((integration) => !includedIds.has(integration.id));
@@ -344,6 +458,7 @@ function integrationNavigationGroups(integrations: IntegrationStatus[]) {
         label: integration.label,
         integration,
       })),
+      sections: [],
     });
   }
   return groups;
@@ -693,7 +808,7 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
       byId.get("credentials")?.fields.push(field);
     } else if (field.id.startsWith("video_") || field.id === "image_to_video_model") {
       byId.get("video")?.fields.push(field);
-    } else if (integration.id === "image" || integration.id === "together" || field.id.startsWith("image_")) {
+    } else if (integration.id === "image" || field.id.startsWith("image_")) {
       if (field.id === "image_model" || field.id === "model") byId.get("image")?.fields.push(field);
       else byId.get("image-advanced")?.fields.push(field);
     } else if (BASIC_LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
@@ -1502,6 +1617,7 @@ function SettingsNavRow({
   onSelect,
   badge,
   icon: Icon,
+  mark,
 }: {
   label: string;
   title?: string;
@@ -1509,6 +1625,7 @@ function SettingsNavRow({
   onSelect: () => void;
   badge?: React.ReactNode;
   icon?: React.ComponentType<{ className?: string }>;
+  mark?: React.ReactNode;
 }) {
   return (
     <button
@@ -1522,10 +1639,40 @@ function SettingsNavRow({
           : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
       }`}
     >
-      {Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-emerald-400" : "text-zinc-500"}`} />}
+      {mark}
+      {!mark && Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-emerald-400" : "text-zinc-500"}`} />}
       <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
       {badge}
     </button>
+  );
+}
+
+function SettingsNavBrandGroup({
+  label,
+  logo,
+  selected,
+  badge,
+  children,
+}: {
+  label: string;
+  logo: string;
+  selected: boolean;
+  badge: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-0.5" role="group" aria-label={label}>
+      <div
+        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 ${
+          selected ? "text-emerald-400" : "text-zinc-400"
+        }`}
+      >
+        <ProviderMarkTile id={logo} />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{label}</span>
+        {badge}
+      </div>
+      <div className="ml-3 space-y-0.5 border-l border-[#2c2f37] pl-1.5">{children}</div>
+    </div>
   );
 }
 
@@ -1669,8 +1816,8 @@ export default function UserIntegrationsPage() {
     );
   }, [imageDefaults.provider, selectedIntegration?.id, selectedNavigationKey, selectedView]);
 
-  function renderIntegrationNavRow(item: IntegrationNavigationItem) {
-    const badge = settingsNavBadge({
+  function navItemBadge(item: IntegrationNavigationItem) {
+    return settingsNavBadge({
       view: item.view,
       integrationId: item.integrationId,
       imageProviderId: item.imageProviderId,
@@ -1680,6 +1827,11 @@ export default function UserIntegrationsPage() {
       imageOutputEnabled,
       activeImageProvider: imageDefaults.provider,
     });
+  }
+
+  function renderIntegrationNavRow(item: IntegrationNavigationItem) {
+    const badge = navItemBadge(item);
+    const markId = item.logo || item.integrationId;
     return (
       <SettingsNavRow
         key={item.key}
@@ -1687,12 +1839,36 @@ export default function UserIntegrationsPage() {
         title={navigationDescription(item)}
         selected={selectedNavigationKey === item.key}
         icon={item.integrationId === "runtime" ? SlidersHorizontal : undefined}
+        mark={item.integrationId === "runtime" ? undefined : <ProviderMarkTile id={markId} />}
         onSelect={() => {
           if (item.imageProviderId) updateImageProvider(item.imageProviderId);
           else setSelectedNavigationKey(item.key);
         }}
         badge={<SettingsNavBadge tone={badge.tone}>{badge.label}</SettingsNavBadge>}
       />
+    );
+  }
+
+  function renderNavBlock(block: IntegrationNavBlock, keyPrefix: string) {
+    if (block.type === "brand") {
+      const childSelected = block.brand.items.some((item) => item.key === selectedNavigationKey);
+      const badge = aggregateNavBadge(block.brand.items.map(navItemBadge));
+      return (
+        <SettingsNavBrandGroup
+          key={`${keyPrefix}:${block.brand.id}`}
+          label={block.brand.label}
+          logo={block.brand.logo}
+          selected={childSelected}
+          badge={<SettingsNavBadge tone={badge.tone}>{badge.label}</SettingsNavBadge>}
+        >
+          {block.brand.items.map(renderIntegrationNavRow)}
+        </SettingsNavBrandGroup>
+      );
+    }
+    return (
+      <React.Fragment key={`${keyPrefix}:items:${block.items.map((item) => item.key).join("+")}`}>
+        {block.items.map(renderIntegrationNavRow)}
+      </React.Fragment>
     );
   }
 
@@ -2106,7 +2282,14 @@ export default function UserIntegrationsPage() {
                 navigationGroups.map((group) => (
                   <div key={group.id} className="space-y-0.5">
                     {group.id !== "workspace" && <SettingsNavSubhead>{group.label}</SettingsNavSubhead>}
-                    {navigationGroupItems(group).map(renderIntegrationNavRow)}
+                    {group.sections.length
+                      ? group.sections.map((section) => (
+                          <div key={section.id} className="space-y-0.5">
+                            <SettingsNavSubhead>{section.label}</SettingsNavSubhead>
+                            {section.blocks.map((block, index) => renderNavBlock(block, `${group.id}:${section.id}:${index}`))}
+                          </div>
+                        ))
+                      : navigationGroupItems(group).map(renderIntegrationNavRow)}
                   </div>
                 ))
               )}

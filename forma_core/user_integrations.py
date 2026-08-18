@@ -286,8 +286,8 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
     ),
     IntegrationDefinition(
         id="cloudflare",
-        label="Cloudflare AI",
-        description="OpenAI-compatible text generation through Cloudflare AI.",
+        label="Cloudflare Workers AI",
+        description="OpenAI-compatible text generation through Cloudflare Workers AI.",
         fields=(
             IntegrationFieldDefinition("api_key", "API token", ("CLOUDFLARE_API_TOKEN", "CLOUDFLARE_AI_API_KEY", "CLOUDFLARE_API_KEY"), secret=True, placeholder="Cloudflare API token"),
             IntegrationFieldDefinition("account_id", "Account ID", ("CLOUDFLARE_ACCOUNT_ID",), placeholder="Cloudflare account ID"),
@@ -421,7 +421,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
     IntegrationDefinition(
         id="together",
         label="Together AI",
-        description="Together AI BYOK image generation with project-scoped keys.",
+        description="Together AI OpenAI-compatible LLM inference and BYOK image generation with project-scoped keys.",
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"), secret=True, placeholder="tgp_..."),
             IntegrationFieldDefinition(
@@ -431,6 +431,8 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 placeholder="project-scoped dedicated key",
                 help="Hosted BYOK requires a project-scoped Together AI key dedicated to Forma. Legacy or broad account keys are not accepted.",
             ),
+            IntegrationFieldDefinition("llm_base_url", "LLM base URL", ("TOGETHER_LLM_BASE_URL",), placeholder="https://api.together.xyz/v1"),
+            IntegrationFieldDefinition("model", "Default LLM model", ("TOGETHER_MODEL",), placeholder="meta-llama/Llama-3.3-70B-Instruct-Turbo"),
             IntegrationFieldDefinition("image_base_url", "Image base URL", ("TOGETHER_IMAGE_BASE_URL", "TOGETHER_BASE_URL"), placeholder="https://api.together.ai/v1"),
             IntegrationFieldDefinition("image_model", "Image model", ("TOGETHER_IMAGE_MODEL",), placeholder="openai/gpt-image-2"),
             IntegrationFieldDefinition("image_size", "Image size", ("TOGETHER_IMAGE_SIZE",), placeholder="1024x1024"),
@@ -474,13 +476,24 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
     ),
     IntegrationDefinition(
         id="nvidia",
-        label="NVIDIA Build",
+        label="NVIDIA",
         description="NVIDIA NIM/OpenAI-compatible model routing.",
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("NVIDIA_API_KEY", "NVIDIA_NIM_API_KEY", "NIM_API_KEY"), secret=True, placeholder="nvapi-..."),
             IntegrationFieldDefinition("base_url", "Base URL", ("NVIDIA_BASE_URL", "NVIDIA_NIM_BASE_URL", "NIM_BASE_URL"), placeholder="https://integrate.api.nvidia.com/v1"),
             IntegrationFieldDefinition("model", "Default model", ("NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL"), placeholder="nvidia/z-ai/glm-5.2"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("NVIDIA_TIMEOUT_SECONDS", "NVIDIA_NIM_TIMEOUT_SECONDS", "NIM_TIMEOUT_SECONDS"), placeholder="1200"),
+        ),
+    ),
+    IntegrationDefinition(
+        id="xai",
+        label="xAI Grok",
+        description="xAI Grok models through the OpenAI-compatible API.",
+        fields=(
+            IntegrationFieldDefinition("api_key", "API key", ("XAI_API_KEY", "GROK_API_KEY"), secret=True, placeholder="xai-..."),
+            IntegrationFieldDefinition("base_url", "Base URL", ("XAI_BASE_URL", "GROK_BASE_URL"), placeholder="https://api.x.ai/v1"),
+            IntegrationFieldDefinition("model", "Default model", ("XAI_MODEL", "GROK_MODEL"), placeholder="grok-4"),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("XAI_TIMEOUT_SECONDS", "GROK_TIMEOUT_SECONDS"), placeholder="300"),
         ),
     ),
     IntegrationDefinition(
@@ -590,7 +603,9 @@ EXTRA_MANAGED_ENV_NAMES = {
     "NVIDIA_ALLOWED_MODELS",
     "OPENAI_ALLOWED_MODELS",
     "RUNPOD_ALLOWED_MODELS",
+    "TOGETHER_ALLOWED_MODELS",
     "VERTEX_AI_ALLOWED_MODELS",
+    "XAI_ALLOWED_MODELS",
 }
 LLM_PROVIDER_INTEGRATION_IDS = {
     "anthropic",
@@ -603,6 +618,8 @@ LLM_PROVIDER_INTEGRATION_IDS = {
     "nvidia",
     "openai",
     "runpod",
+    "together",
+    "xai",
 }
 PROVIDER_ALIASES = {
     "claude": "anthropic",
@@ -621,6 +638,11 @@ PROVIDER_ALIASES = {
     "google-vertex-ai": "vertex",
     "vertex-ai": "vertex",
     "vertexai": "vertex",
+    "grok": "xai",
+    "x-ai": "xai",
+    "xai-grok": "xai",
+    "together-ai": "together",
+    "togetherai": "together",
 }
 MODEL_PREFIX_PROVIDERS = (
     ("claude-", "anthropic"),
@@ -631,6 +653,7 @@ MODEL_PREFIX_PROVIDERS = (
     ("text-", "openai"),
     ("meta/", "nvidia"),
     ("nvidia/", "nvidia"),
+    ("grok-", "xai"),
 )
 PROVIDER_ALLOWED_MODEL_ENV = {
     "anthropic": "ANTHROPIC_ALLOWED_MODELS",
@@ -643,6 +666,8 @@ PROVIDER_ALLOWED_MODEL_ENV = {
     "nvidia": "NVIDIA_ALLOWED_MODELS",
     "openai": "OPENAI_ALLOWED_MODELS",
     "runpod": "RUNPOD_ALLOWED_MODELS",
+    "together": "TOGETHER_ALLOWED_MODELS",
+    "xai": "XAI_ALLOWED_MODELS",
 }
 HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
     "openai": HostedByokPolicy(
@@ -731,6 +756,16 @@ HOSTED_BYOK_POLICIES: dict[str, HostedByokPolicy] = {
             "Forma Cloud does not accept user-supplied NVIDIA Build/API Catalog keys. NVIDIA hosted endpoints are for "
             "account-holder trial, evaluation, and developer use unless a separate paid NVIDIA or authorized-provider "
             "agreement allows production, customer-facing application use, storage, and distribution."
+        ),
+    ),
+    "xai": HostedByokPolicy(
+        hosted_byok="disabled",
+        local_byok="enabled",
+        self_hosted_byok="enabled",
+        blocked_secret_fields=("api_key",),
+        note=(
+            "Forma Cloud does not accept user-supplied xAI API keys. "
+            "Use local or self-hosted Forma for xAI BYOK; hosted cloud uses a platform-managed key."
         ),
     ),
 }

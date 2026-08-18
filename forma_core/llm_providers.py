@@ -45,11 +45,15 @@ DEFAULT_GMI_MODEL = "anthropic/claude-fable-5"
 DEFAULT_HUGGINGFACE_MODEL = "Qwen/Qwen2.5-Coder-3B-Instruct:nscale"
 DEFAULT_CLOUDFLARE_MODEL = "@cf/google/gemma-4-26b-a4b-it"
 DEFAULT_NVIDIA_MODEL = "nvidia/z-ai/glm-5.2"
+DEFAULT_XAI_MODEL = "grok-4"
+DEFAULT_TOGETHER_MODEL = "meta-llama/Llama-3.3-70B-Instruct-Turbo"
 DEFAULT_BASETEN_BASE_URL = "https://inference.baseten.co/v1"
 DEFAULT_GMI_BASE_URL = "https://api.gmi-serving.com/v1"
 DEFAULT_HUGGINGFACE_BASE_URL = "https://router.huggingface.co/v1"
 DEFAULT_CLOUDFLARE_BASE_URL = "https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1"
 DEFAULT_NVIDIA_BASE_URL = "https://integrate.api.nvidia.com/v1"
+DEFAULT_XAI_BASE_URL = "https://api.x.ai/v1"
+DEFAULT_TOGETHER_BASE_URL = "https://api.together.xyz/v1"
 DEFAULT_HTTP_USER_AGENT = "Forma-OSS/0.1"
 
 # Structured-output token budgets. The fine-tuned parti-base emits large JSON
@@ -144,7 +148,9 @@ SUPPORTED_LLM_PROVIDERS = {
     "runpod",
     "runpod-serverless",
     "simulation",
+    "together",
     "vertex",
+    "xai",
 }
 SIMULATION_PROVIDER_ALIASES = {"simulation", "simulated", "offline", "none", "mock"}
 PROVIDER_ALIASES = {
@@ -162,6 +168,11 @@ PROVIDER_ALIASES = {
     "google-vertex-ai": "vertex",
     "vertex-ai": "vertex",
     "vertexai": "vertex",
+    "grok": "xai",
+    "x-ai": "xai",
+    "xai-grok": "xai",
+    "together-ai": "together",
+    "togetherai": "together",
     "gmi-cloud": "gmi",
     "gmi_cloud": "gmi",
     "gmicloud": "gmi",
@@ -492,6 +503,13 @@ def _default_provider_name() -> str:
         DEFAULT_NVIDIA_BASE_URL,
     ):
         return "nvidia"
+    if _first_env(["XAI_API_KEY", "GROK_API_KEY"]) and _first_env(
+        ["XAI_BASE_URL", "GROK_BASE_URL"],
+        DEFAULT_XAI_BASE_URL,
+    ):
+        return "xai"
+    if _first_env(["TOGETHER_MODEL", "TOGETHER_LLM_BASE_URL"]) and _first_env(["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"]):
+        return "together"
     return "simulation"
 
 
@@ -518,6 +536,13 @@ def _configured_provider_names(default_provider: str) -> List[str]:
         DEFAULT_NVIDIA_BASE_URL,
     ):
         providers.add("nvidia")
+    if _first_env(["XAI_API_KEY", "GROK_API_KEY"]) and _first_env(
+        ["XAI_BASE_URL", "GROK_BASE_URL", "LLM_BASE_URL"],
+        DEFAULT_XAI_BASE_URL,
+    ):
+        providers.add("xai")
+    if _first_env(["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY"]) and _first_env(["TOGETHER_MODEL", "TOGETHER_LLM_BASE_URL"]):
+        providers.add("together")
     if _first_env(["RUNPOD_API_KEY"]) and _runpod_openai_base_url_from_env():
         providers.add("runpod")
     if _first_env(["RUNPOD_API_KEY"]) and (_first_env(["RUNPOD_ENDPOINT_ID"]) or _runpod_serverless_endpoint_url_from_env()):
@@ -566,6 +591,10 @@ def _default_model_for_provider(provider_name: str, *, include_runtime_override:
         return _first_env(["CLOUDFLARE_MODEL", *runtime_model], DEFAULT_CLOUDFLARE_MODEL) or DEFAULT_CLOUDFLARE_MODEL
     if provider_name == "nvidia":
         return _first_env(["NVIDIA_MODEL", "NVIDIA_NIM_MODEL", "NIM_MODEL", *runtime_model], DEFAULT_NVIDIA_MODEL) or DEFAULT_NVIDIA_MODEL
+    if provider_name == "xai":
+        return _first_env(["XAI_MODEL", "GROK_MODEL", *runtime_model], DEFAULT_XAI_MODEL) or DEFAULT_XAI_MODEL
+    if provider_name == "together":
+        return _first_env(["TOGETHER_MODEL", *runtime_model], DEFAULT_TOGETHER_MODEL) or DEFAULT_TOGETHER_MODEL
     if provider_name == "openai":
         return _first_env(["OPENAI_MODEL", *runtime_model], DEFAULT_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
     if provider_name == "openai-compatible":
@@ -601,6 +630,10 @@ def _fallback_model_for_provider(provider_name: str) -> Optional[str]:
         return _first_env(["CLOUDFLARE_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "nvidia":
         return _first_env(["NVIDIA_FALLBACK_MODEL", "NVIDIA_NIM_FALLBACK_MODEL", "NIM_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+    if provider_name == "xai":
+        return _first_env(["XAI_FALLBACK_MODEL", "GROK_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
+    if provider_name == "together":
+        return _first_env(["TOGETHER_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "openai":
         return _first_env(["OPENAI_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"])
     if provider_name == "openai-compatible":
@@ -663,6 +696,10 @@ def _allowed_model_names(provider_name: str, default_model: str) -> Optional[Lis
         env_names = ["VERTEX_AI_ALLOWED_MODELS", "VERTEX_ALLOWED_MODELS", "ALLOWED_VERTEX_MODELS", *env_names]
     elif provider_name == "nvidia":
         env_names = ["NVIDIA_ALLOWED_MODELS", "NVIDIA_NIM_ALLOWED_MODELS", "NIM_ALLOWED_MODELS", *env_names]
+    elif provider_name == "xai":
+        env_names = ["XAI_ALLOWED_MODELS", "GROK_ALLOWED_MODELS", *env_names]
+    elif provider_name == "together":
+        env_names = ["TOGETHER_ALLOWED_MODELS", *env_names]
     elif provider_name in {"runpod", "runpod-serverless"}:
         env_names = ["RUNPOD_ALLOWED_MODELS", "ALLOWED_RUNPOD_MODELS", *env_names]
 
@@ -1572,7 +1609,7 @@ class AnthropicProvider(StructuredLLMProvider):
 class OpenAICompatibleProvider(StructuredLLMProvider):
     def __init__(self, provider_name: str = "openai", model_name: Optional[str] = None):
         normalized_provider = normalize_llm_provider_name(provider_name) or "openai"
-        if normalized_provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "runpod"}:
+        if normalized_provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "runpod", "together", "xai"}:
             self.provider_name = normalized_provider
         else:
             self.provider_name = "openai-compatible"
@@ -1656,6 +1693,38 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             allow_no_api_key_names = ["NVIDIA_ALLOW_NO_API_KEY", "NVIDIA_NIM_ALLOW_NO_API_KEY", "NIM_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
             default_model_name = DEFAULT_NVIDIA_MODEL
             default_base_url = DEFAULT_NVIDIA_BASE_URL
+            default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
+        elif self.provider_name == "xai":
+            api_key_names = ["XAI_API_KEY", "GROK_API_KEY", "LLM_API_KEY"]
+            base_url_names = ["XAI_BASE_URL", "GROK_BASE_URL", "LLM_BASE_URL"]
+            model_names = ["XAI_MODEL", "GROK_MODEL", "LLM_MODEL"]
+            fallback_model_names = ["XAI_FALLBACK_MODEL", "GROK_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
+            strict_names = ["STRICT_XAI", "STRICT_GROK", "STRICT_LLM"]
+            validate_model_names = ["XAI_VALIDATE_MODELS", "GROK_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
+            response_format_names = ["XAI_RESPONSE_FORMAT", "GROK_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
+            timeout_names = ["XAI_TIMEOUT_SECONDS", "GROK_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
+            max_tokens_names = ["XAI_MAX_TOKENS", "GROK_MAX_TOKENS", "LLM_MAX_TOKENS"]
+            temperature_names = ["XAI_TEMPERATURE", "GROK_TEMPERATURE", "LLM_TEMPERATURE"]
+            reasoning_effort_names = ["XAI_REASONING_EFFORT", "GROK_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
+            allow_no_api_key_names = ["XAI_ALLOW_NO_API_KEY", "GROK_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
+            default_model_name = DEFAULT_XAI_MODEL
+            default_base_url = DEFAULT_XAI_BASE_URL
+            default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
+        elif self.provider_name == "together":
+            api_key_names = ["TOGETHER_API_KEY", "TOGETHER_IMAGE_API_KEY", "LLM_API_KEY"]
+            base_url_names = ["TOGETHER_LLM_BASE_URL", "TOGETHER_BASE_URL", "LLM_BASE_URL"]
+            model_names = ["TOGETHER_MODEL", "LLM_MODEL"]
+            fallback_model_names = ["TOGETHER_FALLBACK_MODEL", "LLM_FALLBACK_MODEL"]
+            strict_names = ["STRICT_TOGETHER", "STRICT_LLM"]
+            validate_model_names = ["TOGETHER_VALIDATE_MODELS", "LLM_VALIDATE_MODELS"]
+            response_format_names = ["TOGETHER_RESPONSE_FORMAT", "LLM_RESPONSE_FORMAT"]
+            timeout_names = ["TOGETHER_TIMEOUT_SECONDS", "LLM_TIMEOUT_SECONDS"]
+            max_tokens_names = ["TOGETHER_MAX_TOKENS", "LLM_MAX_TOKENS"]
+            temperature_names = ["TOGETHER_TEMPERATURE", "LLM_TEMPERATURE"]
+            reasoning_effort_names = ["TOGETHER_REASONING_EFFORT", "LLM_REASONING_EFFORT"]
+            allow_no_api_key_names = ["TOGETHER_ALLOW_NO_API_KEY", "LLM_ALLOW_NO_API_KEY"]
+            default_model_name = DEFAULT_TOGETHER_MODEL
+            default_base_url = DEFAULT_TOGETHER_BASE_URL
             default_timeout_seconds = DEFAULT_OPENAI_TIMEOUT_SECONDS
         elif self.provider_name == "openai":
             api_key_names = ["OPENAI_API_KEY", "LLM_API_KEY"]
@@ -1895,6 +1964,10 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Increase CLOUDFLARE_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "nvidia":
             return "Increase NVIDIA_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
+        if self.provider_name == "xai":
+            return "Increase XAI_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
+        if self.provider_name == "together":
+            return "Increase TOGETHER_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
         if self.provider_name == "runpod":
             return "Increase RUNPOD_TIMEOUT_SECONDS for long Runpod jobs."
         return "Increase OPENAI_TIMEOUT_SECONDS/LLM_TIMEOUT_SECONDS or use a lower-latency model/settings."
@@ -1910,6 +1983,10 @@ class OpenAICompatibleProvider(StructuredLLMProvider):
             return "Set CLOUDFLARE_API_TOKEN plus CLOUDFLARE_ACCOUNT_ID, or set CLOUDFLARE_BASE_URL explicitly."
         if self.provider_name == "nvidia":
             return "Set NVIDIA_API_KEY. NVIDIA_BASE_URL defaults to https://integrate.api.nvidia.com/v1."
+        if self.provider_name == "xai":
+            return "Set XAI_API_KEY. XAI_BASE_URL defaults to https://api.x.ai/v1."
+        if self.provider_name == "together":
+            return "Set TOGETHER_API_KEY. TOGETHER_LLM_BASE_URL defaults to https://api.together.xyz/v1."
         if self.provider_name == "runpod":
             return "Set RUNPOD_API_KEY plus RUNPOD_OPENAI_BASE_URL or RUNPOD_BASE_URL."
         if self.provider_name == "openai":
@@ -2532,7 +2609,7 @@ def build_llm_provider(
         return GeminiProvider(model_name=runtime.model)
     if runtime.provider == "vertex":
         return VertexAIProvider(model_name=runtime.model)
-    if runtime.provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "openai-compatible"}:
+    if runtime.provider in {"baseten", "gmi", "huggingface", "cloudflare", "nvidia", "openai", "openai-compatible", "together", "xai"}:
         return OpenAICompatibleProvider(provider_name=runtime.provider, model_name=runtime.model)
     if runtime.provider == "runpod":
         return OpenAICompatibleProvider(provider_name="runpod", model_name=runtime.model)
@@ -2544,7 +2621,7 @@ def build_llm_provider(
     message = (
         f"Unsupported LLM_PROVIDER '{runtime.provider}'. Supported providers are "
         "anthropic, baseten, gemini, gmi, huggingface, cloudflare, nvidia, openai, openai-compatible, "
-        "runpod, runpod-serverless, simulation, and vertex."
+        "runpod, runpod-serverless, simulation, together, vertex, and xai."
     )
     logger.warning(message)
     return SimulationProvider(validation_error=message)

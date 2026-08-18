@@ -136,6 +136,16 @@ LLM_ENV_KEYS = {
     "NVIDIA_BASE_URL",
     "NVIDIA_MODEL",
     "OPENAI_ALLOWED_MODELS",
+    "TOGETHER_API_KEY",
+    "TOGETHER_IMAGE_API_KEY",
+    "TOGETHER_LLM_BASE_URL",
+    "TOGETHER_MODEL",
+    "XAI_API_KEY",
+    "XAI_BASE_URL",
+    "XAI_MODEL",
+    "GROK_API_KEY",
+    "GROK_BASE_URL",
+    "GROK_MODEL",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_FALLBACK_MODEL",
@@ -581,6 +591,37 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIn("nvidia/z-ai/glm-5.2", runtime.allowed_models or [])
         self.assertEqual("nvidia/z-ai/glm-5.2", provider.requested_model)
         self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
+        self.assertTrue(provider.is_configured)
+
+    def test_xai_runtime_uses_grok_4_default(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="grok",
+            LLM_ALLOWED_PROVIDERS="xai,simulation",
+            XAI_API_KEY="xai_test",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("xai", runtime.provider)
+        self.assertEqual("grok-4", runtime.model)
+        self.assertIn("grok-4", runtime.allowed_models or [])
+        self.assertEqual("grok-4", provider.requested_model)
+        self.assertEqual("https://api.x.ai/v1", provider.base_url)
+        self.assertTrue(provider.is_configured)
+
+    def test_together_runtime_uses_llama_default(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="together-ai",
+            LLM_ALLOWED_PROVIDERS="together,simulation",
+            TOGETHER_API_KEY="together_test",
+            TOGETHER_MODEL="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("together", runtime.provider)
+        self.assertEqual("meta-llama/Llama-3.3-70B-Instruct-Turbo", runtime.model)
+        self.assertEqual("https://api.together.xyz/v1", provider.base_url)
         self.assertTrue(provider.is_configured)
 
     def test_cloudflare_runtime_uses_workers_ai_defaults(self) -> None:

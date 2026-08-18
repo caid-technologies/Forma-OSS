@@ -20,10 +20,7 @@ import {
 
 import CaidLogo from "../../components/caid-logo";
 import { FormaUserButton, useFormaAuth } from "../../lib/forma-auth";
-import {
-  workspaceStatusBadge,
-  type WorkspaceStatusPresentation,
-} from "../../lib/connection-status";
+import { type WorkspaceStatusPresentation } from "../../lib/connection-status";
 
 export type ChatListItem = {
   chatId: string;
@@ -57,6 +54,19 @@ function ApiConnectionStatus({ status }: { status: WorkspaceStatusPresentation }
   );
 }
 
+export function WorkspaceStatusCorner({ status }: { status: WorkspaceStatusPresentation }) {
+  return (
+    <div className="pointer-events-none absolute right-4 top-4 z-40 flex items-center gap-2 overflow-visible">
+      <span className="select-none rounded-md border border-white/10 bg-[#181b22]/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 backdrop-blur-sm">
+        BETA
+      </span>
+      <span className="pointer-events-auto">
+        <ApiConnectionStatus status={status} />
+      </span>
+    </div>
+  );
+}
+
 export function MobileWorkspaceBar({
   onOpenSidebar,
   authRequired,
@@ -65,7 +75,7 @@ export function MobileWorkspaceBar({
   authRequired: boolean;
 }) {
   return (
-    <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 bg-[#0f1117]/80 px-4 backdrop-blur-md md:hidden">
+    <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 bg-[#0f1117]/80 px-4 pr-16 backdrop-blur-md md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
       <AuthStatusControl authRequired={authRequired} compact />
     </header>
@@ -131,7 +141,6 @@ export function MobileSidebarDrawer({
   jobsPending,
   showDeveloperTools,
   authRequired,
-  workspaceStatus,
 }: {
   open: boolean;
   onClose: () => void;
@@ -149,7 +158,6 @@ export function MobileSidebarDrawer({
   jobsPending?: boolean;
   showDeveloperTools: boolean;
   authRequired: boolean;
-  workspaceStatus: WorkspaceStatusPresentation;
 }) {
   if (!open) return null;
 
@@ -180,7 +188,6 @@ export function MobileSidebarDrawer({
           jobsPending={jobsPending}
           showDeveloperTools={showDeveloperTools}
           authRequired={authRequired}
-          workspaceStatus={workspaceStatus}
         />
       </div>
     </div>
@@ -247,7 +254,6 @@ export function ChatSidebar({
   jobsPending = false,
   showDeveloperTools,
   authRequired,
-  workspaceStatus = workspaceStatusBadge({ connection: "disconnected" }),
   mode = "desktop",
 }: {
   collapsed: boolean;
@@ -266,7 +272,6 @@ export function ChatSidebar({
   jobsPending?: boolean;
   showDeveloperTools: boolean;
   authRequired: boolean;
-  workspaceStatus?: WorkspaceStatusPresentation;
   mode?: "desktop" | "drawer";
 }) {
   const isDrawer = mode === "drawer";
@@ -294,12 +299,9 @@ export function ChatSidebar({
           >
             <CaidLogo className="h-5 w-9" sizes="36px" />
           </button>
-          <div className={`flex min-w-0 items-center ${compact ? "flex-col gap-1.5" : "gap-2"}`}>
-            {!compact && (
-              <span className="truncate text-sm font-semibold tracking-tight text-zinc-100">Forma</span>
-            )}
-            <ApiConnectionStatus status={workspaceStatus} />
-          </div>
+          {!compact && (
+            <span className="min-w-0 truncate text-sm font-semibold tracking-tight text-zinc-100">Forma</span>
+          )}
           <button
             type="button"
             onClick={isDrawer ? onClose : onToggle}

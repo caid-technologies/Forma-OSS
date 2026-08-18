@@ -15,6 +15,11 @@ const LLM_PROVIDER_ALIASES: Record<string, string> = {
   "google-vertex-ai": "vertex",
   "vertex-ai": "vertex",
   vertexai: "vertex",
+  grok: "xai",
+  "x-ai": "xai",
+  "xai-grok": "xai",
+  "together-ai": "together",
+  togetherai: "together",
 };
 
 function normalizeProviderId(value: string) {
@@ -32,6 +37,7 @@ export function parsePreferredLlmProvider(selector: string, providerOverride = "
     return normalizeProviderId(raw.slice(0, raw.indexOf("/")));
   }
   if (raw.toLowerCase().startsWith("claude-")) return "anthropic";
+  if (raw.toLowerCase().startsWith("grok-")) return "xai";
   if (/^(gpt-|o1|o3|o4|text-)/i.test(raw)) return "openai";
   return normalizeProviderId(raw);
 }

@@ -52,11 +52,25 @@ Focused Blueprint Core examples live in `examples/blueprint_core/`:
 python examples/blueprint_core/sample.py
 python examples/blueprint_core/sample1.py
 python examples/blueprint_core/sample2.py
+python examples/blueprint_core/sample3.py
 ```
 
 - `sample.py` generates a simulated project from a frozen design brief.
 - `sample1.py` generates a project with a local Ollama model.
 - `sample2.py` combines Ollama generation with Firecrawl web research.
+- `sample3.py` combines Vertex AI generation with Firecrawl web research.
+
+For `sample3.py`, authenticate with Google Cloud Application Default Credentials
+and configure the Vertex AI project plus Firecrawl:
+
+```bash
+gcloud auth application-default login
+GOOGLE_CLOUD_PROJECT=your-project-id \
+GOOGLE_CLOUD_LOCATION=global \
+VERTEX_AI_MODEL=gemini-3.5-flash \
+FIRECRAWL_API_KEY=your-firecrawl-key \
+python examples/blueprint_core/sample3.py
+```
 
 Useful overrides:
 

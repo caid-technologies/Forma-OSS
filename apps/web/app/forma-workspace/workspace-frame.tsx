@@ -39,7 +39,7 @@ export default function WorkspaceFrame({
         <div
           className={
             homeMobileTopPadding
-              ? "flex h-full min-h-0 min-w-0 flex-col overflow-hidden pt-12 md:pt-0"
+              ? "relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden"
               : "grid h-full min-h-0 min-w-0 grid-cols-1 overflow-hidden"
           }
         >

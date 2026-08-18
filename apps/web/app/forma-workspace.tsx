@@ -54,6 +54,7 @@ import {
 } from "./forma-workspace/admin-panels";
 import HomeChatView from "./forma-workspace/home-chat-view";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
+import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
 import {
   ProjectGallery,
   PROJECT_GALLERY_PAGE_SIZE,
@@ -104,6 +105,9 @@ import {
   Maximize2,
   Minimize2,
   Trash2,
+  Settings,
+  Handshake,
+  Database,
 } from "lucide-react";
 
 const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), {
@@ -4714,6 +4718,11 @@ export function FormaWorkspace({
     void commitOwnedWorkspaceTitle(title, { chatId: item.chatId, projectId: item.projectId || null });
   };
   const newChatDisabled = homeView === "chat" && !routedProjectId && !activeSidebarChatStarted;
+  const homeChromeRef = useRef<HTMLDivElement>(null);
+  const { headerAway: homeHeaderAway, bindCapture: bindHomeChromeScroll } = useChromeHeaderScroll(
+    `${homeView}:${activeChatId || ""}:${activeSidebarChatStarted ? "started" : "new"}`
+  );
+  useEffect(() => bindHomeChromeScroll(homeChromeRef.current), [bindHomeChromeScroll, homeView, projectIR]);
   const waitingChatIds = useMemo(() => {
     const ids = new Set<string>();
     Object.entries(chatThreads).forEach(([chatId, messages]) => {
@@ -5027,11 +5036,46 @@ export function FormaWorkspace({
           />
         )}
       >
-        <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} authRequired={authRequired} />
-	        <main className={`mx-auto w-full ${homeView === "chat" || homeView === "settings" ? "max-w-none" : "max-w-6xl"} ${
+        <div ref={homeChromeRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} headerAway={homeHeaderAway}>
+          {homeView === "settings" ? (
+            <WorkspaceChromeIdentity icon={Settings} badge="Workspace" title="Settings" />
+          ) : homeView === "about" ? (
+            <WorkspaceChromeIdentity icon={Handshake} badge="Workspace" title="About us" />
+          ) : homeView === "projects" ? (
+            <WorkspaceChromeIdentity icon={Layers} badge="Workspace" title="Community" />
+          ) : homeView === "my-projects" ? (
+            <WorkspaceChromeIdentity icon={Database} badge="Workspace" title="My projects" />
+          ) : homeView === "jobs" ? (
+            <WorkspaceChromeIdentity icon={History} badge="Workspace" title="Jobs" />
+          ) : homeView === "logs" ? (
+            <WorkspaceChromeIdentity icon={Terminal} badge="Workspace" title="Backend logs" />
+          ) : activeSidebarChatStarted ? (
+            <WorkspaceChromeIdentity
+              icon={MessageSquare}
+              badge="Chat"
+              title={(
+                <EditableWorkspaceTitle
+                  value={activeSidebarChatItem?.title || NEW_PROJECT_TITLE}
+                  canEdit
+                  label="Chat title"
+                  onCommit={(title) => {
+                    if (activeChatId) {
+                      void commitOwnedWorkspaceTitle(title, {
+                        chatId: activeChatId,
+                        projectId: activeSidebarChatItem?.projectId || null,
+                      });
+                    }
+                  }}
+                />
+              )}
+            />
+          ) : null}
+        </MobileWorkspaceBar>
+	        <main className={`mx-auto w-full ${homeView === "chat" || homeView === "settings" || homeView === "about" ? "max-w-none" : "max-w-6xl"} ${
 	          homeView === "chat"
-	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-3 sm:pt-4"
-            : "min-h-0 flex-1 overflow-y-auto px-4 py-6 pr-16 sm:px-5 sm:py-8"
+	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-0 md:pt-4"
+            : "min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-16 sm:px-5 md:py-8"
         }`}>
           {homeView === "projects" ? (
               <ProjectGallery
@@ -5235,6 +5279,7 @@ export function FormaWorkspace({
             />
           )}
         </main>
+        </div>
         <ProjectDeletionDialog
           project={pendingProjectDeletion}
           acknowledged={deletionAcknowledged}
@@ -5589,6 +5634,30 @@ function projectRecordsFromChatItems(chatItems: ChatListItem[]): any[] {
     }));
 }
 
+function WorkspaceChromeIdentity({
+  icon: Icon,
+  badge,
+  title,
+}: {
+  icon: React.ElementType<{ className?: string }>;
+  badge: string;
+  title: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+          <Icon className="h-3 w-3" />
+          {badge}
+        </span>
+        {typeof title === "string" ? (
+          <h2 className="truncate text-sm font-semibold tracking-tight text-zinc-100">{title}</h2>
+        ) : title}
+      </div>
+    </div>
+  );
+}
+
 function WorkspacePageHeading({
   icon: Icon,
   title,
@@ -5600,7 +5669,7 @@ function WorkspacePageHeading({
 }) {
   return (
     <section className="mb-6 border-b border-white/5 pb-5">
-      <div className="flex min-w-0 items-center gap-3">
+      <div className="hidden min-w-0 items-center gap-3 md:flex">
         <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
           <Icon className="h-5 w-5" />
         </div>
@@ -5609,6 +5678,7 @@ function WorkspacePageHeading({
           <p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-500">{description}</p>
         </div>
       </div>
+      <p className="max-w-2xl text-sm leading-6 text-zinc-500 md:hidden">{description}</p>
     </section>
   );
 }
@@ -6644,22 +6714,11 @@ function ChatWorkspace({
   projectContent: React.ReactNode;
 }) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
-  const lastHeaderScrollRef = useRef(0);
-  const [headerAway, setHeaderAway] = useState(false);
+  const { headerAway, updateFromContainer } = useChromeHeaderScroll(chatId || projectId || "project-chat");
 
   const onChatScroll = () => {
     handleScroll();
-    const container = containerRef.current;
-    if (!container) return;
-    const top = container.scrollTop;
-    const delta = top - lastHeaderScrollRef.current;
-    lastHeaderScrollRef.current = top;
-    if (top <= 16) {
-      setHeaderAway(false);
-      return;
-    }
-    if (delta > 8) setHeaderAway(true);
-    else if (delta < -8) setHeaderAway(false);
+    updateFromContainer(containerRef.current);
   };
 
   return (

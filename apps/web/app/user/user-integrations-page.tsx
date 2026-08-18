@@ -2288,14 +2288,14 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
 
   const pageHeading = (
     <div className={embedded ? "mb-6" : "min-w-0"}>
-      <div className="flex min-w-0 items-center gap-2">
+      <div className={`flex min-w-0 items-center gap-2 ${embedded ? "hidden md:flex" : ""}`}>
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
           <Settings className="h-3 w-3" />
           Workspace
         </span>
         <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">Settings</h1>
       </div>
-      <p className={`${embedded ? "mt-2" : "mt-1"} text-sm leading-6 text-zinc-500`}>
+      <p className={`${embedded ? "mt-2 md:mt-2" : "mt-1"} text-sm leading-6 text-zinc-500`}>
         Appearance, provider credentials, model defaults, and account data preferences.
       </p>
     </div>

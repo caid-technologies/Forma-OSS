@@ -8,7 +8,7 @@ export default function AboutView() {
   return (
     <div className="font-sans text-zinc-100">
       <div className="mb-6">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="hidden min-w-0 items-center gap-2 md:flex">
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
             <Handshake className="h-3 w-3" />
             Workspace

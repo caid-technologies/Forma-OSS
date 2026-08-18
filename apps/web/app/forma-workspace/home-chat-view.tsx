@@ -128,7 +128,7 @@ export default function HomeChatView({
     <section
       className={`${
         !started
-          ? "fixed bottom-[224px] left-0 right-0 top-[3.75rem] z-10 max-w-none md:static md:inset-auto md:z-auto md:w-full md:max-w-none md:justify-center md:px-6 md:py-8"
+          ? "fixed bottom-[224px] left-0 right-0 top-0 z-10 max-w-none pt-16 md:static md:inset-auto md:z-auto md:w-full md:max-w-none md:justify-center md:px-6 md:py-8 md:pt-8"
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
@@ -151,7 +151,7 @@ export default function HomeChatView({
         } flex min-h-0 flex-col text-left`}
       >
         {started && workspaceTitle ? (
-          <div className="flex min-w-0 shrink-0 items-center px-3 pb-1 sm:px-4">
+          <div className="hidden min-w-0 shrink-0 items-center px-3 pb-1 sm:px-4 md:flex">
             {workspaceTitle}
           </div>
         ) : null}
@@ -159,7 +159,7 @@ export default function HomeChatView({
           <div
             ref={containerRef}
             onScroll={handleScroll}
-            className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 py-4 sm:px-4 sm:py-5"
+            className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-4 sm:pb-6 md:pt-5"
           >
             {messages.map((message) => {
               const isUser = message.role === "user";

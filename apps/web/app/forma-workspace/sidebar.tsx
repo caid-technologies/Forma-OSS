@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   Database,
@@ -139,15 +139,17 @@ export function WorkspaceStatusCorner({ status }: { status: WorkspaceStatusPrese
 
 export function MobileWorkspaceBar({
   onOpenSidebar,
-  authRequired,
+  headerAway = false,
+  children,
 }: {
   onOpenSidebar: () => void;
-  authRequired: boolean;
+  headerAway?: boolean;
+  children?: ReactNode;
 }) {
   return (
-    <header className="workspace-chrome-header fixed inset-x-0 top-0 z-30 flex min-h-14 shrink-0 items-center justify-between gap-3 px-3 pb-5 pt-2 pr-16 md:hidden">
+    <header className={`workspace-chrome-header absolute inset-x-0 top-0 z-20 flex min-h-14 min-w-0 items-center gap-3 px-3 pb-5 pt-2 sm:px-4 md:hidden ${headerAway ? "is-away" : ""}`}>
       <MobileSidebarButton onClick={onOpenSidebar} />
-      <AuthStatusControl authRequired={authRequired} compact />
+      {children}
     </header>
   );
 }

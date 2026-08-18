@@ -20,8 +20,8 @@ from forma_core.llm import (
     model_image_input_support,
     resolve_llm_runtime_config,
 )
-from forma_core.llm_providers import GeminiProvider, OpenAICompatibleProvider
-from forma_core.workspaces.projects.models import ProjectOverview, SystemArchitecture
+from forma_core.llm_providers import OpenAICompatibleProvider
+from forma_core.workspaces.projects.models import ProjectOverview
 from forma_core.selectors import parse_llm_selector, split_llm_selector
 
 
@@ -208,49 +208,6 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
 
 
 class LLMRuntimeTests(unittest.TestCase):
-    def test_gemini_preserves_recursive_refs_with_native_json_schema(self) -> None:
-        captured = {}
-        response_payload = {
-            "summary": "A nested architecture.",
-            "root": {
-                "system_id": "product",
-                "name": "Product",
-                "domain": "product",
-                "purpose": "Coordinates the complete product.",
-                "children": [
-                    {
-                        "system_id": "electrical",
-                        "name": "Electrical",
-                        "domain": "electrical",
-                        "purpose": "Owns electronics.",
-                    }
-                ],
-            },
-        }
-
-        class FakeModels:
-            @staticmethod
-            def generate_content(**kwargs):
-                captured.update(kwargs)
-                return type("Response", (), {"text": json.dumps(response_payload)})()
-
-        provider = GeminiProvider.__new__(GeminiProvider)
-        provider.client = type("Client", (), {"models": FakeModels()})()
-        provider.model_name = "gemini-test"
-        provider.provider_label = "Gemini"
-
-        result = provider.generate_structured("Build a system tree.", SystemArchitecture)
-
-        config = captured["config"]
-        schema = config.response_json_schema
-        self.assertIsNone(config.response_schema)
-        self.assertIn("SystemNode", schema["$defs"])
-        self.assertEqual(
-            {"$ref": "#/$defs/SystemNode"},
-            schema["$defs"]["SystemNode"]["properties"]["children"]["items"],
-        )
-        self.assertEqual("electrical", result.root.children[0].system_id)
-
     def test_production_preflight_rejects_provider_without_live_model_check(self) -> None:
         validation = LLMProviderValidation(
             provider="openai",

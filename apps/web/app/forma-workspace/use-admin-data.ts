@@ -253,8 +253,6 @@ export function useJobs({
   const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
   const requestIdRef = useRef(0);
   const refreshTokensRef = useRef<Record<string, object>>({});
-  const metricsRequestIdRef = useRef(0);
-  const metricsRefreshTokensRef = useRef<Record<string, object>>({});
   const jobRequestsRef = useRef<Record<string, Promise<A2AJob | null>>>({});
   const requestScopeRef = useRef(requestScopeKey);
   requestScopeRef.current = requestScopeKey;
@@ -267,7 +265,7 @@ export function useJobs({
   ) => {
     if (!enabled) return;
 
-    const refreshKey = status || "all";
+    const refreshKey = `${status || "all"}:${metricsWindow}`;
     if (refreshTokensRef.current[refreshKey]) return;
     const refreshToken = {};
     refreshTokensRef.current[refreshKey] = refreshToken;
@@ -275,6 +273,7 @@ export function useJobs({
     const requestId = ++requestIdRef.current;
     if (!options.silent) setLoading(true);
     setError(null);
+    setMetricsError(null);
 
     try {
       const params = new URLSearchParams({ limit: "200" });
@@ -306,6 +305,26 @@ export function useJobs({
         errors.push("example jobs");
       }
 
+      try {
+        const metricWindow = JOB_METRICS_WINDOW_QUERY[metricsWindow];
+        const metricParams = new URLSearchParams({
+          days: metricWindow.days,
+          hours: metricWindow.hours,
+          interval_hours: metricWindow.intervalHours,
+        });
+        const response = await fetchWithTimeout(`${apiUrl}/a2a/jobs/metrics?${metricParams.toString()}`, {
+          headers: await getHeaders(),
+        });
+        if (!response.ok) throw new Error(`Job metrics endpoint returned ${response.status}`);
+        const payload = await response.json() as JobMetrics;
+        if (requestIdRef.current === requestId && enabledRef.current) setMetrics(payload);
+      } catch (requestError) {
+        console.error("Error fetching job metrics", requestError);
+        if (requestIdRef.current === requestId && enabledRef.current) {
+          setMetricsError("Job metrics are unavailable");
+        }
+      }
+
       nextJobs.sort((left, right) => {
         const leftTime = new Date(left.created_at || left.updated_at || 0).getTime();
         const rightTime = new Date(right.created_at || right.updated_at || 0).getTime();
@@ -331,43 +350,7 @@ export function useJobs({
         delete refreshTokensRef.current[refreshKey];
       }
     }
-  }, [apiUrl, enabled, getHeaders, statusFilter]);
-
-  const refreshMetrics = useCallback(async () => {
-    if (!enabled) return;
-
-    const refreshKey = metricsWindow;
-    if (metricsRefreshTokensRef.current[refreshKey]) return;
-    const refreshToken = {};
-    metricsRefreshTokensRef.current[refreshKey] = refreshToken;
-    const requestId = ++metricsRequestIdRef.current;
-    setMetricsError(null);
-
-    try {
-      const metricWindow = JOB_METRICS_WINDOW_QUERY[metricsWindow];
-      const metricParams = new URLSearchParams({
-        days: metricWindow.days,
-        hours: metricWindow.hours,
-        interval_hours: metricWindow.intervalHours,
-      });
-      const response = await fetchWithTimeout(`${apiUrl}/a2a/jobs/metrics?${metricParams.toString()}`, {
-        headers: await getHeaders(),
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error(`Job metrics endpoint returned ${response.status}`);
-      const payload = await response.json() as JobMetrics;
-      if (metricsRequestIdRef.current === requestId && enabledRef.current) setMetrics(payload);
-    } catch (requestError) {
-      console.error("Error fetching job metrics", requestError);
-      if (metricsRequestIdRef.current === requestId && enabledRef.current) {
-        setMetricsError("Job metrics are unavailable");
-      }
-    } finally {
-      if (metricsRefreshTokensRef.current[refreshKey] === refreshToken) {
-        delete metricsRefreshTokensRef.current[refreshKey];
-      }
-    }
-  }, [apiUrl, enabled, getHeaders, metricsWindow]);
+  }, [apiUrl, enabled, getHeaders, metricsWindow, statusFilter]);
 
   const fetchJob = useCallback(async (jobId: string): Promise<A2AJob | null> => {
     if (!jobId) return null;
@@ -426,37 +409,6 @@ export function useJobs({
     };
   }, [enabled, pollIntervalMs, refresh, statusFilter]);
 
-  useEffect(() => {
-    if (!enabled) {
-      metricsRequestIdRef.current += 1;
-      metricsRefreshTokensRef.current = {};
-      return;
-    }
-
-    void refreshMetrics();
-    const poll = () => {
-      if (typeof document === "undefined" || document.visibilityState === "visible") {
-        void refreshMetrics();
-      }
-    };
-    const intervalId = window.setInterval(poll, pollIntervalMs);
-    document.addEventListener("visibilitychange", poll);
-
-    return () => {
-      metricsRequestIdRef.current += 1;
-      metricsRefreshTokensRef.current = {};
-      window.clearInterval(intervalId);
-      document.removeEventListener("visibilitychange", poll);
-    };
-  }, [enabled, pollIntervalMs, refreshMetrics]);
-
-  const refreshAll = useCallback(async (status?: string, options?: RefreshOptions) => {
-    await Promise.all([
-      refresh(status, options),
-      refreshMetrics(),
-    ]);
-  }, [refresh, refreshMetrics]);
-
   return {
     jobs,
     metrics,
@@ -468,7 +420,7 @@ export function useJobs({
     statusFilter,
     setStatusFilter,
     lastUpdatedAt,
-    refresh: refreshAll,
+    refresh,
     fetchJob,
   };
 }

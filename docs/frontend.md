@@ -11,7 +11,6 @@ The frontend is a **Next.js 14** app that visualizes Hardware IR and provides th
 - **BOM & sourcing** table.
 - **Assembly instructions** and **mechanical notes** views.
 - **Export** of the Hardware IR package as JSON and build instructions as Markdown.
-- **Admin contribution export** with download-time anonymization as Excel or ZIP from the Jobs page.
 - **3D mechanical scene** for enclosure and component placements.
 
 ## Shape and form-factor iteration

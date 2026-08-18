@@ -3,9 +3,6 @@ from __future__ import annotations
 import importlib.metadata
 import json
 import pathlib
-import subprocess
-import sys
-import textwrap
 import tomllib
 import unittest
 
@@ -156,69 +153,6 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual("HardwarePipelineOrchestrator", HardwarePipelineOrchestrator.__name__)
         self.assertEqual("HardwareIR", HardwareIR.__name__)
         self.assertIn("default", [item["id"] for item in list_workflows()])
-
-    def test_generation_worker_import_does_not_require_pillow(self) -> None:
-        # Regression test for #285: forma_core.workers used to eagerly import
-        # the reverse-engineering worker, which pulls in Pillow (the optional
-        # "terminal" extra) even for callers that only need generation. Checking
-        # for the reverse-engineering modules themselves (rather than "PIL") keeps
-        # this deterministic regardless of whether some other installed optional
-        # extra (e.g. google-genai) happens to load Pillow as its own side effect.
-        script = textwrap.dedent(
-            """
-            import sys
-
-            import forma_core.workers.generation as generation
-
-            assert "forma_core.workers.reverse_engineering" not in sys.modules
-            assert "forma_core.workspaces.reverse_engineering.analyzer" not in sys.modules
-            print(generation.HardwareIRGenerationEngine.__name__)
-
-            import forma_core.workers as workers
-
-            assert "forma_core.workers.reverse_engineering" not in sys.modules
-            assert "forma_core.workspaces.reverse_engineering.analyzer" not in sys.modules
-            """
-        )
-        completed = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=ROOT_DIR,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(0, completed.returncode, completed.stderr)
-
-    def test_reverse_engineering_worker_reports_missing_pillow_clearly(self) -> None:
-        script = textwrap.dedent(
-            """
-            import builtins
-
-            real_import = builtins.__import__
-
-            def blocked_import(name, *args, **kwargs):
-                if name == "PIL" or name.startswith("PIL."):
-                    raise ModuleNotFoundError("No module named 'PIL'")
-                return real_import(name, *args, **kwargs)
-
-            builtins.__import__ = blocked_import
-
-            import forma_core.workers as workers
-
-            try:
-                workers.ReverseEngineeringWorker
-            except ModuleNotFoundError as exc:
-                assert "PIL" in str(exc), exc
-            else:
-                raise AssertionError("expected a ModuleNotFoundError for the missing Pillow dependency")
-            """
-        )
-        completed = subprocess.run(
-            [sys.executable, "-c", script],
-            cwd=ROOT_DIR,
-            capture_output=True,
-            text=True,
-        )
-        self.assertEqual(0, completed.returncode, completed.stderr)
 
     def test_backend_compatibility_wrappers_reexport_core_objects(self) -> None:
         import apps.api.agents.orchestrator as backend_orchestrator

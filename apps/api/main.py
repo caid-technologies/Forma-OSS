@@ -127,13 +127,11 @@ from apps.api.a2a import (
     submit_a2a_message,
 )
 from forma_core.images import get_image_output_debug_config
-from forma_core.image_providers import GMIImageProvider
 from forma_core.config.contract import resolve_runtime_contract
 from forma_core.workspaces.projects.iteration import ProjectIterator
 from forma_core.llm import LLMProviderConfigError
 from forma_core.llm import LLMProviderOutputError
 from forma_core.workspaces.projects.objects import build_project_object, list_project_namespaces
-from forma_core.workspaces.projects.output import attach_product_image
 from forma_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
 from forma_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 from forma_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
@@ -147,7 +145,6 @@ from apps.api.readiness_api import router as readiness_router
 from apps.api.worker_plans_api import router as worker_plans_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
-from apps.api.contribution_export_api import router as contribution_export_router
 from apps.api.auth import (
     UserContext,
     clerk_user_profile,
@@ -294,7 +291,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition", "X-Contribution-Record-Count"],
 )
 
 app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
@@ -306,7 +302,6 @@ app.include_router(readiness_router)
 app.include_router(worker_plans_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
-app.include_router(contribution_export_router)
 
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -877,7 +872,6 @@ class VideoToVideoRequest(BaseModel):
 
 VIDEO_FAILED_STATUSES = {"failed", "failure", "error", "cancelled", "canceled"}
 VIDEO_SUCCESS_STATUSES = {"success", "succeeded", "completed", "complete", "done"}
-ADMIN_ALPHA_GMI_IMAGE_MODEL = "gpt-image-2-generate"
 
 
 def _normalize_video_model(model: str | None, mode: str = VIDEO_MODE_IMAGE_TO_VIDEO) -> str:
@@ -1055,12 +1049,13 @@ def list_video_models_endpoint():
 
 
 @app.get("/video/projects/{project_id}")
-def list_project_videos_endpoint(project_id: str, _user: UserContext = Depends(require_admin_user_context)):
-    """Lists project videos for the temporary admin-alpha media tool."""
+def list_project_videos_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Lists videos saved for one project from configured backend storage."""
     project_id = _require_non_empty(project_id, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     try:
         videos = list_project_videos(project_id)
         return {
@@ -1073,12 +1068,13 @@ def list_project_videos_endpoint(project_id: str, _user: UserContext = Depends(r
 
 
 @app.post("/video/image-to-video")
-def create_image_to_video_endpoint(request: VideoImageToVideoRequest, _user: UserContext = Depends(require_admin_user_context)):
-    """Queues an admin-alpha GMI Cloud image-to-video generation request."""
+def create_image_to_video_endpoint(request: VideoImageToVideoRequest, user: UserContext = Depends(require_user_context)):
+    """Queues a backend-only GMI Cloud image-to-video generation request."""
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     image = _require_non_empty(request.image, "image is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_IMAGE_TO_VIDEO)
@@ -1131,12 +1127,13 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest, _user: Use
 
 
 @app.post("/video/video-to-video")
-def create_video_to_video_endpoint(request: VideoToVideoRequest, _user: UserContext = Depends(require_admin_user_context)):
-    """Queues an admin-alpha GMI Cloud video-to-video generation request."""
+def create_video_to_video_endpoint(request: VideoToVideoRequest, user: UserContext = Depends(require_user_context)):
+    """Queues a backend-only GMI Cloud video-to-video generation request."""
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     video = _require_non_empty(request.video, "video is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_VIDEO_TO_VIDEO)
@@ -1197,14 +1194,15 @@ def get_image_to_video_status_endpoint(
     prompt: str | None = Query(None, description="Prompt used for the original video request."),
     aspectRatio: str | None = Query(None, description="Aspect ratio used for the original video request."),
     sourceUrl: str | None = Query(None, description="Source image or video URL used for the original video request."),
-    _user: UserContext = Depends(require_admin_user_context),
+    user: UserContext = Depends(require_user_context),
 ):
-    """Polls an admin-alpha GMI request and stores completed videos in S3."""
+    """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
     request_id = _require_non_empty(request_id, "requestId is required.")
     project_id = _require_non_empty(projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     normalized_mode = normalize_video_mode(mode)
     model = _normalize_video_model(model, normalized_mode)
     aspect_ratio = _normalize_video_request_aspect_ratio(aspectRatio) if aspectRatio else None
@@ -2205,91 +2203,13 @@ def delete_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_
     return {"ok": True, "chat_id": chat_id}
 
 
-def _has_generated_product_image(metadata: Dict[str, Any]) -> bool:
-    direct_keys = (
-        "product_image_url",
-        "product_image_data",
-        "product_image_s3_key",
-        "product_case_image_url",
-        "product_case_image_data",
-        "product_case_image_s3_key",
-    )
-    if any(isinstance(metadata.get(key), str) and metadata[key].strip() for key in direct_keys):
-        return True
-    sequence = metadata.get("product_visual_sequence")
-    if not isinstance(sequence, list):
-        return False
-    return any(
-        isinstance(item, dict)
-        and any(isinstance(item.get(key), str) and item[key].strip() for key in ("url", "data", "s3_key"))
-        for item in sequence
-    )
-
-
-@app.post("/admin-alpha/projects/{project_id}/image")
-def generate_admin_alpha_project_image_endpoint(
-    project_id: str,
-    _user: UserContext = Depends(require_admin_user_context),
-):
-    """Manually adds one GMI GPT Image 2 render to a project that has no generated image."""
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    ir = HardwareIR(**project.hardware_ir)
-    current_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
-    if _has_generated_product_image(current_metadata):
-        raise HTTPException(status_code=409, detail="This project already has a generated product image.")
-
-    provider = GMIImageProvider(force_enabled=True, model_name=ADMIN_ALPHA_GMI_IMAGE_MODEL)
-    provider_config = provider.get_debug_config()
-    if not provider_config.get("configured"):
-        raise HTTPException(
-            status_code=503,
-            detail=provider_config.get("reason") or "GMI GPT Image 2 is not configured.",
-        )
-
-    attach_product_image(
-        project.prompt,
-        ir,
-        generate_image=True,
-        generate_sequence=False,
-        provider_factory=lambda **_kwargs: provider,
-    )
-    metadata = ir.assembly_metadata or {}
-    if metadata.get("image_output_status") != "succeeded" or not _has_generated_product_image(metadata):
-        detail = metadata.get("image_output_error") or "GMI GPT Image 2 returned no project image."
-        raise HTTPException(status_code=502, detail=str(detail))
-
-    saved = update_generated_project_hardware_ir(
-        project.project_id,
-        ir.model_dump(mode="json"),
-        owner_user_id=_project_owner_user_id(project),
-    )
-    if not saved:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    ir.assembly_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
-    return {
-        "project_id": project.project_id,
-        "project_ir": ir.model_dump(mode="json"),
-        "image": {
-            "provider": "gmi",
-            "model": ADMIN_ALPHA_GMI_IMAGE_MODEL,
-            "url": (ir.assembly_metadata or {}).get("product_image_url"),
-        },
-    }
-
-
 @app.get("/projects/{project_id}/video-prompt")
-def generate_project_video_prompt_endpoint(
-    project_id: str,
-    _user: UserContext = Depends(require_admin_user_context),
-):
-    """Builds an admin-alpha assembly video prompt from project Docs data."""
+def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
+    """Builds an image-to-video prompt from Forma project namespaces."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
 
     try:
         ir = HardwareIR(**project.hardware_ir)

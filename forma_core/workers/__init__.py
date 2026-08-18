@@ -51,32 +51,17 @@ from forma_core.workers.validation import (
     ValidationWorkerPayload,
     build_validation_request,
 )
-# The reverse-engineering worker pulls in Pillow (an optional "terminal" extra)
-# transitively via forma_core.workspaces.reverse_engineering.analyzer, so it
-# is re-exported lazily to keep Pillow optional for callers that only need
-# other workers (e.g. generation).
-_REVERSE_ENGINEERING_EXPORTS = frozenset(
-    {
-        "REVERSE_ENGINEERING_CAPABILITY_ID",
-        "REVERSE_ENGINEERING_INPUT_VERSION",
-        "REVERSE_ENGINEERING_OUTPUT_VERSION",
-        "REVERSE_ENGINEERING_WORKER_ID",
-        "InlineImageInspectionEngine",
-        "ReverseEngineeringEngine",
-        "ReverseEngineeringWorker",
-        "ReverseEngineeringWorkerPayload",
-        "build_reverse_engineering_request",
-    }
+from forma_core.workers.reverse_engineering import (
+    REVERSE_ENGINEERING_CAPABILITY_ID,
+    REVERSE_ENGINEERING_INPUT_VERSION,
+    REVERSE_ENGINEERING_OUTPUT_VERSION,
+    REVERSE_ENGINEERING_WORKER_ID,
+    InlineImageInspectionEngine,
+    ReverseEngineeringEngine,
+    ReverseEngineeringWorker,
+    ReverseEngineeringWorkerPayload,
+    build_reverse_engineering_request,
 )
-
-
-def __getattr__(name: str):
-    if name in _REVERSE_ENGINEERING_EXPORTS:
-        from forma_core.workers import reverse_engineering
-
-        return getattr(reverse_engineering, name)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
 
 __all__ = [
     "WORKER_CONTRACT_VERSION",

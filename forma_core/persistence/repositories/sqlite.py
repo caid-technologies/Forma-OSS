@@ -787,27 +787,6 @@ class SqlAlchemyRepository:
                 consent.purged_at = purged_at
             return count
 
-    def list_model_training_projects_for_export(self) -> List[Any]:
-        with self._session() as session:
-            return (
-                session.query(DBGeneratedProject)
-                .outerjoin(
-                    DBUserSettings,
-                    DBUserSettings.owner_user_id == DBGeneratedProject.owner_user_id,
-                )
-                .filter(
-                    DBGeneratedProject.status == "active",
-                    DBGeneratedProject.owner_user_id.isnot(None),
-                    DBGeneratedProject.owner_user_id != "",
-                    or_(
-                        DBUserSettings.owner_user_id.is_(None),
-                        DBUserSettings.model_training_opt_out.is_(False),
-                    ),
-                )
-                .order_by(DBGeneratedProject.created_at.asc())
-                .all()
-            )
-
     def add_project_deletion_audit(self, record: Dict[str, Any]) -> Any:
         with self._session() as session, session.begin():
             audit = DBProjectDeletionAudit(**record)

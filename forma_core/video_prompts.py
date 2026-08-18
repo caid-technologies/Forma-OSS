@@ -118,15 +118,13 @@ def _visual_details(payload: Dict[str, Any]) -> List[str]:
 def _assembly_details(payload: Dict[str, Any]) -> List[str]:
     steps = payload.get("assembly") if isinstance(payload.get("assembly"), list) else []
     details = []
-    for step in steps[:6]:
+    for step in steps[:3]:
         if not isinstance(step, dict):
             continue
-        step_number = step.get("step_num")
         title = _clean_text(step.get("title"), max_chars=80)
         description = _clean_text(step.get("description"), max_chars=120)
         if title or description:
-            label = f"Step {step_number}" if isinstance(step_number, int) else "Step"
-            details.append(f"{label}: " + ": ".join(part for part in (title, description) if part))
+            details.append(": ".join(part for part in (title, description) if part))
     return details
 
 
@@ -156,17 +154,13 @@ def generate_image_to_video_prompt_from_namespaces(
 
     parts_line = ", ".join(component_labels) if component_labels else "the visible electronics modules"
     motion_beats = [
-        "start with the documented parts arranged in a clean exploded layout",
-        "show each documented component moving into its correct physical position",
-        "show fasteners, wiring, connectors, and enclosure pieces joining in a physically plausible order",
-        "finish on the fully assembled project with a slow 3/4 inspection orbit",
+        "start on the generated still image and animate a slow 3/4 orbit",
+        "reveal the enclosure, mounted electronics, wiring paths, display, connectors, and power source",
+        "use subtle parallax, realistic lighting, and clean product-render motion",
         "keep the hardware coherent across frames with no extra invented components",
     ]
     if assembly_details:
-        motion_beats.append(
-            "follow the Docs assembly sequence in order without skipping or reordering steps: "
-            + "; ".join(assembly_details)
-        )
+        motion_beats.append(f"briefly imply assembly sequence details: {'; '.join(assembly_details[:2])}")
 
     prompt_lines = [
         f"Image-to-video prompt for {title}.",
@@ -176,9 +170,9 @@ def generate_image_to_video_prompt_from_namespaces(
         f"Visual context: {'; '.join(visual_details) if visual_details else 'clean realistic product concept render, inspection-friendly framing'}.",
         power and f"Power context: {power}.",
         constraints and f"Respect constraints: {'; '.join(_clean_text(item, max_chars=90) for item in constraints[:3])}.",
-        f"Assembly animation: {'; '.join(motion_beats)}.",
+        f"Motion: {'; '.join(motion_beats)}.",
         "Avoid text glitches, impossible wiring, floating parts, extra screens, mismatched displays, or changing component count.",
-        "Style: realistic step-by-step prototype assembly video, neutral background, stable camera, no people, no marketing text overlays.",
+        "Style: realistic prototype product video, neutral background, stable camera, no people, no marketing text overlays.",
     ]
     raw_prompt = "\n".join(line for line in prompt_lines if line)
     prompt = _limit_prompt(raw_prompt)
@@ -189,7 +183,6 @@ def generate_image_to_video_prompt_from_namespaces(
         "namespaces": list(selected_namespaces),
         "title": title,
         "component_count": len(component_labels),
-        "assembly_step_count": len(assembly_details),
     }
 
 

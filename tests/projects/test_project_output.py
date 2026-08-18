@@ -58,53 +58,6 @@ class ProjectOutputTests(unittest.TestCase):
         self.assertEqual(image.data_url, metadata["product_visual_sequence"][0]["data"])
         self.assertEqual(1, metadata["product_visual_sequence_count"])
 
-    def test_single_image_mode_does_not_generate_a_project_sequence(self) -> None:
-        ir = HardwareIR(
-            overview=ProjectOverview(
-                title="Test project",
-                description="A test",
-                difficulty="Beginner",
-                category="IoT",
-            ),
-            assembly_metadata={"project_id": "29f2853c-ba3e-425a-b4c2-60f91cd2398b"},
-        )
-        image = GeneratedImage(
-            data_url="data:image/png;base64,ZmFrZQ==",
-            provider="gmi",
-            model="gpt-image-2-generate",
-            size="1024x1024",
-            prompt="render",
-            view_id="case",
-            label="Case",
-        )
-
-        class FakeProvider:
-            def get_debug_config(self):
-                return {
-                    "provider": "gmi",
-                    "model_name": "gpt-image-2-generate",
-                    "enabled": True,
-                    "configured": True,
-                }
-
-            def generate_project_image(self, _prompt, _ir):
-                return image
-
-            def generate_project_image_sequence(self, _prompt, _ir):
-                raise AssertionError("single-image mode must not generate a sequence")
-
-        attach_product_image(
-            "test prompt",
-            ir,
-            generate_image=True,
-            generate_sequence=False,
-            provider_factory=lambda **_kwargs: FakeProvider(),
-            storage_handler=lambda *_args, **_kwargs: {"product_case_image_storage_enabled": False},
-        )
-
-        self.assertEqual("succeeded", ir.assembly_metadata["image_output_status"])
-        self.assertEqual(image.data_url, ir.assembly_metadata["product_image_data"])
-
 
 if __name__ == "__main__":
     unittest.main()

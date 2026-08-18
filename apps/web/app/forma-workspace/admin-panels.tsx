@@ -1,16 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import {
   AlertTriangle,
   CheckCircle,
   Cpu,
   Database,
-  Download,
   Eye,
-  FileArchive,
-  FileSpreadsheet,
   History,
   Info,
   RefreshCw,
@@ -35,156 +32,6 @@ import {
 import CopyButton from "../../components/copy-button";
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 5000;
-
-type ContributionInventory = {
-  count: number;
-  files: Array<{
-    file_number: number;
-    component_count: number;
-    net_count: number;
-  }>;
-};
-
-export function ContributionExportPanel({
-  apiUrl,
-  getHeaders,
-  readError,
-}: {
-  apiUrl: string;
-  getHeaders: () => HeadersInit | Promise<HeadersInit>;
-  readError: (response: Response) => Promise<string>;
-}) {
-  const [inventory, setInventory] = useState<ContributionInventory | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [exportingFormat, setExportingFormat] = useState<"xlsx" | "zip" | null>(null);
-
-  const fetchInventory = useCallback(async (signal?: AbortSignal) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(`${apiUrl}/admin/contribution-exports/inventory`, {
-        headers: await getHeaders(),
-        signal,
-      });
-      if (!response.ok) throw new Error(await readError(response));
-      setInventory(await response.json());
-    } catch (fetchError) {
-      if (fetchError instanceof DOMException && fetchError.name === "AbortError") return;
-      setError(fetchError instanceof Error ? fetchError.message : "Unable to load contribution exports.");
-    } finally {
-      if (!signal?.aborted) setLoading(false);
-    }
-  }, [apiUrl, getHeaders, readError]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    void fetchInventory(controller.signal);
-    return () => controller.abort();
-  }, [fetchInventory]);
-
-  const downloadExport = async (format: "xlsx" | "zip") => {
-    setExportingFormat(format);
-    setError(null);
-    try {
-      const response = await fetch(`${apiUrl}/admin/contribution-exports?format=${format}`, {
-        headers: await getHeaders(),
-      });
-      if (!response.ok) throw new Error(await readError(response));
-      const disposition = response.headers.get("Content-Disposition") || "";
-      const filename = disposition.match(/filename="?([^";]+)"?/i)?.[1]
-        || `forma-anonymized-projects.${format}`;
-      const url = URL.createObjectURL(await response.blob());
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : "Unable to download the contribution export.");
-    } finally {
-      setExportingFormat(null);
-    }
-  };
-
-  const files = inventory?.files || [];
-  const exportableCount = inventory?.count || 0;
-
-  return (
-    <section className="mb-6 border border-[#2c2f37] bg-[#17181d] p-4 sm:p-5">
-      <div className="flex flex-col gap-4 border-b border-[#2a2c33] pb-4 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <Download className="h-4 w-4 text-cyan-400" />
-            <h2 className="text-base font-black uppercase text-white">Opted-in data exports</h2>
-          </div>
-          <p className="mt-2 max-w-3xl text-xs leading-5 text-slate-500">
-            Download every active project across all users except accounts that opted out. User and project data is anonymized when the export is generated.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => void downloadExport("xlsx")}
-            disabled={!exportableCount || Boolean(exportingFormat)}
-            className="flex items-center gap-2 border border-[#34363f] px-3 py-2 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <FileSpreadsheet className="h-4 w-4" />
-            {exportingFormat === "xlsx" ? "Preparing..." : "Excel"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void downloadExport("zip")}
-            disabled={!exportableCount || Boolean(exportingFormat)}
-            className="flex items-center gap-2 border border-[#34363f] px-3 py-2 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <FileArchive className="h-4 w-4" />
-            {exportingFormat === "zip" ? "Preparing..." : "ZIP"}
-          </button>
-        </div>
-      </div>
-
-      <div className="my-4 grid gap-2 sm:grid-cols-2">
-        <JobMetric label="Eligible projects" value={inventory?.count ?? "-"} />
-        <JobMetric label="Anonymization" value="At download" />
-      </div>
-
-      {error && (
-        <div className="mb-4 flex gap-2 border border-rose-500/30 bg-rose-950/20 p-3 text-xs leading-5 text-rose-300">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>{error}</span>
-        </div>
-      )}
-
-      {loading && !inventory ? (
-        <div className="border border-[#2a2c33] p-4 text-xs text-slate-500">Loading eligible projects...</div>
-      ) : files.length ? (
-        <div className="space-y-2">
-          {files.slice(0, 25).map((file) => (
-              <div key={file.file_number} className="flex flex-col gap-2 border border-[#2a2c33] bg-[#141519] p-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-bold text-slate-300">Eligible project {file.file_number}</span>
-                  <span className="border border-emerald-500/30 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">Ready</span>
-                </div>
-                <p className="text-[11px] leading-5 text-slate-500">
-                  {file.component_count} components · {file.net_count} nets
-                </p>
-              </div>
-          ))}
-          {files.length > 25 && (
-            <p className="text-[11px] text-slate-600">Showing 25 of {files.length} eligible projects.</p>
-          )}
-        </div>
-      ) : (
-        <div className="border border-[#2a2c33] p-4 text-xs leading-5 text-slate-500">
-          No active projects belong to users who have not opted out.
-        </div>
-      )}
-    </section>
-  );
-}
 
 function normalizeAdminPipelineEvents(value: any): AgentPipelineEvent[] {
   const rawEvents = Array.isArray(value) ? value : [];
@@ -557,7 +404,6 @@ const JOB_METRICS_WINDOW_OPTIONS: Array<{ value: JobMetricsWindow; label: string
   { value: "24h", label: "24 hours" },
   { value: "7d", label: "7 days" },
 ];
-const JOB_METRICS_WINDOW_HOURS: Record<JobMetricsWindow, number> = { "1h": 1, "24h": 24, "7d": 168 };
 
 function JobMetricsPanel({
   metrics,
@@ -570,16 +416,14 @@ function JobMetricsPanel({
   metricsWindow: JobMetricsWindow;
   onMetricsWindowChange?: (window: JobMetricsWindow) => void;
 }) {
-  const selectedMetrics = metrics?.interval_hours === JOB_METRICS_WINDOW_HOURS[metricsWindow] ? metrics : null;
-
-  if (error && !selectedMetrics) {
+  if (error && !metrics) {
     return (
       <div className="mb-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs text-amber-200">
         {error}
       </div>
     );
   }
-  if (!selectedMetrics) {
+  if (!metrics) {
     return <div className="mb-4 border border-[#2a2c33] bg-[#17181d] p-4 text-xs text-slate-500">Loading job metrics...</div>;
   }
 
@@ -609,23 +453,23 @@ function JobMetricsPanel({
         </div>
       </div>
       <div className="grid gap-2 sm:grid-cols-3">
-        <JobMetricSummary label={`Jobs · ${intervalLabel}`} value={selectedMetrics.total_jobs} detail="Created in selected interval" />
+        <JobMetricSummary label={`Jobs · ${intervalLabel}`} value={metrics.total_jobs} detail="Created in selected interval" />
         <JobMetricSummary
           label="Completed"
-          value={selectedMetrics.completed_jobs}
-          detail={`${selectedMetrics.failed_jobs} failed`}
-          danger={selectedMetrics.failed_jobs > 0}
+          value={metrics.completed_jobs}
+          detail={`${metrics.failed_jobs} failed`}
+          danger={metrics.failed_jobs > 0}
         />
         <JobMetricSummary
           label={`${intervalLabel} failure rate`}
-          value={`${Number(selectedMetrics.failure_rate || 0).toFixed(1)}%`}
-          detail={`${selectedMetrics.failed_jobs} failed / ${selectedMetrics.completed_jobs} completed`}
-          danger={selectedMetrics.failure_rate > 0}
+          value={`${Number(metrics.failure_rate || 0).toFixed(1)}%`}
+          detail={`${metrics.failed_jobs} failed / ${metrics.completed_jobs} completed`}
+          danger={metrics.failure_rate > 0}
         />
       </div>
       <JobVolumeChart
         title={chartUsesDays ? "Jobs per day" : "Jobs per hour"}
-        buckets={chartUsesDays ? selectedMetrics.daily : selectedMetrics.hourly}
+        buckets={chartUsesDays ? metrics.daily : metrics.hourly}
         unit={chartUsesDays ? "day" : "hour"}
       />
       {error && <p className="text-[11px] text-amber-300">Showing the last available metrics. {error}</p>}

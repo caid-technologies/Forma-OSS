@@ -16,15 +16,7 @@ This repository currently has no project share-link, ACL, upload, cache, search-
 
 Consent is explicit, versioned, purpose-specific, off by default, and stored separately. Deletion succeeds without consent. When active consent exists, deletion creates only an aggregate summary of component categories and structural counts. Prompts, titles, identifiers, URLs, credentials, uploads, request metadata, and free text are never copied into the contribution store.
 
-Before purge, withdrawal deletes the pending snapshot. At purge, an eligible sanitized snapshot receives unrelated random source and consent identifiers and is severed from the consent/account record; the identifiable consent row is then deleted.
-
-## Admin export
-
-- `GET /admin/contribution-exports/inventory` returns a content-free count and structural summary of files currently eligible for export.
-- `GET /admin/contribution-exports?format=xlsx` downloads one anonymous flattened row per eligible project in an Excel workbook.
-- `GET /admin/contribution-exports?format=zip` downloads one anonymous JSON file per eligible project with CSV and JSON manifests.
-
-Eligibility follows the account-level data-usage preference: every active, user-owned project is included by default unless its owner has `model_training_opt_out = true`. This is global across all users and does not require a separate per-project contribution-consent row. The exporter reads each eligible project, runs the aggregate-only sanitizer in memory, assigns a fresh export-only random identifier, and writes only that anonymous copy. Project, account, workspace, chat, title, prompt, URL, upload, and reviewer identifiers are never written to the export. Opted-out, ownerless, deleted, and purged projects are excluded.
+Before purge, withdrawal deletes the pending snapshot. At purge, an eligible sanitized snapshot receives unrelated random source and consent identifiers and is severed from the consent/account record; the identifiable consent row is then deleted. Dataset export must accept only snapshots with `contribution_status=anonymized` and a completed anonymization review.
 
 ## Configuration and operations
 
@@ -46,4 +38,4 @@ Production owners must configure encrypted backup expiry no longer than the appr
 - Approval of the retention, sanitization, anonymization, re-identification, and malicious-dataset-content standards.
 - Confirmation that every production subprocessor and storage system has equivalent deletion behavior.
 - Security review of rate limiting, recent authentication, storage encryption, administrative access, and purge alerts.
-- Approval of the export-time anonymization format and downstream access controls before production dataset use.
+- Dataset export and AI-training use remain out of scope for this implementation.

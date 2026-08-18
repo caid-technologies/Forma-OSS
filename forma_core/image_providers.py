@@ -749,12 +749,7 @@ class VertexAIImageProvider(OpenAIImageProvider):
 
 
 class GMIImageProvider(OpenAIImageProvider):
-    def __init__(
-        self,
-        enabled: bool = True,
-        force_enabled: bool = False,
-        model_name: Optional[str] = None,
-    ) -> None:
+    def __init__(self, enabled: bool = True, force_enabled: bool = False) -> None:
         ImageProvider.__init__(self)
         self.provider_name = "gmi"
         self.enabled = enabled or force_enabled
@@ -773,7 +768,7 @@ class GMIImageProvider(OpenAIImageProvider):
         self.api_key = _first_env(["GMI_IMAGE_API_KEY", "GMI_API_KEY", "GMI_CLOUD_API_KEY", "GMICLOUD_API_KEY"])
         self.organization_id = None
         self.project_id = None
-        self.model_name = model_name or (
+        self.model_name = (
             _first_env(["GMI_IMAGE_MODEL", "GMI_CLOUD_IMAGE_MODEL", "GMICLOUD_IMAGE_MODEL", "IMAGE_MODEL"], DEFAULT_GMI_IMAGE_MODEL)
             or DEFAULT_GMI_IMAGE_MODEL
         )

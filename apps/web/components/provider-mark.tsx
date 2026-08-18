@@ -12,6 +12,7 @@ export type ProviderMarkId =
   | "ollama"
   | "openai"
   | "runpod"
+  | "tavily"
   | "together"
   | "vertex"
   | "workersai"
@@ -31,6 +32,7 @@ const MARK_IDS = new Set<string>([
   "ollama",
   "openai",
   "runpod",
+  "tavily",
   "together",
   "vertex",
   "workersai",

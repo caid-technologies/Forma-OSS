@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from forma_core.config import config
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping, Optional
 
 from pydantic import BaseModel, Field
 
@@ -171,6 +171,11 @@ class ExternalSourceProviderConfig:
     search_depth: str = "basic"
     include_answer: bool = True
     include_raw_content: bool = False
+    crawl_max_depth: int = 1
+    crawl_limit: int = 20
+    crawl_extract_depth: str = "basic"
+    research_model: str = "auto"
+    research_output_length: str = "standard"
 
     @classmethod
     def from_env(cls, provider_override: Optional[str] = None) -> "ExternalSourceProviderConfig":
@@ -186,18 +191,58 @@ class ExternalSourceProviderConfig:
         if requested not in SUPPORTED_EXTERNAL_SOURCE_PROVIDERS:
             return cls(provider=requested, enabled=False, reason=f"Unsupported EXTERNAL_SOURCE_PROVIDER {requested!r}.")
 
-        search_limit = _env_int("EXTERNAL_SOURCE_SEARCH_LIMIT", _env_int("FIRECRAWL_SEARCH_LIMIT", 3, 1, 8), 1, 8)
+        search_limit = _env_int(
+            "EXTERNAL_SOURCE_SEARCH_LIMIT",
+            _env_int("TAVILY_SEARCH_LIMIT", _env_int("FIRECRAWL_SEARCH_LIMIT", 3, 1, 8), 1, 20),
+            1,
+            20,
+        )
         timeout = _env_float(
             "EXTERNAL_SOURCE_TIMEOUT_SECONDS",
-            _env_float("FIRECRAWL_MCP_TIMEOUT_SECONDS", 45.0, 5.0, 180.0),
+            _env_float("TAVILY_TIMEOUT_SECONDS", _env_float("FIRECRAWL_MCP_TIMEOUT_SECONDS", 45.0, 5.0, 180.0), 5.0, 180.0),
             5.0,
             180.0,
         )
+        search_depth = (config.get("TAVILY_SEARCH_DEPTH") or "basic").strip().lower() or "basic"
+        include_answer = _env_bool("TAVILY_INCLUDE_ANSWER", True)
+        include_raw_content = _env_bool("TAVILY_INCLUDE_RAW_CONTENT", False)
+        tavily_kwargs = {
+            "search_limit": search_limit,
+            "timeout_seconds": timeout,
+            "search_depth": search_depth,
+            "include_answer": include_answer,
+            "include_raw_content": include_raw_content,
+            "crawl_max_depth": _env_int("TAVILY_CRAWL_MAX_DEPTH", 1, 1, 5),
+            "crawl_limit": _env_int("TAVILY_CRAWL_LIMIT", 20, 1, 50),
+            "crawl_extract_depth": (config.get("TAVILY_CRAWL_EXTRACT_DEPTH") or "basic").strip().lower() or "basic",
+            "research_model": (config.get("TAVILY_RESEARCH_MODEL") or "auto").strip().lower() or "auto",
+            "research_output_length": (config.get("TAVILY_RESEARCH_OUTPUT_LENGTH") or "standard").strip().lower() or "standard",
+        }
 
         if requested in {"none", "disabled", "off"}:
             return cls(provider="none", enabled=False, reason="External source research is disabled.")
-        if requested in {"auto", "tavily", "firecrawl"}:
-            firecrawl_config = FirecrawlMCPResearchClient().config
+        if requested == "tavily":
+            has_key = bool(_first_env(["TAVILY_API_KEY"]))
+            return cls(
+                provider="tavily",
+                enabled=has_key,
+                reason=None if has_key else "Set TAVILY_API_KEY to enable Tavily research.",
+                **tavily_kwargs,
+            )
+
+        firecrawl_config = FirecrawlMCPResearchClient().config
+        if requested in {"auto", "firecrawl"} and (requested == "firecrawl" or firecrawl_config.enabled):
+            return cls(
+                provider="firecrawl",
+                enabled=firecrawl_config.enabled,
+                reason=firecrawl_config.reason,
+                search_limit=firecrawl_config.search_limit or search_limit,
+                timeout_seconds=firecrawl_config.timeout_seconds or timeout,
+            )
+        if requested == "auto" and _first_env(["TAVILY_API_KEY"]):
+            return cls(provider="tavily", enabled=True, **tavily_kwargs)
+
+        if requested == "firecrawl":
             return cls(
                 provider="firecrawl",
                 enabled=firecrawl_config.enabled,
@@ -209,7 +254,7 @@ class ExternalSourceProviderConfig:
         return cls(
             provider="firecrawl",
             enabled=False,
-            reason="Set FIRECRAWL_API_KEY or FIRECRAWL_MCP_COMMAND to enable web research.",
+            reason="Set FIRECRAWL_API_KEY, FIRECRAWL_MCP_COMMAND, or TAVILY_API_KEY to enable web research.",
             search_limit=search_limit,
             timeout_seconds=timeout,
         )
@@ -224,6 +269,11 @@ class ExternalSourceProviderConfig:
             "search_depth": self.search_depth,
             "include_answer": self.include_answer,
             "include_raw_content": self.include_raw_content,
+            "crawl_max_depth": self.crawl_max_depth,
+            "crawl_limit": self.crawl_limit,
+            "crawl_extract_depth": self.crawl_extract_depth,
+            "research_model": self.research_model,
+            "research_output_length": self.research_output_length,
         }
 
 
@@ -281,6 +331,124 @@ class FirecrawlExternalSourceProvider(ExternalSourceProvider):
         )
 
 
+def _looks_like_url(value: str) -> bool:
+    lowered = value.strip().lower()
+    return lowered.startswith("http://") or lowered.startswith("https://")
+
+
+def _tavily_content_from_result(value: Mapping[str, Any]) -> str:
+    return str(value.get("raw_content") or value.get("content") or value.get("description") or "")
+
+
+def _tavily_source_record(value: Mapping[str, Any], *, source_type: str = "web") -> ExternalSourceRecord:
+    score = value.get("score")
+    try:
+        normalized_score = float(score) if score is not None else None
+    except (TypeError, ValueError):
+        normalized_score = None
+    return ExternalSourceRecord(
+        title=str(value.get("title") or value.get("url") or ""),
+        url=str(value.get("url") or ""),
+        content=_tavily_content_from_result(value),
+        source_type=str(value.get("source_type") or source_type),
+        provider="tavily",
+        score=normalized_score,
+        published_at=str(value.get("published_date") or value.get("published_at") or "") or None,
+        metadata={
+            key: item
+            for key, item in value.items()
+            if key not in {"title", "url", "content", "raw_content", "score", "published_date", "published_at"}
+        },
+    )
+
+
+class TavilyExternalSourceProvider(ExternalSourceProvider):
+    def research(self, queries: Iterable[str]) -> ExternalSourceLibrary:
+        if not self.config.enabled:
+            return ExternalSourceLibrary(provider="tavily", configured=False, error=self.config.reason)
+
+        api_key = _first_env(["TAVILY_API_KEY"])
+        if not api_key:
+            return ExternalSourceLibrary(provider="tavily", configured=False, error="Set TAVILY_API_KEY to enable Tavily research.")
+
+        query_list = [query.strip() for query in queries if query and query.strip()]
+        if not query_list:
+            return ExternalSourceLibrary(provider="tavily", configured=True, error="No research queries were provided.")
+
+        try:
+            from tavily import TavilyClient
+        except ImportError as exc:
+            return ExternalSourceLibrary(
+                provider="tavily",
+                configured=False,
+                error="tavily-python is required for Tavily research. Install with `pip install tavily-python`.",
+                metadata={"import_error": str(exc)},
+            )
+
+        try:
+            client = TavilyClient(api_key=api_key)
+            sources: list[ExternalSourceRecord] = []
+            answer: Optional[str] = None
+            searches_attempted = 0
+            tools_used: list[str] = []
+            search_depth = "advanced" if self.config.research_model in {"pro"} else self.config.search_depth
+            for query in query_list:
+                searches_attempted += 1
+                if _looks_like_url(query):
+                    tools_used.append("crawl")
+                    response = client.crawl(
+                        url=query,
+                        max_depth=self.config.crawl_max_depth,
+                        limit=self.config.crawl_limit,
+                        extract_depth=self.config.crawl_extract_depth,
+                    )
+                    raw_results = response.get("results") if isinstance(response, Mapping) else None
+                    if isinstance(raw_results, list):
+                        for item in raw_results:
+                            if isinstance(item, Mapping):
+                                sources.append(_tavily_source_record(item, source_type="crawl"))
+                    continue
+
+                tools_used.append("search")
+                response = client.search(
+                    query=query,
+                    search_depth=search_depth,
+                    max_results=self.config.search_limit,
+                    include_answer=self.config.include_answer,
+                    include_raw_content=self.config.include_raw_content,
+                )
+                if isinstance(response, Mapping):
+                    if not answer and isinstance(response.get("answer"), str):
+                        answer = response["answer"]
+                    raw_results = response.get("results")
+                    if isinstance(raw_results, list):
+                        for item in raw_results:
+                            if isinstance(item, Mapping):
+                                sources.append(_tavily_source_record(item))
+
+            deduped = _dedupe_sources(sources, max_items=max(self.config.search_limit, self.config.crawl_limit) * 4)
+            return ExternalSourceLibrary(
+                provider="tavily",
+                configured=True,
+                searches_attempted=searches_attempted,
+                sources=deduped,
+                answer=answer,
+                metadata={
+                    "search_depth": search_depth,
+                    "research_model": self.config.research_model,
+                    "research_output_length": self.config.research_output_length,
+                    "tools": tools_used,
+                },
+            )
+        except Exception as exc:
+            return ExternalSourceLibrary(
+                provider="tavily",
+                configured=True,
+                searches_attempted=len(query_list),
+                error=str(exc),
+            )
+
+
 def _dedupe_sources(sources: list[ExternalSourceRecord], *, max_items: int) -> list[ExternalSourceRecord]:
     seen: set[str] = set()
     deduped: list[ExternalSourceRecord] = []
@@ -301,6 +469,8 @@ def build_external_source_provider(
     resolved = config or ExternalSourceProviderConfig.from_env(provider_override=provider)
     if not resolved.enabled:
         return NoExternalSourceProvider(resolved)
+    if resolved.provider == "tavily":
+        return TavilyExternalSourceProvider(resolved)
     if resolved.provider == "firecrawl":
         return FirecrawlExternalSourceProvider(resolved)
     return NoExternalSourceProvider(resolved)
@@ -314,5 +484,6 @@ __all__ = [
     "FirecrawlExternalSourceProvider",
     "NoExternalSourceProvider",
     "SUPPORTED_EXTERNAL_SOURCE_PROVIDERS",
+    "TavilyExternalSourceProvider",
     "build_external_source_provider",
 ]

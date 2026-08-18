@@ -107,9 +107,9 @@ export default function AboutView() {
         <div className="hidden min-w-0 items-center gap-2 md:flex">
           <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
             <Handshake className="h-3 w-3" />
-            Workspace
+            General
           </span>
-          <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">About us</h1>
+          <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">About</h1>
         </div>
         <p className="mt-2 text-sm leading-6 text-zinc-500 md:mt-2">
           CAID Technologies, Forma, partners, and legal resources.

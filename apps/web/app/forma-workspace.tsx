@@ -123,7 +123,6 @@ const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 const DEFAULT_SHOW_DEVELOPER_TOOLS = webConfig.publicDeveloperTools;
 const DEFAULT_WORKFLOW_ID = "default";
 const WEB_RESEARCH_WORKFLOW_ID = "web_research";
-const FIRECRAWL_EXTERNAL_SOURCE_PROVIDER = "firecrawl";
 const JOB_POLL_INTERVAL_MS = 5000;
 const ACTIVE_JOB_PROGRESS_POLL_INTERVAL_MS = 1200;
 const PIPELINE_UI_HEARTBEAT_MS = 5000;
@@ -233,7 +232,7 @@ type PendingProjectDeletion = {
 
 const defaultGenerationWorkflows: GenerationWorkflowOption[] = [
   { id: DEFAULT_WORKFLOW_ID, label: "Catalog", description: "Catalog workflow", uses_catalog: true },
-  { id: WEB_RESEARCH_WORKFLOW_ID, label: "Web Research", description: "Firecrawl research workflow", uses_web_research: true, uses_firecrawl_mcp: true, uses_external_sources: true },
+  { id: WEB_RESEARCH_WORKFLOW_ID, label: "Web Research", description: "Live web research workflow", uses_web_research: true, uses_firecrawl_mcp: true, uses_external_sources: true },
 ];
 
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
@@ -3808,9 +3807,8 @@ export function FormaWorkspace({
     const userMessageId = newChatMessageId();
     const assistantMessageId = newChatMessageId();
     const pipelineProgress = createAgentPipelineProgress(agentPipelineSteps, generateProductImage, chatTimestamp(), frontendJobId);
-    const externalSourceProviderForRequest = selectedWorkflowUsesExternalSources ? FIRECRAWL_EXTERNAL_SOURCE_PROVIDER : null;
     const workflowLabel = selectedGenerationWorkflow?.label || generationWorkflow;
-    const providerSuffix = externalSourceProviderForRequest ? " via Firecrawl" : "";
+    const providerSuffix = selectedWorkflowUsesExternalSources ? " via live web sources" : "";
     const loadingMessage = formaDevMode
       ? `Running ${workflowLabel}${providerSuffix} with ${selectedGenerationLlm.label}.`
       : `Running ${workflowLabel}${providerSuffix}.`;
@@ -3875,7 +3873,6 @@ export function FormaWorkspace({
         body: JSON.stringify({
           prompt: promptText,
           workflow: generationWorkflow,
-          external_source_provider: externalSourceProviderForRequest,
           provider: selectedGenerationLlm.provider,
           model: selectedGenerationLlm.model,
           chat_id: requestChatId,
@@ -5042,9 +5039,9 @@ export function FormaWorkspace({
         <div ref={homeChromeRef} className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} headerAway={homeHeaderAway}>
           {homeView === "settings" ? (
-            <WorkspaceChromeIdentity icon={Settings} badge="Workspace" title="Settings" />
+            <WorkspaceChromeIdentity icon={Settings} badge="General" title="Settings" />
           ) : homeView === "about" ? (
-            <WorkspaceChromeIdentity icon={Handshake} badge="Workspace" title="About us" />
+            <WorkspaceChromeIdentity icon={Handshake} badge="General" title="About" />
           ) : homeView === "projects" ? (
             <WorkspaceChromeIdentity icon={Layers} badge="Workspace" title="Community" />
           ) : homeView === "my-projects" ? (

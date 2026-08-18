@@ -702,9 +702,11 @@ class GenerateProjectRequest(BaseModel):
         if value is None:
             return None
         normalized = value.strip().lower().replace("_", "-")
-        if normalized in {"auto", "tavily", "firecrawl"}:
+        if normalized in {"auto", "firecrawl"}:
             return "firecrawl"
-        raise ValueError("external_source_provider must be firecrawl.")
+        if normalized == "tavily":
+            return "tavily"
+        raise ValueError("external_source_provider must be firecrawl or tavily.")
 
     @field_validator("data_sources", mode="before")
     @classmethod

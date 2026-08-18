@@ -79,6 +79,8 @@ TEST_ENV_KEYS = (
     "IMAGE_QUALITY",
     "IMAGE_OUTPUT_FORMAT",
     "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT_ID",
+    "GCLOUD_PROJECT",
     "GOOGLE_CLOUD_LOCATION",
     "VERTEX_AI_PROJECT",
     "VERTEX_AI_LOCATION",
@@ -112,6 +114,11 @@ TEST_ENV_KEYS = (
     "XAI_BASE_URL",
     "XAI_MODEL",
     "GROK_API_KEY",
+    "TAVILY_API_KEY",
+    "TAVILY_SEARCH_DEPTH",
+    "TAVILY_SEARCH_LIMIT",
+    "TAVILY_CRAWL_MAX_DEPTH",
+    "TAVILY_RESEARCH_MODEL",
     "HF_TOKEN",
     "HUGGINGFACE_API_KEY",
     "HUGGINGFACE_IMAGE_MODEL",
@@ -126,10 +133,12 @@ def isolated_integration_env() -> Iterator[None]:
     user_integrations._ORIGINAL_ENV_VALUES.clear()
     user_integrations._WORKSPACE_CONFIG_CACHE.clear()
     user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
+    user_integrations._google_cloud_auth_available.cache_clear()
     try:
         for key in TEST_ENV_KEYS:
             os.environ.pop(key, None)
-        yield
+        with patch.object(user_integrations, "_google_cloud_auth_available", return_value=False):
+            yield
     finally:
         for key in TEST_ENV_KEYS:
             os.environ.pop(key, None)
@@ -139,6 +148,7 @@ def isolated_integration_env() -> Iterator[None]:
         user_integrations._ORIGINAL_ENV_VALUES.clear()
         user_integrations._WORKSPACE_CONFIG_CACHE.clear()
         user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
+        user_integrations._google_cloud_auth_available.cache_clear()
 
 
 def integration_by_id(payload: dict[str, object], integration_id: str) -> dict[str, object]:
@@ -298,6 +308,38 @@ class UserIntegrationTests(unittest.TestCase):
 
             self.assertFalse(openai["configured"])
             self.assertTrue(field_by_id(openai, "image_model")["saved"])
+
+    def test_tavily_tool_fields_are_saved_and_configure_the_integration(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "tavily",
+                field_values={
+                    "api_key": "tvly-test-key",
+                    "search_depth": "advanced",
+                    "search_limit": "8",
+                    "crawl_max_depth": "2",
+                    "research_model": "mini",
+                },
+            )
+
+            payload = integration_status_payload(store)
+            tavily = integration_by_id(payload, "tavily")
+
+            self.assertTrue(tavily["configured"])
+            self.assertEqual("saved", field_by_id(tavily, "api_key")["source"])
+            self.assertEqual("advanced", field_by_id(tavily, "search_depth")["value"])
+            self.assertEqual("8", field_by_id(tavily, "search_limit")["value"])
+            self.assertEqual("2", field_by_id(tavily, "crawl_max_depth")["value"])
+            self.assertEqual("mini", field_by_id(tavily, "research_model")["value"])
+            self.assertNotIn("tvly-test-key", str(payload))
+
+            apply_user_integrations_to_environment(store)
+            self.assertEqual("tvly-test-key", os.environ["TAVILY_API_KEY"])
+            self.assertEqual("advanced", os.environ["TAVILY_SEARCH_DEPTH"])
+            self.assertEqual("8", os.environ["TAVILY_SEARCH_LIMIT"])
+            self.assertEqual("2", os.environ["TAVILY_CRAWL_MAX_DEPTH"])
+            self.assertEqual("mini", os.environ["TAVILY_RESEARCH_MODEL"])
 
     def test_saved_byok_overrides_environment_without_hiding_other_env_providers(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -733,6 +775,37 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("gemini-3.1-flash-image", os.environ["VERTEX_AI_IMAGE_MODEL"])
             self.assertEqual("2K", os.environ["VERTEX_AI_IMAGE_RESOLUTION"])
             self.assertEqual("16:9", os.environ["VERTEX_AI_IMAGE_ASPECT_RATIO"])
+
+    def test_google_cloud_adc_marks_gemini_and_vertex_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            with patch.object(user_integrations, "_google_cloud_auth_available", return_value=True):
+                payload = integration_status_payload(store)
+
+            gemini = integration_by_id(payload, "gemini")
+            vertex = integration_by_id(payload, "vertex")
+            openai = integration_by_id(payload, "openai")
+
+            self.assertTrue(gemini["configured"])
+            self.assertTrue(gemini["environment_configured"])
+            self.assertTrue(vertex["configured"])
+            self.assertTrue(vertex["environment_configured"])
+            self.assertFalse(openai["configured"])
+
+    def test_vertex_project_env_marks_vertex_configured_without_adc(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["GOOGLE_CLOUD_PROJECT_ID"] = "forma-vertex-test"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            payload = integration_status_payload(store)
+
+            vertex = integration_by_id(payload, "vertex")
+            gemini = integration_by_id(payload, "gemini")
+
+            self.assertTrue(vertex["configured"])
+            self.assertTrue(vertex["environment_configured"])
+            self.assertEqual("environment", field_by_id(vertex, "project")["source"])
+            self.assertEqual("forma-vertex-test", field_by_id(vertex, "project")["value"])
+            self.assertFalse(gemini["configured"])
 
     def test_together_image_config_becomes_active_image_provider(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:

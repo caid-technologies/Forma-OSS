@@ -11,6 +11,7 @@ import base64
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
@@ -224,7 +225,13 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
             ),
             IntegrationFieldDefinition("image_provider", "Image provider", ("IMAGE_PROVIDER",), placeholder="openai"),
             IntegrationFieldDefinition("image_model", "Image model", ("IMAGE_MODEL",), placeholder="gpt-image-2"),
-            IntegrationFieldDefinition("external_source_provider", "Search provider", ("EXTERNAL_SOURCE_PROVIDER",), placeholder="firecrawl"),
+            IntegrationFieldDefinition(
+                "external_source_provider",
+                "Search provider",
+                ("EXTERNAL_SOURCE_PROVIDER",),
+                placeholder="firecrawl or tavily",
+                help="Use firecrawl or tavily. Saved Tool provider credentials are used for the selected source.",
+            ),
         ),
     ),
     IntegrationDefinition(
@@ -514,7 +521,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
             IntegrationFieldDefinition(
                 "project",
                 "Google Cloud project",
-                ("VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT"),
+                ("VERTEX_AI_PROJECT", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_PROJECT_ID", "GCLOUD_PROJECT"),
                 placeholder="your-gcp-project-id",
                 help="The backend must have Vertex AI access through Application Default Credentials.",
             ),
@@ -572,6 +579,72 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
             IntegrationFieldDefinition("mcp_command", "MCP command", ("FIRECRAWL_MCP_COMMAND",), placeholder="npx -y firecrawl-mcp"),
             IntegrationFieldDefinition("search_limit", "Search limit", ("FIRECRAWL_SEARCH_LIMIT",), placeholder="3"),
             IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("FIRECRAWL_MCP_TIMEOUT_SECONDS",), placeholder="45"),
+        ),
+    ),
+    IntegrationDefinition(
+        id="tavily",
+        label="Tavily",
+        description="Tavily search, crawl, and research APIs for live web sources.",
+        fields=(
+            IntegrationFieldDefinition("api_key", "API key", ("TAVILY_API_KEY",), secret=True, placeholder="tvly-..."),
+            IntegrationFieldDefinition(
+                "search_depth",
+                "Search depth",
+                ("TAVILY_SEARCH_DEPTH",),
+                placeholder="basic",
+                help="ultra-fast, fast, basic, or advanced. Advanced costs more credits and returns higher-relevance results.",
+            ),
+            IntegrationFieldDefinition("search_limit", "Search result limit", ("TAVILY_SEARCH_LIMIT",), placeholder="5"),
+            IntegrationFieldDefinition(
+                "include_answer",
+                "Include search answer",
+                ("TAVILY_INCLUDE_ANSWER",),
+                placeholder="true",
+                help="When true, Tavily Search also returns a short LLM-ready answer summary.",
+            ),
+            IntegrationFieldDefinition(
+                "include_raw_content",
+                "Include search page content",
+                ("TAVILY_INCLUDE_RAW_CONTENT",),
+                placeholder="false",
+                help="When true, Tavily Search includes extracted page content with each result.",
+            ),
+            IntegrationFieldDefinition(
+                "crawl_max_depth",
+                "Crawl max depth",
+                ("TAVILY_CRAWL_MAX_DEPTH",),
+                placeholder="1",
+                help="How many link levels Tavily Crawl may follow from the start URL (1-5).",
+            ),
+            IntegrationFieldDefinition(
+                "crawl_limit",
+                "Crawl page limit",
+                ("TAVILY_CRAWL_LIMIT",),
+                placeholder="20",
+                help="Maximum pages Tavily Crawl will process before stopping.",
+            ),
+            IntegrationFieldDefinition(
+                "crawl_extract_depth",
+                "Crawl extract depth",
+                ("TAVILY_CRAWL_EXTRACT_DEPTH",),
+                placeholder="basic",
+                help="basic or advanced. Advanced extracts tables and embedded content.",
+            ),
+            IntegrationFieldDefinition(
+                "research_model",
+                "Research model",
+                ("TAVILY_RESEARCH_MODEL",),
+                placeholder="auto",
+                help="Tavily Research agent size: mini, pro, or auto.",
+            ),
+            IntegrationFieldDefinition(
+                "research_output_length",
+                "Research output length",
+                ("TAVILY_RESEARCH_OUTPUT_LENGTH",),
+                placeholder="standard",
+                help="short, standard, or long.",
+            ),
+            IntegrationFieldDefinition("timeout_seconds", "Timeout seconds", ("TAVILY_TIMEOUT_SECONDS",), placeholder="45"),
         ),
     ),
     IntegrationDefinition(
@@ -1489,6 +1562,28 @@ def _disabled_flag(value: Optional[str]) -> bool:
     return (value or "").strip().lower() in {"0", "false", "no", "off"}
 
 
+@lru_cache(maxsize=1)
+def _google_cloud_auth_available() -> bool:
+    """True when Vertex/Gemini can authenticate with Google Cloud ADC or Vercel OIDC."""
+
+    try:
+        from forma_core.vertex_auth import build_vertex_credentials
+
+        if build_vertex_credentials() is not None:
+            return True
+    except Exception:
+        logger.debug("Vercel Vertex credentials are unavailable.", exc_info=True)
+
+    try:
+        from google.auth import default as google_auth_default
+
+        credentials, _project = google_auth_default()
+        return credentials is not None
+    except Exception:
+        logger.debug("Google Application Default Credentials are unavailable.", exc_info=True)
+        return False
+
+
 def _values_configure_integration(
     definition: IntegrationDefinition,
     values: dict[str, str],
@@ -1497,11 +1592,15 @@ def _values_configure_integration(
     runtime_provider: Optional[str] = None,
     generic_key: Optional[str] = None,
 ) -> bool:
+    if definition.id in {"gemini", "vertex"} and _google_cloud_auth_available():
+        return True
     if not values:
         return False
     if definition.id == "image":
         if not enabled or _disabled_flag(values.get("enabled")):
             return False
+        return bool(values.get("api_key"))
+    if definition.id == "tavily":
         return bool(values.get("api_key"))
     if definition.id not in LLM_PROVIDER_INTEGRATION_IDS:
         return True

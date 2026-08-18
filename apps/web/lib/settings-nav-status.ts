@@ -61,8 +61,7 @@ export function settingsNavBadge(input: {
   activeImageProvider?: string;
 }): SettingsNavBadge {
   if (input.view === "llm") {
-    const isDefault = Boolean(input.defaultLlmProvider) && input.integrationId === input.defaultLlmProvider;
-    if (isDefault && input.configured && input.enabled) return { tone: "ready", label: "Ready" };
+    if (input.configured && input.enabled) return { tone: "ready", label: "Ready" };
     if (input.configured) return { tone: "warn", label: "Off" };
     return { tone: "muted", label: "Unset" };
   }

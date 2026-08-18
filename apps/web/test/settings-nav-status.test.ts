@@ -24,7 +24,7 @@ test("image output stays off when IMAGE_OUTPUT_ENABLED is false", () => {
   assert.equal(imageOutputIsEnabled("true", "openai"), true);
 });
 
-test("only the default LLM provider is Ready", () => {
+test("configured LLM providers are Ready even when they are not the default", () => {
   assert.deepEqual(settingsNavBadge({
     view: "llm",
     integrationId: "anthropic",
@@ -34,9 +34,23 @@ test("only the default LLM provider is Ready", () => {
   }), { tone: "ready", label: "Ready" });
   assert.deepEqual(settingsNavBadge({
     view: "llm",
-    integrationId: "openai",
+    integrationId: "gemini",
     configured: true,
     enabled: true,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "ready", label: "Ready" });
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "vertex",
+    configured: true,
+    enabled: true,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "ready", label: "Ready" });
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "openai",
+    configured: true,
+    enabled: false,
     defaultLlmProvider: "anthropic",
   }), { tone: "warn", label: "Off" });
   assert.deepEqual(settingsNavBadge({

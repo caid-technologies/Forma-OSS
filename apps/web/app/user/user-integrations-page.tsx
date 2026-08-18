@@ -353,7 +353,14 @@ const INTEGRATION_NAV_GROUPS: Array<{
       { integrationId: "image", view: "image", label: "Custom / OpenAI-compatible", logo: "custom" },
     ],
   },
-  { id: "tools", label: "Tool providers", basic: [{ integrationId: "firecrawl", view: "all", logo: "firecrawl" }] },
+  {
+    id: "tools",
+    label: "Tool providers",
+    basic: [
+      { integrationId: "firecrawl", view: "all", logo: "firecrawl" },
+      { integrationId: "tavily", view: "all", logo: "tavily" },
+    ],
+  },
 ];
 
 type IntegrationNavigationItem = IntegrationNavigationDefinition & {
@@ -787,6 +794,54 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
       },
     ];
     return runtimeGroups
+      .map((group) => ({
+        ...group,
+        fields: group.fieldIds
+          .map((fieldId) => integration.fields.find((field) => field.id === fieldId))
+          .filter(Boolean) as IntegrationFieldStatus[],
+      }))
+      .filter((group) => group.fields.length > 0);
+  }
+
+  if (integration.id === "tavily") {
+    const tavilyGroups = [
+      {
+        id: "credentials",
+        label: "Credentials",
+        description: "Tavily API key from app.tavily.com.",
+        level: "basic" as const,
+        fieldIds: ["api_key"],
+      },
+      {
+        id: "search",
+        label: "Search",
+        description: "Tavily Search settings used for web queries.",
+        level: "basic" as const,
+        fieldIds: ["search_depth", "search_limit", "include_answer", "include_raw_content"],
+      },
+      {
+        id: "crawl",
+        label: "Crawl",
+        description: "Tavily Crawl settings used when the query is a URL.",
+        level: "basic" as const,
+        fieldIds: ["crawl_max_depth", "crawl_limit", "crawl_extract_depth"],
+      },
+      {
+        id: "research",
+        label: "Research",
+        description: "Tavily Research agent size and report length.",
+        level: "basic" as const,
+        fieldIds: ["research_model", "research_output_length"],
+      },
+      {
+        id: "connection",
+        label: "Connection",
+        description: "Request timeout for Tavily API calls.",
+        level: "advanced" as const,
+        fieldIds: ["timeout_seconds"],
+      },
+    ];
+    return tavilyGroups
       .map((group) => ({
         ...group,
         fields: group.fieldIds
@@ -2293,7 +2348,7 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
       <div className={`flex min-w-0 items-center gap-2 ${embedded ? "hidden md:flex" : ""}`}>
         <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
           <Settings className="h-3 w-3" />
-          Workspace
+          General
         </span>
         <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">Settings</h1>
       </div>

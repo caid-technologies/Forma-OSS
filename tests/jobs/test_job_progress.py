@@ -101,6 +101,11 @@ class JobProgressTests(unittest.TestCase):
 
         self.assertEqual("firecrawl", request.external_source_provider)
 
+    def test_generate_request_accepts_tavily_external_source_provider(self) -> None:
+        request = GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="Tavily")
+
+        self.assertEqual("tavily", request.external_source_provider)
+
     def test_generate_request_rejects_unknown_external_source_provider(self) -> None:
         with self.assertRaises(ValueError):
             GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="duckduckgo")

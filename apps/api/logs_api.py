@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query
 
-from forma_core.logs import backend_log_payload
+from blueprint_core.logs import backend_log_payload
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

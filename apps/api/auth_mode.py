@@ -3,18 +3,18 @@
 from __future__ import annotations
 
 import logging
-from forma_core.config import config
+from blueprint_core.config import config
 from typing import Literal
 
 
 logger = logging.getLogger(__name__)
 
 AuthMode = Literal["local", "clerk"]
-AUTH_MODE_ENV = "FORMA_AUTH_MODE"
+AUTH_MODE_ENV = "BLUEPRINT_AUTH_MODE"
 AUTH_MODES = {"local", "clerk"}
 
 
-def forma_auth_mode() -> AuthMode:
+def blueprint_auth_mode() -> AuthMode:
     """Return the explicitly configured authentication mode."""
     value = (config.get(AUTH_MODE_ENV) or "").strip().lower()
     if not value:
@@ -32,7 +32,7 @@ def forma_auth_mode() -> AuthMode:
 
 
 def clerk_auth_required() -> bool:
-    return forma_auth_mode() == "clerk"
+    return blueprint_auth_mode() == "clerk"
 
 
-__all__ = ["AUTH_MODE_ENV", "AuthMode", "forma_auth_mode", "clerk_auth_required"]
+__all__ = ["AUTH_MODE_ENV", "AuthMode", "blueprint_auth_mode", "clerk_auth_required"]

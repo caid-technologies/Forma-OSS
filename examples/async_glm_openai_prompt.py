@@ -17,8 +17,8 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from forma_core.openai_streams import DEFAULT_OPENAI_BASE_URL, OpenAIStreamConfig, first_env, merged_env
-from forma_core.providers import ProviderEvent, ProviderRegistry, ProviderRequest, model_name_for_provider, normalize_provider_name
+from blueprint_core.openai_streams import DEFAULT_OPENAI_BASE_URL, OpenAIStreamConfig, first_env, merged_env
+from blueprint_core.providers import ProviderEvent, ProviderRegistry, ProviderRequest, model_name_for_provider, normalize_provider_name
 
 
 ENV_FILE = ROOT_DIR / ".env"

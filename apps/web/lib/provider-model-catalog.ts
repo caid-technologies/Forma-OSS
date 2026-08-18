@@ -12,15 +12,20 @@ function model(value: string, label: string, detail?: string, group?: string): P
 // These are discovery suggestions, not an allowlist. Provider catalogs change often,
 // so every model picker also accepts an arbitrary provider model ID.
 export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
+  openai: [
+    model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
+    model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
+    model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
+    model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
+  ],
   anthropic: [
-    model("claude-opus-5", "Claude Opus 5", "Forma default; complex agentic and coding work"),
     model("claude-fable-5", "Claude Fable 5", "Most capable widely available Claude model"),
-    model("claude-opus-4-8", "Claude Opus 4.8", "Previous-generation Opus"),
+    model("claude-opus-4-8", "Claude Opus 4.8", "Complex agentic and coding work"),
     model("claude-sonnet-5", "Claude Sonnet 5", "Balanced intelligence and speed"),
     model("claude-haiku-4-5", "Claude Haiku 4.5", "Fast, cost-efficient Claude model"),
   ],
   gemini: [
-    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Forma default; agentic and multimodal workloads"),
+    model("gemini-3.6-flash", "Gemini 3.6 Flash", "Agentic and multimodal workloads"),
     model("gemini-3.5-flash", "Gemini 3.5 Flash", "Coding and sustained agentic tasks"),
     model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "High-throughput, cost-efficient tasks"),
     model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Fast general-purpose model"),
@@ -28,18 +33,12 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable previous-generation flash model"),
   ],
   vertex: [
-    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Forma default; Vertex AI agentic and multimodal workloads"),
+    model("gemini-3.6-flash", "Gemini 3.6 Flash", "Vertex AI agentic and multimodal workloads"),
     model("gemini-3.5-flash", "Gemini 3.5 Flash", "Vertex AI coding and sustained agentic tasks"),
     model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Vertex AI high-throughput workloads"),
     model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Vertex AI fast general-purpose model"),
     model("gemini-2.5-pro", "Gemini 2.5 Pro", "Stable Vertex AI pro model"),
     model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable Vertex AI flash model"),
-  ],
-  openai: [
-    model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
-    model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
-    model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
-    model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
   ],
   baseten: [
     model("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),
@@ -72,17 +71,6 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("meta/llama-3.1-8b-instruct", "Llama 3.1 8B Instruct"),
     model("meta/llama-3.1-70b-instruct", "Llama 3.1 70B Instruct"),
     model("meta/llama-3.3-70b-instruct", "Llama 3.3 70B Instruct"),
-  ],
-  xai: [
-    model("grok-4", "Grok 4", "xAI flagship model"),
-    model("grok-4-1-fast", "Grok 4.1 Fast", "Lower-latency Grok 4"),
-    model("grok-3", "Grok 3"),
-    model("grok-3-mini", "Grok 3 Mini"),
-  ],
-  together: [
-    model("meta-llama/Llama-3.3-70B-Instruct-Turbo", "Llama 3.3 70B Instruct Turbo"),
-    model("Qwen/Qwen2.5-72B-Instruct-Turbo", "Qwen 2.5 72B Instruct Turbo"),
-    model("deepseek-ai/DeepSeek-R1", "DeepSeek R1"),
   ],
   runpod: [
     model("caid-technologies/parti-base", "Parti Base", "Forma Runpod deployment"),
@@ -300,12 +288,10 @@ function providerLabel(provider: string) {
     vertex: "Google Vertex AI",
     gmi: "GMI Cloud",
     huggingface: "Hugging Face",
-    cloudflare: "Cloudflare Workers AI",
+    cloudflare: "Cloudflare AI",
     nvidia: "NVIDIA",
     ollama: "Ollama",
     openai: "OpenAI",
     runpod: "Runpod",
-    together: "Together AI",
-    xai: "xAI",
   } as Record<string, string>)[provider] || provider;
 }

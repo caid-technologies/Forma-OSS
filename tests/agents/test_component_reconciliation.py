@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from forma_core.agents.component_reconciliation import reconcile_explicit_catalog_components
-from forma_core.workspaces.projects.models import ComponentInstance
+from blueprint_core.agents.component_reconciliation import reconcile_explicit_catalog_components
+from blueprint_core.workspaces.projects.models import ComponentInstance
 
 
 class ComponentReconciliationTests(unittest.TestCase):

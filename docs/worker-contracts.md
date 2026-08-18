@@ -1,6 +1,6 @@
 # Worker contracts and capability registry
 
-Specialized workers exchange versioned envelopes through `forma_core.workers`. These contracts define the boundary between orchestration and worker implementations; the dependency-aware execution lifecycle is documented in [worker orchestration](worker-orchestration.md).
+Specialized workers exchange versioned envelopes through `blueprint_core.workers`. These contracts define the boundary between orchestration and worker implementations; the dependency-aware execution lifecycle is documented in [worker orchestration](worker-orchestration.md).
 
 The worker registry is intentionally separate from the Lattice agent registry:
 
@@ -34,7 +34,7 @@ The registry compares those values before execution or result acceptance. A mism
 ## Declaring and validating a worker
 
 ```python
-from forma_core.workers import (
+from blueprint_core.workers import (
     WorkerCapability,
     WorkerDefinition,
     WorkerRegistry,

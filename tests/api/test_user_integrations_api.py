@@ -19,7 +19,7 @@ from apps.api.user_integrations_api import (
     test_image_model,
     update_user_integration,
 )
-from forma_core.user_integrations import SupabaseUserIntegrationStore, SupabaseWorkspaceIntegrationStore
+from blueprint_core.user_integrations import SupabaseUserIntegrationStore, SupabaseWorkspaceIntegrationStore
 
 
 LOCAL_CONTEXT = UserContext(
@@ -43,7 +43,7 @@ class BrokenIntegrationStore:
     path = "supabase:user_integration_configs/user_test"
 
     def load(self):
-        raise RuntimeError("Stored provider settings were encrypted with a different FORMA_USER_SECRETS_KEY.")
+        raise RuntimeError("Stored provider settings were encrypted with a different BLUEPRINT_USER_SECRETS_KEY.")
 
     def update_integration(self, *_args, **_kwargs):
         raise RuntimeError("Supabase write failed")
@@ -102,7 +102,7 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
 
         self.assertEqual(500, raised.exception.status_code)
         self.assertEqual("user_integrations_load_failed", raised.exception.detail["code"])
-        self.assertIn("different FORMA_USER_SECRETS_KEY", raised.exception.detail["message"])
+        self.assertIn("different BLUEPRINT_USER_SECRETS_KEY", raised.exception.detail["message"])
         self.assertIn("owner_user_id=user_test", "\n".join(logs.output))
         self.assertIn("error_type=RuntimeError", "\n".join(logs.output))
 
@@ -140,7 +140,7 @@ class UserIntegrationsApiAuthTests(unittest.TestCase):
             self.assertTrue(image_model_test_available())
         with patch.dict(os.environ, {"VERCEL": "1", "VERCEL_ENV": "production"}, clear=True):
             self.assertFalse(image_model_test_available())
-        with patch.dict(os.environ, {"FORMA_DEPLOYMENT": "true"}, clear=True):
+        with patch.dict(os.environ, {"BLUEPRINT_DEPLOYMENT": "true"}, clear=True):
             self.assertFalse(image_model_test_available())
 
     def test_image_model_test_calls_provider_directly(self) -> None:

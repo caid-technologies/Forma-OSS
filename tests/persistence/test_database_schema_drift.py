@@ -4,8 +4,8 @@ import unittest
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from forma_core import database
-from forma_core.persistence.repositories import SupabaseRepository
+from blueprint_core import database
+from blueprint_core.persistence.repositories import SupabaseRepository
 
 
 PROJECT_ID = "611fd725-3dc2-4add-b830-02aa1c3fe775"

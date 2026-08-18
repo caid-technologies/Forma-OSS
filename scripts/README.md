@@ -18,4 +18,4 @@ Common entrypoints:
 ./scripts/quality/benchmark.sh
 ```
 
-Scripts should stay thin and call reusable implementations from `forma_core` or `evals` instead of accumulating application logic.
+Scripts should stay thin and call reusable implementations from `blueprint_core` or `evals` instead of accumulating application logic.

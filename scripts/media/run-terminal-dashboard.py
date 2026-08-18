@@ -24,9 +24,9 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from forma_core.config import config
-from forma_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
-from forma_core.terminal.images import TerminalImageRenderConfig, render_images
+from blueprint_core.config import config
+from blueprint_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
+from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
 
 
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000/api"
@@ -177,7 +177,7 @@ def start_backend(backend_url: str, output_dir: Path, processes: ManagedProcessG
     log_handle = open_log(output_dir / "backend.log")
     env = config.snapshot()
     env["PYTHONPATH"] = f"{ROOT_DIR}{os.pathsep}{env.get('PYTHONPATH', '')}".rstrip(os.pathsep)
-    env["FORMA_DEV_MODE"] = "true"
+    env["BLUEPRINT_DEV_MODE"] = "true"
     env["DATABASE_BACKEND"] = "sqlite"
     print(f"[terminal-dashboard] starting backend: {' '.join(command)}", flush=True)
     process = subprocess.Popen(command, cwd=ROOT_DIR, env=env, stdout=log_handle, stderr=subprocess.STDOUT, text=True)

@@ -1,18 +1,12 @@
 import { SignIn } from "@clerk/nextjs";
 import { notFound } from "next/navigation";
-import PublicAppShell from "../../../components/public-app-shell";
-import { formaAuthMode } from "../../../lib/auth-mode";
+import { blueprintAuthMode } from "../../../lib/auth-mode";
 
 export default function SignInPage() {
-  if (formaAuthMode() !== "clerk") notFound();
+  if (blueprintAuthMode() !== "clerk") notFound();
   return (
-    <PublicAppShell
-      badge="Account"
-      title="Sign in"
-    >
-      <div className="flex justify-center py-8">
-        <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
-      </div>
-    </PublicAppShell>
+    <main className="flex min-h-screen items-center justify-center bg-[#0f1014] px-4 py-12 text-white">
+      <SignIn routing="path" path="/sign-in" signUpUrl="/sign-up" />
+    </main>
   );
 }

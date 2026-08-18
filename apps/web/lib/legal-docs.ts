@@ -396,45 +396,6 @@ export const legalDocuments: LegalDocument[] = [
   },
 ];
 
-export const primaryLegalSlugs = [
-  "terms-of-service",
-  "privacy-policy",
-  "data-contribution-terms",
-  "acceptable-use-policy",
-  "hardware-safety-disclaimer",
-  "cookie-and-local-storage-notice",
-] as const;
-
-export const secondaryLegalSlugs = [
-  "copyright-dmca-policy",
-  "security-policy",
-  "accessibility-statement",
-] as const;
-
 export function getLegalDocument(slug: string) {
   return legalDocuments.find((document) => document.slug === slug) || null;
-}
-
-export function documentsForSlugs(slugs: readonly string[]) {
-  return slugs
-    .map((slug) => legalDocuments.find((document) => document.slug === slug))
-    .filter((document): document is LegalDocument => Boolean(document));
-}
-
-export function legalDocumentSearchText(document: LegalDocument) {
-  return [
-    document.title,
-    document.summary,
-    ...document.sections.flatMap((section) => [
-      section.heading,
-      ...(section.paragraphs || []),
-      ...(section.bullets || []),
-    ]),
-  ].join("\n");
-}
-
-export function legalDocumentMatchesQuery(document: LegalDocument, query: string) {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return legalDocumentSearchText(document).toLowerCase().includes(needle);
 }

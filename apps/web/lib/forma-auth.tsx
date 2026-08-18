@@ -2,12 +2,12 @@
 
 import React, { createContext, useContext, useMemo } from "react";
 import { UserButton, useAuth, useClerk, useUser } from "@clerk/nextjs";
-import type { FormaAuthMode } from "./auth-mode";
+import type { BlueprintAuthMode } from "./auth-mode";
 
 type OpenSignInOptions = { redirectUrl?: string };
 
 type FormaAuthValue = {
-  mode: FormaAuthMode;
+  mode: BlueprintAuthMode;
   authRequired: boolean;
   isLoaded: boolean;
   isSignedIn: boolean;
@@ -77,7 +77,7 @@ export function FormaAuthProvider({
   mode,
   children,
 }: {
-  mode: FormaAuthMode;
+  mode: BlueprintAuthMode;
   children: React.ReactNode;
 }) {
   if (mode === "clerk") return <ClerkAuthBridge>{children}</ClerkAuthBridge>;

@@ -6,11 +6,11 @@ import unittest
 from contextlib import contextmanager
 from typing import Any, Iterator
 
-from forma_core.jobs.store import JobMetadataStore
-from forma_core.debug import api_error_detail, exception_debug_payload, redact_debug_value
+from blueprint_core.jobs.store import JobMetadataStore
+from blueprint_core.debug import api_error_detail, exception_debug_payload, redact_debug_value
 
 
-DEBUG_ENV_KEYS = ("FORMA_DEBUG", "FORMA_DEBUG_MODE", "API_DEBUG", "DEBUG")
+DEBUG_ENV_KEYS = ("BLUEPRINT_DEBUG", "BLUEPRINT_DEBUG_MODE", "API_DEBUG", "DEBUG")
 
 
 class FakeSupabaseResponse:
@@ -103,7 +103,7 @@ def isolated_debug_env(**overrides: str) -> Iterator[None]:
 
 class DebugModeTests(unittest.TestCase):
     def test_debug_mode_flag_enables_api_trace_payload(self) -> None:
-        with isolated_debug_env(FORMA_DEBUG="true"):
+        with isolated_debug_env(BLUEPRINT_DEBUG="true"):
             try:
                 raise RuntimeError("provider failed with api_key=sk-testsecret123456")
             except RuntimeError as exc:
@@ -147,9 +147,9 @@ class DebugModeTests(unittest.TestCase):
                 job_id="job_debug_test",
                 message_id="msg_debug_test",
                 correlation_id=None,
-                action="forma.generate_project",
+                action="blueprint.generate_project",
                 sender="test",
-                recipient="forma",
+                recipient="blueprint",
                 payload={"prompt": "blink an LED", "image_data": "data:image/png;base64,abc"},
                 server_owned=True,
             )
@@ -179,9 +179,9 @@ class DebugModeTests(unittest.TestCase):
                 job_id="job_supabase_schema_drift",
                 message_id="msg_supabase_schema_drift",
                 correlation_id=None,
-                action="forma.generate_project",
+                action="blueprint.generate_project",
                 sender="test",
-                recipient="forma",
+                recipient="blueprint",
                 payload={"prompt": "blink an LED"},
                 server_owned=True,
             )

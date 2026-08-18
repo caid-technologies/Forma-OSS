@@ -55,13 +55,13 @@ dev_stop_process_group() {
     return 0
   fi
   if ! dev_group_belongs_to_repo "$pgid"; then
-    printf '[forma-dev] Refusing to stop %s process group %s; it is not owned by %s.\n' \
+    printf '[blueprint-dev] Refusing to stop %s process group %s; it is not owned by %s.\n' \
       "$label" "$pgid" "$ROOT_DIR" >&2
     [ -n "$pid_file" ] && dev_remove_pid_file "$pid_file" "$pgid"
     return 1
   fi
 
-  printf '[forma-dev] Stopping prior %s process group %s...\n' "$label" "$pgid"
+  printf '[blueprint-dev] Stopping prior %s process group %s...\n' "$label" "$pgid"
   kill -TERM -- "-$pgid" >/dev/null 2>&1 || true
   for attempt in $(seq 1 20); do
     if ! dev_group_is_running "$pgid"; then
@@ -70,7 +70,7 @@ dev_stop_process_group() {
     sleep 0.1
   done
   if dev_group_is_running "$pgid"; then
-    printf '[forma-dev] Force-stopping %s process group %s...\n' "$label" "$pgid"
+    printf '[blueprint-dev] Force-stopping %s process group %s...\n' "$label" "$pgid"
     kill -KILL -- "-$pgid" >/dev/null 2>&1 || true
   fi
   [ -n "$pid_file" ] && dev_remove_pid_file "$pid_file" "$pgid"

@@ -2,13 +2,13 @@ import os
 import unittest
 from unittest.mock import patch
 
-from forma_core.config.contract import resolve_runtime_contract
+from blueprint_core.config.contract import resolve_runtime_contract
 
 
 class RuntimeContractTests(unittest.TestCase):
     def test_contract_owns_runtime_image_workflow_and_setup_decisions(self) -> None:
         environment = {
-            "FORMA_DEV_MODE": "true",
+            "BLUEPRINT_DEV_MODE": "true",
             "LLM_PROVIDER": "cloudflare",
             "LLM_MODEL": "@cf/google/gemma-4-26b-a4b-it",
             "LLM_ALLOWED_PROVIDERS": "cloudflare,openai",
@@ -77,7 +77,7 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertTrue(contract["provider_setup"]["image_required"])
 
     def test_config_can_select_catalog_as_the_default_workflow(self) -> None:
-        with patch.dict(os.environ, {"FORMA_DEFAULT_GENERATION_WORKFLOW": "default"}, clear=True):
+        with patch.dict(os.environ, {"BLUEPRINT_DEFAULT_GENERATION_WORKFLOW": "default"}, clear=True):
             contract = resolve_runtime_contract(
                 llm_config={"live_generation_enabled": True, "validation_error": None},
                 image_config={"request_capable": True},

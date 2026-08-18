@@ -17,7 +17,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from forma_core.config import config  # noqa: E402
+from blueprint_core.config import config  # noqa: E402
 
 DEFAULT_ENV_FILE = ".env"
 DEFAULT_BASE_URL = "https://api.openai.com/v1"

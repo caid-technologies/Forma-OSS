@@ -5,7 +5,7 @@ for MechanicalNotes / Invalid JSON: EOF while parsing a string" - the fine-tuned
 parti-base model hits its token budget mid-string on the largest structured
 record (MechanicalNotes) and the JSON never closes.
 
-They cover the four layers of the fix in forma_core/llm_providers.py:
+They cover the four layers of the fix in blueprint_core/llm_providers.py:
   A - a token budget is always sent, with a floor for large schemas
   B - truncated JSON is salvaged (structure closed, trailing item pruned) and
       still fully validated, so salvage can never invent content
@@ -24,14 +24,14 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from .test_llm_runtime import isolated_llm_env
 
-from forma_core import llm_providers as lp
-from forma_core.llm import build_llm_provider, resolve_llm_runtime_config
-from forma_core.llm_providers import (
+from blueprint_core import llm_providers as lp
+from blueprint_core.llm import build_llm_provider, resolve_llm_runtime_config
+from blueprint_core.llm_providers import (
     LLMProviderOutputError,
     _schema_with_closed_objects,
     _validate_structured_json,
 )
-from forma_core.workspaces.projects.models import (
+from blueprint_core.workspaces.projects.models import (
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalRotation3,
@@ -183,7 +183,7 @@ class StructuredRepairTests(unittest.TestCase):
         truncated = truncated_tail_json()
         self.assertGreater(len(truncated), 3000)  # a genuinely large record
 
-        with self.assertLogs("forma_core.llm_providers", level="WARNING") as logs:
+        with self.assertLogs("blueprint_core.llm_providers", level="WARNING") as logs:
             result = _validate_structured_json(truncated, MechanicalNotes)
 
         self.assertIsInstance(result, MechanicalNotes)

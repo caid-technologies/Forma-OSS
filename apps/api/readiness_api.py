@@ -5,12 +5,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
-from forma_core.database import (
+from blueprint_core.database import (
     evaluate_project_readiness,
     get_latest_project_build,
     initiate_project_build,
 )
-from forma_core.workspaces.readiness import (
+from blueprint_core.workspaces.readiness import (
     BuildAnywayRequest,
     BuildInitiationOutcome,
     BuildMode,
@@ -19,7 +19,7 @@ from forma_core.workspaces.readiness import (
     ReadinessError,
     ReadinessResult,
 )
-from forma_core.workspaces.workflow import WorkflowStateError
+from blueprint_core.workspaces.workflow import WorkflowStateError
 
 
 router = APIRouter(prefix="/projects/{project_id}", tags=["project-readiness"])

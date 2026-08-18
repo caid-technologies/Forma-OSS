@@ -9,14 +9,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from forma_core.cli.main import CLI_LIVE_GENERATION_ENVIRONMENT, build_parser, main
-from forma_core.workspaces.projects.models import HardwareIR
+from blueprint_core.cli.main import CLI_LIVE_GENERATION_ENVIRONMENT, build_parser, main
+from blueprint_core.workspaces.projects.models import HardwareIR
 
 
 class CoreCliTests(unittest.TestCase):
     def test_parser_describes_a_direct_core_cli(self) -> None:
         parser = build_parser()
-        self.assertEqual("forma-core", parser.prog)
+        self.assertEqual("blueprint-core", parser.prog)
         self.assertIn("without a backend server", parser.description)
 
     def test_generate_supports_one_run_image_persistence_and_terminal_output(self) -> None:
@@ -48,7 +48,7 @@ class CoreCliTests(unittest.TestCase):
             {name: "false" for name in CLI_LIVE_GENERATION_ENVIRONMENT},
             clear=False,
         ), patch(
-            "forma_core.generation.generate_project_with_workflow",
+            "blueprint_core.generation.generate_project_with_workflow",
             side_effect=fail_generation,
         ), patch("sys.stderr", stderr):
             exit_code = main(["generate", "make a sensor", "--llm", "openai/test-model"])
@@ -64,7 +64,7 @@ class CoreCliTests(unittest.TestCase):
     def test_unconfigured_live_generate_does_not_persist_simulated_output(self) -> None:
         stderr = io.StringIO()
         with patch.dict(os.environ, {}, clear=True), patch(
-            "forma_core.workspaces.projects.output.persist_project_output"
+            "blueprint_core.workspaces.projects.output.persist_project_output"
         ) as persist_project, patch("sys.stderr", stderr):
             exit_code = main(
                 ["generate", "make a sensor", "--llm", "openai/unavailable-test-model"]
@@ -80,12 +80,12 @@ class CoreCliTests(unittest.TestCase):
         )
         stderr = io.StringIO()
         with patch(
-            "forma_core.generation.generate_project_with_workflow",
+            "blueprint_core.generation.generate_project_with_workflow",
             return_value=fallback_project,
         ), patch(
-            "forma_core.workspaces.projects.output.attach_product_image"
+            "blueprint_core.workspaces.projects.output.attach_product_image"
         ) as attach_image, patch(
-            "forma_core.workspaces.projects.output.persist_project_output"
+            "blueprint_core.workspaces.projects.output.persist_project_output"
         ) as persist_project, patch("sys.stderr", stderr):
             exit_code = main(["generate", "make a sensor", "--llm", "openai/test-model"])
 
@@ -99,8 +99,8 @@ class CoreCliTests(unittest.TestCase):
 
         def fail_after_observing(*args, **kwargs):
             for name in (
-                "FORMA_DISABLE_GENERATION_FALLBACK",
-                "FORMA_STRICT_GENERATION",
+                "BLUEPRINT_DISABLE_GENERATION_FALLBACK",
+                "BLUEPRINT_STRICT_GENERATION",
                 "LLM_DISABLE_FALLBACK",
             ):
                 observed_environment[name] = os.environ.get(name)
@@ -109,13 +109,13 @@ class CoreCliTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "FORMA_DISABLE_GENERATION_FALLBACK": "true",
-                "FORMA_STRICT_GENERATION": "true",
+                "BLUEPRINT_DISABLE_GENERATION_FALLBACK": "true",
+                "BLUEPRINT_STRICT_GENERATION": "true",
                 "LLM_DISABLE_FALLBACK": "true",
             },
             clear=False,
         ), patch(
-            "forma_core.generation.generate_project_with_workflow",
+            "blueprint_core.generation.generate_project_with_workflow",
             side_effect=fail_after_observing,
         ), patch("sys.stderr", io.StringIO()):
             exit_code = main(["generate", "make a sensor", "--simulation"])
@@ -123,8 +123,8 @@ class CoreCliTests(unittest.TestCase):
         self.assertEqual(2, exit_code)
         self.assertEqual(
             {
-                "FORMA_DISABLE_GENERATION_FALLBACK": "false",
-                "FORMA_STRICT_GENERATION": "false",
+                "BLUEPRINT_DISABLE_GENERATION_FALLBACK": "false",
+                "BLUEPRINT_STRICT_GENERATION": "false",
                 "LLM_DISABLE_FALLBACK": "false",
             },
             observed_environment,
@@ -150,7 +150,7 @@ class CoreCliTests(unittest.TestCase):
         self.assertEqual({"critical": [], "info": [], "warning": []}, json.loads(stdout.getvalue())["validation"])
 
     def test_core_cli_is_a_package_not_another_flat_module(self) -> None:
-        core_root = Path(__file__).resolve().parents[2] / "forma_core"
+        core_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         self.assertTrue((core_root / "cli" / "main.py").exists())
         self.assertFalse((core_root / "cli.py").exists())
 

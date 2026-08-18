@@ -21,7 +21,7 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from forma_core.config import config
+from blueprint_core.config import config
 
 DEFAULT_PROMPT = (
     "Design a buildable ESP32 indoor air-quality monitor with CO2, particulate, temperature, "
@@ -153,10 +153,10 @@ async def run_generation(
     past_jobs_limit: int,
 ) -> dict[str, Any]:
     from apps.api.a2a import build_generation_response
-    from forma_core.agents.pipeline import observe_agent_pipeline
-    from forma_core.database import get_generated_project
-    from forma_core.jobs.context import PastJobContextSource
-    from forma_core.jobs.store import JOB_STORE
+    from blueprint_core.agents.pipeline import observe_agent_pipeline
+    from blueprint_core.database import get_generated_project
+    from blueprint_core.jobs.context import PastJobContextSource
+    from blueprint_core.jobs.store import JOB_STORE
 
     is_web = label == "web_research"
     job_id = f"job_context_eval_{label}_{uuid4().hex}"
@@ -176,9 +176,9 @@ async def run_generation(
         job_id=job_id,
         message_id=f"msg_{uuid4().hex}",
         correlation_id=f"context-source-eval-{label}",
-        action="forma.generate_project",
+        action="blueprint.generate_project",
         sender="quality-eval",
-        recipient="forma",
+        recipient="blueprint",
         payload=payload,
         server_owned=True,
         status="queued",
@@ -265,7 +265,7 @@ async def run_generation(
 
 
 def review_run(run: dict[str, Any], *, judge_model: str) -> RunQualityReview:
-    from forma_core.llm import build_llm_provider
+    from blueprint_core.llm import build_llm_provider
 
     provider = build_llm_provider("openai", judge_model)
     image_bytes, image_mime_type = first_image(run.get("response") or {})
@@ -297,7 +297,7 @@ RUN DATA:
 
 
 def review_pair(runs: list[dict[str, Any]], reviews: dict[str, dict[str, Any]], *, judge_model: str) -> PairwiseReview:
-    from forma_core.llm import build_llm_provider
+    from blueprint_core.llm import build_llm_provider
 
     provider = build_llm_provider("openai", judge_model)
     pair_payload = []

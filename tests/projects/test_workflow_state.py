@@ -13,10 +13,10 @@ from fastapi.testclient import TestClient
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.project_workflow_api import router
-from forma_core import database
-from forma_core.persistence.providers import create_sqlite_provider
-from forma_core.persistence.repositories import SqlAlchemyRepository
-from forma_core.workspaces.workflow import (
+from blueprint_core import database
+from blueprint_core.persistence.providers import create_sqlite_provider
+from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workspaces.workflow import (
     ALLOWED_WORKFLOW_TRANSITIONS,
     ProjectWorkflowService,
     ProjectWorkflowState,
@@ -40,7 +40,7 @@ def sqlite_repository() -> Iterator[None]:
     with tempfile.TemporaryDirectory() as directory:
         provider = create_sqlite_provider(
             source="workflow test",
-            url=f"sqlite:///{Path(directory) / 'forma.db'}",
+            url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None

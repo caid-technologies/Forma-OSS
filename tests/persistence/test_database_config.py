@@ -4,8 +4,8 @@ import os
 import unittest
 from unittest.mock import patch
 
-from forma_core import database
-from forma_core.runtime import primary_database_backend_from_environment
+from blueprint_core import database
+from blueprint_core.runtime import primary_database_backend_from_environment
 
 
 class DatabaseConfigSelectionTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class DatabaseConfigSelectionTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "FORMA_DEV_MODE": "true",
+                "BLUEPRINT_DEV_MODE": "true",
                 "DATABASE_BACKEND": "supabase",
                 "SUPABASE_URL": "http://127.0.0.1:54321",
                 "SUPABASE_SERVICE_ROLE_KEY": "local-service-role",
@@ -27,7 +27,7 @@ class DatabaseConfigSelectionTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "FORMA_DEV_MODE": "true",
+                "BLUEPRINT_DEV_MODE": "true",
                 "DATABASE_BACKEND": "supabase",
                 "SUPABASE_URL": "http://127.0.0.1:54321",
                 "SUPABASE_SERVICE_ROLE_KEY": "local-service-role",
@@ -46,7 +46,7 @@ class DatabaseConfigSelectionTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "FORMA_DEV_MODE": "true",
+                "BLUEPRINT_DEV_MODE": "true",
                 "DATABASE_BACKEND": "supabase",
                 "SUPABASE_URL": "https://example.supabase.co",
                 "SUPABASE_SERVICE_ROLE_KEY": "remote-service-role",
@@ -56,7 +56,7 @@ class DatabaseConfigSelectionTests(unittest.TestCase):
             config, engine, client = database._select_database_config()
 
         self.assertEqual("sqlite", config.backend)
-        self.assertEqual("FORMA_DEV_MODE", config.source)
+        self.assertEqual("BLUEPRINT_DEV_MODE", config.source)
         self.assertIsNotNone(engine)
         self.assertIsNone(client)
         build_client.assert_not_called()

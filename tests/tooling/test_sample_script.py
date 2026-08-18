@@ -11,7 +11,7 @@ SAMPLE_SCRIPT = ROOT_DIR / "scripts" / "models" / "sample.py"
 
 
 def load_sample_module():
-    spec = importlib.util.spec_from_file_location("forma_sample", SAMPLE_SCRIPT)
+    spec = importlib.util.spec_from_file_location("blueprint_sample", SAMPLE_SCRIPT)
     if spec is None or spec.loader is None:
         raise RuntimeError("Could not load scripts/models/sample.py")
     module = importlib.util.module_from_spec(spec)

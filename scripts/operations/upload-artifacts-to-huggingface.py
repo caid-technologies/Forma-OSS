@@ -15,7 +15,7 @@ if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
 
-from forma_core.integrations.huggingface import (
+from blueprint_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     path_from_repo,
@@ -58,9 +58,9 @@ def build_parser() -> argparse.ArgumentParser:
         default="benchmarks",
         help="Artifact family. Controls default globs and destination path.",
     )
-    parser.add_argument("--hf-repo-id", help="Hugging Face dataset repo id, for example username/forma-metrics. Defaults to HF_ARTIFACT_REPO_ID.")
+    parser.add_argument("--hf-repo-id", help="Hugging Face dataset repo id, for example username/blueprint-metrics. Defaults to HF_ARTIFACT_REPO_ID.")
     parser.add_argument("--hf-repo-type", default="dataset", help="Hugging Face repo type. Defaults to dataset.")
-    parser.add_argument("--hf-path-prefix", default="forma", help="Path prefix inside the Hugging Face repo. Defaults to forma.")
+    parser.add_argument("--hf-path-prefix", default="blueprint", help="Path prefix inside the Hugging Face repo. Defaults to blueprint.")
     parser.add_argument("--hf-private", action="store_true", help="Create the Hugging Face repo as private when it does not exist.")
     parser.add_argument("--hf-no-create-repo", action="store_true", help="Do not create the Hugging Face repo before uploading.")
     parser.add_argument("--hf-commit-message", default="Upload Forma artifacts", help="Commit message for Hugging Face uploads.")

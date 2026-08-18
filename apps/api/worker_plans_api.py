@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.context_builds import ContextBuildDispatcher
-from forma_core.database import (
+from blueprint_core.database import (
     cancel_project_generation_plan,
     get_project_generation_plan,
     reset_project_generation_plan,
 )
-from forma_core.workers import WorkerExecutionPlan, WorkerPlanningError
+from blueprint_core.workers import WorkerExecutionPlan, WorkerPlanningError
 
 
 router = APIRouter(prefix="/projects/{project_id}/build", tags=["project-build-execution"])

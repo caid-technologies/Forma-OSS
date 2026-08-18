@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from forma_core.image_providers import GeneratedImage
-from forma_core.workspaces.projects.models import HardwareIR, ProjectOverview
-from forma_core.workspaces.projects.output import attach_product_image
+from blueprint_core.image_providers import GeneratedImage
+from blueprint_core.workspaces.projects.models import HardwareIR, ProjectOverview
+from blueprint_core.workspaces.projects.output import attach_product_image
 
 
 class ProjectOutputTests(unittest.TestCase):

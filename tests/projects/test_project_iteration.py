@@ -7,17 +7,17 @@ from unittest.mock import patch
 
 from pydantic import ValidationError
 
-from forma_core.database import _hardware_ir_with_project_id
-from forma_core.agents.project_correction import ProjectSelfCorrectionAgent
-from forma_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
-from forma_core.workspaces.projects.iteration import ProjectIterator, compact_hardware_ir_for_iteration
-from forma_core.llm import (
+from blueprint_core.database import _hardware_ir_with_project_id
+from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
+from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
+from blueprint_core.workspaces.projects.iteration import ProjectIterator, compact_hardware_ir_for_iteration
+from blueprint_core.llm import (
     LLMProviderConfigError,
     LLMProviderOutputError,
     LLMProviderValidation,
     LLMRuntimeConfig,
 )
-from forma_core.workspaces.projects.models import (
+from blueprint_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     FunctionalRequirements,
@@ -27,12 +27,12 @@ from forma_core.workspaces.projects.models import (
     ProjectOverview,
     VideoSelfCorrectRequest,
 )
-from forma_core.workspaces.projects.objects import (
+from blueprint_core.workspaces.projects.objects import (
     build_project_object,
     namespace_payload,
     normalize_project_namespace,
 )
-from forma_core.video_review import (
+from blueprint_core.video_review import (
     DEFAULT_FIREWORKS_NATIVE_VIDEO_REVIEW_MODEL_SLUG,
     DEFAULT_FIREWORKS_VIDEO_REVIEW_MODEL_SLUG,
     FIREWORKS_VIDEO_REVIEW_FRAME_MODELS,
@@ -520,7 +520,7 @@ class ProjectIterationTests(unittest.TestCase):
             ),
         )
 
-        self.assertIn("forma_core.video_review", message)
+        self.assertIn("blueprint_core.video_review", message)
         self.assertIn("accounts/fireworks/models/qwen3-omni-30b-a3b-instruct", message)
         self.assertIn("Model not found, inaccessible, and/or not deployed", message)
         self.assertIn("FIREWORKS_VIDEO_REVIEW_MODEL", message)
@@ -543,18 +543,18 @@ class ProjectIterationTests(unittest.TestCase):
 
         with (
             patch(
-                "forma_core.video_review.prepare_video_for_fireworks_native_review",
+                "blueprint_core.video_review.prepare_video_for_fireworks_native_review",
                 return_value=FireworksPreparedVideo(video_data_url="data:video/mp4;base64,ZmFrZQ=="),
             ),
-            patch("forma_core.video_review.urllib.request.urlopen", side_effect=http_error),
-            self.assertLogs("forma_core.video_review", level="ERROR") as logs,
+            patch("blueprint_core.video_review.urllib.request.urlopen", side_effect=http_error),
+            self.assertLogs("blueprint_core.video_review", level="ERROR") as logs,
             self.assertRaises(LLMProviderOutputError),
         ):
             client.review_video(current, video_url="https://example.test/render.mp4", project_id=PROJECT_ID)
 
         log_output = "\n".join(logs.output)
-        self.assertIn("ERROR:forma_core.video_review", log_output)
-        self.assertIn("forma_core.video_review Fireworks video review failed", log_output)
+        self.assertIn("ERROR:blueprint_core.video_review", log_output)
+        self.assertIn("blueprint_core.video_review Fireworks video review failed", log_output)
         self.assertIn("NOT_FOUND", log_output)
         self.assertIn("chatcmpl-test", log_output)
 
@@ -578,9 +578,9 @@ class ProjectIterationTests(unittest.TestCase):
         )
 
         with (
-            patch("forma_core.video_review.sample_video_frames", return_value=[b"fake-jpeg"]),
-            patch("forma_core.video_review.urllib.request.urlopen", return_value=response),
-            self.assertLogs("forma_core.video_review", level="WARNING") as logs,
+            patch("blueprint_core.video_review.sample_video_frames", return_value=[b"fake-jpeg"]),
+            patch("blueprint_core.video_review.urllib.request.urlopen", return_value=response),
+            self.assertLogs("blueprint_core.video_review", level="WARNING") as logs,
         ):
             review = client.review_video(current, video_url="https://example.test/render.mp4", project_id=PROJECT_ID)
 

@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from forma_core.config import AppConfig, config
+from blueprint_core.config import AppConfig, config
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -43,7 +43,7 @@ class AppConfigTests(unittest.TestCase):
             self.assertEqual("web_research", config.default_generation_workflow)
 
     def test_default_generation_workflow_is_configurable(self) -> None:
-        with patch.dict(os.environ, {"FORMA_DEFAULT_GENERATION_WORKFLOW": "default"}, clear=True):
+        with patch.dict(os.environ, {"BLUEPRINT_DEFAULT_GENERATION_WORKFLOW": "default"}, clear=True):
             self.assertEqual("default", config.default_generation_workflow)
 
     def test_cloudflare_thinking_defaults_off_and_can_be_enabled(self) -> None:
@@ -86,11 +86,11 @@ class AppConfigTests(unittest.TestCase):
     def test_non_test_python_uses_only_the_config_environment_boundary(self) -> None:
         direct_access_patterns = ("os.getenv", "os.environ", "os.putenv", "os.unsetenv")
         violations: list[str] = []
-        for relative_root in ("forma_core", "apps", "scripts", "examples", "evals"):
+        for relative_root in ("blueprint_core", "apps", "scripts", "examples", "evals"):
             for path in (REPO_ROOT / relative_root).rglob("*.py"):
                 if any(part in {".venv", "node_modules", "tests", "test"} for part in path.parts):
                     continue
-                if path == REPO_ROOT / "forma_core" / "config" / "environment.py":
+                if path == REPO_ROOT / "blueprint_core" / "config" / "environment.py":
                     continue
                 source = path.read_text(encoding="utf-8")
                 if any(pattern in source for pattern in direct_access_patterns):

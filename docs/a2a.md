@@ -8,16 +8,16 @@ Forma exposes the same hardware generation capability through several agent-frie
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
 - **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
 
-Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `forma_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, past-job context, or a combination.
+Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `blueprint_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, past-job context, or a combination.
 
 ## Message Shape
 ```json
 {
   "type": "task",
   "job_id": "job-build-001",
-  "action": "forma.generate_project",
+  "action": "blueprint.generate_project",
   "sender": "agent_alpha",
-  "recipient": "forma",
+  "recipient": "blueprint",
   "correlation_id": "build-001",
   "payload": {
     "prompt": "ESP32 soil moisture monitor with OLED",
@@ -45,7 +45,7 @@ curl -X PUT http://localhost:8000/api/a2a/agents/agent_alpha \
 ```bash
 curl -X POST http://localhost:8000/api/a2a/messages \
   -H 'Content-Type: application/json' \
-  -d '{"sender":"agent_alpha","recipient":"forma","action":"forma.generate_project","payload":{"prompt":"ESP32 soil moisture monitor with OLED","generate_image":false}}'
+  -d '{"sender":"agent_alpha","recipient":"blueprint","action":"blueprint.generate_project","payload":{"prompt":"ESP32 soil moisture monitor with OLED","generate_image":false}}'
 ```
 
 Set `payload.generate_image` to `true` only for jobs that should call the configured image model. If the image model fails, the hardware job can still succeed; persisted job metadata includes `result_summary.operation_statuses`, `image_output_status=failed`, `image_output_error`, and `image_output_error_type`.
@@ -81,12 +81,10 @@ Each line sent to the socket is an `A2AMessage` JSON object. Each line returned 
 - `tools/call`
 
 Available tools:
-- `forma.generate_project`
-
-For a default or web-research project with a failed stage, call `forma.generate_project` again with the same `project_id`, workflow, and `retry_stage` (for example `wiring_netlist`). Forma reloads the persisted generation run, reuses successful upstream and independent artifacts, and reruns only the named stage and invalidated dependents. Reusing the same client job ID returns the completed retry idempotently.
-- `forma.debug_config`
-- `forma.validate_circuit`
-- `forma.a2a.send_message`
-- `forma.a2a.poll_events`
-- `forma.a2a.get_job`
-- `forma.a2a.list_jobs`
+- `blueprint.generate_project`
+- `blueprint.debug_config`
+- `blueprint.validate_circuit`
+- `blueprint.a2a.send_message`
+- `blueprint.a2a.poll_events`
+- `blueprint.a2a.get_job`
+- `blueprint.a2a.list_jobs`

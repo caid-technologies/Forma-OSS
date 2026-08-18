@@ -1,14 +1,14 @@
 import errno
 import logging
 
-from forma_core.config import config
+from blueprint_core.config import config
 import re
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
 
-from forma_core.debug import debug_mode_enabled
-from forma_core.logs import resolve_backend_log_path
+from blueprint_core.debug import debug_mode_enabled
+from blueprint_core.logs import resolve_backend_log_path
 
 
 DEFAULT_LOG_FORMAT = "%(asctime)s %(levelname)s [%(name)s] %(message)s"
@@ -62,7 +62,7 @@ def _tmp_log_fallback_path(path: Path) -> Optional[Path]:
 
 
 def _log_namespaces() -> Tuple[str, ...]:
-    raw_value = config.get("BACKEND_LOG_NAMESPACES") or config.get("FORMA_LOG_NAMESPACES") or ""
+    raw_value = config.get("BACKEND_LOG_NAMESPACES") or config.get("BLUEPRINT_LOG_NAMESPACES") or ""
     if not raw_value.strip():
         return ()
     namespaces = []
@@ -76,16 +76,16 @@ def _log_namespaces() -> Tuple[str, ...]:
 def _ensure_namespace_filter(handler: logging.Handler, namespaces: Tuple[str, ...]) -> None:
     if not namespaces:
         return
-    if getattr(handler, "_forma_log_namespaces", None) == namespaces:
+    if getattr(handler, "_blueprint_log_namespaces", None) == namespaces:
         return
     handler.addFilter(_LoggerNamespaceFilter(namespaces))
-    handler._forma_log_namespaces = namespaces  # type: ignore[attr-defined]
+    handler._blueprint_log_namespaces = namespaces  # type: ignore[attr-defined]
 
 
 def _handler_for_path(logger: logging.Logger, path: Path) -> Optional[logging.Handler]:
     target = str(path)
     for handler in logger.handlers:
-        if getattr(handler, "_forma_log_file", None) == target:
+        if getattr(handler, "_blueprint_log_file", None) == target:
             return handler
     return None
 
@@ -101,7 +101,7 @@ def _build_file_handler(
     handler.setLevel(level)
     handler.setFormatter(formatter)
     _ensure_namespace_filter(handler, namespaces)
-    handler._forma_log_file = str(path)  # type: ignore[attr-defined]
+    handler._blueprint_log_file = str(path)  # type: ignore[attr-defined]
     return handler
 
 

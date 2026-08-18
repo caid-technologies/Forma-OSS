@@ -13,11 +13,11 @@ from fastapi.testclient import TestClient
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.readiness_api import router
-from forma_core import database
-from forma_core.persistence.providers import create_sqlite_provider
-from forma_core.persistence.repositories import SqlAlchemyRepository
-from forma_core.workspaces.design_briefs import DesignBriefCreate
-from forma_core.workspaces.readiness import BuildMode, ReadinessError, ReadinessStatus
+from blueprint_core import database
+from blueprint_core.persistence.providers import create_sqlite_provider
+from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from blueprint_core.workspaces.design_briefs import DesignBriefCreate
+from blueprint_core.workspaces.readiness import BuildMode, ReadinessError, ReadinessStatus
 
 
 OWNER = "readiness-user"
@@ -35,7 +35,7 @@ def sqlite_repository() -> Iterator[None]:
     with tempfile.TemporaryDirectory() as directory:
         provider = create_sqlite_provider(
             source="readiness test",
-            url=f"sqlite:///{Path(directory) / 'forma.db'}",
+            url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None

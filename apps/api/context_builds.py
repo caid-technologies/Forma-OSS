@@ -4,18 +4,18 @@ import asyncio
 import logging
 from threading import Event, Lock, Thread
 
-from forma_core.database import (
+from blueprint_core.database import (
     create_project_generation_plan,
     evaluate_project_readiness,
     execute_project_generation_plan,
     get_project_generation_plan,
     initiate_project_build,
 )
-from forma_core.config import config
-from forma_core.workspaces.context import ContextBuildExecution
-from forma_core.workspaces.readiness import BuildMode, ReadinessStatus
-from forma_core.workspaces.workflow import ProjectWorkflow
-from forma_core.vertex_auth import (
+from blueprint_core.config import config
+from blueprint_core.workspaces.context import ContextBuildExecution
+from blueprint_core.workspaces.readiness import BuildMode, ReadinessStatus
+from blueprint_core.workspaces.workflow import ProjectWorkflow
+from blueprint_core.vertex_auth import (
     bind_vertex_oidc_token,
     current_vertex_oidc_token,
     reset_vertex_oidc_token,

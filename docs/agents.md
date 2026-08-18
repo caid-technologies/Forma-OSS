@@ -1,6 +1,6 @@
 # Agents
 
-Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agents`. Each agent writes structured artifacts into the Hardware IR.
+Forma uses an **ADK-style** sequential multi-agent workflow (implemented in `apps/api/agents/orchestrator.py`). Each agent consumes the prior agent’s output and writes structured data into the Hardware IR.
 
 ## Pipeline overview
 0. Context clarification → 1. Safety guardrails → 2. Intent Parser → 3. Requirements → 4. System Architecture → 5. Component Selection → 6. Wiring/Netlist (+ repair loop) → 7. BOM → 8. Mechanical/Fabrication → 9. Assembly Instructions → 10. Mechanical render enrichment
@@ -41,7 +41,7 @@ Forma uses an **ADK-style** multi-agent workflow implemented in `forma_core/agen
 **Input:** Requirements + system tree + compact seed component catalog
 
 **Output:** `ComponentInstance[]`  
-**Goal:** Choose compatible parts by system role. Repeated parts are emitted as one physical instance per reference designator; exact catalog pinouts are hydrated deterministically after selection.
+**Goal:** Choose compatible parts by system role. Exact catalog pinouts are hydrated deterministically after selection.
 
 ### Wiring/Netlist Agent
 **Input:** Components + requirements  
@@ -52,8 +52,8 @@ If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-
 
 ### BOM Agent
 **Input:** Component list  
-**Output:** `PartDefinition[]`, `BOMLineItem[]`, and updated `ProjectOverview.estimated_cost`
-**Goal:** Store shared part data once, aggregate physical instance references into procurement rows, and calculate deterministic extended and total costs.
+**Output:** Updated `ProjectOverview.estimated_cost`  
+**Goal:** Calculate total cost from unit prices and quantities (deterministic step).
 
 ### Mechanical/Fabrication Agent
 **Input:** Mechanical system branch + pin-free component summaries
@@ -84,7 +84,7 @@ flowchart LR
 ```
 
 ## Notes
-- Web-research artifact stages run as a dependency graph. Successful outputs are checkpointed independently, failed dependencies block only downstream work, and unrelated stages continue.
+- Agents run **sequentially** for determinism and traceability.
 - Validation can trigger a **repair loop** that re-invokes the wiring agent.
 - If a live LLM provider isn’t configured (or generation fails), the backend uses a deterministic **simulation fallback** backed by the example projects.
 - The pipeline is designed to swap models or add agents without rewriting the core IR schema.

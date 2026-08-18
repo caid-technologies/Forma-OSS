@@ -5,16 +5,16 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 ## Key modules
 - `apps/api/main.py` – FastAPI app and API routes
 - `apps/api/a2a.py` – A2A broker, REST/WebSocket/TCP/MCP handlers
-- `forma_core/generation.py` – high-level generation API
-- `forma_core/agents/orchestrator.py` – multi-agent pipeline
-- `forma_core/models.py` – Pydantic Hardware IR schemas
-- `forma_core/validation.py` – rule-based electrical checks
-- `forma_core/llm_providers.py` – provider-agnostic structured LLM adapters
-- `forma_core/image_providers.py` – optional generated product image adapters
-- `forma_core/config/runtime.py` – deployment and runtime gating helpers
-- `forma_core/observability.py` – optional Langfuse tracing helpers
-- `forma_core/database.py` – SQLAlchemy models + DB setup
-- `forma_core/utils.py` – Mermaid and SVG schematic generation
+- `blueprint_core/generation.py` – high-level generation API
+- `blueprint_core/agents/orchestrator.py` – multi-agent pipeline
+- `blueprint_core/models.py` – Pydantic Hardware IR schemas
+- `blueprint_core/validation.py` – rule-based electrical checks
+- `blueprint_core/llm_providers.py` – provider-agnostic structured LLM adapters
+- `blueprint_core/image_providers.py` – optional generated product image adapters
+- `blueprint_core/config/runtime.py` – deployment and runtime gating helpers
+- `blueprint_core/observability.py` – optional Langfuse tracing helpers
+- `blueprint_core/database.py` – SQLAlchemy models + DB setup
+- `blueprint_core/utils.py` – Mermaid and SVG schematic generation
 - `apps/api/storage.py` – Supabase Storage image uploads, disabled in development mode
 - `apps/api/seed_db.py` – seed component templates
 
@@ -40,10 +40,10 @@ The backend is a **FastAPI** service that orchestrates agents, validates netlist
 - `GET /api/runtime/config` – canonical user-scoped generation contract used by the frontend (selected/configured LLMs, image behavior, workflow default, and provider-setup requirements)
 
 ## Orchestration layer
-The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `forma_core/agents/orchestrator.py`). Live agent calls go through `forma_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
+The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `blueprint_core/agents/orchestrator.py`). Live agent calls go through `blueprint_core.llm`, which exposes a provider-agnostic structured JSON interface that maps directly to the Hardware IR. If no live provider is configured (or generation fails), the backend falls back to deterministic example projects for a reliable local demo.
 
 ## Reusable core package
-Generation behavior is packaged under `forma_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `forma_core.generation` for high-level generation, `forma_core.models` for Hardware IR schemas, `forma_core.validation` for electrical checks, `forma_core.llm` for provider resolution and structured generation, `forma_core.images` for image providers and visual prompt construction, `forma_core.runtime` for deployment gating, and `forma_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
+Generation behavior is packaged under `blueprint_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `blueprint_core.generation` for high-level generation, `blueprint_core.models` for Hardware IR schemas, `blueprint_core.validation` for electrical checks, `blueprint_core.llm` for provider resolution and structured generation, `blueprint_core.images` for image providers and visual prompt construction, `blueprint_core.runtime` for deployment gating, and `blueprint_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
 
 ## A2A layer
 The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
@@ -52,14 +52,14 @@ LLM configuration behavior:
 
 - Runtime precedence is fixed in one backend resolver: explicit request override, saved integration, environment, then provider default. `/api/runtime/config` is the client authority; clients must not reconstruct readiness or defaults from environment variables or integration form fields.
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
-- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./forma-backend.log`. `./scripts/development/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
-- `FORMA_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
-- `FORMA_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
-- `FORMA_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
+- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`. `./scripts/development/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
+- `BLUEPRINT_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
+- `BLUEPRINT_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
+- `BLUEPRINT_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
 - `REDIS_URL`: Redis connection URL for cached `/projects` and `/my/projects` responses. In production, set it or the complete Upstash REST pair below, plus `REDIS_CACHE_PREFIX`; runtime cache failures still fall back to the database.
 - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`: server-only Upstash REST credentials that can replace `REDIS_URL`, which avoids persistent Redis socket requirements on serverless deployments.
 - `PROJECTS_CACHE_TTL_SECONDS`: project-list cache lifetime in seconds, default `60`; successful project writes invalidate all list variants immediately.
-- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `FORMA_DEV_MODE=false` and defaulting to `forma` only for development-mode cache usage.
+- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `BLUEPRINT_DEV_MODE=false` and defaulting to `blueprint` only for development-mode cache usage.
 - `REDIS_SOCKET_TIMEOUT_SECONDS`: Redis connect/read timeout, default `0.25`; failures open a 30-second local circuit breaker.
 - `LLM_PROVIDER`: `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
@@ -67,7 +67,7 @@ LLM configuration behavior:
 - `/api/generate` accepts `data_sources: ["past_jobs"]` and an optional `past_jobs_limit` (1-8, default 3). This retrieves the signed-in owner's relevant completed generation jobs, compacts their stored project outputs into bounded prompt context, and requires no embedding model or vector database. The current request always takes precedence over historical examples.
 - `LLM_ALLOWED_PROVIDERS`: optional comma-separated allowlist for runtime provider overrides. If unset, configured providers detected from env plus `simulation` are allowed.
 - `VERTEX_AI_ALLOWED_MODELS` / `OPENAI_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: optional comma-separated allowlists for runtime model overrides. If unset, runtime model overrides are limited to configured default/fallback models for the selected provider.
-- `GOOGLE_CLOUD_PROJECT` / `VERTEX_AI_PROJECT`, `GOOGLE_CLOUD_LOCATION` / `VERTEX_AI_LOCATION`, and `VERTEX_AI_MODEL`: Vertex AI routing when `LLM_PROVIDER=vertex`; authentication uses Google Cloud Application Default Credentials. `VERTEX_AI_MODEL` defaults to `gemini-3.7-flash`.
+- `GOOGLE_CLOUD_PROJECT` / `VERTEX_AI_PROJECT`, `GOOGLE_CLOUD_LOCATION` / `VERTEX_AI_LOCATION`, and `VERTEX_AI_MODEL`: Vertex AI routing when `LLM_PROVIDER=vertex`; authentication uses Google Cloud Application Default Credentials.
 - `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`: optional keyless Vertex authentication for Vercel through workload identity federation. The runtime exchanges Vercel's per-request OIDC token for short-lived Google credentials.
 - `OPENAI_API_KEY`: first-party OpenAI API key when `LLM_PROVIDER=openai`
 - `OPENAI_MODEL`: first-party OpenAI model alias for `LLM_MODEL`
@@ -91,7 +91,7 @@ LLM configuration behavior:
 - `HUGGINGFACE_IMAGE_MODEL_REVISION` / `HUGGINGFACE_IMAGE_MODEL_LICENSE`: optional policy metadata recorded with stored Hugging Face image outputs
 - `SUPABASE_S3_ENDPOINT`: explicit endpoint required for direct S3-compatible image uploads; Supabase-client uploads derive their endpoint from `SUPABASE_URL`
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for reference and generated product images, defaulting to `contents`
-- `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `FORMA_DEV_MODE=true` disables these image uploads
+- `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `BLUEPRINT_DEV_MODE=true` disables these image uploads
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: lifetime for refreshed Supabase Storage read URLs when projects are loaded, defaulting to `86400`
 - `SUPABASE_STORAGE_PUBLIC_BASE_URL`: optional public object URL base; defaults from `SUPABASE_URL` or the S3 endpoint
 - `LLM_FALLBACK_MODEL`: optional fallback model
@@ -106,7 +106,6 @@ LLM configuration behavior:
 - `HF_TOKEN` / `HUGGINGFACE_API_KEY` / `HUGGINGFACE_HUB_TOKEN`: Hugging Face Inference Providers token when `LLM_PROVIDER=huggingface` or a request uses `provider=huggingface`
 - `HUGGINGFACE_BASE_URL`: Hugging Face OpenAI-compatible router URL. Defaults to `https://router.huggingface.co/v1`
 - `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`: Anthropic Claude key when `LLM_PROVIDER=anthropic` or a request uses `provider=anthropic`
-- `ANTHROPIC_MODEL`: Claude model ID. Defaults to `claude-opus-5`.
 - `ANTHROPIC_BASE_URL`: Claude API base URL. Defaults to `https://api.anthropic.com/v1`
 - `HUGGINGFACE_MODEL`: Hugging Face model ID, for example `Qwen/Qwen2.5-Coder-3B-Instruct:nscale`
 - `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`: Cloudflare AI configuration when `LLM_PROVIDER=cloudflare` or a request uses `provider=cloudflare`. The OpenAI-compatible base URL is derived from the account ID; `CLOUDFLARE_BASE_URL` can override it.
@@ -146,11 +145,11 @@ To make backend logs visible in the local frontend LOGS tab when running uvicorn
 BACKEND_LOG_FILE=.logs/backend-dev.log uvicorn apps.api.main:app --reload --port 8000
 ```
 
-Run generation directly through the sole Forma Core CLI with `--llm provider/model`:
+Run generation directly through the sole Blueprint Core CLI with `--llm provider/model`:
 
 ```bash
-forma-core generate "plant watering monitor" --llm openai/gpt-5.5
-forma-core generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
+blueprint-core generate "plant watering monitor" --llm openai/gpt-5.5
+blueprint-core generate "plant watering monitor" --llm runpod/caid-technologies/parti-base
 ```
 
 Live CLI generation and iteration are strict: provider, model, and pipeline failures return a nonzero exit code instead of producing fallback output. Simulated output requires the explicit `--simulation` flag.
@@ -174,8 +173,8 @@ Smoke-test configured LLM providers with a tiny structured prompt:
 
 Saved smoke-test reports are written to `.logs/llm-smoke/` by default, with `.logs/llm-smoke/latest.json` overwritten on each saved run. `scripts/models/sample.py` writes model comparison reports to `.logs/model-samples/` and `.logs/model-samples/latest.json`. `scripts/models/sample_async.py` writes the same report format while running selected models concurrently with `--concurrency`. The automated runner accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR`.
 
-Run against Claude:
+Run against first-party OpenAI:
 
 ```bash
-LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=your_anthropic_api_key_here ANTHROPIC_MODEL=claude-opus-5 uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=openai OPENAI_API_KEY=your_openai_api_key_here OPENAI_MODEL=gpt-5.6-sol uvicorn apps.api.main:app --reload --port 8000
 ```

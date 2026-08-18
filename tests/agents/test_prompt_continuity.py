@@ -4,9 +4,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from forma_core.agents.firecrawl_mcp import FirecrawlResearchResult, FirecrawlSearchHit
-from forma_core.agents.continuous import JsonlStreamStore
-from forma_core.prompt_continuity import (
+from blueprint_core.agents.firecrawl_mcp import FirecrawlResearchResult, FirecrawlSearchHit
+from blueprint_core.agents.continuous import JsonlStreamStore
+from blueprint_core.prompt_continuity import (
     DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS,
     DEFAULT_PROMPT_BATCH_MODEL,
     FirecrawlPromptBatchSeeder,

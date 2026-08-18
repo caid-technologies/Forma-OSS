@@ -14,9 +14,9 @@ from typing import Iterable
 ROOT_DIR = Path(__file__).resolve().parents[2]
 TRUTHY = {"1", "true", "yes", "on"}
 AUTH_ALLOWLIST_KEYS = (
-    "FORMA_ADMIN_USER_IDS",
+    "BLUEPRINT_ADMIN_USER_IDS",
     "CLERK_ADMIN_USER_IDS",
-    "FORMA_ADMIN_EMAILS",
+    "BLUEPRINT_ADMIN_EMAILS",
     "CLERK_ADMIN_EMAILS",
 )
 PROVIDER_KEYS = {
@@ -87,7 +87,7 @@ def parse_env_file(path: Path) -> dict[str, str]:
 
 
 def pull_vercel_env(environment: str) -> tuple[Path, tempfile.TemporaryDirectory[str]]:
-    temp_dir = tempfile.TemporaryDirectory(prefix="forma-production-env-")
+    temp_dir = tempfile.TemporaryDirectory(prefix="blueprint-production-env-")
     env_path = Path(temp_dir.name) / ".env"
     command = ["vercel", "env", "pull", str(env_path), "--environment", environment, "--yes"]
     subprocess.run(command, cwd=ROOT_DIR, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
@@ -120,16 +120,16 @@ def validate(env: dict[str, str], *, require_live_clerk: bool) -> CheckReport:
     report.check("Supabase URL present", bool(value("SUPABASE_URL")))
     report.check("Supabase service/secret key present", bool(first_present(env, ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"))))
     report.check("Database backend is Supabase", value("DATABASE_BACKEND").lower() == "supabase", f"DATABASE_BACKEND={value('DATABASE_BACKEND') or '<unset>'}")
-    report.check("Forma dev mode disabled", not is_true(env, "FORMA_DEV_MODE"))
-    report.check("Frontend dev mode disabled", not is_true(env, "NEXT_PUBLIC_FORMA_DEV_MODE"))
-    report.check("Backend debug disabled", not is_true(env, "FORMA_DEBUG"))
-    report.check("Frontend debug disabled", not is_true(env, "NEXT_PUBLIC_FORMA_DEBUG"))
+    report.check("Forma dev mode disabled", not is_true(env, "BLUEPRINT_DEV_MODE"))
+    report.check("Frontend dev mode disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEV_MODE"))
+    report.check("Backend debug disabled", not is_true(env, "BLUEPRINT_DEBUG"))
+    report.check("Frontend debug disabled", not is_true(env, "NEXT_PUBLIC_BLUEPRINT_DEBUG"))
     report.check(
         "Auth mode is Clerk",
-        value("FORMA_AUTH_MODE").lower() == "clerk",
-        f"FORMA_AUTH_MODE={value('FORMA_AUTH_MODE') or '<unset>'}",
+        value("BLUEPRINT_AUTH_MODE").lower() == "clerk",
+        f"BLUEPRINT_AUTH_MODE={value('BLUEPRINT_AUTH_MODE') or '<unset>'}",
     )
-    report.check("Integration encryption key present", bool(value("FORMA_USER_SECRETS_KEY")))
+    report.check("Integration encryption key present", bool(value("BLUEPRINT_USER_SECRETS_KEY")))
 
     publishable_key_name = first_present(env, ("NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", "CLERK_PUBLISHABLE_KEY"))
     secret_key_name = first_present(env, ("CLERK_SECRET_KEY",))

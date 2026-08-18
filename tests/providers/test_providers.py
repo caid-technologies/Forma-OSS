@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from forma_core.openai_streams import OpenAICompatibleChatConfig, OpenAIStreamConfig, OpenAITextStreamChunk
-from forma_core.providers import (
+from blueprint_core.openai_streams import OpenAICompatibleChatConfig, OpenAIStreamConfig, OpenAITextStreamChunk
+from blueprint_core.providers import (
     ProviderConfigurationError,
     ProviderRegistry,
     ProviderRequest,

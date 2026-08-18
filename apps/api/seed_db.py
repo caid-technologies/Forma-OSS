@@ -4,8 +4,8 @@ import os
 # Add the repository root so imports work when running this file directly.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
-from forma_core.database import init_db, insert_component_template_if_missing
-from forma_core.workspaces.projects.models import ComponentTemplate, PinDefinition
+from blueprint_core.database import init_db, insert_component_template_if_missing
+from blueprint_core.workspaces.projects.models import ComponentTemplate, PinDefinition
 import json
 
 # Define our robust set of seed electronic components

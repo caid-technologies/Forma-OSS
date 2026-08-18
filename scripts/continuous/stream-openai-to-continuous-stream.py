@@ -11,8 +11,8 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from forma_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
-from forma_core.openai_streams import (
+from blueprint_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
+from blueprint_core.openai_streams import (
     DEFAULT_OPENAI_STREAM_MODEL,
     DEFAULT_OPENAI_STREAM_PROMPT,
     OpenAIResponsesStreamer,

@@ -4,13 +4,13 @@ import ast
 from pathlib import Path
 import unittest
 
-import forma_core.agents as agents
-from forma_core.agents.clarification import ContextClarifierAgent
-from forma_core.agents.context_gathering import ContextGatheringAgent
-from forma_core.agents.continuous import ContinuousAgentCoordinator
-from forma_core.agents.project_correction import ProjectSelfCorrectionAgent
-from forma_core.agents.prompt_compaction import PromptCompactionAgent
-from forma_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
+import blueprint_core.agents as agents
+from blueprint_core.agents.clarification import ContextClarifierAgent
+from blueprint_core.agents.context_gathering import ContextGatheringAgent
+from blueprint_core.agents.continuous import ContinuousAgentCoordinator
+from blueprint_core.agents.project_correction import ProjectSelfCorrectionAgent
+from blueprint_core.agents.prompt_compaction import PromptCompactionAgent
+from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
 
 
 class AgentPackageTests(unittest.TestCase):
@@ -23,7 +23,7 @@ class AgentPackageTests(unittest.TestCase):
         self.assertIs(agents.FireworksVideoSelfCorrectionAgent, FireworksVideoSelfCorrectionAgent)
 
     def test_agent_classes_are_defined_only_in_the_agents_package(self) -> None:
-        package_root = Path(__file__).resolve().parents[2] / "forma_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         misplaced: list[str] = []
         for path in package_root.rglob("*.py"):
             relative_path = path.relative_to(package_root)
@@ -37,7 +37,7 @@ class AgentPackageTests(unittest.TestCase):
         self.assertEqual([], misplaced)
 
     def test_legacy_agent_modules_are_removed(self) -> None:
-        package_root = Path(__file__).resolve().parents[2] / "forma_core"
+        package_root = Path(__file__).resolve().parents[2] / "blueprint_core"
         legacy_modules = (
             "clarifying_questions.py",
             "continuous_agents.py",

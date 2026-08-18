@@ -51,7 +51,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_mode_resolves_a_stable_authenticated_admin(self) -> None:
         request = request_with_authorization("Bearer ignored-in-local-mode")
 
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "local"}, clear=True), patch(
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=True), patch(
             "apps.api.auth.verify_clerk_bearer_token"
         ) as verify_token:
             optional_context = await optional_user_context(request)
@@ -68,7 +68,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
         verify_token.assert_not_called()
 
     async def test_optional_clerk_mode_without_token_returns_anonymous_context(self) -> None:
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "clerk"}, clear=True):
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True):
             context = await optional_user_context(request_with_authorization())
 
         self.assertEqual("clerk", context.provider)
@@ -82,7 +82,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
         claims = {"sub": "user_123", "public_metadata": {"role": "admin"}}
         request = request_with_authorization("Bearer valid-token")
 
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "clerk"}, clear=True), patch(
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch(
             "apps.api.auth.verify_clerk_bearer_token", return_value=claims
         ) as verify_token:
             context = await optional_user_context(request)
@@ -96,7 +96,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(claims, dict(context.claims))
 
     async def test_required_context_rejects_anonymous_clerk_request(self) -> None:
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "clerk"}, clear=True):
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True):
             with self.assertRaises(HTTPException) as raised:
                 await require_user_context(request_with_authorization())
 
@@ -104,7 +104,7 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_admin_context_rejects_non_admin_clerk_user(self) -> None:
         request = request_with_authorization("Bearer valid-token")
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "clerk"}, clear=True), patch(
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch(
             "apps.api.auth.verify_clerk_bearer_token", return_value={"sub": "user_123"}
         ):
             with self.assertRaises(HTTPException) as raised:
@@ -114,13 +114,13 @@ class UserContextTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_legacy_clerk_dependencies_keep_their_return_shapes(self) -> None:
         local_request = request_with_authorization("Bearer ignored")
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "local"}, clear=True):
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=True):
             self.assertIsNone(await optional_deployed_clerk_auth(local_request))
             self.assertIsNone(await require_deployed_clerk_auth(local_request))
 
         clerk_request = request_with_authorization("Bearer valid-token")
         claims = {"sub": "user_123"}
-        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "clerk"}, clear=True), patch(
+        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "clerk"}, clear=True), patch(
             "apps.api.auth.verify_clerk_bearer_token", return_value=claims
         ):
             self.assertEqual(claims, await optional_deployed_clerk_auth(clerk_request))

@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from apps.api.auth import UserContext, require_admin_user_context
 from apps.api.project_deletion import sanitize_project_for_contribution
-from forma_core.database import list_model_training_projects_for_export
+from blueprint_core.database import list_model_training_projects_for_export
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin", tags=["admin-contribution-exports"])

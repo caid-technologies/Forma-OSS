@@ -15,7 +15,7 @@ from sync_project_objects import (
     save_summary,
     utc_run_id,
 )
-from forma_core.config import config
+from blueprint_core.config import config
 
 
 PROMPT = (

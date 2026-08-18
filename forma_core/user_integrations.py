@@ -1450,21 +1450,57 @@ def _original_environment_value(env_names: Iterable[str]) -> Optional[str]:
     return None
 
 
-def _environment_configures_integration(definition: IntegrationDefinition) -> bool:
-    configured_fields = [
-        field_definition
-        for field_definition in definition.fields
-        if _original_environment_value(field_definition.env_names)
-    ]
+def _disabled_flag(value: Optional[str]) -> bool:
+    return (value or "").strip().lower() in {"0", "false", "no", "off"}
+
+
+def _values_configure_integration(
+    definition: IntegrationDefinition,
+    values: dict[str, str],
+    *,
+    enabled: bool = True,
+    runtime_provider: Optional[str] = None,
+    generic_key: Optional[str] = None,
+) -> bool:
+    if not values:
+        return False
+    if definition.id == "image":
+        if not enabled or _disabled_flag(values.get("enabled")):
+            return False
+        return bool(values.get("api_key"))
     if definition.id not in LLM_PROVIDER_INTEGRATION_IDS:
-        return bool(configured_fields)
-    if definition.id == "vertex":
-        return any(field_definition.id == "project" for field_definition in configured_fields)
-    if any(field_definition.secret for field_definition in configured_fields):
         return True
-    runtime_provider = _normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or "")
-    generic_key = _ORIGINAL_ENV_VALUES.get("LLM_API_KEY")
-    return runtime_provider == definition.id and bool(generic_key and generic_key.strip())
+    if definition.id == "vertex":
+        return "project" in values
+    secret_ids = {field.id for field in definition.fields if field.secret}
+    if any(field_id in values for field_id in secret_ids):
+        return True
+    return runtime_provider == definition.id and bool((generic_key or "").strip())
+
+
+def _environment_configures_integration(definition: IntegrationDefinition) -> bool:
+    values = {
+        field.id: value
+        for field in definition.fields
+        if (value := (_original_environment_value(field.env_names) or "").strip())
+    }
+    return _values_configure_integration(
+        definition,
+        values,
+        runtime_provider=_normalize_provider_id(_ORIGINAL_ENV_VALUES.get("LLM_PROVIDER") or ""),
+        generic_key=_ORIGINAL_ENV_VALUES.get("LLM_API_KEY"),
+    )
+
+
+def _store_configures_integration(definition: IntegrationDefinition, stored: Optional[StoredIntegration]) -> bool:
+    if not stored:
+        return False
+    values = {
+        field.id: value
+        for field in definition.fields
+        if (value := (stored.field_value(field.id) or "").strip())
+    }
+    return _values_configure_integration(definition, values, enabled=bool(stored.enabled))
 
 
 def _normalize_provider_id(value: str) -> Optional[str]:
@@ -1738,10 +1774,7 @@ def integration_status_payload(store: Optional[UserIntegrationStore] = None) -> 
             for field_definition in definition.fields
         ]
         enabled = stored.enabled if stored else True
-        saved_configured = bool(
-            stored
-            and any(stored.field_value(field_definition.id) for field_definition in definition.fields)
-        )
+        saved_configured = _store_configures_integration(definition, stored)
         configured = environment_configured or saved_configured
         policy = _active_hosted_byok_policy(definition.id) if hosted_user_store else None
         integrations.append(

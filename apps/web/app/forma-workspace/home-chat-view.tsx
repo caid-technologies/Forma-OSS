@@ -116,6 +116,7 @@ export default function HomeChatView({
     .reverse()
     .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
   const retryMode = canRetryFailedBuild && !hasGenerationInput && !generationActive;
+  const promptRunning = isLoading || generationActive;
   const primaryActionLabel = generationActive
     ? "Stop generation"
     : retryMode
@@ -134,10 +135,10 @@ export default function HomeChatView({
     >
       {!started && (
         <div className="shrink-0">
-          <h1 className="text-2xl font-semibold leading-tight text-white sm:mt-1 sm:text-4xl sm:leading-tight">
+          <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 sm:mt-1 sm:text-3xl">
             Turn an idea into a hardware plan.
           </h1>
-          <p className="mx-auto mt-2 max-w-2xl text-xs leading-5 text-slate-400 sm:mt-3 sm:text-sm sm:leading-6">
+          <p className="mx-auto mt-1.5 max-w-xl text-xs leading-relaxed text-zinc-400 sm:text-sm">
             Upload a photo, sketch, or short description. Get parts, wiring, cost, and build steps.
           </p>
         </div>
@@ -147,8 +148,8 @@ export default function HomeChatView({
         className={`${
           started
             ? "mt-0 flex-1 overflow-hidden"
-            : "mt-4 flex-1 overflow-hidden sm:mt-5 md:mx-auto md:w-full md:max-w-5xl md:flex-none md:overflow-visible md:border"
-        } flex min-h-0 flex-col border-y border-[#2c2f37] bg-[#111216] text-left shadow-2xl shadow-black/30`}
+            : "mt-4 flex-1 overflow-hidden sm:mt-5 md:mx-auto md:w-full md:max-w-2xl md:flex-none md:overflow-visible"
+        } flex min-h-0 flex-col text-left`}
       >
         {started && (
           <div
@@ -166,14 +167,14 @@ export default function HomeChatView({
                     : message.status === "cancelled"
                       ? "border-amber-300/35 bg-amber-950/20 text-amber-50"
                       : isUser
-                        ? "border-cyan-300/45 bg-cyan-300/10 text-white"
-                        : "border-[#30333d] bg-[#17181d] text-slate-100";
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
+                        : "border-white/5 bg-[#181b22] text-zinc-100";
               return (
                 <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
-                  <div className={`min-w-0 max-w-[92%] overflow-hidden border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
-                    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">
+                  <div className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
+                    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-medium text-zinc-500">
                       {message.status === "loading" ? (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-300" />
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
                       ) : message.status === "success" ? (
                         <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
                       ) : message.status === "error" ? (
@@ -181,12 +182,12 @@ export default function HomeChatView({
                       ) : message.status === "cancelled" ? (
                         <Square className="h-3.5 w-3.5 fill-current text-amber-300" />
                       ) : isUser ? (
-                        <ArrowRight className="h-3.5 w-3.5 text-cyan-300" />
+                        <ArrowRight className="h-3.5 w-3.5 text-emerald-400" />
                       ) : (
-                        <Cpu className="h-3.5 w-3.5 text-slate-400" />
+                        <Cpu className="h-3.5 w-3.5 text-zinc-400" />
                       )}
                       <span>{isUser ? "You" : "Forma"}</span>
-                      <span className="text-slate-700">/</span>
+                      <span className="text-zinc-700">·</span>
                       <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
                       <CopyButton
                         value={message.content}
@@ -203,7 +204,7 @@ export default function HomeChatView({
                             type="button"
                             onClick={() => onSelectContextSuggestion(suggestion)}
                             disabled={isLoading}
-                            className="flex min-h-12 items-center gap-2 border border-[#3a3e48] bg-[#111216] px-3 py-2 text-left text-xs font-black uppercase tracking-[0.08em] text-slate-200 transition hover:border-cyan-300 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                            className="flex min-h-12 items-center gap-2 rounded-lg border border-white/10 bg-[#0f1117] px-3 py-2 text-left text-xs font-medium text-zinc-300 transition-colors hover:border-emerald-500/30 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <ArrowRight className="h-3.5 w-3.5 shrink-0" />
                             <span className="break-words">{suggestion}</span>
@@ -216,7 +217,7 @@ export default function HomeChatView({
                         type="button"
                         onClick={onBuildNow}
                         disabled={buildNowLoading || isLoading}
-                        className="mt-3 inline-flex h-9 items-center justify-center gap-2 border border-cyan-300/40 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-50"
+                        className="mt-3 inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         {buildNowLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
                         Build now
@@ -226,7 +227,7 @@ export default function HomeChatView({
                       <img
                         src={message.imagePreview}
                         alt="Hardware reference thumbnail"
-                        className="mt-3 h-24 w-36 border border-cyan-300/25 object-cover"
+                        className="mt-3 h-24 w-36 rounded-lg border border-white/10 object-cover"
                       />
                     )}
                     {!message.projectId && renderPipelineProgress(message)}
@@ -240,16 +241,22 @@ export default function HomeChatView({
         )}
 
         {!started && (
-          <div className="mt-auto shrink-0 bg-[#111216] px-3 py-3 sm:border-t sm:border-[#2c2f37] sm:px-4 md:mt-0">
-            <div className="flex snap-x gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+          <div className="mt-auto shrink-0 px-3 py-3 sm:px-4 md:order-2 md:mt-4 md:px-0 md:py-0">
+            <div className="flex snap-x gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
               {examples.map((example) => (
                 <button
                   key={example}
                   type="button"
                   onClick={() => onSelectExample(example)}
-                  className="min-w-[260px] snap-start border border-[#2c2f37] bg-[#17181d] px-3 py-2 text-left text-[11px] leading-5 text-slate-400 hover:border-slate-500 hover:text-white sm:min-w-0"
+                  className="group relative flex min-w-[240px] snap-start cursor-pointer flex-col justify-between rounded-xl border border-white/5 bg-[#181b22]/70 p-3.5 text-left transition-all hover:border-emerald-500/30 hover:bg-[#181b22] sm:min-w-0"
                 >
-                  {example}
+                  <span className="line-clamp-3 text-xs font-medium leading-snug text-zinc-300 transition-colors group-hover:text-zinc-100">
+                    {example}
+                  </span>
+                  <span className="mt-2 flex items-center gap-1 text-[10px] text-zinc-500 transition-colors group-hover:text-emerald-400">
+                    <ArrowRight className="h-3 w-3" />
+                    Use prompt
+                  </span>
                 </button>
               ))}
             </div>
@@ -258,30 +265,37 @@ export default function HomeChatView({
 
         <form
           onSubmit={onSubmit}
-          className={`${started ? "md:sticky md:bottom-0" : "md:static"} fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain border-y border-[#2c2f37] bg-[#141519]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:border-b-0 md:pb-4`}
+          className={`${
+            started
+              ? "md:sticky md:bottom-0 md:bg-transparent md:pb-4"
+              : "md:static md:order-1 md:bg-transparent md:p-0"
+          } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
         >
           {(needsGenerationProvider || needsImageProvider) && (
-            <section className="mb-3 border border-cyan-300/30 bg-cyan-300/5 p-3 text-left sm:p-4" aria-label="Bring your own key setup">
+            <section className="mb-3 rounded-xl border border-white/5 bg-[#181b22] p-3 text-left sm:p-4" aria-label="Bring your own key setup">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.16em] text-cyan-100">
-                    <KeyRound className="h-4 w-4 text-cyan-300" />
-                    Bring your own key (BYOK)
+                  <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400">
+                    <KeyRound className="h-4 w-4" />
+                    Bring your own key
                   </div>
-                  <p className="mt-1 text-xs leading-5 text-slate-400">
+                  <p className="mt-1 text-xs leading-5 text-zinc-400">
                     Provider credentials are configured per account and are not taken from the public frontend environment.
                   </p>
                 </div>
-                <Link href="/settings" className="inline-flex h-9 shrink-0 items-center gap-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-slate-200">
+                <Link
+                  href="/settings"
+                  className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-emerald-400"
+                >
                   <Settings className="h-3.5 w-3.5" />
-                  Open Settings
+                  Open settings
                 </Link>
               </div>
               <div className={`mt-3 grid gap-2 ${needsGenerationProvider && needsImageProvider ? "md:grid-cols-2" : ""}`}>
                 {needsGenerationProvider && (
-                  <div className="border border-[#2c2f37] bg-[#111216] p-3">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-white">LLM provider required</div>
-                    <ol className="mt-2 space-y-1 text-xs leading-5 text-slate-400">
+                  <div className="rounded-lg border border-white/5 bg-[#0f1117] p-3">
+                    <div className="text-xs font-medium text-zinc-100">LLM provider required</div>
+                    <ol className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">
                       <li>1. Open Settings and choose a model provider.</li>
                       <li>2. Enter its scoped API key and model.</li>
                       <li>3. Turn Enabled on, save, then return here.</li>
@@ -289,9 +303,9 @@ export default function HomeChatView({
                   </div>
                 )}
                 {needsImageProvider && (
-                  <div className="border border-[#2c2f37] bg-[#111216] p-3">
-                    <div className="text-[10px] font-black uppercase tracking-widest text-white">Image provider required</div>
-                    <ol className="mt-2 space-y-1 text-xs leading-5 text-slate-400">
+                  <div className="rounded-lg border border-white/5 bg-[#0f1117] p-3">
+                    <div className="text-xs font-medium text-zinc-100">Image provider required</div>
+                    <ol className="mt-2 space-y-1 text-xs leading-5 text-zinc-400">
                       <li>1. Open Settings and select Image Generation.</li>
                       <li>2. Choose a provider and add its scoped key, model, and required confirmation.</li>
                       <li>3. Enable and save it before returning to your build.</li>
@@ -303,26 +317,35 @@ export default function HomeChatView({
           )}
 
           {selectedImage && (
-            <div className="mb-3 flex items-center gap-3 border border-[#2c2f37] bg-black/30 p-2">
-              <img src={selectedImage} alt="Attached reference" className="h-16 w-24 object-cover" />
+            <div className="mb-3 flex items-center gap-3 rounded-xl border border-white/5 bg-[#181b22] p-2">
+              <img src={selectedImage} alt="Attached reference" className="h-16 w-24 rounded-lg object-cover" />
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-white">Image attached</div>
-                <div className="mt-1 text-[11px] text-slate-500">Forma will use this image with your next message.</div>
+                <div className="text-xs font-semibold text-zinc-100">Image attached</div>
+                <div className="mt-1 text-[11px] text-zinc-500">Forma will use this image with your next message.</div>
               </div>
-              <button type="button" onClick={onRemoveImage} className="p-2 text-slate-500 hover:text-white" aria-label="Remove image">
+              <button
+                type="button"
+                onClick={onRemoveImage}
+                className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-800/40 hover:text-zinc-200"
+                aria-label="Remove image"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
           )}
 
           {notice && (
-            <div id="generation-input-notice" role="status" className="mb-3 flex items-start gap-2 border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
+            <div id="generation-input-notice" role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
               <span className="break-anywhere min-w-0 flex-1">{notice}</span>
             </div>
           )}
 
-          <div className="relative">
+          <div
+            className={`prompt-composer w-full rounded-2xl bg-[#181b22] p-3 ${
+              promptRunning ? "prompt-composer-illuminate" : "prompt-composer-idle"
+            }`}
+          >
             <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
             <textarea
               value={prompt}
@@ -342,35 +365,38 @@ export default function HomeChatView({
               placeholder="Describe the product, constraints, references, and outputs you need…"
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
-              className="min-h-[98px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] py-3 pl-14 pr-14 text-sm leading-6 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300 sm:min-h-[104px] sm:py-4 sm:pl-16 sm:pr-16 sm:leading-7"
+              className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[88px] sm:leading-7"
             />
-            <button
-              type="button"
-              onClick={() => imageInputRef.current?.click()}
-              className="absolute bottom-3 left-3 inline-flex h-9 w-9 items-center justify-center border border-[#2c2f37] text-slate-400 transition hover:bg-white hover:text-black sm:bottom-4 sm:left-4 sm:h-10 sm:w-10"
-              aria-label="Attach image"
-              title="Attach an image or paste one from your clipboard"
-            >
-              <Paperclip className="h-4 w-4" />
-            </button>
-            <button
-              type={generationActive || retryMode ? "button" : "submit"}
-              onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
-              disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
-              className="absolute bottom-3 right-3 inline-flex h-9 w-9 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40 sm:bottom-4 sm:right-4 sm:h-10 sm:w-10"
-              aria-label={primaryActionLabel}
-              title={primaryActionLabel}
-            >
-              {generationActive ? (
-                <Square className="h-4 w-4 fill-current" />
-              ) : retryMode ? (
-                <RefreshCw className={`h-4 w-4 ${retryingFailedBuild ? "animate-spin" : ""}`} />
-              ) : isLoading ? (
-                <RefreshCw className="h-4 w-4 animate-spin" />
-              ) : (
-                <ArrowRight className="h-4 w-4" />
-              )}
-            </button>
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => imageInputRef.current?.click()}
+                className="flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+                aria-label="Attach image"
+                title="Attach an image or paste one from your clipboard"
+              >
+                <Paperclip className="h-3.5 w-3.5" />
+                <span>Attach</span>
+              </button>
+              <button
+                type={generationActive || retryMode ? "button" : "submit"}
+                onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
+                disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-zinc-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-30"
+                aria-label={primaryActionLabel}
+                title={primaryActionLabel}
+              >
+                {generationActive ? (
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                ) : retryMode ? (
+                  <RefreshCw className={`h-3.5 w-3.5 ${retryingFailedBuild ? "animate-spin" : ""}`} />
+                ) : isLoading ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <ArrowRight className="h-3.5 w-3.5" />
+                )}
+              </button>
+            </div>
           </div>
 
         </form>

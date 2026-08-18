@@ -5,7 +5,6 @@ import {
   ArrowLeft,
   ArrowRight,
   Clock3,
-  Cpu,
   MessageSquare,
   Search,
   Star,
@@ -289,16 +288,11 @@ export function ProjectGallery({
   };
 
   return (
-    <section ref={sectionRef} id="all-projects" className={standalone ? "" : "mt-16 border-t border-[#292b31] pt-12"}>
+    <section ref={sectionRef} id="all-projects" className={standalone ? "" : "mt-16 border-t border-white/5 pt-12"}>
       <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center border border-[#2c2f37] bg-black text-white">
-              <Cpu className="h-4 w-4" />
-            </span>
-            <h2 className="text-2xl font-black uppercase tracking-[0.22em] text-white">{title}</h2>
-          </div>
-          <p className="mt-4 text-sm leading-6 text-slate-500">
+          <h2 className="sr-only">{title}</h2>
+          <p className="text-sm leading-6 text-zinc-500">
             {loading
               ? hasSearch ? "Searching projects..." : "Loading projects..."
               : hasSearch ? `${total} matching projects.` : `${total} saved projects.`}
@@ -307,19 +301,19 @@ export function ProjectGallery({
         {searchable && (
           <label className="relative block w-full sm:max-w-sm">
             <span className="sr-only">Search community projects</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
             <input
               type="search"
               value={searchValue}
               onChange={(event) => onSearchValueChange?.(event.target.value)}
               placeholder="Search projects"
-              className="h-11 w-full border border-[#2c2f37] bg-[#17181d] pl-10 pr-10 text-sm text-white outline-none transition placeholder:text-slate-600 focus:border-cyan-300"
+              className="h-9 w-full rounded-lg border border-white/5 bg-[#181b22] pl-10 pr-10 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-emerald-500"
             />
             {hasSearch && (
               <button
                 type="button"
                 onClick={() => onSearchValueChange?.("")}
-                className="absolute right-1 top-1/2 inline-flex h-9 w-9 -translate-y-1/2 items-center justify-center text-slate-500 transition hover:text-white"
+                className="absolute right-0.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:text-zinc-100"
                 aria-label="Clear project search"
               >
                 <X className="h-4 w-4" />
@@ -345,28 +339,28 @@ export function ProjectGallery({
           </div>
 
           {pageCount > 1 && (
-            <div className="mt-5 flex flex-col gap-3 border border-[#2c2f37] bg-[#17181d] p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+            <div className="mt-5 flex flex-col gap-3 rounded-xl border border-white/5 bg-[#181b22] p-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs font-medium text-zinc-500">
                 Showing {showingStart}-{showingEnd} of {total}
               </div>
 
-              <div className="grid grid-cols-[44px_minmax(0,1fr)_44px] gap-2 sm:flex sm:items-center">
+              <div className="grid grid-cols-[40px_minmax(0,1fr)_40px] gap-2 sm:flex sm:items-center">
                 <button
                   type="button"
                   onClick={() => goToPage(safePage - 1)}
                   disabled={safePage === 0}
-                  className="inline-flex h-10 w-11 items-center justify-center border border-[#2a2c33] text-white transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
+                  className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-white/10 text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                   aria-label="Previous projects page"
                 >
                   <ArrowLeft className="h-4 w-4" />
                 </button>
 
-                <div className="hidden items-center gap-2 sm:flex">
+                <div className="hidden items-center gap-1.5 sm:flex">
                   {pageMarkers.map((marker, index) => (
                     marker === "gap" ? (
                       <span
                         key={`gap-${index}`}
-                        className="flex h-10 min-w-7 items-center justify-center text-xs font-black text-slate-600"
+                        className="flex h-8 min-w-6 items-center justify-center text-xs font-medium text-zinc-600"
                       >
                         ...
                       </span>
@@ -376,10 +370,10 @@ export function ProjectGallery({
                         type="button"
                         onClick={() => goToPage(marker)}
                         aria-current={marker === safePage ? "page" : undefined}
-                        className={`h-10 min-w-10 border px-3 text-xs font-black uppercase transition ${
+                        className={`h-8 min-w-8 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
                           marker === safePage
-                            ? "border-white bg-white text-black"
-                            : "border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black"
+                            ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                            : "border-transparent text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
                         }`}
                       >
                         {marker + 1}
@@ -388,7 +382,7 @@ export function ProjectGallery({
                   ))}
                 </div>
 
-                <div className="flex h-10 items-center justify-center border border-[#2a2c33] text-xs font-black uppercase tracking-[0.14em] text-slate-400 sm:hidden">
+                <div className="flex h-8 items-center justify-center rounded-lg border border-white/10 text-xs font-medium text-zinc-400 sm:hidden">
                   Page {safePage + 1} / {pageCount}
                 </div>
 
@@ -396,7 +390,7 @@ export function ProjectGallery({
                   type="button"
                   onClick={() => goToPage(safePage + 1)}
                   disabled={safePage >= pageCount - 1}
-                  className="inline-flex h-10 w-11 items-center justify-center border border-[#2a2c33] text-white transition hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
+                  className="inline-flex h-8 w-9 items-center justify-center rounded-lg border border-white/10 text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                   aria-label="Next projects page"
                 >
                   <ArrowRight className="h-4 w-4" />
@@ -406,7 +400,7 @@ export function ProjectGallery({
           )}
         </>
       ) : (
-        <div className="border border-[#2c2f37] bg-[#17181d] p-8 text-sm leading-6 text-slate-500">
+        <div className="rounded-xl border border-white/5 bg-[#181b22] p-8 text-sm leading-6 text-zinc-500">
           {hasSearch ? `No projects match “${searchValue?.trim()}”.` : "No saved projects yet."}
         </div>
       )}
@@ -443,24 +437,24 @@ function ProjectGallerySkeleton({ count }: { count: number }) {
       {skeletonItems.map((item) => (
         <div
           key={item}
-          className="overflow-hidden border border-[#2c2f37] bg-[#17181d]"
+          className="overflow-hidden rounded-xl border border-white/5 bg-[#181b22]"
         >
-          <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
+          <div className="aspect-square overflow-hidden border-b border-white/5 bg-[#0f1117] sm:aspect-[4/3]">
             <ProjectImageLoadingPanel />
           </div>
           <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
             <div className="space-y-2">
-              <div className="h-4 w-4/5 animate-pulse bg-[#252832]" />
-              <div className="h-4 w-3/5 animate-pulse bg-[#252832]" />
+              <div className="h-4 w-4/5 animate-pulse rounded bg-[#252832]" />
+              <div className="h-4 w-3/5 animate-pulse rounded bg-[#252832]" />
             </div>
             <div className="flex gap-4">
-              <div className="h-3 w-14 animate-pulse bg-[#252832]" />
-              <div className="h-3 w-10 animate-pulse bg-[#252832]" />
-              <div className="h-3 w-12 animate-pulse bg-[#252832]" />
+              <div className="h-3 w-14 animate-pulse rounded bg-[#252832]" />
+              <div className="h-3 w-10 animate-pulse rounded bg-[#252832]" />
+              <div className="h-3 w-12 animate-pulse rounded bg-[#252832]" />
             </div>
             <div className="flex items-center justify-between gap-3">
-              <div className="h-4 w-24 animate-pulse bg-[#252832]" />
-              <div className="h-9 w-24 animate-pulse border border-cyan-300/20 bg-[#111820]" />
+              <div className="h-4 w-24 animate-pulse rounded bg-[#252832]" />
+              <div className="h-7 w-24 animate-pulse rounded-full bg-[#252832]" />
             </div>
           </div>
         </div>
@@ -472,10 +466,10 @@ function ProjectGallerySkeleton({ count }: { count: number }) {
 function ProjectImageLoadingPanel() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-5 text-center">
-      <div className="h-2 w-28 overflow-hidden bg-[#252832]">
-        <div className="h-full w-full animate-pulse bg-cyan-300/60" />
+      <div className="h-1.5 w-28 overflow-hidden rounded-full bg-[#252832]">
+        <div className="h-full w-full animate-pulse rounded-full bg-emerald-500/60" />
       </div>
-      <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
+      <div className="text-xs font-medium text-zinc-500">
         Loading image
       </div>
     </div>
@@ -503,10 +497,10 @@ function ProjectGalleryCard({
           onOpen();
         }
       }}
-      className="group cursor-pointer overflow-hidden border border-[#2c2f37] bg-[#17181d] outline-none transition hover:border-cyan-300/35 focus-visible:border-cyan-300"
+      className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-[#181b22] outline-none transition-all hover:border-zinc-700/60 focus-visible:border-emerald-500"
       aria-label={`View project ${item.title}`}
     >
-      <div className="aspect-square overflow-hidden border-b border-[#2c2f37] bg-[#0f1014] sm:aspect-[4/3]">
+      <div className="aspect-square overflow-hidden border-b border-white/5 bg-[#0f1117] sm:aspect-[4/3]">
         {item.image ? (
           <img
             src={item.image.src}
@@ -516,17 +510,17 @@ function ProjectGalleryCard({
         ) : item.imageLoading ? (
           <ProjectImageLoadingPanel />
         ) : (
-          <div className="flex h-full items-center justify-center text-xs font-black uppercase tracking-[0.18em] text-slate-600">
+          <div className="flex h-full items-center justify-center text-xs font-medium text-zinc-600">
             No image
           </div>
         )}
       </div>
 
       <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
-        <h3 className="line-clamp-2 min-h-10 break-words text-sm font-black uppercase leading-5 tracking-[0.08em] text-white">
+        <h3 className="line-clamp-2 min-h-10 break-words text-sm font-medium leading-5 text-zinc-100">
           {item.title}
         </h3>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-sm font-bold text-slate-500">
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2 text-xs font-medium text-zinc-500">
           <span className="whitespace-nowrap">{item.partsCount} parts</span>
           <span className="inline-flex items-center gap-1 whitespace-nowrap text-amber-300">
             <Star className="h-3.5 w-3.5 fill-current" />
@@ -540,15 +534,15 @@ function ProjectGalleryCard({
           )}
         </div>
         <div className="flex min-w-0 items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2 text-sm font-bold text-slate-500">
+          <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-zinc-500">
             {item.creatorImageUrl ? (
               <img
                 src={item.creatorImageUrl}
                 alt=""
-                className="h-5 w-5 shrink-0 border border-[#2c2f37] object-cover"
+                className="h-5 w-5 shrink-0 rounded-full border border-white/10 object-cover"
               />
             ) : (
-              <span className="h-3.5 w-3.5 shrink-0 border border-emerald-300 bg-emerald-400 shadow-[inset_6px_0_0_#f472b6]" />
+              <span className="h-3.5 w-3.5 shrink-0 rounded-full bg-emerald-400 shadow-[inset_6px_0_0_#f472b6]" />
             )}
             <span className="truncate">{item.creatorDisplay}</span>
           </div>
@@ -561,15 +555,15 @@ function ProjectGalleryCard({
                   onDelete();
                 }}
                 onKeyDown={(event) => event.stopPropagation()}
-                className="inline-flex h-9 w-9 items-center justify-center border border-red-400/35 text-red-200 transition hover:bg-red-400 hover:text-black"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-red-400/35 text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
                 aria-label={`Delete ${item.title}`}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
             )}
             {item.canChat && (
-              <span className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition group-hover:bg-cyan-300 group-hover:text-black">
-                <MessageSquare className="h-4 w-4 shrink-0" />
+              <span className="inline-flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400 transition-colors">
+                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">Your project</span>
               </span>
             )}

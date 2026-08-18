@@ -49,7 +49,7 @@ function ApiConnectionStatus({ status }: { status: ServerConnectionStatus }) {
       aria-label={accessibleLabel}
       title={accessibleLabel}
     >
-      <span className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${presentation.dotClassName}`} aria-hidden="true" />
+      <span className={`inline-flex h-2 w-2 shrink-0 rounded-full ${presentation.dotClassName}`} aria-hidden="true" />
     </span>
   );
 }
@@ -62,9 +62,8 @@ export function MobileWorkspaceBar({
   authRequired: boolean;
 }) {
   return (
-    <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center gap-3 border-b border-[#292b31] bg-[#141519] px-3 md:hidden">
+    <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 bg-[#0f1117]/80 px-4 backdrop-blur-md md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
-      <div className="min-w-0 flex-1" />
       <AuthStatusControl authRequired={authRequired} compact />
     </header>
   );
@@ -86,8 +85,8 @@ export function AuthStatusControl({
       type="button"
       disabled={!isLoaded}
       onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" })}
-      className={`inline-flex shrink-0 items-center justify-center border border-cyan-300/30 bg-cyan-300/10 font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent disabled:hover:text-slate-600 ${
-        compact ? "h-8 w-8" : "h-7 gap-1.5 px-2 text-[10px]"
+      className={`inline-flex shrink-0 items-center justify-center rounded-lg border border-white/10 font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 disabled:cursor-wait disabled:text-zinc-600 disabled:hover:bg-transparent ${
+        compact ? "h-8 w-8" : "h-8 gap-1.5 px-2.5 text-xs"
       }`}
       aria-label={isLoaded ? "Sign in" : "Checking sign-in status"}
       title={isLoaded ? "Sign in" : "Checking sign-in status"}
@@ -103,7 +102,7 @@ export function MobileSidebarButton({ onClick }: { onClick: () => void }) {
     <button
       type="button"
       onClick={onClick}
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center border border-[#2c2f37] bg-black text-slate-200 transition hover:bg-white hover:text-black md:hidden"
+      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 md:hidden"
       aria-label="Open sidebar"
       title="Open sidebar"
     >
@@ -155,7 +154,7 @@ export function MobileSidebarDrawer({
     <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Sidebar">
       <button
         type="button"
-        className="absolute inset-0 h-full w-full bg-black/65"
+        className="absolute inset-0 h-full w-full bg-black/60 backdrop-blur-sm"
         onClick={onClose}
         aria-label="Close sidebar"
       />
@@ -182,6 +181,49 @@ export function MobileSidebarDrawer({
         />
       </div>
     </div>
+  );
+}
+
+function SidebarSectionLabel({ compact, children }: { compact: boolean; children: React.ReactNode }) {
+  if (compact) return null;
+  return <div className="px-3 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{children}</div>;
+}
+
+function SidebarAccountDock({ compact }: { compact: boolean }) {
+  const { isSignedIn } = useFormaAuth();
+  return (
+    <div className={`mt-3 flex items-center gap-2.5 border-t border-white/5 pt-3 ${compact ? "justify-center" : "px-3"}`}>
+      <AuthStatusControl authRequired compact={compact || isSignedIn} />
+      {!compact && isSignedIn && <span className="truncate text-xs font-medium text-zinc-500">Account</span>}
+    </div>
+  );
+}
+
+function SidebarNavLink({
+  href,
+  icon: Icon,
+  label,
+  compact,
+  onNavigate,
+}: {
+  href: string;
+  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  compact: boolean;
+  onNavigate?: () => void;
+}) {
+  return (
+    <Link
+      href={href}
+      onClick={onNavigate}
+      className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800/40 hover:text-zinc-200 ${
+        compact ? "justify-center px-0" : ""
+      }`}
+      title={label}
+    >
+      <Icon className="h-4 w-4 shrink-0" />
+      {!compact && <span className="truncate">{label}</span>}
+    </Link>
   );
 }
 
@@ -231,35 +273,34 @@ export function ChatSidebar({
     <aside
       className={
         isDrawer
-          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col border-r border-[#292b31] bg-[#141519] text-slate-100 shadow-2xl shadow-black/50"
-          : "hidden h-full min-h-0 flex-col border-r border-[#292b31] bg-[#141519] text-slate-100 md:flex"
+          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col overflow-hidden rounded-r-2xl border-r border-white/5 bg-[#181b22] text-zinc-100 shadow-2xl shadow-black/50"
+          : "hidden h-full min-h-0 flex-col border-r border-white/5 bg-[#181b22] text-zinc-100 md:flex"
       }
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className={`flex shrink-0 items-center border-b border-[#292b31] ${compact ? "h-20 flex-col justify-center gap-2 px-0" : "h-16 gap-3 px-4"}`}>
+        <div className={`flex shrink-0 items-center ${compact ? "h-auto flex-col justify-center gap-2 px-0 py-3" : "h-14 gap-2 px-3"}`}>
           <button
             type="button"
             onClick={() => {
               onHome();
               onNavigate?.();
             }}
-            className="inline-flex h-9 w-11 shrink-0 items-center justify-center bg-transparent text-slate-200 transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
+            className="inline-flex h-9 w-11 shrink-0 items-center justify-center rounded-lg text-zinc-200 transition-opacity hover:opacity-80 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-emerald-500"
             aria-label="Home"
             title="Home"
           >
             <CaidLogo className="h-5 w-9" sizes="36px" />
           </button>
           {!compact && (
-            <div className="min-w-0 flex items-center gap-2">
-              <span className="truncate text-sm font-black uppercase tracking-[0.22em] text-white">Forma</span>
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-semibold tracking-tight text-zinc-100">Forma</span>
               <ApiConnectionStatus status={serverStatus} />
-              <AuthStatusControl authRequired={authRequired} />
             </div>
           )}
           <button
             type="button"
             onClick={isDrawer ? onClose : onToggle}
-            className={`${compact ? "h-7 w-7" : "ml-auto h-8 w-8"} inline-flex shrink-0 items-center justify-center border border-transparent text-slate-500 transition hover:border-[#2c2f37] hover:text-cyan-100`}
+            className={`${compact ? "h-8 w-8" : "ml-auto h-8 w-8"} inline-flex shrink-0 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:bg-zinc-800/40 hover:text-zinc-200`}
             aria-label={isDrawer ? "Close sidebar" : compact ? "Expand chat sidebar" : "Collapse chat sidebar"}
             title={isDrawer ? "Close sidebar" : compact ? "Expand sidebar" : "Collapse sidebar"}
           >
@@ -267,7 +308,7 @@ export function ChatSidebar({
           </button>
         </div>
 
-        <div className={compact ? "px-3 py-3" : "px-4 py-4"}>
+        <div className="px-3 pb-2 pt-1">
           <button
             type="button"
             onClick={() => {
@@ -275,37 +316,35 @@ export function ChatSidebar({
               if (!newChatDisabled) onNavigate?.();
             }}
             disabled={newChatDisabled}
-            className={`group flex h-11 w-full items-center border text-sm font-semibold ${
+            className={`flex h-9 w-full items-center justify-center gap-2 rounded-lg text-xs font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-500 ${
               newChatDisabled
-                ? "cursor-not-allowed border-[#242832] bg-[#101116] text-slate-600"
-                : "border-[#2c2f37] bg-[#17181d] text-white hover:bg-white hover:text-black"
-            } ${
-              compact ? "justify-center px-0" : "gap-3 px-3"
-            }`}
+                ? "cursor-not-allowed bg-zinc-800/40 text-zinc-600"
+                : "bg-emerald-500 text-zinc-950 shadow-sm hover:bg-emerald-400"
+            } ${compact ? "px-0" : "px-3"}`}
             aria-label="New chat"
             title={newChatDisabled ? "Send a message before starting another chat" : "New chat"}
           >
-            <Plus className={`h-5 w-5 shrink-0 ${newChatDisabled ? "text-slate-700" : "text-slate-500 group-hover:text-black"}`} />
+            <Plus className="h-4 w-4 shrink-0" />
             {!compact && <span className="truncate">New chat</span>}
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-          {!compact && <div className="mb-2 mt-1 text-sm text-slate-500">Chats</div>}
-          <div className="space-y-1">
+        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
+          <SidebarSectionLabel compact={compact}>Chats</SidebarSectionLabel>
+          <div className="space-y-0.5">
             {chatsLoading ? (
               Array.from({ length: compact ? 5 : 7 }, (_, index) => (
                 <div
                   key={`chat-skeleton-${index}`}
-                  className={`flex h-10 animate-pulse items-center gap-3 px-2 ${compact ? "justify-center" : ""}`}
+                  className={`flex h-9 animate-pulse items-center gap-3 px-3 ${compact ? "justify-center" : ""}`}
                   aria-hidden="true"
                 >
                   {compact ? (
-                    <span className="h-5 w-5 bg-[#242832]" />
+                    <span className="h-4 w-4 rounded bg-zinc-800/80" />
                   ) : (
                     <>
-                      <span className="h-3 flex-1 bg-[#242832]" />
-                      <span className="h-3 w-10 bg-[#20242d]" />
+                      <span className="h-2.5 flex-1 rounded bg-zinc-800/80" />
+                      <span className="h-2.5 w-9 rounded bg-zinc-800/60" />
                     </>
                   )}
                 </div>
@@ -323,120 +362,70 @@ export function ChatSidebar({
                       onOpenChat(chat);
                       onNavigate?.();
                     }}
-                    className={`flex w-full min-w-0 items-center gap-3 px-2 py-2 text-left text-sm transition ${
-                      active ? "border border-cyan-300/25 bg-cyan-300/10 text-cyan-100" : "border border-transparent text-slate-100 hover:bg-[#17181d]"
-                    } ${compact ? "justify-center" : ""}`}
+                    className={`flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors ${
+                      active
+                        ? "bg-emerald-500/10 text-emerald-400"
+                        : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
+                    } ${compact ? "justify-center px-0" : ""}`}
                     title={waiting ? `${chat.title} is waiting` : chat.title}
                     aria-label={`Open chat ${chat.title}${waiting ? " (waiting)" : ""}`}
                   >
                     {compact ? (
                       waiting ? (
-                        <RefreshCw className={`h-5 w-5 animate-spin ${active ? "text-cyan-300" : "text-slate-500"}`} />
+                        <RefreshCw className={`h-4 w-4 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
                       ) : (
-                        <MessageSquare className={`h-5 w-5 ${active ? "text-cyan-300" : "text-slate-500"}`} />
+                        <MessageSquare className={`h-4 w-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
                       )
                     ) : (
                       <>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate font-semibold">{chat.title}</div>
+                          <div className="truncate">{chat.title}</div>
                           {chat.projectCount > 1 && (
-                            <div className="mt-0.5 text-[11px] text-slate-600">{chat.projectCount} projects</div>
+                            <div className="mt-0.5 text-[10px] text-zinc-600">{chat.projectCount} projects</div>
                           )}
                         </div>
                         {waiting && (
-                          <RefreshCw className={`h-4 w-4 shrink-0 animate-spin ${active ? "text-cyan-300" : "text-slate-500"}`} />
+                          <RefreshCw className={`h-3.5 w-3.5 shrink-0 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
                         )}
-                        {dateLabel && <div className="shrink-0 text-xs text-slate-500">{dateLabel}</div>}
+                        {dateLabel && <div className="shrink-0 text-[10px] text-zinc-600">{dateLabel}</div>}
                       </>
                     )}
                   </button>
                 );
               })
             ) : (
-              !compact && <div className="px-2 py-2 text-xs leading-5 text-slate-500">No saved chats yet.</div>
+              !compact && <div className="px-3 py-2 text-xs leading-5 text-zinc-500">No saved chats yet.</div>
             )}
           </div>
         </div>
       </div>
 
-      <div className="border-t border-[#292b31] px-4 py-5">
-        {!compact && <div className="mb-3 text-sm text-slate-500">Workspace</div>}
-        <div className="space-y-1">
-          <Link
-            href="/my-projects"
-            onClick={onNavigate}
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="My projects"
-          >
-            <Database className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">My projects</span>}
-          </Link>
-          <Link
-            href="/projects"
-            onClick={onNavigate}
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="Community"
-          >
-            <Layers className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">Community</span>}
-          </Link>
+      <div className="border-t border-white/5 px-3 py-3">
+        <SidebarSectionLabel compact={compact}>Workspace</SidebarSectionLabel>
+        <div className="space-y-0.5">
+          <SidebarNavLink href="/my-projects" icon={Database} label="My projects" compact={compact} onNavigate={onNavigate} />
+          <SidebarNavLink href="/projects" icon={Layers} label="Community" compact={compact} onNavigate={onNavigate} />
           {showJobs ? (
-            <Link
-              href="/jobs"
-              onClick={onNavigate}
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-              title="Jobs"
-            >
-              <History className="h-5 w-5 text-slate-500" />
-              {!compact && <span className="truncate">Jobs</span>}
-            </Link>
+            <SidebarNavLink href="/jobs" icon={History} label="Jobs" compact={compact} onNavigate={onNavigate} />
           ) : jobsPending ? (
-            <div className={`flex h-10 animate-pulse items-center gap-3 px-2 ${compact ? "justify-center" : ""}`} aria-hidden="true">
-              <span className="h-5 w-5 bg-[#242832]" />
-              {!compact && <span className="h-3 w-16 bg-[#242832]" />}
+            <div className={`flex h-8 animate-pulse items-center gap-2.5 px-3 ${compact ? "justify-center px-0" : ""}`} aria-hidden="true">
+              <span className="h-4 w-4 rounded bg-zinc-800/80" />
+              {!compact && <span className="h-2.5 w-14 rounded bg-zinc-800/80" />}
             </div>
           ) : null}
           {showDeveloperTools && (
-            <Link
-              href="/backend-logs"
-              onClick={onNavigate}
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-              title="Backend logs"
-            >
-              <Terminal className="h-5 w-5 text-slate-500" />
-              {!compact && <span className="truncate">Backend logs</span>}
-            </Link>
+            <SidebarNavLink href="/backend-logs" icon={Terminal} label="Backend logs" compact={compact} onNavigate={onNavigate} />
           )}
           {showDeveloperTools && (
-            <Link
-              href="/listening-jobs"
-              onClick={onNavigate}
-              className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-              title="Listening jobs"
-            >
-              <Terminal className="h-5 w-5 text-slate-500" />
-              {!compact && <span className="truncate">Listening jobs</span>}
-            </Link>
+            <SidebarNavLink href="/listening-jobs" icon={Terminal} label="Listening jobs" compact={compact} onNavigate={onNavigate} />
           )}
-          <Link
-            href="/settings"
-            onClick={onNavigate}
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="Settings"
-          >
-            <Settings className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">Settings</span>}
-          </Link>
-          <Link
-            href="/about"
-            onClick={onNavigate}
-            className={`flex h-10 items-center gap-3 px-2 text-sm font-semibold text-slate-100 hover:bg-[#17181d] hover:text-white ${compact ? "justify-center" : ""}`}
-            title="About us"
-          >
-            <Handshake className="h-5 w-5 text-slate-500" />
-            {!compact && <span className="truncate">About us</span>}
-          </Link>
         </div>
+        <SidebarSectionLabel compact={compact}>General</SidebarSectionLabel>
+        <div className={`space-y-0.5 ${compact ? "mt-1" : ""}`}>
+          <SidebarNavLink href="/settings" icon={Settings} label="Settings" compact={compact} onNavigate={onNavigate} />
+          <SidebarNavLink href="/about" icon={Handshake} label="About us" compact={compact} onNavigate={onNavigate} />
+        </div>
+        {authRequired && <SidebarAccountDock compact={compact} />}
       </div>
     </aside>
   );

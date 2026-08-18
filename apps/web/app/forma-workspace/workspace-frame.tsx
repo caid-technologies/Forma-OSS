@@ -19,14 +19,14 @@ export default function WorkspaceFrame({
     <div
       className={
         homeMobileTopPadding
-          ? "h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-100"
-          : "h-[100dvh] w-full overflow-hidden bg-[#141519] text-slate-200"
+          ? "h-[100dvh] w-full overflow-hidden bg-[#0f1117] font-sans text-zinc-100"
+          : "h-[100dvh] w-full overflow-hidden bg-[#0f1117] font-sans text-zinc-200"
       }
     >
       {mobileSidebar}
       <div
         className={`grid h-full min-h-0 min-w-0 overflow-hidden ${
-          collapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[320px_minmax(0,1fr)]"
+          collapsed ? "md:grid-cols-[72px_minmax(0,1fr)]" : "md:grid-cols-[260px_minmax(0,1fr)]"
         }`}
       >
         {desktopSidebar}

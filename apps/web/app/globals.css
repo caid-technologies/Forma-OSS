@@ -394,6 +394,10 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]/95'] 
   background-color: rgb(var(--forma-chrome-rgb) / 0.95);
 }
 
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1117]/80'] {
+  background-color: rgb(var(--forma-chrome-rgb) / 0.8);
+}
+
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]/90'] {
   background-color: rgb(var(--forma-chrome-rgb) / 0.9);
 }
@@ -408,6 +412,7 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]/85'] 
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#181b22]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#181b22]/70'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101116]'],
@@ -440,11 +445,25 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
  * in either light theme. Keep the text on the theme's strong foreground.
  */
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-[#17181d]']:hover,
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-zinc-800/40']:hover {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-zinc-800/40']:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-zinc-800/50']:hover {
+  background-color: var(--forma-surface-muted);
+}
+
+/* Cards that solidify on hover take the theme surface instead of a dark fill. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-[#181b22]']:hover {
+  background-color: var(--forma-surface);
+}
+
+/* Static zinc wells: disabled fills and loading-skeleton bars. */
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-zinc-800/40'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-zinc-800/60'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-zinc-800/80'] {
   background-color: var(--forma-surface-muted);
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-white"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-zinc-100"]:hover,
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-zinc-200"]:hover {
   color: var(--forma-text-strong);
 }
@@ -502,7 +521,8 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/10"] {
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-500/10"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-500/10"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-500/[0.06]"] {
   background-color: rgb(var(--forma-green-rgb) / 0.1);
 }
 
@@ -528,7 +548,10 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-red-400/"] 
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-400/"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-300/"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-emerald-300/"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="border-emerald-500/20"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="border-emerald-500/25"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="border-emerald-500/30"] {
   border-color: rgb(var(--forma-green-rgb) / 0.45);
 }
 
@@ -549,13 +572,15 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class*="border-violet-400/
 
 /* The slate text ramp collapses onto each theme's content tiers. */
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-white"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-100"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-100"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-100"] {
   color: var(--forma-text-strong);
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-200"],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-300"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-200"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-200"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-300"] {
   color: var(--forma-text-body);
 }
 
@@ -567,7 +592,9 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-400"] {
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-500"],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-600"],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-700"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-500"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-500"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-600"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-700"] {
   color: var(--forma-text-muted);
 }
 
@@ -650,7 +677,13 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-zinc-700/40
   border-color: var(--forma-border);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:border-zinc-600']:hover {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-white/5'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-white/10'] {
+  border-color: var(--forma-border);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:border-zinc-600']:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:border-zinc-700/60']:hover {
   border-color: var(--forma-border);
 }
 
@@ -700,4 +733,50 @@ html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-track {
 html:is([data-theme="light"], [data-theme="arctic"]) ::-webkit-scrollbar-thumb {
   background: var(--forma-scroll-thumb);
   border-color: var(--forma-page);
+}
+
+.prompt-composer {
+  box-shadow:
+    0 18px 50px rgb(0 0 0 / 0.42),
+    0 4px 14px rgb(0 0 0 / 0.28);
+  transition: box-shadow 220ms ease;
+}
+
+.prompt-composer-idle:focus-within {
+  box-shadow:
+    0 18px 50px rgb(0 0 0 / 0.42),
+    0 0 0 1px rgb(16 185 129 / 0.28),
+    0 10px 32px rgb(16 185 129 / 0.12);
+}
+
+.prompt-composer-illuminate {
+  animation: prompt-composer-illuminate 1.8s ease-in-out infinite;
+}
+
+@keyframes prompt-composer-illuminate {
+  0%,
+  100% {
+    box-shadow:
+      0 18px 50px rgb(0 0 0 / 0.42),
+      0 0 0 1px rgb(16 185 129 / 0.38),
+      0 0 22px 4px rgb(16 185 129 / 0.22),
+      0 12px 36px rgb(16 185 129 / 0.16);
+  }
+  50% {
+    box-shadow:
+      0 18px 50px rgb(0 0 0 / 0.42),
+      0 0 0 1px rgb(52 211 153 / 0.72),
+      0 0 38px 10px rgb(16 185 129 / 0.38),
+      0 16px 44px rgb(16 185 129 / 0.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-composer-illuminate {
+    animation: none;
+    box-shadow:
+      0 18px 50px rgb(0 0 0 / 0.42),
+      0 0 0 1px rgb(16 185 129 / 0.55),
+      0 0 28px 6px rgb(16 185 129 / 0.28);
+  }
 }

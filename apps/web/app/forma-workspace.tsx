@@ -82,7 +82,6 @@ import {
   RefreshCw,
   Eye,
   Film,
-  Database,
   ArrowRight,
   ArrowLeft,
   Info,
@@ -4909,12 +4908,6 @@ export function FormaWorkspace({
             : "min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-5 sm:py-8"
         }`}>
           {homeView === "projects" ? (
-            <>
-              <WorkspacePageHeading
-                icon={Layers}
-                title="Community"
-                description="Explore public projects shared by the Forma community."
-              />
               <ProjectGallery
                 sectionRef={projectsSectionRef}
                 items={projectGalleryItems}
@@ -4930,18 +4923,11 @@ export function FormaWorkspace({
                 onSearchValueChange={setProjectSearchInput}
                 standalone
               />
-            </>
 	          ) : homeView === "my-projects" ? (
-            <>
-              <WorkspacePageHeading
-                icon={Database}
-                title="My Projects"
-                description="Projects created by your signed-in account."
-              />
               <ProjectGallery
                 sectionRef={projectsSectionRef}
                 items={myProjectGalleryItems}
-                title="My Projects"
+                title="My projects"
                 loading={myProjectsPageLoading}
                 onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
                 onDeleteProject={(item) => openProjectDeletion({ projectId: item.projectId, title: item.title })}
@@ -4951,7 +4937,6 @@ export function FormaWorkspace({
                 onPageChange={handleMyProjectHistoryPageChange}
                 standalone
               />
-            </>
           ) : homeView === "jobs" ? (
             <>
               <WorkspacePageHeading
@@ -4981,7 +4966,7 @@ export function FormaWorkspace({
                   formatLlmLabel={generationLlmLabel}
                 />
               ) : (
-                <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
+                <div className="rounded-xl border border-white/5 bg-[#181b22] p-6 text-sm leading-6 text-zinc-400">
                   {adminSessionLoaded ? "Admin access is required to view jobs." : "Checking admin access..."}
                 </div>
               )}
@@ -4990,7 +4975,7 @@ export function FormaWorkspace({
             <>
               <WorkspacePageHeading
                 icon={Terminal}
-                title="Backend Logs"
+                title="Backend logs"
                 description="Recent backend log lines for local debugging and package observability."
               />
               {canViewAdminTools ? (
@@ -5003,7 +4988,7 @@ export function FormaWorkspace({
                   pollIntervalMs={LOG_POLL_INTERVAL_MS}
                 />
               ) : (
-                <div className="border border-[#2a2c33] bg-[#17181d] p-6 text-sm leading-6 text-slate-400">
+                <div className="rounded-xl border border-white/5 bg-[#181b22] p-6 text-sm leading-6 text-zinc-400">
                   {adminSessionLoaded ? "Admin access is required to view backend logs." : "Checking admin access..."}
                 </div>
               )}
@@ -5252,28 +5237,28 @@ function ProjectDeletionDialog({
 }) {
   if (!project) return null;
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4" role="presentation">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" role="presentation">
       <section
         role="dialog"
         aria-modal="true"
         aria-labelledby="delete-project-title"
-        className="w-full max-w-xl border border-red-400/35 bg-[#17181d] p-5 shadow-2xl sm:p-7"
+        className="w-full max-w-xl rounded-2xl border border-white/5 bg-[#181b22] p-6 text-zinc-100 shadow-2xl"
       >
         <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center border border-red-400/40 text-red-300">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-500/10 text-red-300">
             <Trash2 className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <h2 id="delete-project-title" className="text-lg font-black uppercase tracking-[0.14em] text-white">
+            <h2 id="delete-project-title" className="text-lg font-semibold tracking-tight text-zinc-100">
               Delete this project?
             </h2>
-            <p className="mt-2 break-words text-sm font-bold text-slate-400">{project.title}</p>
+            <p className="mt-1 break-words text-sm text-zinc-400">{project.title}</p>
           </div>
         </div>
-        <p className="mt-5 text-sm leading-6 text-slate-300">
+        <p className="mt-5 text-sm leading-6 text-zinc-300">
           The project will be removed from your workspace immediately and permanently deleted after the configured retention period (30 days by default).
         </p>
-        <label className="mt-5 flex cursor-pointer items-start gap-3 border border-[#30333b] bg-[#101115] p-4 text-sm leading-5 text-slate-300">
+        <label className="mt-5 flex cursor-pointer items-start gap-3 rounded-lg border border-white/10 bg-[#0f1117] p-4 text-sm leading-5 text-zinc-300">
           <input
             type="checkbox"
             checked={acknowledged}
@@ -5283,32 +5268,32 @@ function ProjectDeletionDialog({
           />
           <span>I understand this project will no longer be accessible from my workspace.</span>
         </label>
-        <div className="mt-4 border border-cyan-300/25 bg-cyan-300/[0.04] p-4">
-          <label className="flex cursor-pointer items-start gap-3 text-sm font-bold leading-5 text-slate-200">
+        <div className="mt-4 rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] p-4">
+          <label className="flex cursor-pointer items-start gap-3 text-sm font-medium leading-5 text-zinc-200">
             <input
               type="checkbox"
               checked={contribute}
               onChange={(event) => onContributeChange(event.target.checked)}
               disabled={busy}
-              className="mt-0.5 h-4 w-4 accent-cyan-300"
+              className="mt-0.5 h-4 w-4 accent-emerald-400"
             />
             <span>Allow CAID Technologies to retain a sanitized copy of this project for product research, evaluations, and AI system improvement.</span>
           </label>
-          <p className="mt-3 text-xs leading-5 text-slate-500">
+          <p className="mt-3 text-xs leading-5 text-zinc-500">
             CAID Technologies may retain an aggregate copy that removes account identifiers, prompts, credentials, URLs, and identifying metadata. You may withdraw permission before it is irreversibly anonymized; after anonymization it can no longer be linked back or withdrawn.
           </p>
-          <div className="mt-3 flex flex-wrap gap-4 text-xs font-black uppercase tracking-[0.1em]">
-            <a href="/legal/privacy-policy" target="_blank" rel="noreferrer" className="text-cyan-200 hover:text-white">Privacy policy</a>
-            <a href="/legal/data-contribution-terms" target="_blank" rel="noreferrer" className="text-cyan-200 hover:text-white">Data contribution terms</a>
+          <div className="mt-3 flex flex-wrap gap-4 text-xs font-medium">
+            <a href="/legal/privacy-policy" target="_blank" rel="noreferrer" className="text-emerald-400 transition-colors hover:text-emerald-300">Privacy policy</a>
+            <a href="/legal/data-contribution-terms" target="_blank" rel="noreferrer" className="text-emerald-400 transition-colors hover:text-emerald-300">Data contribution terms</a>
           </div>
         </div>
-        {error && <p className="mt-4 border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
+        {error && <p className="mt-4 rounded-lg border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-200">{error}</p>}
         <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="h-11 border border-[#343740] px-5 text-xs font-black uppercase tracking-[0.12em] text-slate-300 hover:bg-white hover:text-black disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 px-4 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 disabled:opacity-50"
           >
             Cancel
           </button>
@@ -5316,7 +5301,7 @@ function ProjectDeletionDialog({
             type="button"
             onClick={onConfirm}
             disabled={!acknowledged || busy}
-            className="h-11 border border-red-400 bg-red-400 px-5 text-xs font-black uppercase tracking-[0.12em] text-black hover:bg-red-300 disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-red-500 px-4 text-xs font-medium text-white transition-colors hover:bg-red-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {busy ? "Deleting..." : "Delete project"}
           </button>
@@ -5470,14 +5455,14 @@ function WorkspacePageHeading({
   description: string;
 }) {
   return (
-    <section className="mb-6 border-b border-[#2a2c33] pb-5">
+    <section className="mb-6 border-b border-white/5 pb-5">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="inline-flex h-11 w-11 shrink-0 items-center justify-center border border-cyan-300/30 bg-cyan-300/10 text-cyan-200">
+        <div className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
           <Icon className="h-5 w-5" />
         </div>
         <div className="min-w-0">
-          <h1 className="truncate text-xl font-black uppercase tracking-[0.18em] text-white">{title}</h1>
-          <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-500">{description}</p>
+          <h1 className="truncate text-xl font-semibold tracking-tight text-zinc-100">{title}</h1>
+          <p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-500">{description}</p>
         </div>
       </div>
     </section>
@@ -5497,29 +5482,33 @@ function ProjectRouteFallbackPanel({
 }) {
   return (
     <main className="flex min-h-0 min-w-0 flex-col">
-      <header className="flex min-h-[78px] items-center gap-3 border-b border-[#282a30] bg-[#17181d] px-4">
+      <header className="flex h-12 items-center gap-3 border-b border-white/5 bg-[#0f1117]/80 px-4 backdrop-blur-md">
         <MobileSidebarButton onClick={onOpenSidebar} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-black uppercase tracking-[0.16em] text-white">
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <div className="truncate text-sm font-semibold tracking-tight text-zinc-100">
             {error ? "Project unavailable" : "Opening project"}
           </div>
-          <div className="mt-1 truncate text-[11px] font-mono text-cyan-300/70">{projectId}</div>
+          <div className="truncate font-mono text-[10px] text-zinc-600">{projectId}</div>
         </div>
       </header>
 
       <section className="flex min-h-0 flex-1 items-center justify-center p-5">
-        <div className="w-full max-w-md border border-[#2c2f37] bg-[#17181d] p-6 text-center shadow-2xl shadow-black/30">
-          <div className="mx-auto flex h-11 w-11 items-center justify-center border border-[#2c2f37] bg-black text-white">
-            {error ? <AlertTriangle className="h-5 w-5 text-amber-300" /> : <RefreshCw className="h-5 w-5 animate-spin text-cyan-300" />}
+        <div className="w-full max-w-md rounded-2xl border border-white/5 bg-[#181b22] p-6 text-center shadow-2xl shadow-black/30">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-500/10">
+            {error ? <AlertTriangle className="h-5 w-5 text-amber-300" /> : <RefreshCw className="h-5 w-5 animate-spin text-emerald-400" />}
           </div>
-          <h1 className="mt-5 text-lg font-black uppercase tracking-[0.18em] text-white">
+          <h1 className="mt-5 text-lg font-semibold tracking-tight text-zinc-100">
             {error ? "Project unavailable" : "Opening project"}
           </h1>
-          <p className="mt-3 text-sm leading-6 text-slate-500">
+          <p className="mt-3 text-sm leading-6 text-zinc-500">
             {error || "Loading the saved hardware plan."}
           </p>
           {error && (
-            <button type="button" onClick={onHome} className="mt-5 inline-flex h-10 items-center gap-2 border border-[#2a2c33] px-4 text-xs font-black uppercase text-white transition hover:bg-white hover:text-black">
+            <button
+              type="button"
+              onClick={onHome}
+              className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 px-4 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100"
+            >
               <ArrowLeft className="h-4 w-4" />
               Back home
             </button>
@@ -5543,22 +5532,22 @@ function AuthRequiredRouteScreen({
 }) {
   const { openSignIn } = useFormaAuth();
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-[#141519] px-5 font-sans text-slate-100">
-      <div className="w-full max-w-md border border-[#2c2f37] bg-[#17181d] p-6">
+    <div className="flex min-h-screen w-full items-center justify-center bg-[#0f1117] px-5 font-sans text-zinc-100">
+      <div className="w-full max-w-md rounded-2xl border border-white/5 bg-[#181b22] p-6 shadow-2xl">
         <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 items-center justify-center border border-cyan-300/30 bg-cyan-300/10 text-cyan-100">
+          <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
             <KeyRound className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <h1 className="truncate text-lg font-black uppercase tracking-[0.18em] text-white">{title}</h1>
-            <p className="mt-1 text-sm text-slate-500">{loading ? "Checking session..." : message}</p>
+            <h1 className="truncate text-lg font-semibold tracking-tight text-zinc-100">{title}</h1>
+            <p className="mt-1 text-sm text-zinc-500">{loading ? "Checking session..." : message}</p>
           </div>
         </div>
         <div className="mt-6 grid grid-cols-2 gap-2">
           <button
             type="button"
             onClick={onHome}
-            className="inline-flex h-10 items-center justify-center border border-[#2c2f37] px-3 text-xs font-black uppercase text-slate-200 transition hover:bg-white hover:text-black"
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-white/10 px-3 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100"
           >
             Home
           </button>
@@ -5566,7 +5555,7 @@ function AuthRequiredRouteScreen({
             type="button"
             disabled={loading}
             onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/" })}
-            className="inline-flex h-10 items-center justify-center border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:border-slate-700 disabled:text-slate-600 disabled:hover:bg-transparent disabled:hover:text-slate-600"
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-emerald-500 px-3 text-xs font-semibold text-zinc-950 transition-colors hover:bg-emerald-400 disabled:cursor-wait disabled:opacity-50"
           >
             Sign in
           </button>
@@ -5588,35 +5577,31 @@ function ChatRouteFallbackPanel({
   const hasProjectTarget = Boolean(transition.projectId);
   return (
     <main className="flex min-h-0 min-w-0 flex-col">
-      <header className="flex min-h-[78px] min-w-0 items-center gap-2 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 sm:gap-3 sm:px-4">
+      <header className="flex h-12 min-w-0 items-center gap-2 overflow-hidden border-b border-white/5 bg-[#0f1117]/80 px-3 backdrop-blur-md sm:gap-3 sm:px-4">
         <MobileSidebarButton onClick={onOpenSidebar} />
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-black uppercase tracking-[0.16em] text-white">{transition.title || "Opening chat"}</div>
-          <div className="mt-1 flex min-w-0 items-center gap-2 text-[11px] font-mono text-slate-600">
-            <span className="truncate">{transition.projectId || transition.chatId}</span>
-            <span className="text-slate-800">/</span>
-            <span className="truncate text-cyan-300/70">project.chat</span>
-          </div>
+        <div className="flex min-w-0 flex-1 items-baseline gap-2">
+          <div className="truncate text-sm font-semibold tracking-tight text-zinc-100">{transition.title || "Opening chat"}</div>
+          <span className="truncate font-mono text-[10px] text-zinc-600">{transition.projectId || transition.chatId}</span>
         </div>
       </header>
 
-      <section className="flex min-h-0 flex-1 items-center justify-center bg-[#141519] p-5">
-        <div className="w-full max-w-md border border-[#2c2f37] bg-[#17181d] p-6 text-center shadow-2xl shadow-black/30">
-          <div className="mx-auto flex h-11 w-11 items-center justify-center border border-[#2c2f37] bg-black text-white">
-            {transition.error ? <AlertTriangle className="h-5 w-5 text-amber-300" /> : <RefreshCw className="h-5 w-5 animate-spin text-cyan-300" />}
+      <section className="flex min-h-0 flex-1 items-center justify-center p-5">
+        <div className="w-full max-w-md rounded-2xl border border-white/5 bg-[#181b22] p-6 text-center shadow-2xl shadow-black/30">
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-emerald-500/10">
+            {transition.error ? <AlertTriangle className="h-5 w-5 text-amber-300" /> : <RefreshCw className="h-5 w-5 animate-spin text-emerald-400" />}
           </div>
-          <h1 className="mt-5 text-lg font-black uppercase tracking-[0.18em] text-white">
+          <h1 className="mt-5 text-lg font-semibold tracking-tight text-zinc-100">
             {transition.error ? "Chat unavailable" : hasProjectTarget ? "Opening project chat" : "Opening chat"}
           </h1>
-          <p className="mt-3 text-sm leading-6 text-slate-500">
+          <p className="mt-3 text-sm leading-6 text-zinc-500">
             {transition.error || (hasProjectTarget ? "Loading the active project for this chat." : "Preparing the chat workspace.")}
           </p>
           <div className="mt-4 space-y-2">
-            <div className="truncate border border-[#2c2f37] bg-[#141519] px-3 py-2 text-xs font-mono text-slate-500">
+            <div className="truncate rounded-lg border border-white/5 bg-[#0f1117] px-3 py-2 font-mono text-xs text-zinc-500">
               {transition.chatId}
             </div>
             {transition.projectId && (
-              <div className="truncate border border-cyan-300/20 bg-cyan-300/5 px-3 py-2 text-xs font-mono text-cyan-100">
+              <div className="truncate rounded-lg border border-emerald-500/20 bg-emerald-500/[0.06] px-3 py-2 font-mono text-xs text-emerald-100">
                 {transition.projectId}
               </div>
             )}
@@ -5625,7 +5610,7 @@ function ChatRouteFallbackPanel({
             <button
               type="button"
               onClick={onHome}
-              className="mt-5 inline-flex h-10 items-center gap-2 border border-[#2a2c33] px-4 text-xs font-black uppercase text-white transition hover:bg-white hover:text-black"
+              className="mt-5 inline-flex h-9 items-center gap-2 rounded-lg border border-white/10 px-4 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100"
             >
               <ArrowLeft className="h-4 w-4" />
               Back home
@@ -6447,19 +6432,21 @@ function ProjectDetailWorkspace({
   projectContent: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
-      <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
+      <header className="flex min-h-14 min-w-0 items-center gap-3 overflow-hidden border-b border-white/5 bg-[#0f1117]/80 px-3 py-2 backdrop-blur-md sm:px-4">
         <MobileSidebarButton onClick={onOpenSidebar} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">
-            <Eye className="h-3.5 w-3.5" />
-            <span>{owned ? "Your project" : "Public project"}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+              <Eye className="h-3 w-3" />
+              {owned ? "Your project" : "Public project"}
+            </span>
+            <h2 className="truncate text-sm font-semibold tracking-tight text-zinc-100">{projectTitle}</h2>
           </div>
-          <h2 className="mt-1 truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</h2>
-          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-slate-600">
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-zinc-600">
             <span className="truncate">{projectId || "No project id"}</span>
-            <span className="text-slate-800">/</span>
-            <span className="truncate text-cyan-300/70">{activeNamespaceName}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="truncate">{activeNamespaceName}</span>
           </div>
         </div>
         {owned && (
@@ -6468,9 +6455,9 @@ function ProjectDetailWorkspace({
               <button
                 type="button"
                 onClick={onDelete}
-                className="inline-flex h-10 items-center justify-center gap-2 border border-red-400/35 px-3 text-xs font-black uppercase text-red-100 transition hover:bg-red-400 hover:text-black"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-400/35 px-2.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
               >
-                <Trash2 className="h-4 w-4" />
+                <Trash2 className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Delete</span>
               </button>
             )}
@@ -6478,9 +6465,9 @@ function ProjectDetailWorkspace({
               <button
                 type="button"
                 onClick={onOpenChat}
-                className="inline-flex h-10 items-center justify-center gap-2 border border-cyan-300/35 px-3 text-xs font-black uppercase text-cyan-100 transition hover:bg-cyan-300 hover:text-black"
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
               >
-                <MessageSquare className="h-4 w-4" />
+                <MessageSquare className="h-3.5 w-3.5" />
                 <span className="hidden sm:inline">Open chat</span>
               </button>
             )}
@@ -6488,7 +6475,7 @@ function ProjectDetailWorkspace({
         )}
       </header>
 
-      <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#141519]" aria-label="Project workspace">
+      <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#0f1117]" aria-label="Project workspace">
         <ProjectWorkspacePanel
           namespaceTabs={namespaceTabs}
           activeNamespace={activeNamespace}
@@ -6543,19 +6530,21 @@ function ChatWorkspace({
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#141519]">
-      <header className="flex min-h-[78px] min-w-0 items-center gap-3 overflow-hidden border-b border-[#282a30] bg-[#17181d] px-3 py-3 sm:px-4">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
+      <header className="flex min-h-14 min-w-0 items-center gap-3 overflow-hidden border-b border-white/5 bg-[#0f1117]/80 px-3 py-2 backdrop-blur-md sm:px-4">
         <MobileSidebarButton onClick={onOpenSidebar} />
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em] text-cyan-300">
-            {canChat ? <MessageSquare className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-            <span>{canChat ? "Project chat" : "Read-only project"}</span>
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+              {canChat ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              {canChat ? "Project chat" : "Read-only project"}
+            </span>
+            <h2 className="truncate text-sm font-semibold tracking-tight text-zinc-100">{projectTitle}</h2>
           </div>
-          <h2 className="mt-1 truncate text-sm font-black uppercase tracking-[0.16em] text-white">{projectTitle}</h2>
-          <div className="mt-1 flex min-w-0 items-center gap-2 font-mono text-[10px] text-slate-600">
+          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-zinc-600">
             <span className="truncate">{chatId || projectId || "No project id"}</span>
-            <span className="text-slate-800">/</span>
-            <span className="truncate text-cyan-300/70">{activeNamespaceName}</span>
+            <span className="text-zinc-700">·</span>
+            <span className="truncate">{activeNamespaceName}</span>
           </div>
         </div>
       </header>
@@ -6576,23 +6565,23 @@ function ChatWorkspace({
                     return (
                       <div key={message.id} className={`mx-auto flex w-full min-w-0 max-w-3xl ${isUser ? "justify-end" : "justify-start"}`}>
                         <div
-                          className={`min-w-0 max-w-[92%] overflow-hidden border px-4 py-3 ${
+                          className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl border px-4 py-3 ${
                             isUser
-                              ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-50"
+                              ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
                               : message.status === "error"
                                 ? "border-rose-400/30 bg-rose-950/25 text-rose-100"
                                 : message.status === "cancelled"
                                   ? "border-amber-300/30 bg-amber-950/20 text-amber-50"
                                 : isSystem
-                                  ? "border-[#2a2c33] bg-black/25 text-slate-400"
-                                  : "border-[#2a2c33] bg-[#17181d] text-slate-200"
+                                  ? "border-white/5 bg-black/25 text-zinc-400"
+                                  : "border-white/5 bg-[#181b22] text-zinc-200"
                           }`}
                         >
-                          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">
+                          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-medium text-zinc-500">
                             <span>{isUser ? "You" : isSystem ? "Context" : "Forma"}</span>
-                            <span className="text-slate-700">/</span>
+                            <span className="text-zinc-700">·</span>
                             <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
-                            {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-cyan-300" />}
+                            {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />}
                             {message.status === "cancelled" && <Square className="h-3 w-3 fill-current text-amber-300" />}
                             <CopyButton
                               value={message.content}
@@ -6609,7 +6598,7 @@ function ChatWorkspace({
                     );
                   })
                 ) : (
-                  <div className="mx-auto w-full max-w-3xl border border-[#2a2c33] bg-[#17181d] p-5 text-sm leading-6 text-slate-500">
+                  <div className="mx-auto w-full max-w-3xl rounded-xl border border-white/5 bg-[#181b22] p-5 text-sm leading-6 text-zinc-500">
                     This chat has no project messages yet.
                   </div>
                 )}
@@ -6626,9 +6615,9 @@ function ChatWorkspace({
               </div>
             </div>
 
-            <form onSubmit={onSubmit} className="shrink-0 border-t border-[#2a2c33] bg-[#111216]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
+            <form onSubmit={onSubmit} className="shrink-0 border-t border-white/5 bg-[#0f1117]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
               <div className="mx-auto max-w-3xl">
-                <div className="relative">
+                <div className="w-full rounded-2xl border border-white/5 bg-[#181b22] p-3 shadow-lg transition-all focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20">
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -6640,18 +6629,20 @@ function ChatWorkspace({
                       }
                     }}
                     placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
-                    className="min-h-[92px] w-full resize-none border border-[#2c2f37] bg-[#0f1014] p-4 pr-16 text-sm leading-7 text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-300"
+                    className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                   />
-                  <button
-                    type={canStop ? "button" : "submit"}
-                    onClick={canStop ? onStop : undefined}
-                    disabled={!canStop && (isLoading || !projectId || !input.trim())}
-                    className="absolute bottom-4 right-4 inline-flex h-10 w-10 items-center justify-center bg-white text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
-                    aria-label={canStop ? "Stop project update" : "Apply change to project"}
-                    title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName}`}
-                  >
-                    {canStop ? <Square className="h-4 w-4 fill-current" /> : isLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  </button>
+                  <div className="mt-1 flex items-center justify-end">
+                    <button
+                      type={canStop ? "button" : "submit"}
+                      onClick={canStop ? onStop : undefined}
+                      disabled={!canStop && (isLoading || !projectId || !input.trim())}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-emerald-500 text-zinc-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-30"
+                      aria-label={canStop ? "Stop project update" : "Apply change to project"}
+                      title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName}`}
+                    >
+                      {canStop ? <Square className="h-3.5 w-3.5 fill-current" /> : isLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                    </button>
+                  </div>
                 </div>
               </div>
             </form>
@@ -6659,7 +6650,7 @@ function ChatWorkspace({
         )}
 
         {!canChat && (
-          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#141519]" aria-label="Project workspace">
+          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#0f1117]" aria-label="Project workspace">
             <ProjectWorkspacePanel
               namespaceTabs={namespaceTabs}
               activeNamespace={activeNamespace}
@@ -6768,44 +6759,44 @@ function ChatProjectArtifact({
   return (
     <section
       ref={artifactRef}
-      className={`min-w-0 overflow-hidden bg-[#141519] ${
+      className={`min-w-0 overflow-hidden bg-[#0f1117] ${
         fullScreen
           ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
-          : "mx-auto mt-3 w-full max-w-6xl border border-cyan-300/20"
+          : "mx-auto mt-3 w-full max-w-6xl rounded-xl border border-white/5"
       }`}
       aria-labelledby="chat-project-title"
     >
-      <header className="flex min-h-[64px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
+      <header className="flex min-h-[56px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-[#181b22] px-4 py-2.5">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 shrink-0 text-cyan-300" />
-            <h3 id="chat-project-title" className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+            <Layers className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+            <h3 id="chat-project-title" className="truncate text-[10px] font-medium text-zinc-500">
               Project
             </h3>
           </div>
-          <div className="mt-1 truncate text-xs font-bold text-white">{projectTitle}</div>
+          <div className="mt-0.5 truncate text-xs font-semibold text-zinc-100">{projectTitle}</div>
         </div>
         <div className="flex min-w-0 items-center justify-end gap-3">
-          <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-slate-600 sm:flex">
+          <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-zinc-600 sm:flex">
             {projectId && (
               <span className="max-w-56 truncate" title={projectId}>
                 {projectId}
               </span>
             )}
-            {projectId && <span className="text-slate-800">/</span>}
-            <span className="max-w-48 truncate text-cyan-300/70">
+            {projectId && <span className="text-zinc-700">·</span>}
+            <span className="max-w-48 truncate">
               {activeNamespaceName}
             </span>
           </div>
           <button
             type="button"
             onClick={fullScreen ? exitFullScreen : enterFullScreen}
-            className="inline-flex h-9 shrink-0 items-center justify-center gap-2 border border-[#2a2c33] px-2.5 text-[10px] font-black uppercase text-slate-300 transition hover:border-white hover:bg-white hover:text-black sm:px-3"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 sm:px-3"
             aria-pressed={fullScreen}
             aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}
             title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
           >
-            {fullScreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+            {fullScreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
             <span className="hidden md:inline">{fullScreen ? "Exit full screen" : "Full screen"}</span>
           </button>
         </div>
@@ -6838,7 +6829,7 @@ function ProjectWorkspacePanel({
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <nav
-        className="flex min-h-[48px] min-w-0 shrink-0 overflow-x-auto border-b border-[#2a2c33] bg-[#111216]"
+        className="flex min-h-[44px] min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#181b22] px-2"
         aria-label="Project workspace"
       >
         {namespaceTabs.map((tab) => {
@@ -6849,8 +6840,8 @@ function ProjectWorkspacePanel({
               key={tab.id}
               type="button"
               onClick={() => onNamespaceChange(tab.id)}
-              className={`inline-flex h-12 min-w-12 items-center justify-center gap-2 border-r border-[#2a2c33] px-4 text-xs font-black uppercase tracking-widest transition last:border-r-0 ${
-                active ? "bg-white text-black" : "bg-[#111216] text-slate-500 hover:text-white"
+              className={`inline-flex h-8 min-w-8 items-center justify-center gap-2 rounded-lg px-3 text-xs font-medium transition-colors ${
+                active ? "bg-emerald-500/10 text-emerald-400" : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
               }`}
               aria-pressed={active}
               title={`${tab.label} / ${workspaceNamespaceForTab(tab.id)}`}
@@ -6925,24 +6916,24 @@ function AgentPipelineProgressView({
     : isSuccess
     ? "border-emerald-300/35 bg-emerald-950/20 text-emerald-100"
     : backendQuiet || waitingForFirstEvent
-    ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
+    ? "border-emerald-500/25 bg-emerald-950/25 text-emerald-100"
     : progress.synced
-      ? "border-cyan-300/30 bg-cyan-950/25 text-cyan-100"
+      ? "border-emerald-500/25 bg-emerald-950/25 text-emerald-100"
       : "border-slate-500/25 bg-black/25 text-slate-400";
 
   return (
-    <div className="mt-3 border border-[#2a2c33] bg-black/25 p-3">
+    <div className="mt-3 rounded-xl border border-white/5 bg-black/25 p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-500">Agent pipeline</span>
-            <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[10px] font-black uppercase ${signalTone}`}>
+            <span className="text-[10px] font-medium text-zinc-500">Agent pipeline</span>
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10px] font-medium ${signalTone}`}>
               {isError ? <AlertTriangle className="h-3 w-3" /> : isCancelled ? <Square className="h-3 w-3 fill-current" /> : isLoading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <CheckCircle className="h-3 w-3" />}
               {signalLabel}
             </span>
           </div>
           {progress.jobId && (
-            <div className="mt-1 truncate font-mono text-[10px] text-slate-600">{progress.jobId}</div>
+            <div className="mt-1 truncate font-mono text-[10px] text-zinc-600">{progress.jobId}</div>
           )}
         </div>
         <div className="flex shrink-0 items-start gap-2">
@@ -6950,7 +6941,7 @@ function AgentPipelineProgressView({
             <button
               type="button"
               onClick={onStop}
-              className="inline-flex h-7 items-center gap-1 border border-amber-300/40 px-2 text-[10px] font-black uppercase text-amber-100 hover:bg-amber-300 hover:text-black"
+              className="inline-flex h-7 items-center gap-1 rounded-lg border border-amber-300/40 px-2 text-[10px] font-medium text-amber-100 transition-colors hover:bg-amber-300/10"
               aria-label="Stop agent pipeline"
               title="Stop agent pipeline"
             >
@@ -6963,7 +6954,7 @@ function AgentPipelineProgressView({
               type="button"
               onClick={onReset}
               disabled={resetting}
-              className="inline-flex h-7 items-center gap-1 border border-cyan-300/40 px-2 text-[10px] font-black uppercase text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-wait disabled:opacity-60"
+              className="inline-flex h-7 items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 text-[10px] font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-wait disabled:opacity-60"
               aria-label="Reset failed generation job"
               title="Reset failed generation job and try again"
             >
@@ -6972,30 +6963,30 @@ function AgentPipelineProgressView({
             </button>
           )}
           <div className="text-right">
-            <div className="font-mono text-[11px] font-black text-slate-300">{completedCount}/{steps.length}</div>
-            <div className="text-[10px] uppercase text-slate-600">{formatDurationSeconds(elapsedSeconds)}</div>
+            <div className="font-mono text-[11px] font-semibold text-zinc-300">{completedCount}/{steps.length}</div>
+            <div className="text-[10px] text-zinc-600">{formatDurationSeconds(elapsedSeconds)}</div>
           </div>
         </div>
       </div>
 
-      <div className="mt-3 h-1.5 bg-[#111216]">
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#111216]">
         <div
-          className={`h-full ${isError ? "bg-rose-300" : isCancelled ? "bg-amber-300" : "bg-cyan-300"} ${isLoading ? "animate-pulse" : ""}`}
+          className={`h-full rounded-full ${isError ? "bg-rose-300" : isCancelled ? "bg-amber-300" : "bg-emerald-400"} ${isLoading ? "animate-pulse" : ""}`}
           style={{ width: `${progressPercent}%` }}
         />
       </div>
 
-      <div className="mt-3 flex min-w-0 items-start gap-2 border border-[#25272e] bg-[#111216] p-3">
-        {isError ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" /> : isCancelled ? <Square className="mt-0.5 h-4 w-4 shrink-0 fill-current text-amber-300" /> : isLoading ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-cyan-300" /> : <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />}
+      <div className="mt-3 flex min-w-0 items-start gap-2 rounded-lg border border-white/5 bg-[#111216] p-3">
+        {isError ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-rose-300" /> : isCancelled ? <Square className="mt-0.5 h-4 w-4 shrink-0 fill-current text-amber-300" /> : isLoading ? <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-emerald-400" /> : <Cpu className="mt-0.5 h-4 w-4 shrink-0 text-zinc-400" />}
         <div className="min-w-0">
-          <div className="truncate text-xs font-black uppercase text-white">{activeStep?.label || "Preparing job"}</div>
-          <div className="mt-1 truncate text-[11px] font-bold text-cyan-200">{activeStep?.agent || "Forma runtime"}</div>
+          <div className="truncate text-xs font-semibold text-zinc-100">{activeStep?.label || "Preparing job"}</div>
+          <div className="mt-1 truncate text-[11px] font-medium text-emerald-400">{activeStep?.agent || "Forma runtime"}</div>
           {activeStep?.description && !compact && (
-            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{activeStep.description}</div>
+            <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-zinc-500">{activeStep.description}</div>
           )}
           {lastEvent && (
-            <div className="mt-2 flex flex-wrap gap-2 text-[10px] uppercase text-slate-500">
-              <span>last: {lastEvent.label || lastEvent.step_id}</span>
+            <div className="mt-2 flex flex-wrap gap-2 text-[10px] text-zinc-500">
+              <span>Last: {lastEvent.label || lastEvent.step_id}</span>
               <span>{String(lastEvent.status).replace(/_/g, " ")}</span>
               <span>{formatPipelineAge(lastEvent.observed_at, nowMs)} ago</span>
             </div>
@@ -7004,7 +6995,7 @@ function AgentPipelineProgressView({
       </div>
 
       {(backendQuiet || waitingForFirstEvent) && (
-        <div className="mt-2 flex gap-2 border border-cyan-300/25 bg-cyan-950/20 p-2 text-[11px] leading-4 text-cyan-100">
+        <div className="mt-2 flex gap-2 rounded-lg border border-emerald-500/20 bg-emerald-950/20 p-2 text-[11px] leading-4 text-emerald-100">
           <RefreshCw className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-spin" />
           <span>
             {events.length
@@ -7018,7 +7009,7 @@ function AgentPipelineProgressView({
         {steps.map((step) => (
           <span
             key={step.id}
-            className="inline-flex items-center gap-1.5 border border-[#25272e] bg-[#111216] px-2 py-1 text-[10px] text-slate-500"
+            className="inline-flex items-center gap-1.5 rounded-full border border-white/5 bg-[#111216] px-2 py-1 text-[10px] text-zinc-500"
             title={`${step.agent}: ${step.label}`}
           >
             <PipelineStepDot status={pipelineStepStatus({ ...progress, steps }, step, activeStepId, isLoading)} />
@@ -7028,31 +7019,31 @@ function AgentPipelineProgressView({
       </div>
 
       {!isLoading && (
-        <div className="mt-3 border-t border-[#25272e] pt-3">
+        <div className="mt-3 border-t border-white/5 pt-3">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">Recent events</span>
-            <span className="font-mono text-[10px] text-slate-600">{events.length}</span>
+            <span className="text-[10px] font-medium text-zinc-600">Recent events</span>
+            <span className="font-mono text-[10px] text-zinc-600">{events.length}</span>
           </div>
           {visibleEvents.length ? (
             <div className="space-y-1.5">
               {visibleEvents.map((event, index) => {
                 const details = formatPipelineDetails(event.details);
                 return (
-                  <div key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className="min-w-0 border border-[#25272e] bg-[#0f1014] px-2 py-1.5">
-                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px] uppercase">
-                      <span className="max-w-[160px] truncate font-black text-slate-300">{event.label || event.step_id}</span>
-                      <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-cyan-300"}`}>
+                  <div key={`${event.step_id}-${event.status}-${event.observed_at || index}`} className="min-w-0 rounded-lg border border-white/5 bg-[#0f1014] px-2 py-1.5">
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px]">
+                      <span className="max-w-[160px] truncate font-medium text-zinc-300">{event.label || event.step_id}</span>
+                      <span className={`${isFailedPipelineStatus(event.status) ? "text-rose-300" : isCompletedPipelineStatus(event.status) ? "text-emerald-300" : "text-emerald-400"}`}>
                         {String(event.status).replace(/_/g, " ")}
                       </span>
-                      <span className="text-slate-600">{formatPipelineAge(event.observed_at, nowMs)} ago</span>
+                      <span className="text-zinc-600">{formatPipelineAge(event.observed_at, nowMs)} ago</span>
                     </div>
-                    {details && !compact && <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-slate-500">{details}</div>}
+                    {details && !compact && <div className="mt-1 line-clamp-2 text-[10px] leading-4 text-zinc-500">{details}</div>}
                   </div>
                 );
               })}
             </div>
           ) : (
-            <div className="border border-[#25272e] bg-[#0f1014] px-2 py-2 text-[11px] leading-4 text-slate-500">
+            <div className="rounded-lg border border-white/5 bg-[#0f1014] px-2 py-2 text-[11px] leading-4 text-zinc-500">
               Polling job metadata. Backend pipeline events will appear here as agents report progress.
             </div>
           )}

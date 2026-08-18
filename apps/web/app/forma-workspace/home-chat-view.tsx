@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
+  ArrowUpRight,
   CheckCircle,
   Cpu,
   KeyRound,
@@ -128,7 +129,7 @@ export default function HomeChatView({
     <section
       className={`${
         !started
-          ? "fixed bottom-[224px] left-0 right-0 top-0 z-10 max-w-none pt-16 md:static md:inset-auto md:z-auto md:w-full md:max-w-none md:justify-center md:px-6 md:py-8 md:pt-8"
+          ? "fixed bottom-[10rem] left-0 right-0 top-0 z-10 max-w-none pt-16 md:static md:inset-auto md:z-auto md:w-full md:max-w-none md:justify-center md:px-6 md:py-8 md:pt-8"
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
@@ -254,14 +255,13 @@ export default function HomeChatView({
                   key={example}
                   type="button"
                   onClick={() => onSelectExample(example)}
-                  className="group relative flex min-w-[240px] snap-start cursor-pointer flex-col justify-between rounded-xl border border-white/5 bg-[#181b22]/70 p-3.5 text-left transition-all hover:border-emerald-500/30 hover:bg-[#181b22] sm:min-w-0"
+                  className="home-example-card group relative flex min-w-[240px] snap-start cursor-pointer flex-col justify-between rounded-xl border p-3.5 text-left transition-all sm:min-w-0"
                 >
-                  <span className="line-clamp-3 text-xs font-medium leading-snug text-zinc-300 transition-colors group-hover:text-zinc-100">
+                  <span className="home-example-card-label line-clamp-3 text-xs font-medium leading-snug">
                     {example}
                   </span>
-                  <span className="mt-2 flex items-center gap-1 text-[10px] text-zinc-500 transition-colors group-hover:text-emerald-400">
-                    <ArrowRight className="h-3 w-3" />
-                    Use prompt
+                  <span className="home-example-card-icon mt-2 flex justify-end text-zinc-500" aria-hidden="true">
+                    <ArrowUpRight className="h-3.5 w-3.5" />
                   </span>
                 </button>
               ))}
@@ -273,9 +273,9 @@ export default function HomeChatView({
           onSubmit={onSubmit}
           className={`${
             started
-              ? "md:sticky md:bottom-0 md:bg-transparent md:pb-4"
+              ? "md:sticky md:bottom-0 md:bg-transparent md:pb-3"
               : "md:static md:order-1 md:bg-transparent md:p-0"
-          } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] pt-2 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
+          } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
         >
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 rounded-xl border border-white/5 bg-[#181b22] p-3 text-left sm:p-4" aria-label="Bring your own key setup">
@@ -348,7 +348,7 @@ export default function HomeChatView({
           )}
 
           <div
-            className={`prompt-composer w-full rounded-2xl bg-[#181b22] p-3 ${
+            className={`prompt-composer w-full rounded-2xl bg-[#181b22] px-3 pb-2.5 pt-2.5 ${
               promptRunning ? "prompt-composer-illuminate" : "prompt-composer-idle"
             }`}
           >
@@ -371,7 +371,7 @@ export default function HomeChatView({
               placeholder="Describe the product, constraints, references, and outputs you need…"
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
-              className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[88px] sm:leading-7"
+              className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
             />
             <div className="mt-1 flex items-center justify-between gap-2">
               <button
@@ -405,7 +405,7 @@ export default function HomeChatView({
           </div>
 
         </form>
-        {started && <div className="h-[224px] shrink-0 md:hidden" aria-hidden="true" />}
+        {started && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
   );

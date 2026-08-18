@@ -9,6 +9,7 @@
   --forma-surface-muted: #101115;
   --forma-border: #2c2f37;
   --forma-text: #f8fafc;
+  --forma-composer-shadow: 0 6px 18px rgb(0 0 0 / 0.28);
 }
 
 /*
@@ -70,6 +71,7 @@
   --forma-scrim-rgb: 238 232 213;
   --forma-scroll-thumb: #93a1a1;
   --forma-card-shadow: 0 18px 38px rgb(88 110 117 / 0.16);
+  --forma-composer-shadow: 0 6px 16px rgb(88 110 117 / 0.12);
   --forma-selected-wash-alpha: 0.07;
   --forma-accent-primary: #1f7e77;
   --forma-accent-primary-hover: #17655f;
@@ -111,6 +113,7 @@
   --forma-scrim-rgb: 238 242 247;
   --forma-scroll-thumb: #94a3b8;
   --forma-card-shadow: 0 18px 38px rgb(15 23 42 / 0.12);
+  --forma-composer-shadow: 0 6px 16px rgb(15 23 42 / 0.08);
   --forma-selected-wash-alpha: 0.18;
   --forma-accent-primary: #047857;
   --forma-accent-primary-hover: #059669;
@@ -160,6 +163,7 @@
   --forma-scrim-rgb: 0 43 54;
   --forma-scroll-thumb: #586e75;
   --forma-card-shadow: 0 18px 38px rgb(0 0 0 / 0.35);
+  --forma-composer-shadow: 0 8px 20px rgb(0 0 0 / 0.28);
   --forma-selected-wash-alpha: 0.15;
   --forma-accent-primary: #2aa198;
   --forma-accent-primary-hover: #35b3aa;
@@ -523,6 +527,26 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
   color: var(--forma-text-strong);
 }
 
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-white"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-zinc-100"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-zinc-200"] {
+  color: var(--forma-text-strong);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-emerald-400"] {
+  color: rgb(var(--forma-green-rgb));
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-white/5"],
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="bg-white/10"] {
+  background-color: var(--forma-surface-muted);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:bg-white/5"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:bg-white/10"]:hover {
+  background-color: var(--forma-surface-muted);
+}
+
 /*
  * Status washes. The interface tints panels with dark 950 shades, which land as
  * muddy blocks once the surface below them is light. Matching on the class
@@ -769,7 +793,7 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
 }
 
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="hover:text-black"]:hover,
-html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~="group-hover:text-black"]:where(.group:hover *) {
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .group:hover [class~="group-hover:text-black"] {
   color: var(--forma-surface);
 }
 
@@ -874,18 +898,38 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
   }
 }
 
+.home-example-card {
+  background-color: var(--forma-surface);
+  border-color: var(--forma-border);
+  color: var(--forma-text-strong);
+}
+
+.home-example-card:hover {
+  background-color: var(--forma-surface-muted);
+  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
+  color: var(--forma-text-strong);
+}
+
+.home-example-card:hover .home-example-card-label {
+  color: var(--forma-text-strong);
+}
+
+.home-example-card:hover .home-example-card-icon {
+  color: rgb(var(--forma-cyan-rgb));
+}
+
 .prompt-composer {
-  box-shadow:
-    0 18px 50px rgb(0 0 0 / 0.42),
-    0 4px 14px rgb(0 0 0 / 0.28);
-  transition: box-shadow 220ms ease;
+  border: 1px solid var(--forma-border);
+  box-shadow: var(--forma-composer-shadow);
+  transition: box-shadow 220ms ease, border-color 220ms ease;
 }
 
 .prompt-composer-idle:focus-within {
+  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
   box-shadow:
-    0 18px 50px rgb(0 0 0 / 0.42),
-    0 0 0 1px rgb(16 185 129 / 0.28),
-    0 10px 32px rgb(16 185 129 / 0.12);
+    var(--forma-composer-shadow),
+    0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.28),
+    0 8px 20px rgb(var(--forma-cyan-rgb) / 0.1);
 }
 
 .prompt-composer-illuminate {
@@ -896,17 +940,15 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
   0%,
   100% {
     box-shadow:
-      0 18px 50px rgb(0 0 0 / 0.42),
-      0 0 0 1px rgb(16 185 129 / 0.38),
-      0 0 22px 4px rgb(16 185 129 / 0.22),
-      0 12px 36px rgb(16 185 129 / 0.16);
+      var(--forma-composer-shadow),
+      0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.38),
+      0 0 18px 3px rgb(var(--forma-cyan-rgb) / 0.16);
   }
   50% {
     box-shadow:
-      0 18px 50px rgb(0 0 0 / 0.42),
-      0 0 0 1px rgb(52 211 153 / 0.72),
-      0 0 38px 10px rgb(16 185 129 / 0.38),
-      0 16px 44px rgb(16 185 129 / 0.22);
+      var(--forma-composer-shadow),
+      0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.62),
+      0 0 26px 6px rgb(var(--forma-cyan-rgb) / 0.22);
   }
 }
 
@@ -914,9 +956,9 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
   .prompt-composer-illuminate {
     animation: none;
     box-shadow:
-      0 18px 50px rgb(0 0 0 / 0.42),
-      0 0 0 1px rgb(16 185 129 / 0.55),
-      0 0 28px 6px rgb(16 185 129 / 0.28);
+      var(--forma-composer-shadow),
+      0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.5),
+      0 0 16px 3px rgb(var(--forma-cyan-rgb) / 0.16);
   }
 }
 

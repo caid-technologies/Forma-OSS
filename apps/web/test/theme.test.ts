@@ -244,4 +244,14 @@ test("light-theme interaction states use theme tokens instead of dark utilities"
   const selectedWash = rules.find(({ selector }) => selector.includes("bg-cyan-300/10"));
   assert.ok(selectedWash, "the selected-state wash rule is missing");
   assert.match(selectedWash.declarations, /var\(--forma-selected-wash-alpha\)/);
+
+  const groupHoverText = rules.find(({ selector }) => selector.includes("group-hover:text-zinc-100"));
+  assert.ok(groupHoverText, "group-hover light text is not translated for light themes");
+  assert.match(groupHoverText.selector, /\.group:hover/);
+  assert.doesNotMatch(groupHoverText.selector, /:where\(/);
+  assert.match(groupHoverText.declarations, /color: var\(--forma-text-strong\)/);
+
+  const whiteWash = rules.find(({ selector }) => selector.includes("hover:bg-white/5"));
+  assert.ok(whiteWash, "the white hover wash is not translated for light themes");
+  assert.match(whiteWash.declarations, /background-color: var\(--forma-surface-muted\)/);
 });

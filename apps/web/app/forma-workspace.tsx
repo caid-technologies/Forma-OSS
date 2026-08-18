@@ -241,6 +241,7 @@ const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const BASETEN_DEEPSEEK_MODEL = "deepseek-ai/DeepSeek-V4-Pro";
 const ANTHROPIC_OPUS_MODEL = "claude-opus-5";
 const ANTHROPIC_SONNET_MODEL = "claude-sonnet-5";
+const GEMINI_FLASH_MODEL = "gemini-3.7-flash";
 const CLOUDFLARE_GEMMA_MODEL = "@cf/google/gemma-4-26b-a4b-it";
 const NVIDIA_GLM_MODEL = "nvidia/z-ai/glm-5.2";
 const NVIDIA_QWEN_CODER_32B_MODEL = "qwen/qwen2.5-coder-32b-instruct";
@@ -351,6 +352,8 @@ function generationLlmLabel(provider: string, model: string) {
   if (provider === "baseten" && model === BASETEN_DEEPSEEK_MODEL) return "Baseten DeepSeek V4 Pro";
   if (provider === "anthropic" && model === ANTHROPIC_OPUS_MODEL) return "Claude Opus 5";
   if (provider === "anthropic" && model === ANTHROPIC_SONNET_MODEL) return "Claude Sonnet 5";
+  if (provider === "gemini" && model === GEMINI_FLASH_MODEL) return "Gemini 3.7 Flash";
+  if (provider === "vertex" && model === GEMINI_FLASH_MODEL) return "Vertex Gemini 3.7 Flash";
   if (provider === "huggingface") return `Hugging Face ${model}`;
   if (provider === "gmi" && model === "anthropic/claude-fable-5") return "GMI Claude Fable 5";
   if (provider === "cloudflare" && model === CLOUDFLARE_GEMMA_MODEL) return "Cloudflare Gemma 4 26B A4B";

@@ -105,6 +105,17 @@ ANTHROPIC_API_KEY=your_anthropic_api_key_here
 ANTHROPIC_MODEL=claude-opus-5
 STRICT_LLM=true
 
+# Optional Google Gemini
+# LLM_PROVIDER=gemini
+# GEMINI_API_KEY=your_gemini_api_key_here
+# GEMINI_MODEL=gemini-3.7-flash
+
+# Optional Google Vertex AI
+# LLM_PROVIDER=vertex
+# GOOGLE_CLOUD_PROJECT=your_google_cloud_project_id
+# GOOGLE_CLOUD_LOCATION=global
+# VERTEX_AI_MODEL=gemini-3.7-flash
+
 # Optional first-party OpenAI settings
 # LLM_PROVIDER=openai
 # OPENAI_API_KEY=your_openai_api_key_here
@@ -256,6 +267,16 @@ uvicorn apps.api.main:app --reload --port 8000
 Claude one-liner:
 ```bash
 LLM_PROVIDER=anthropic ANTHROPIC_API_KEY=your_anthropic_api_key_here ANTHROPIC_MODEL=claude-opus-5 uvicorn apps.api.main:app --reload --port 8000
+```
+
+Gemini one-liner:
+```bash
+LLM_PROVIDER=gemini GEMINI_API_KEY=your_gemini_api_key_here GEMINI_MODEL=gemini-3.7-flash uvicorn apps.api.main:app --reload --port 8000
+```
+
+Vertex AI one-liner:
+```bash
+LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.7-flash uvicorn apps.api.main:app --reload --port 8000
 ```
 
 API docs: http://localhost:8000/api/docs

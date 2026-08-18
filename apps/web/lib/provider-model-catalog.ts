@@ -19,14 +19,8 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("claude-sonnet-5", "Claude Sonnet 5", "Balanced intelligence and speed"),
     model("claude-haiku-4-5", "Claude Haiku 4.5", "Fast, cost-efficient Claude model"),
   ],
-  openai: [
-    model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
-    model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
-    model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
-    model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
-  ],
   gemini: [
-    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Agentic and multimodal workloads"),
+    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Forma default; agentic and multimodal workloads"),
     model("gemini-3.5-flash", "Gemini 3.5 Flash", "Coding and sustained agentic tasks"),
     model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "High-throughput, cost-efficient tasks"),
     model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Fast general-purpose model"),
@@ -34,12 +28,18 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable previous-generation flash model"),
   ],
   vertex: [
-    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Vertex AI agentic and multimodal workloads"),
+    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Forma default; Vertex AI agentic and multimodal workloads"),
     model("gemini-3.5-flash", "Gemini 3.5 Flash", "Vertex AI coding and sustained agentic tasks"),
     model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Vertex AI high-throughput workloads"),
     model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Vertex AI fast general-purpose model"),
     model("gemini-2.5-pro", "Gemini 2.5 Pro", "Stable Vertex AI pro model"),
     model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable Vertex AI flash model"),
+  ],
+  openai: [
+    model("gpt-5.6-sol", "GPT-5.6 Sol", "Frontier coding and agentic work"),
+    model("gpt-5.6-terra", "GPT-5.6 Terra", "Balanced general-purpose model"),
+    model("gpt-5.6-luna", "GPT-5.6 Luna", "Fast, efficient model"),
+    model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
   ],
   baseten: [
     model("deepseek-ai/DeepSeek-V4-Pro", "DeepSeek V4 Pro"),

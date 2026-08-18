@@ -37,6 +37,7 @@ export function parsePreferredLlmProvider(selector: string, providerOverride = "
     return normalizeProviderId(raw.slice(0, raw.indexOf("/")));
   }
   if (raw.toLowerCase().startsWith("claude-")) return "anthropic";
+  if (raw.toLowerCase().startsWith("gemini-")) return "gemini";
   if (raw.toLowerCase().startsWith("grok-")) return "xai";
   if (/^(gpt-|o1|o3|o4|text-)/i.test(raw)) return "openai";
   return normalizeProviderId(raw);

@@ -502,7 +502,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
         description="Google Gemini structured generation.",
         fields=(
             IntegrationFieldDefinition("api_key", "API key", ("GEMINI_API_KEY", "GOOGLE_API_KEY"), secret=True, placeholder="AIza..."),
-            IntegrationFieldDefinition("model", "Default model", ("GEMINI_MODEL",), placeholder="gemini-3.5-flash"),
+            IntegrationFieldDefinition("model", "Default model", ("GEMINI_MODEL",), placeholder="gemini-3.7-flash"),
             IntegrationFieldDefinition("fallback_model", "Fallback model", ("GEMINI_FALLBACK_MODEL",), placeholder="gemini-2.5-flash"),
         ),
     ),
@@ -524,7 +524,7 @@ INTEGRATION_DEFINITIONS: tuple[IntegrationDefinition, ...] = (
                 ("VERTEX_AI_LOCATION", "GOOGLE_CLOUD_LOCATION"),
                 placeholder="global",
             ),
-            IntegrationFieldDefinition("model", "Default model", ("VERTEX_AI_MODEL",), placeholder="gemini-3.5-flash"),
+            IntegrationFieldDefinition("model", "Default model", ("VERTEX_AI_MODEL",), placeholder="gemini-3.7-flash"),
             IntegrationFieldDefinition(
                 "image_model",
                 "Image model",

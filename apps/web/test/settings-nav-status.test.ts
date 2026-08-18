@@ -11,6 +11,9 @@ test("parsePreferredLlmProvider reads anthropic from a Claude selector", () => {
   assert.equal(parsePreferredLlmProvider("anthropic/claude-opus-5"), "anthropic");
   assert.equal(parsePreferredLlmProvider("claude-opus-5"), "anthropic");
   assert.equal(parsePreferredLlmProvider("", "anthropic"), "anthropic");
+  assert.equal(parsePreferredLlmProvider("gemini/gemini-3.7-flash"), "gemini");
+  assert.equal(parsePreferredLlmProvider("gemini-3.7-flash"), "gemini");
+  assert.equal(parsePreferredLlmProvider("vertex/gemini-3.7-flash"), "vertex");
   assert.equal(parsePreferredLlmProvider("xai/grok-4"), "xai");
   assert.equal(parsePreferredLlmProvider("grok-4"), "xai");
 });

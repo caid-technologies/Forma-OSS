@@ -464,6 +464,26 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertEqual("anthropic", runtime.provider)
         self.assertEqual("claude-opus-5", runtime.model)
 
+    def test_gemini_defaults_to_flash_3_7(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="gemini",
+            GEMINI_API_KEY="gemini-test-key",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("gemini", runtime.provider)
+        self.assertEqual("gemini-3.7-flash", runtime.model)
+
+    def test_vertex_defaults_to_flash_3_7(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="vertex",
+            GOOGLE_CLOUD_PROJECT="forma-vertex-test",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("vertex", runtime.provider)
+        self.assertEqual("gemini-3.7-flash", runtime.model)
+
     def test_local_runtime_allows_configured_provider_model_override(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="baseten",

@@ -170,7 +170,7 @@ both.
 To run with Google Vertex AI as the primary LLM provider:
 ```bash
 gcloud auth application-default login
-LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.5-flash uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.7-flash uvicorn apps.api.main:app --reload --port 8000
 ```
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
@@ -204,7 +204,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 - In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-opus-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
 - `LLM_API_KEY`: Generic provider API key alias. For Gemini, `GEMINI_API_KEY` or `GOOGLE_API_KEY` still work.
-- `LLM_MODEL`: Model to use, for example `gemini-3.5-flash` or an OpenAI/OpenAI-compatible model ID.
+- `LLM_MODEL`: Model to use, for example `gemini-3.7-flash` or an OpenAI/OpenAI-compatible model ID.
 - `LLM_FALLBACK_MODEL`: Optional fallback model when `STRICT_LLM=false`.
 - `LLM_BASE_URL`: Optional base URL for OpenAI-compatible providers.
 - `LLM_TIMEOUT_SECONDS`: Generic read timeout. OpenAI-compatible endpoints default to `90`.
@@ -215,7 +215,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>Google Vertex AI (primary)</strong></summary>
 
 - Set `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT` (or `VERTEX_AI_PROJECT`), and `GOOGLE_CLOUD_LOCATION` (or `VERTEX_AI_LOCATION`, default `global`).
-- `VERTEX_AI_MODEL` selects the Gemini model and `VERTEX_AI_FALLBACK_MODEL` configures the optional non-strict fallback.
+- `VERTEX_AI_MODEL` selects the Gemini model and defaults to `gemini-3.7-flash`. `VERTEX_AI_FALLBACK_MODEL` configures the optional non-strict fallback.
 - Authentication uses Google Cloud Application Default Credentials. Run `gcloud auth application-default login` locally; in production, attach a service account with Vertex AI access. `GOOGLE_APPLICATION_CREDENTIALS` may point to a mounted credential file.
 - Vercel deployments can use keyless workload identity federation. Configure Vercel OIDC in a Google Workload Identity Pool, then set `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`. Forma exchanges the request's short-lived Vercel OIDC token and does not store a service-account key.
 
@@ -256,7 +256,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>Gemini</strong></summary>
 
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY`: Gemini credentials when `LLM_PROVIDER=gemini` or a request uses `provider=gemini`.
-- `GEMINI_MODEL`: Gemini model ID. The example default is `gemini-3.5-flash`.
+- `GEMINI_MODEL`: Gemini model ID. The default is `gemini-3.7-flash`.
 
 </details>
 

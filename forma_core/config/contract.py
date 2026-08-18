@@ -40,6 +40,8 @@ _MODEL_LABELS = {
     ("gmi", "anthropic/claude-fable-5"): "GMI Claude Fable 5",
     ("anthropic", "claude-opus-5"): "Claude Opus 5",
     ("anthropic", "claude-sonnet-5"): "Claude Sonnet 5",
+    ("gemini", "gemini-3.7-flash"): "Gemini 3.7 Flash",
+    ("vertex", "gemini-3.7-flash"): "Vertex Gemini 3.7 Flash",
     ("baseten", "zai-org/GLM-5.2"): "GLM 5.2",
     ("runpod", "caid-technologies/parti-base"): "Runpod Parti Base",
     ("runpod-serverless", "caid-technologies/parti-base"): "caid-technologies/parti-base",

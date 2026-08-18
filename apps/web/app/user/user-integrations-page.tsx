@@ -142,7 +142,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_resolution", "image_aspect_ratio", "image_output_format", "image_timeout_seconds"],
     summary: "Nano Banana image generation using your Google Cloud project and Application Default Credentials.",
-    tier: "advanced",
+    tier: "basic",
   },
   {
     id: "huggingface",
@@ -285,7 +285,6 @@ const INTEGRATION_NAV_GROUPS: Array<{
           {
             type: "items",
             items: [
-              { integrationId: "openai", view: "llm", label: "OpenAI", logo: "openai" },
               { integrationId: "anthropic", view: "llm", label: "Anthropic", logo: "anthropic" },
             ],
           },
@@ -303,7 +302,10 @@ const INTEGRATION_NAV_GROUPS: Array<{
           },
           {
             type: "items",
-            items: [{ integrationId: "xai", view: "llm", label: "Grok", logo: "xai" }],
+            items: [
+              { integrationId: "openai", view: "llm", label: "OpenAI", logo: "openai" },
+              { integrationId: "xai", view: "llm", label: "Grok", logo: "xai" },
+            ],
           },
         ],
       },
@@ -341,10 +343,10 @@ const INTEGRATION_NAV_GROUPS: Array<{
     id: "image",
     label: "Image / Video",
     basic: [
+      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", logo: "vertex", imageProviderId: "vertex" },
       { integrationId: "openai", view: "image", label: "OpenAI Images", logo: "openai", imageProviderId: "openai" },
     ],
     advanced: [
-      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", logo: "vertex", imageProviderId: "vertex" },
       { integrationId: "gmi", view: "image", label: "GMI Cloud", logo: "gmi", imageProviderId: "gmi" },
       { integrationId: "huggingface", view: "image", label: "Hugging Face", logo: "huggingface", imageProviderId: "huggingface" },
       { integrationId: "together", view: "image", label: "Together AI", logo: "together", imageProviderId: "together" },

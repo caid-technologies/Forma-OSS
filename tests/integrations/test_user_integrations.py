@@ -69,6 +69,9 @@ TEST_ENV_KEYS = (
     "DEPLOYMENT_MODE",
     "NEXT_PUBLIC_FORMA_DEPLOYMENT",
     "IMAGE_PROVIDER",
+    "IMAGE_OUTPUT_ENABLED",
+    "OPENAI_IMAGE_OUTPUT_ENABLED",
+    "OPENAI_IMAGE_SIZE",
     "IMAGE_API_KEY",
     "IMAGE_BASE_URL",
     "IMAGE_MODEL",
@@ -263,6 +266,32 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertTrue(field_by_id(openai, "api_key")["configured"])
             self.assertEqual("environment", field_by_id(runtime, "image_provider")["source"])
             self.assertTrue(field_by_id(runtime, "image_provider")["configured"])
+
+    def test_image_env_defaults_do_not_mark_openai_or_custom_image_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["IMAGE_OUTPUT_ENABLED"] = "false"
+            os.environ["IMAGE_PROVIDER"] = "openai"
+            os.environ["OPENAI_IMAGE_MODEL"] = "gpt-image-2"
+            os.environ["OPENAI_IMAGE_SIZE"] = "1024x1024"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+
+            payload = integration_status_payload(store)
+            image = integration_by_id(payload, "image")
+            openai = integration_by_id(payload, "openai")
+
+            self.assertFalse(image["configured"])
+            self.assertFalse(openai["configured"])
+
+    def test_saved_openai_image_model_without_key_is_not_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration("openai", field_values={"image_model": "gpt-image-2", "image_size": "1024x1024"})
+
+            payload = integration_status_payload(store)
+            openai = integration_by_id(payload, "openai")
+
+            self.assertFalse(openai["configured"])
+            self.assertTrue(field_by_id(openai, "image_model")["saved"])
 
     def test_saved_byok_overrides_environment_without_hiding_other_env_providers(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:

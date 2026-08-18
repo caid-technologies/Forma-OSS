@@ -305,6 +305,42 @@ function navigationDescription(item: IntegrationNavigationItem | null) {
   return item.integration.description;
 }
 
+function fieldLooksConfigured(field: IntegrationFieldStatus | undefined) {
+  if (!field) return false;
+  return Boolean(field.configured || field.saved || (field.value || "").trim() || (field.masked_value || "").trim());
+}
+
+function navigationItemReadyState(item: IntegrationNavigationItem): "ready" | "off" | "unset" {
+  const relevantFields = integrationFieldGroups(item.integration, item.view).flatMap((group) => group.fields);
+  const enabledOff = !item.integration.enabled
+    || (item.integrationId === "image" && ["0", "false", "no", "off"].includes(
+      (item.integration.fields.find((field) => field.id === "enabled")?.value || "").trim().toLowerCase()
+    ));
+
+  let configured = false;
+  if (item.view === "llm") {
+    configured = item.integrationId === "vertex"
+      ? relevantFields.some((field) => field.id === "project" && fieldLooksConfigured(field))
+      : relevantFields.some((field) => field.secret && !isConfirmationField(field) && fieldLooksConfigured(field));
+  } else if (item.view === "image") {
+    const hasSecret = relevantFields.some((field) => field.secret && !isConfirmationField(field) && fieldLooksConfigured(field));
+    if (item.integrationId === "image") {
+      configured = hasSecret;
+    } else if (item.integrationId === "vertex") {
+      configured = relevantFields.some((field) => field.id === "project" && fieldLooksConfigured(field))
+        && relevantFields.some((field) => field.id.startsWith("image_") && fieldLooksConfigured(field));
+    } else {
+      const hasImageModel = relevantFields.some((field) => field.id === "image_model" && fieldLooksConfigured(field));
+      configured = hasSecret && (hasImageModel || item.integrationId === "gmi");
+    }
+  } else {
+    configured = item.integration.configured;
+  }
+
+  if (!configured) return "unset";
+  return enabledOff ? "off" : "ready";
+}
+
 function imageNavigationKey(provider: string) {
   const option = IMAGE_PROVIDER_OPTIONS.find((candidate) => candidate.id === provider);
   return `${option?.integrationId || "image"}:image`;
@@ -2035,7 +2071,9 @@ export default function UserIntegrationsPage() {
                       collapsed={collapsedNav.has(groupKey)}
                       onToggle={() => toggleNavCollapse(groupKey)}
                     >
-                      {group.items.map((item) => (
+                      {group.items.map((item) => {
+                        const readyState = navigationItemReadyState(item);
+                        return (
                         <SettingsNavRow
                           key={item.key}
                           label={item.label}
@@ -2046,14 +2084,13 @@ export default function UserIntegrationsPage() {
                             else setSelectedNavigationKey(item.key);
                           }}
                           badge={
-                            <SettingsNavBadge
-                              tone={item.integration.configured ? (item.integration.enabled ? "ready" : "warn") : "muted"}
-                            >
-                              {item.integration.configured ? (item.integration.enabled ? "Ready" : "Off") : "Unset"}
+                            <SettingsNavBadge tone={readyState === "ready" ? "ready" : readyState === "off" ? "warn" : "muted"}>
+                              {readyState === "ready" ? "Ready" : readyState === "off" ? "Off" : "Unset"}
                             </SettingsNavBadge>
                           }
                         />
-                      ))}
+                        );
+                      })}
                     </SettingsNavGroup>
                   );
                 })

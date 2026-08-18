@@ -5,9 +5,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from blueprint_core.agents.continuous import JsonlStreamStore
-from blueprint_core.jobs.continuous import ContinuousOpenAIJobQueue, ContinuousOpenAIJobRunner, ContinuousOpenAIJobSpec
-from blueprint_core.openai_streams import (
+from forma_core.agents.continuous import JsonlStreamStore
+from forma_core.jobs.continuous import ContinuousOpenAIJobQueue, ContinuousOpenAIJobRunner, ContinuousOpenAIJobSpec
+from forma_core.openai_streams import (
     OpenAICompatibleChatConfig,
     OpenAIStreamConfig,
     OpenAIStreamRequestError,

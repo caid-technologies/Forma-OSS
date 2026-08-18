@@ -8,7 +8,7 @@ their local environment.
 import os
 
 
-os.environ.setdefault("BLUEPRINT_DEV_MODE", "true")
+os.environ.setdefault("FORMA_DEV_MODE", "true")
 os.environ.setdefault("DATABASE_BACKEND", "sqlite")
 os.environ.setdefault("SQLITE_DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("LLM_PROVIDER", "simulation")

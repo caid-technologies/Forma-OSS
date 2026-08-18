@@ -34,8 +34,8 @@ class BenchmarkScriptTests(unittest.TestCase):
             self.assertTrue((ROOT_DIR / "evals" / directory / "README.md").is_file())
 
     def test_offline_sample_circuit_validates_without_critical_issues(self) -> None:
-        module = load_module("blueprint_benchmark_offline", OFFLINE_BENCHMARK_SCRIPT)
-        from blueprint_core.validation import validate_circuit
+        module = load_module("forma_benchmark_offline", OFFLINE_BENCHMARK_SCRIPT)
+        from forma_core.validation import validate_circuit
 
         self.assertEqual(ROOT_DIR, module.ROOT_DIR)
         self.assertEqual(".logs/benchmarks", module.DEFAULT_OUTPUT_DIR)
@@ -45,7 +45,7 @@ class BenchmarkScriptTests(unittest.TestCase):
         self.assertEqual([], [issue for issue in issues if issue.severity.upper() == "CRITICAL"])
 
     def test_offline_measure_operation_records_timing(self) -> None:
-        module = load_module("blueprint_benchmark_offline", OFFLINE_BENCHMARK_SCRIPT)
+        module = load_module("forma_benchmark_offline", OFFLINE_BENCHMARK_SCRIPT)
 
         result = module.measure_operation("unit.noop", iterations=3, operation=lambda: None, warmup_iterations=0)
 
@@ -55,7 +55,7 @@ class BenchmarkScriptTests(unittest.TestCase):
         self.assertGreaterEqual(result.iterations_per_second, 0.0)
 
     def test_model_benchmark_summary_groups_by_candidate(self) -> None:
-        module = load_module("blueprint_benchmark_models", MODEL_BENCHMARK_SCRIPT)
+        module = load_module("forma_benchmark_models", MODEL_BENCHMARK_SCRIPT)
         self.assertEqual(ROOT_DIR, module.ROOT_DIR)
         self.assertEqual(".logs/benchmarks", module.DEFAULT_OUTPUT_DIR)
         candidate = module.LLMSelector("openai", "gpt-5.5")
@@ -83,7 +83,7 @@ class BenchmarkScriptTests(unittest.TestCase):
         self.assertEqual(0.25, summary["candidates"][0]["duration_seconds"]["mean"])
 
     def test_model_benchmark_job_sink_writes_jsonl_and_csv(self) -> None:
-        module = load_module("blueprint_benchmark_models", MODEL_BENCHMARK_SCRIPT)
+        module = load_module("forma_benchmark_models", MODEL_BENCHMARK_SCRIPT)
         result = {
             "llm": "openai/gpt-5.5",
             "provider": "openai",

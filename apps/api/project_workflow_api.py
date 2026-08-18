@@ -5,13 +5,13 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
-from blueprint_core.database import (
+from forma_core.database import (
     get_project_workflow,
     initialize_project_workflow,
     list_project_workflow_transitions,
     transition_project_workflow,
 )
-from blueprint_core.workspaces.workflow import (
+from forma_core.workspaces.workflow import (
     ProjectWorkflow,
     ProjectWorkflowHistory,
     WorkflowActorType,

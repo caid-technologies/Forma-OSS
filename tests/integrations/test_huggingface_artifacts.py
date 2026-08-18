@@ -7,7 +7,7 @@ import tempfile
 import types
 import unittest
 
-from blueprint_core.integrations.huggingface import (
+from forma_core.integrations.huggingface import (
     HuggingFaceUploadConfig,
     build_artifacts,
     upload_artifacts_to_huggingface,
@@ -35,12 +35,12 @@ class FakeHfApi:
 
 class HuggingFaceArtifactTests(unittest.TestCase):
     def test_artifact_implementation_lives_in_huggingface_integration_package(self) -> None:
-        core_root = pathlib.Path(__file__).resolve().parents[2] / "blueprint_core"
+        core_root = pathlib.Path(__file__).resolve().parents[2] / "forma_core"
 
         self.assertFalse((core_root / "huggingface_artifacts.py").exists())
         self.assertTrue((core_root / "integrations" / "huggingface" / "huggingface_artifacts.py").is_file())
         self.assertEqual(
-            "blueprint_core.integrations.huggingface.huggingface_artifacts",
+            "forma_core.integrations.huggingface.huggingface_artifacts",
             build_artifacts.__module__,
         )
 
@@ -54,7 +54,7 @@ class HuggingFaceArtifactTests(unittest.TestCase):
             artifacts = build_artifacts(
                 [artifact_path],
                 artifact_type="benchmarks/model",
-                path_prefix="blueprint",
+                path_prefix="forma",
                 root_dir=root,
             )
 
@@ -62,7 +62,7 @@ class HuggingFaceArtifactTests(unittest.TestCase):
             self.assertEqual(1, len(artifacts))
             self.assertEqual(expected_digest, artifacts[0].sha256)
             self.assertEqual(13, artifacts[0].size_bytes)
-            self.assertEqual("blueprint/benchmarks/model/.logs/benchmarks/report.json", artifacts[0].path_in_repo)
+            self.assertEqual("forma/benchmarks/model/.logs/benchmarks/report.json", artifacts[0].path_in_repo)
 
     def test_upload_artifacts_uses_hf_api_without_network(self) -> None:
         fake_module = types.ModuleType("huggingface_hub")
@@ -80,7 +80,7 @@ class HuggingFaceArtifactTests(unittest.TestCase):
                 artifact = build_artifacts(
                     [artifact_path],
                     artifact_type="evals",
-                    path_prefix="blueprint",
+                    path_prefix="forma",
                     root_dir=root,
                 )[0]
 
@@ -90,7 +90,7 @@ class HuggingFaceArtifactTests(unittest.TestCase):
                         repo_id="test/repo",
                         token="hf_test",
                         private=True,
-                        path_prefix="blueprint",
+                        path_prefix="forma",
                     ),
                 )
         finally:
@@ -104,7 +104,7 @@ class HuggingFaceArtifactTests(unittest.TestCase):
         self.assertEqual("dataset", FakeHfApi.created_repos[0]["repo_type"])
         self.assertTrue(FakeHfApi.created_repos[0]["private"])
         self.assertEqual("test/repo", FakeHfApi.uploaded_files[0]["repo_id"])
-        self.assertEqual("blueprint/evals/metrics.json", FakeHfApi.uploaded_files[0]["path_in_repo"])
+        self.assertEqual("forma/evals/metrics.json", FakeHfApi.uploaded_files[0]["path_in_repo"])
 
 
 if __name__ == "__main__":

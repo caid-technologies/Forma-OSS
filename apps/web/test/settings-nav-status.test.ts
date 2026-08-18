@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+
+import {
+  imageOutputIsEnabled,
+  parsePreferredLlmProvider,
+  settingsNavBadge,
+} from "../lib/settings-nav-status.ts";
+
+test("parsePreferredLlmProvider reads anthropic from a Claude selector", () => {
+  assert.equal(parsePreferredLlmProvider("anthropic/claude-opus-5"), "anthropic");
+  assert.equal(parsePreferredLlmProvider("claude-opus-5"), "anthropic");
+  assert.equal(parsePreferredLlmProvider("", "anthropic"), "anthropic");
+  assert.equal(parsePreferredLlmProvider("gemini/gemini-3.7-flash"), "gemini");
+  assert.equal(parsePreferredLlmProvider("gemini-3.7-flash"), "gemini");
+  assert.equal(parsePreferredLlmProvider("vertex/gemini-3.7-flash"), "vertex");
+  assert.equal(parsePreferredLlmProvider("xai/grok-4"), "xai");
+  assert.equal(parsePreferredLlmProvider("grok-4"), "xai");
+});
+
+test("image output stays off when IMAGE_OUTPUT_ENABLED is false", () => {
+  assert.equal(imageOutputIsEnabled("false", "openai"), false);
+  assert.equal(imageOutputIsEnabled("", "none"), false);
+  assert.equal(imageOutputIsEnabled("true", "openai"), true);
+});
+
+test("configured LLM providers are Ready even when they are not the default", () => {
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "anthropic",
+    configured: true,
+    enabled: true,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "ready", label: "Ready" });
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "gemini",
+    configured: true,
+    enabled: true,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "ready", label: "Ready" });
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "vertex",
+    configured: true,
+    enabled: true,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "ready", label: "Ready" });
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "openai",
+    configured: true,
+    enabled: false,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "warn", label: "Off" });
+  assert.deepEqual(settingsNavBadge({
+    view: "llm",
+    integrationId: "openai",
+    configured: false,
+    enabled: true,
+    defaultLlmProvider: "anthropic",
+  }), { tone: "muted", label: "Unset" });
+});
+
+test("custom image output is Unset unless it is the active image provider", () => {
+  assert.deepEqual(settingsNavBadge({
+    view: "image",
+    integrationId: "image",
+    configured: false,
+    enabled: true,
+    imageOutputEnabled: false,
+    activeImageProvider: "openai",
+  }), { tone: "muted", label: "Unset" });
+  assert.deepEqual(settingsNavBadge({
+    view: "image",
+    integrationId: "openai",
+    imageProviderId: "openai",
+    configured: false,
+    enabled: true,
+    imageOutputEnabled: false,
+    activeImageProvider: "openai",
+  }), { tone: "muted", label: "Unset" });
+});

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.agents.contracts import (
+from forma_core.agents.contracts import (
     LatticeRegistry,
     LatticeRunRecord,
     LatticeSchemaContract,
 )
-from blueprint_core.agents.lattice import default_namespace_agent_cards, namespace_contract_id
-from blueprint_core.fabricator import (
+from forma_core.agents.lattice import default_namespace_agent_cards, namespace_contract_id
+from forma_core.fabricator import (
     FabricatorPlan,
     FabricatorQuestion,
     fabricator_lattice_card,
@@ -41,7 +41,7 @@ class LatticeTests(unittest.TestCase):
         self.assertEqual(["fabricator"], [card.agent_id for card in by_capability])
         self.assertEqual("Lattice", registry.manifest()["name"])
 
-    def test_blueprint_project_namespaces_are_lattice_agents(self) -> None:
+    def test_forma_project_namespaces_are_lattice_agents(self) -> None:
         registry = LatticeRegistry(default_namespace_agent_cards())
 
         mech = registry.get("product.mech")

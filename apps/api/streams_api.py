@@ -10,7 +10,7 @@ from typing import Any, Iterable, Optional
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from blueprint_core.logs import redact_log_line
+from forma_core.logs import redact_log_line
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]

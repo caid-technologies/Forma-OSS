@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "caid-blueprint-core"
+name = "caid-forma-core"
 dynamic = ["version"]
 description = "Reusable generation, validation, provider, and project-object core for Forma OSS."
 readme = "README.md"
@@ -38,8 +38,8 @@ Repository = "https://github.com/caid-technologies/Forma-OSS"
 Documentation = "https://github.com/caid-technologies/Forma-OSS#readme"
 
 [project.scripts]
-blueprint-core = "blueprint_core.cli.main:main"
-fabricator = "blueprint_core.fabricator.main:main"
+forma-core = "forma_core.cli.main:main"
+fabricator = "forma_core.fabricator.main:main"
 
 [tool.vercel]
 entrypoint = "apps.api.main:app"
@@ -84,12 +84,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = [
-    "blueprint_core",
-    "blueprint_core.*",
+    "forma_core",
+    "forma_core.*",
 ]
 
 [tool.setuptools.package-data]
-blueprint_core = ["py.typed"]
+forma_core = ["py.typed"]
 
 [tool.setuptools.dynamic]
-version = { attr = "blueprint_core._version.__version__" }
+version = { attr = "forma_core._version.__version__" }

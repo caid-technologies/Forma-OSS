@@ -3,7 +3,7 @@ import base64
 import contextlib
 import json
 import logging
-from blueprint_core.config import config
+from forma_core.config import config
 import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -11,23 +11,23 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from blueprint_core.agents.workflows import (
+from forma_core.agents.workflows import (
     generate_project_with_workflow,
     get_workflow_debug_config,
     list_workflows,
     normalize_workflow_id,
 )
-from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.database import (
+from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
+from forma_core.database import (
     ensure_project_action_allowed,
     get_generated_project,
     save_generated_project,
     update_generated_project_hardware_ir,
 )
-from blueprint_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
+from forma_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from apps.api.auth_mode import clerk_auth_required
-from blueprint_core.jobs.store import JOB_STORE
-from blueprint_core.jobs.context import (
+from forma_core.jobs.store import JOB_STORE
+from forma_core.jobs.context import (
     PAST_JOBS_DATA_SOURCE,
     PastJobContext,
     PastJobContextSource,
@@ -35,32 +35,32 @@ from blueprint_core.jobs.context import (
     list_generation_data_sources,
     normalize_generation_data_sources,
 )
-from blueprint_core.jobs.source_usage import normalize_source_usage
-from blueprint_core.llm import get_llm_runtime_debug_config
-from blueprint_core.workspaces.projects.models import ComponentInstance, ConnectionNet
-from blueprint_core.observability import (
+from forma_core.jobs.source_usage import normalize_source_usage
+from forma_core.llm import get_llm_runtime_debug_config
+from forma_core.workspaces.projects.models import ComponentInstance, ConnectionNet
+from forma_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
     serialize_for_langfuse,
     start_observation,
     update_observation,
 )
-from blueprint_core.agents.pipeline import emit_agent_pipeline_event, ensure_agent_pipeline_active, observe_agent_pipeline
-from blueprint_core.runtime import (
+from forma_core.agents.pipeline import emit_agent_pipeline_event, ensure_agent_pipeline_active, observe_agent_pipeline
+from forma_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
     generation_unavailable_message,
 )
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
+from forma_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
 from apps.api.storage import get_image_storage_config, upload_image_to_supabase_s3
-from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
-from blueprint_core.validation import validate_circuit
+from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
+from forma_core.validation import validate_circuit
 
 
 logger = logging.getLogger(__name__)
 
-BLUEPRINT_AGENT_ID = "blueprint"
-SERVER_RECIPIENTS = {BLUEPRINT_AGENT_ID, "server", "hardware_pipeline", "hardware-compiler"}
+FORMA_AGENT_ID = "forma"
+SERVER_RECIPIENTS = {FORMA_AGENT_ID, "server", "hardware_pipeline", "hardware-compiler"}
 
 
 def _utc_now() -> str:
@@ -96,9 +96,9 @@ class A2AMessage(BaseModel):
     job_id: str = Field(default_factory=lambda: f"job_{uuid.uuid4().hex}")
     message_id: str = Field(default_factory=lambda: f"msg_{uuid.uuid4().hex}")
     type: str = Field("task", description="Message type such as task, event, result, error, or ping")
-    action: str = Field("blueprint.generate_project", description="Action name or tool name")
+    action: str = Field("forma.generate_project", description="Action name or tool name")
     sender: str = Field("anonymous", description="Sending agent id")
-    recipient: str = Field(BLUEPRINT_AGENT_ID, description="Recipient agent id")
+    recipient: str = Field(FORMA_AGENT_ID, description="Recipient agent id")
     correlation_id: Optional[str] = Field(None, description="Optional id used to correlate request/result pairs")
     payload: Dict[str, Any] = Field(default_factory=dict, description="Message-specific JSON payload")
 
@@ -110,7 +110,7 @@ class A2AEvent(BaseModel):
     correlation_id: Optional[str] = None
     type: str = "event"
     action: str
-    sender: str = BLUEPRINT_AGENT_ID
+    sender: str = FORMA_AGENT_ID
     recipient: str
     created_at: str = Field(default_factory=_utc_now)
     payload: Dict[str, Any] = Field(default_factory=dict)
@@ -181,9 +181,9 @@ A2A_HUB = A2AHub()
 
 
 def _lattice_registry():
-    from blueprint_core.agents.contracts import LatticeRegistry
-    from blueprint_core.agents.lattice import default_namespace_agent_cards
-    from blueprint_core.fabricator import fabricator_lattice_card
+    from forma_core.agents.contracts import LatticeRegistry
+    from forma_core.agents.lattice import default_namespace_agent_cards
+    from forma_core.fabricator import fabricator_lattice_card
 
     return LatticeRegistry([*default_namespace_agent_cards(), fabricator_lattice_card()])
 
@@ -195,7 +195,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         llm_runtime = {"error": str(exc)}
 
     return {
-        "agent_id": BLUEPRINT_AGENT_ID,
+        "agent_id": FORMA_AGENT_ID,
         "name": "Forma OSS Hardware Compiler",
         "transports": {
             "rest": {
@@ -214,15 +214,15 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                 "endpoint": "/api/mcp",
                 "alias": "/api/a2a/mcp",
                 "tools": [
-                    "blueprint.generate_project",
-                    "blueprint.debug_config",
-                    "blueprint.validate_circuit",
-                    "blueprint.a2a.send_message",
-                    "blueprint.a2a.poll_events",
-                    "blueprint.a2a.get_job",
-                    "blueprint.a2a.list_jobs",
-                    "blueprint.lattice.list_agents",
-                    "blueprint.lattice.get_agent_card",
+                    "forma.generate_project",
+                    "forma.debug_config",
+                    "forma.validate_circuit",
+                    "forma.a2a.send_message",
+                    "forma.a2a.poll_events",
+                    "forma.a2a.get_job",
+                    "forma.a2a.list_jobs",
+                    "forma.lattice.list_agents",
+                    "forma.lattice.get_agent_card",
                 ],
             },
         },
@@ -234,14 +234,14 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         "workflows": list_workflows(),
         "data_sources": list_generation_data_sources(),
         "actions": [
-            "blueprint.generate_project",
-            "blueprint.debug_config",
-            "blueprint.validate_circuit",
-            "blueprint.a2a.capabilities",
-            "blueprint.a2a.get_job",
-            "blueprint.a2a.list_jobs",
-            "blueprint.lattice.list_agents",
-            "blueprint.lattice.get_agent_card",
+            "forma.generate_project",
+            "forma.debug_config",
+            "forma.validate_circuit",
+            "forma.a2a.capabilities",
+            "forma.a2a.get_job",
+            "forma.a2a.list_jobs",
+            "forma.lattice.list_agents",
+            "forma.lattice.get_agent_card",
             "a2a.ping",
         ],
         "lattice": _lattice_registry().manifest(),
@@ -760,11 +760,47 @@ def build_generation_response(
     data_sources: Optional[List[str]] = None,
     past_job_context: Optional[PastJobContext] = None,
     project_id: Optional[str] = None,
+    retry_stage: Optional[str] = None,
 ) -> Dict[str, Any]:
     _apply_owner_user_integrations(owner_user_id)
 
     prompt_text = (prompt or "").strip()
     workflow_id = normalize_workflow_id(workflow)
+    normalized_retry_stage = str(retry_stage or "").strip() or None
+    prior_generation_run: Optional[Dict[str, Any]] = None
+    retry_stage_replay = False
+    if normalized_retry_stage:
+        if workflow_id not in {"default", "web_research"}:
+            raise ValueError("Named generation-stage retry is not supported by this workflow.")
+        if not project_id:
+            raise ValueError("project_id is required when retry_stage is provided.")
+        existing_project = get_generated_project(project_id)
+        if existing_project is None:
+            raise ValueError("The project containing the failed generation stage was not found.")
+        if owner_user_id and str(getattr(existing_project, "owner_user_id", "") or "") != str(owner_user_id):
+            raise ValueError("The failed generation stage is not owned by the requesting user.")
+        existing_ir = getattr(existing_project, "hardware_ir", None)
+        if hasattr(existing_ir, "model_dump"):
+            existing_ir = existing_ir.model_dump(mode="json")
+        existing_ir = existing_ir if isinstance(existing_ir, dict) else {}
+        existing_metadata = existing_ir.get("assembly_metadata") or {}
+        candidate_run = existing_metadata.get("generation_run")
+        if not isinstance(candidate_run, dict):
+            raise ValueError("The project does not contain persisted generation-stage artifacts.")
+        candidate_record = (candidate_run.get("records") or {}).get(normalized_retry_stage)
+        if not isinstance(candidate_record, dict):
+            raise ValueError(f"Generation stage '{normalized_retry_stage}' is not failed and cannot be retried.")
+        if candidate_record.get("status") == "succeeded":
+            retry_stage_replay = bool(
+                frontend_job_id
+                and existing_metadata.get("frontend_job_id") == frontend_job_id
+                and candidate_run.get("retry_stage") == normalized_retry_stage
+            )
+            if not retry_stage_replay:
+                raise ValueError(f"Generation stage '{normalized_retry_stage}' is not failed and cannot be retried.")
+        elif candidate_record.get("status") != "failed":
+            raise ValueError(f"Generation stage '{normalized_retry_stage}' is not failed and cannot be retried.")
+        prior_generation_run = candidate_run
     has_prompt = bool(prompt_text)
     if not has_prompt and not image_data:
         raise ValueError("Provide a prompt or reference image.")
@@ -813,7 +849,7 @@ def build_generation_response(
         "past_jobs_context": past_jobs_metadata,
     }
     with start_observation(
-        name="blueprint.generate_project",
+        name="forma.generate_project",
         as_type="span",
         input={
             "prompt": prompt_text,
@@ -827,9 +863,9 @@ def build_generation_response(
         metadata=trace_metadata,
     ) as root_observation:
         with propagate_observation_attributes(
-            trace_name="blueprint.generate_project",
+            trace_name="forma.generate_project",
             metadata=trace_metadata,
-            tags=["blueprint", f"workflow:{workflow_id}"],
+            tags=["forma", f"workflow:{workflow_id}"],
         ):
             ir = generate_project_with_workflow(
                 workflow_id,
@@ -849,6 +885,9 @@ def build_generation_response(
                     "data_sources": normalized_data_sources,
                     "past_jobs_context": past_jobs_metadata,
                     "project_prompt": prompt_text,
+                    "retry_stage": normalized_retry_stage,
+                    "prior_generation_run": prior_generation_run,
+                    "retry_stage_replay": retry_stage_replay,
                 },
             )
             ensure_agent_pipeline_active()
@@ -913,6 +952,10 @@ def build_generation_response(
                 "project_ir": ir.model_dump(),
                 "mermaid_code": generate_mermaid_chart(ir),
                 "svg_schematic": generate_svg_schematic(ir),
+                "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+                "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+                "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
+                "idempotent_stage_replay": bool((ir.assembly_metadata or {}).get("retry_stage_replay")),
             }
             update_observation(
                 root_observation,
@@ -944,8 +987,8 @@ def build_generation_response(
             return response
 
 
-async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
-    normalized = action.removeprefix("blueprint.")
+async def call_forma_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    normalized = action.removeprefix("forma.")
     owner_user_id = payload.get("owner_user_id")
     project_id = payload.get("project_id")
 
@@ -985,6 +1028,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
             data_sources,
             past_job_context,
             payload.get("project_id"),
+            payload.get("retry_stage"),
         )
 
     if normalized == "debug_config":
@@ -1020,7 +1064,7 @@ async def call_blueprint_action(action: str, payload: Dict[str, Any]) -> Dict[st
 
 
 def _is_server_message(message: A2AMessage) -> bool:
-    return message.recipient in SERVER_RECIPIENTS or message.action.startswith("blueprint.")
+    return message.recipient in SERVER_RECIPIENTS or message.action.startswith("forma.")
 
 
 async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
@@ -1033,7 +1077,7 @@ async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
             str(project_id),
             str(owner_user_id),
             message.action,
-            require_workflow=message.action.removeprefix("blueprint.") == "generate_project",
+            require_workflow=message.action.removeprefix("forma.") == "generate_project",
         )
     job = JOB_STORE.create_job(
         job_id=message.job_id,
@@ -1053,7 +1097,7 @@ async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
         correlation_id=message.correlation_id,
         type="ack",
         action=message.action,
-        sender=BLUEPRINT_AGENT_ID,
+        sender=FORMA_AGENT_ID,
         recipient=message.sender,
         payload={"accepted": True, "server_owned": server_owned, "job_id": message.job_id, "job": job},
     )
@@ -1086,15 +1130,24 @@ async def _process_server_message(message: A2AMessage) -> None:
             lambda event: JOB_STORE.append_progress_event(message.job_id, event.as_dict()),
             cancellation_check=lambda: JOB_STORE.is_cancelled(message.job_id),
         ):
-            result = await call_blueprint_action(message.action, message.payload)
-        JOB_STORE.mark_succeeded(message.job_id, result)
+            result = await call_forma_action(message.action, message.payload)
+        generation_status = str(result.get("generation_status") or "succeeded").lower()
+        if generation_status == "partial":
+            JOB_STORE.mark_partial(message.job_id, result)
+        elif generation_status == "failed":
+            JOB_STORE.mark_failed(
+                message.job_id,
+                "A required root generation stage failed; partial diagnostics were preserved.",
+            )
+        else:
+            JOB_STORE.mark_succeeded(message.job_id, result)
         event = A2AEvent(
             job_id=message.job_id,
             message_id=message.message_id,
             correlation_id=message.correlation_id,
             type="result",
             action=message.action,
-            sender=BLUEPRINT_AGENT_ID,
+            sender=FORMA_AGENT_ID,
             recipient=message.sender,
             payload=result,
         )
@@ -1106,7 +1159,7 @@ async def _process_server_message(message: A2AMessage) -> None:
             correlation_id=message.correlation_id,
             type="error",
             action=message.action,
-            sender=BLUEPRINT_AGENT_ID,
+            sender=FORMA_AGENT_ID,
             recipient=message.sender,
             payload={"error": str(exc)},
         )
@@ -1124,7 +1177,7 @@ async def handle_a2a_websocket(websocket: WebSocket, agent_id: str) -> None:
             A2AEvent(
                 type="ready",
                 action="a2a.connected",
-                sender=BLUEPRINT_AGENT_ID,
+                sender=FORMA_AGENT_ID,
                 recipient=agent_id,
                 payload=get_a2a_capabilities(),
             )
@@ -1186,7 +1239,7 @@ async def _handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         A2AEvent(
             type="ready",
             action="a2a.connected",
-            sender=BLUEPRINT_AGENT_ID,
+            sender=FORMA_AGENT_ID,
             recipient=agent_id,
             payload={**get_a2a_capabilities(), "connection_agent_id": agent_id},
         )
@@ -1241,12 +1294,20 @@ def _mcp_tool_result(result: Dict[str, Any]) -> Dict[str, Any]:
 def _mcp_tools() -> List[Dict[str, Any]]:
     return [
         {
-            "name": "blueprint.generate_project",
+            "name": "forma.generate_project",
             "description": "Generate a Forma Hardware IR package, Mermaid diagram, and SVG schematic.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "prompt": {"type": "string"},
+                    "project_id": {
+                        "type": "string",
+                        "description": "Existing project ID when retrying a failed generation stage.",
+                    },
+                    "retry_stage": {
+                        "type": "string",
+                        "description": "Failed generation stage to retry while reusing successful artifacts.",
+                    },
                     "workflow": {
                         "type": "string",
                         "enum": ["default", "web_research"],
@@ -1275,12 +1336,12 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            "name": "blueprint.debug_config",
+            "name": "forma.debug_config",
             "description": "Return configured LLM provider and model resolution details.",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
-            "name": "blueprint.validate_circuit",
+            "name": "forma.validate_circuit",
             "description": "Validate a list of components and nets against Forma electrical rules.",
             "inputSchema": {
                 "type": "object",
@@ -1292,12 +1353,12 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            "name": "blueprint.a2a.send_message",
+            "name": "forma.a2a.send_message",
             "description": "Send an A2A message through the Forma in-memory broker.",
             "inputSchema": {"type": "object", "properties": A2AMessage.model_json_schema()["properties"]},
         },
         {
-            "name": "blueprint.a2a.poll_events",
+            "name": "forma.a2a.poll_events",
             "description": "Long-poll queued A2A events for an agent id.",
             "inputSchema": {
                 "type": "object",
@@ -1310,7 +1371,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            "name": "blueprint.a2a.get_job",
+            "name": "forma.a2a.get_job",
             "description": "Fetch persisted metadata for one A2A job.",
             "inputSchema": {
                 "type": "object",
@@ -1319,7 +1380,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            "name": "blueprint.a2a.list_jobs",
+            "name": "forma.a2a.list_jobs",
             "description": "List persisted A2A job metadata.",
             "inputSchema": {
                 "type": "object",
@@ -1331,7 +1392,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            "name": "blueprint.lattice.list_agents",
+            "name": "forma.lattice.list_agents",
             "description": "List Lattice domain-agent cards registered with Forma.",
             "inputSchema": {
                 "type": "object",
@@ -1344,7 +1405,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             },
         },
         {
-            "name": "blueprint.lattice.get_agent_card",
+            "name": "forma.lattice.get_agent_card",
             "description": "Fetch one Lattice domain-agent card by agent id.",
             "inputSchema": {
                 "type": "object",
@@ -1376,7 +1437,7 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Dict[str, Any]:
                 request_id,
                 {
                     "protocolVersion": requested_version,
-                    "serverInfo": {"name": "blueprint-oss", "version": "1.0.0"},
+                    "serverInfo": {"name": "forma-oss", "version": "1.0.0"},
                     "capabilities": {"tools": {}},
                 },
             )
@@ -1399,11 +1460,11 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-    if tool_name == "blueprint.a2a.send_message":
+    if tool_name == "forma.a2a.send_message":
         ack = await submit_a2a_message(A2AMessage.model_validate(arguments))
         return ack.model_dump()
 
-    if tool_name == "blueprint.a2a.poll_events":
+    if tool_name == "forma.a2a.poll_events":
         events = await A2A_HUB.poll(
             arguments["agent_id"],
             timeout=float(arguments.get("timeout", 25)),
@@ -1411,13 +1472,13 @@ async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str,
         )
         return {"events": [event.model_dump() for event in events]}
 
-    if tool_name == "blueprint.a2a.get_job":
+    if tool_name == "forma.a2a.get_job":
         job = JOB_STORE.get_job(arguments["job_id"])
         if not job:
             raise ValueError("A2A job not found.")
         return job
 
-    if tool_name == "blueprint.a2a.list_jobs":
+    if tool_name == "forma.a2a.list_jobs":
         return {
             "jobs": JOB_STORE.list_jobs(
                 sender=arguments.get("sender"),
@@ -1426,7 +1487,7 @@ async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str,
             )
         }
 
-    if tool_name == "blueprint.lattice.list_agents":
+    if tool_name == "forma.lattice.list_agents":
         registry = _lattice_registry()
         agents = registry.find(
             namespace=arguments.get("namespace"),
@@ -1439,8 +1500,8 @@ async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str,
             "agents": [agent.model_dump(mode="json") for agent in agents],
         }
 
-    if tool_name == "blueprint.lattice.get_agent_card":
+    if tool_name == "forma.lattice.get_agent_card":
         registry = _lattice_registry()
         return {"agent": registry.get(arguments.get("agent_id", "fabricator")).model_dump(mode="json")}
 
-    return await call_blueprint_action(tool_name, arguments)
+    return await call_forma_action(tool_name, arguments)

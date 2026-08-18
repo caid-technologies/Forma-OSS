@@ -17,7 +17,7 @@ comment on table public.workspace_integration_configs is
   'Encrypted workspace-level provider defaults and server-owned integration settings. API keys must not be stored in plaintext columns.';
 
 comment on column public.workspace_integration_configs.encrypted_config is
-  'Fernet-encrypted UserIntegrationConfig JSON. Requires server-only BLUEPRINT_USER_SECRETS_KEY to decrypt.';
+  'Fernet-encrypted UserIntegrationConfig JSON. Requires server-only FORMA_USER_SECRETS_KEY to decrypt.';
 
 alter table public.workspace_integration_configs enable row level security;
 

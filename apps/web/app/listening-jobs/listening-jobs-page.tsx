@@ -335,7 +335,7 @@ export default function ListeningJobsPage() {
           )}
 
           <div className="mb-4 flex flex-wrap gap-2">
-            {["all", "pending", "succeeded", "failed"].map((status) => (
+            {["all", "pending", "partial", "succeeded", "failed"].map((status) => (
               <button
                 key={status}
                 type="button"

@@ -18,14 +18,14 @@ if str(ROOT_DIR) not in sys.path:
 
 
 DEFAULT_ENV_FILE = ".env"
-DEFAULT_EXPECTED_MESSAGE = "blueprint llm provider ok"
+DEFAULT_EXPECTED_MESSAGE = "forma llm provider ok"
 DEFAULT_REPORT_DIR = ".logs/llm-smoke"
 LATEST_REPORT_NAME = "latest.json"
 PLACEHOLDER_VALUES = {"", "unknown", "n/a", "na", "none", "null", "new"}
 
 
-from blueprint_core.selectors import LLMSelector as LlmCandidate
-from blueprint_core.selectors import parse_llm_selector as parse_core_llm_selector
+from forma_core.selectors import LLMSelector as LlmCandidate
+from forma_core.selectors import parse_llm_selector as parse_core_llm_selector
 
 
 def parse_llm_selector(value: str) -> LlmCandidate:
@@ -76,7 +76,7 @@ def load_env_file(path: Path) -> None:
 
 
 def discover_candidates(*, include_simulation: bool, only_default_model: bool) -> list[LlmCandidate]:
-    from blueprint_core.llm import LLMProviderConfigError, resolve_llm_runtime_config
+    from forma_core.llm import LLMProviderConfigError, resolve_llm_runtime_config
 
     default_runtime = resolve_llm_runtime_config()
     providers = default_runtime.allowed_providers or [default_runtime.provider]
@@ -130,7 +130,7 @@ def run_candidate(
 ) -> dict[str, Any]:
     from pydantic import BaseModel, Field
 
-    from blueprint_core.llm import build_llm_provider, resolve_llm_runtime_config
+    from forma_core.llm import build_llm_provider, resolve_llm_runtime_config
 
     class LLMProviderSmokeResponse(BaseModel):
         ok: bool = Field(..., description="True when the provider understood and completed the smoke test.")
@@ -302,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.llm:
         candidates = dedupe_candidates(args.llm)
     elif args.provider:
-        from blueprint_core.llm import resolve_llm_runtime_config
+        from forma_core.llm import resolve_llm_runtime_config
 
         runtime = resolve_llm_runtime_config(args.provider, args.model)
         candidates = [LlmCandidate(runtime.provider, runtime.model)]

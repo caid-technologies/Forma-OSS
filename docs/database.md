@@ -2,21 +2,21 @@
 
 Forma stores component templates and generated projects in Supabase when configured, with a **SQLite fallback** for local development.
 
-Database selection is composed in `blueprint_core/database.py`. Provider lifecycle and backend-specific behavior live under `blueprint_core/persistence/providers/`, while application repositories live under `blueprint_core/persistence/repositories/`:
+Database selection is composed in `forma_core/database.py`. Provider lifecycle and backend-specific behavior live under `forma_core/persistence/providers/`, while application repositories live under `forma_core/persistence/repositories/`:
 - Supabase mode uses the Supabase Python client with `SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` or `SUPABASE_SECRET_KEY`.
 - Backend Supabase writes require a server-side service/secret key; anon and publishable keys obey RLS and will fail to seed/write by default.
 - Raw Postgres connection strings are intentionally ignored by the app database layer.
-- With no Supabase client configuration, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./blueprint.db`.
+- With no Supabase client configuration, the backend falls back to `SQLITE_DATABASE_URL` or `sqlite:///./forma.db`.
 - Set `DATABASE_BACKEND=sqlite` to force SQLite, or `DATABASE_BACKEND=supabase` to require Supabase client configuration.
-- Image storage and workspace/user integration stores follow the selected primary backend. In SQLite mode, merely having Supabase credentials in the environment does not enable remote ancillary stores. Use `BLUEPRINT_IMAGE_STORAGE_BACKEND=supabase`, `BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND=supabase`, or `BLUEPRINT_USER_INTEGRATIONS_BACKEND=supabase` only as explicit overrides.
-- Set `BLUEPRINT_DEV_MODE=true` to force SQLite when Supabase credentials point at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode disables Supabase Storage writes; uploaded/generated image data remains inline in the stored Hardware IR.
+- Image storage and workspace/user integration stores follow the selected primary backend. In SQLite mode, merely having Supabase credentials in the environment does not enable remote ancillary stores. Use `FORMA_IMAGE_STORAGE_BACKEND=supabase`, `FORMA_WORKSPACE_INTEGRATIONS_BACKEND=supabase`, or `FORMA_USER_INTEGRATIONS_BACKEND=supabase` only as explicit overrides.
+- Set `FORMA_DEV_MODE=true` to force SQLite when Supabase credentials point at a remote project. For local Supabase testing, `DATABASE_BACKEND=supabase` is honored when `SUPABASE_URL` points at localhost/127.0.0.1. Dev mode disables Supabase Storage writes; uploaded/generated image data remains inline in the stored Hardware IR.
 
 The provider is selected once during application composition. Domain-facing database functions delegate to that provider's repository adapter; they do not select a backend per operation. SQLite creates and upgrades the shared local schema, while Supabase expects deployment migrations to be applied before startup. Both providers validate the complete application schema contract and fail startup when a required table or column is missing.
 
 There is one physical application database per deployment. Passing an explicit path to `JobMetadataStore` creates a standalone SQLite provider only for isolated tests and the `jobs --local --db-path` inspection command; normal application code always uses the primary provider.
 
 ## Storage model
-Shared database models are defined in `blueprint_core/persistence/models.py`:
+Shared database models are defined in `forma_core/persistence/models.py`:
 
 ### component_templates
 Seed component library used by the Component Selection Agent.
@@ -64,11 +64,11 @@ Encrypted per-user BYOK/provider settings.
 - `created_at`
 - `updated_at`
 
-The backend decrypts this table only server-side using `BLUEPRINT_USER_SECRETS_KEY`. The table has RLS enabled, anon/authenticated grants revoked, and service-role-only access. Do not add plaintext API key columns to this table.
+The backend decrypts this table only server-side using `FORMA_USER_SECRETS_KEY`. The table has RLS enabled, anon/authenticated grants revoked, and service-role-only access. Do not add plaintext API key columns to this table.
 
 ### workspace_integration_configs
 
-Encrypted workspace-scoped provider settings used when `BLUEPRINT_AUTH_MODE=local`. Supabase-primary workspaces store Fernet ciphertext in this table; SQLite-primary runtimes use an encrypted file even if Supabase credentials are also present. The backend refuses to start without `BLUEPRINT_USER_SECRETS_KEY`, and `BLUEPRINT_WORKSPACE_SECRETS_KEY` can optionally isolate workspace encryption from per-user encryption.
+Encrypted workspace-scoped provider settings used when `FORMA_AUTH_MODE=local`. Supabase-primary workspaces store Fernet ciphertext in this table; SQLite-primary runtimes use an encrypted file even if Supabase credentials are also present. The backend refuses to start without `FORMA_USER_SECRETS_KEY`, and `FORMA_WORKSPACE_SECRETS_KEY` can optionally isolate workspace encryption from per-user encryption.
 
 ### user_settings
 
@@ -90,11 +90,11 @@ Separately stored, aggregate-only contribution records created during the privac
 Admin Excel and ZIP downloads do not rely on the separate deletion-contribution consent records. At download time, the exporter selects every active, user-owned project except those owned by an account with `model_training_opt_out = true`, runs the aggregate sanitizer in memory, and emits fresh anonymous records without source, account, workspace, chat, prompt, title, upload, or URL identifiers.
 
 ### a2a_jobs
-A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./blueprint_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.
-- Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, `source_usage` metadata for Catalog/data warehouse, Web Research/Firecrawl, and past-job context, compact result summaries, structured operation pass/fail metadata, image output status/error metadata, errors, and optional `error_debug` traces when `BLUEPRINT_DEBUG=true`
+A2A jobs use the primary application database. SQLite stores this table alongside projects in `SQLITE_DATABASE_URL`, and Supabase stores it alongside the hosted application tables. During the transition, rows from `JOB_METADATA_DB_PATH` or `./forma_jobs.db` are imported idempotently into a file-backed primary SQLite database; the legacy file is retained.
+- Stored data: job ids, sender/recipient/action, lifecycle status, timestamps, redacted payload metadata, `source_usage` metadata for Catalog/data warehouse, Web Research/Firecrawl, and past-job context, compact result summaries, structured operation pass/fail metadata, image output status/error metadata, errors, and optional `error_debug` traces when `FORMA_DEBUG=true`
 
 ### alpha_signups
-Alpha access leads captured when `BLUEPRINT_DEPLOYMENT=true` and live LLM generation is unavailable.
+Alpha access leads captured when `FORMA_DEPLOYMENT=true` and live LLM generation is unavailable.
 - `name`
 - `email`
 - `organization`

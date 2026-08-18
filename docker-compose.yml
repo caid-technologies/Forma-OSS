@@ -1,4 +1,4 @@
-name: blueprint
+name: forma
 
 services:
   redis:
@@ -15,23 +15,23 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-    image: blueprint-backend:local
+    image: forma-backend:local
     restart: unless-stopped
     environment:
-      BLUEPRINT_AUTH_MODE: ${BLUEPRINT_AUTH_MODE:-local}
-      BLUEPRINT_USER_SECRETS_KEY: ${BLUEPRINT_USER_SECRETS_KEY:-}
-      BLUEPRINT_WORKSPACE_SECRETS_KEY: ${BLUEPRINT_WORKSPACE_SECRETS_KEY:-}
-      BLUEPRINT_DEV_MODE: ${BLUEPRINT_DEV_MODE:-}
-      BLUEPRINT_DEBUG: ${BLUEPRINT_DEBUG:-}
+      FORMA_AUTH_MODE: ${FORMA_AUTH_MODE:-local}
+      FORMA_USER_SECRETS_KEY: ${FORMA_USER_SECRETS_KEY:-}
+      FORMA_WORKSPACE_SECRETS_KEY: ${FORMA_WORKSPACE_SECRETS_KEY:-}
+      FORMA_DEV_MODE: ${FORMA_DEV_MODE:-}
+      FORMA_DEBUG: ${FORMA_DEBUG:-}
       LOG_LEVEL: ${LOG_LEVEL:-}
       BACKEND_LOG_FILE: ${BACKEND_LOG_FILE:-}
       # Keep host-side database settings from accidentally routing a container
       # to 127.0.0.1 on itself. Opt into Supabase explicitly with
       # COMPOSE_DATABASE_BACKEND=supabase and a container-reachable URL.
       DATABASE_BACKEND: ${COMPOSE_DATABASE_BACKEND:-sqlite}
-      SQLITE_DATABASE_URL: ${COMPOSE_SQLITE_DATABASE_URL:-sqlite:////data/blueprint.db}
+      SQLITE_DATABASE_URL: ${COMPOSE_SQLITE_DATABASE_URL:-sqlite:////data/forma.db}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
-      REDIS_CACHE_PREFIX: ${REDIS_CACHE_PREFIX:-blueprint-local}
+      REDIS_CACHE_PREFIX: ${REDIS_CACHE_PREFIX:-forma-local}
       PROJECTS_CACHE_TTL_SECONDS: ${PROJECTS_CACHE_TTL_SECONDS:-60}
       SUPABASE_URL: ${SUPABASE_URL:-}
       NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
@@ -93,7 +93,7 @@ services:
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
-      - blueprint-data:/data
+      - forma-data:/data
     extra_hosts:
       - "host.docker.internal:host-gateway"
     healthcheck:
@@ -118,15 +118,15 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-        NEXT_PUBLIC_BLUEPRINT_DEBUG: ${NEXT_PUBLIC_BLUEPRINT_DEBUG:-${BLUEPRINT_DEBUG:-false}}
-        NEXT_PUBLIC_BLUEPRINT_DEV_MODE: ${NEXT_PUBLIC_BLUEPRINT_DEV_MODE:-${BLUEPRINT_DEV_MODE:-false}}
-    image: blueprint-frontend:local
+        NEXT_PUBLIC_FORMA_DEBUG: ${NEXT_PUBLIC_FORMA_DEBUG:-${FORMA_DEBUG:-false}}
+        NEXT_PUBLIC_FORMA_DEV_MODE: ${NEXT_PUBLIC_FORMA_DEV_MODE:-${FORMA_DEV_MODE:-false}}
+    image: forma-frontend:local
     restart: unless-stopped
     environment:
-      BLUEPRINT_AUTH_MODE: ${BLUEPRINT_AUTH_MODE:-local}
+      FORMA_AUTH_MODE: ${FORMA_AUTH_MODE:-local}
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
-      NEXT_PUBLIC_BLUEPRINT_DEBUG: ${NEXT_PUBLIC_BLUEPRINT_DEBUG:-${BLUEPRINT_DEBUG:-false}}
-      NEXT_PUBLIC_BLUEPRINT_DEV_MODE: ${NEXT_PUBLIC_BLUEPRINT_DEV_MODE:-${BLUEPRINT_DEV_MODE:-false}}
+      NEXT_PUBLIC_FORMA_DEBUG: ${NEXT_PUBLIC_FORMA_DEBUG:-${FORMA_DEBUG:-false}}
+      NEXT_PUBLIC_FORMA_DEV_MODE: ${NEXT_PUBLIC_FORMA_DEV_MODE:-${FORMA_DEV_MODE:-false}}
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
@@ -134,4 +134,4 @@ services:
         condition: service_healthy
 
 volumes:
-  blueprint-data:
+  forma-data:

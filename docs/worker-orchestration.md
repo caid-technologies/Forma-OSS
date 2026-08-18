@@ -21,11 +21,15 @@ Ready jobs run concurrently up to the plan's `max_concurrency`. A job becomes re
 
 Workers implement `worker_definition()` plus `execute(request, report_progress)`. Their progress and terminal results must preserve the request identity and declare compatible output versions. Exceptions and invalid results become durable `WorkerError` records.
 
-Successful outputs are aggregated by job ID from validated `WorkerResult` values. The orchestrator does not reinterpret the original conversation.
+Successful and partial outputs are aggregated by job ID from validated `WorkerResult` values. `PARTIAL` is terminal and retains successful artifacts alongside a structured error. The orchestrator does not reinterpret the original conversation.
 
 ## Persistence and recovery
 
 The `worker_execution_plans` record contains the validated requests and every job's status, progress events, result, artifacts, and error, along with the aggregate output. A new orchestrator instance can reload and resume a plan after process restart. Completed jobs are retained; jobs that were running when the process stopped are safely requeued.
+
+`reset_job()` retries one failed or partial job and resets only its transitive dependents. Successful upstream and independent results remain persisted and are not executed again.
+
+For the Generation worker, a partial result includes a generation retry context containing the named failed stage, prior stage records, and invalidated dependents. Reset preserves successful stage checkpoints and progress events, increments the execution attempt, and appends a new canonical project revision when the retry completes.
 
 When all jobs are terminal, the project workflow advances from `building` to `awaiting_feedback` with an idempotent system transition. Both successful and failed terminal plans preserve their results for feedback and diagnosis.
 

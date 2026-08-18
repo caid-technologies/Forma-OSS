@@ -1,3 +1,3 @@
 """Compatibility wrapper for reusable Forma generation orchestrator."""
 
-from blueprint_core.agents.orchestrator import *  # noqa: F401,F403
+from forma_core.agents.orchestrator import *  # noqa: F401,F403

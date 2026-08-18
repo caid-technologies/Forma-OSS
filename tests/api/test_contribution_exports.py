@@ -14,9 +14,9 @@ from apps.api.contribution_export_api import (
     contribution_export_inventory,
     exportable_contribution_records,
 )
-from blueprint_core import database
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from forma_core import database
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
 
 
 class ContributionExportTests(unittest.TestCase):
@@ -24,7 +24,7 @@ class ContributionExportTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="contribution export test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None

@@ -9,6 +9,7 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react";
+import CopyButton from "../../components/copy-button";
 import { ProviderMark } from "../../components/provider-mark";
 import {
   legalContactEmail,
@@ -21,7 +22,7 @@ const CARD_SURFACE_CLASS = "rounded-xl border border-[#2c2f37] bg-[#181b22]";
 const BUTTON_OUTLINE_CLASS =
   "inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium text-slate-300 transition hover:bg-white/5 hover:text-white";
 const SOCIAL_ICON_CLASS =
-  "inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#2c2f37] text-slate-300 transition hover:bg-white/5 hover:text-white";
+  "inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/5 hover:text-white";
 
 function LinkedInMark({ className }: { className?: string }) {
   return (
@@ -105,10 +106,11 @@ export default function AboutView() {
             description="Forma helps builders turn early hardware ideas into project plans with parts, wiring, validation, build notes, and generated artifacts."
             actions={
               <>
-                <a href={`mailto:${legalContactEmail}`} className={BUTTON_OUTLINE_CLASS}>
+                <span className={BUTTON_OUTLINE_CLASS}>
                   <Mail className="h-3.5 w-3.5" />
-                  {legalContactEmail}
-                </a>
+                  <span className="select-all">{legalContactEmail}</span>
+                  <CopyButton value={legalContactEmail} label="Copy email address" />
+                </span>
                 {companyLinks.map((link) => (
                   <a
                     key={link.href}

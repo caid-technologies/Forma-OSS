@@ -28,7 +28,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
             os.environ,
             {
                 "DATABASE_BACKEND": "sqlite",
-                "BLUEPRINT_IMAGE_STORAGE_BACKEND": "supabase",
+                "FORMA_IMAGE_STORAGE_BACKEND": "supabase",
                 **SUPABASE_ENV,
             },
             clear=True,
@@ -41,7 +41,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
             "https://example.storage.supabase.co/storage/v1/s3",
             config["endpoint"],
         )
-        self.assertEqual("BLUEPRINT_IMAGE_STORAGE_BACKEND", config["selection_source"])
+        self.assertEqual("FORMA_IMAGE_STORAGE_BACKEND", config["selection_source"])
 
     def test_custom_supabase_url_derives_its_own_storage_endpoint(self) -> None:
         with patch.dict(
@@ -63,7 +63,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
             os.environ,
             {
                 "DATABASE_BACKEND": "sqlite",
-                "BLUEPRINT_IMAGE_STORAGE_BACKEND": "s3-compatible",
+                "FORMA_IMAGE_STORAGE_BACKEND": "s3-compatible",
                 "SUPABASE_S3_ACCESS_KEY_ID": "access-key",
                 "SUPABASE_S3_SECRET_ACCESS_KEY": "secret-key",
             },
@@ -80,7 +80,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
             os.environ,
             {
                 "DATABASE_BACKEND": "sqlite",
-                "BLUEPRINT_IMAGE_STORAGE_BACKEND": "s3-compatible",
+                "FORMA_IMAGE_STORAGE_BACKEND": "s3-compatible",
                 "SUPABASE_S3_ENDPOINT": "https://storage.example.test/s3",
                 "SUPABASE_S3_ACCESS_KEY_ID": "access-key",
                 "SUPABASE_S3_SECRET_ACCESS_KEY": "secret-key",
@@ -104,9 +104,9 @@ class ImageStorageSelectionTests(unittest.TestCase):
         with patch.dict(
             os.environ,
             {
-                "BLUEPRINT_DEV_MODE": "true",
+                "FORMA_DEV_MODE": "true",
                 "DATABASE_BACKEND": "supabase",
-                "BLUEPRINT_IMAGE_STORAGE_BACKEND": "supabase",
+                "FORMA_IMAGE_STORAGE_BACKEND": "supabase",
                 **SUPABASE_ENV,
             },
             clear=True,
@@ -115,7 +115,7 @@ class ImageStorageSelectionTests(unittest.TestCase):
 
         self.assertFalse(config["enabled"])
         self.assertTrue(config["dev_mode"])
-        self.assertEqual("BLUEPRINT_DEV_MODE", config["selection_source"])
+        self.assertEqual("FORMA_DEV_MODE", config["selection_source"])
 
     def test_sqlite_hydration_never_constructs_a_supabase_storage_client(self) -> None:
         with patch.dict(os.environ, {"DATABASE_BACKEND": "sqlite", **SUPABASE_ENV}, clear=True), patch.object(

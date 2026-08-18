@@ -5,7 +5,7 @@ import uuid
 
 from pydantic import ValidationError
 
-from blueprint_core.workers import (
+from forma_core.workers import (
     WORKER_CONTRACT_VERSION,
     WorkerArtifact,
     WorkerCapability,
@@ -157,12 +157,21 @@ class WorkerContractTests(unittest.TestCase):
             output={"rail_count": 2},
             artifacts=[artifact],
         )
+        partial = WorkerResult(
+            **contract_context(),
+            output_contract_version="electrical-plan.v1",
+            status="partial",
+            output={"preserved": True},
+            artifacts=[artifact],
+            error=error,
+        )
 
         self.assertEqual(progress, WorkerProgress.model_validate_json(progress.model_dump_json()))
         self.assertEqual(artifact, WorkerArtifact.model_validate_json(artifact.model_dump_json()))
         self.assertEqual(error, WorkerError.model_validate_json(error.model_dump_json()))
         self.assertEqual(failed, WorkerResult.model_validate_json(failed.model_dump_json()))
         self.assertEqual(succeeded, WorkerResult.model_validate_json(succeeded.model_dump_json()))
+        self.assertEqual(partial, WorkerResult.model_validate_json(partial.model_dump_json()))
 
     def test_envelopes_reject_unsupported_versions_with_a_structured_error(self) -> None:
         with self.assertRaises(ValidationError) as raised:

@@ -1,23 +1,23 @@
 from __future__ import annotations
 
 import logging
-from blueprint_core.config import config
+from forma_core.config import config
 import time
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from blueprint_core.user_integrations import (
+from forma_core.user_integrations import (
     UserIntegrationStore,
     apply_user_integrations_to_environment,
     default_integration_store,
     integration_status_payload,
 )
 from apps.api.auth import UserContext, require_user_context
-from blueprint_core.debug import api_error_detail, redact_debug_text, redact_debug_value
-from blueprint_core.images import build_image_provider
-from blueprint_core.runtime import deployment_mode_enabled
+from forma_core.debug import api_error_detail, redact_debug_text, redact_debug_value
+from forma_core.images import build_image_provider
+from forma_core.runtime import deployment_mode_enabled
 
 
 router = APIRouter(prefix="/user", tags=["user"])

@@ -18,10 +18,10 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.config import config
-from blueprint_core.image_providers import GeneratedImage, build_image_provider
-from blueprint_core.workspaces.projects.models import HardwareIR
-from blueprint_core.terminal.images import TerminalImageRenderConfig, render_images
+from forma_core.config import config
+from forma_core.image_providers import GeneratedImage, build_image_provider
+from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.terminal.images import TerminalImageRenderConfig, render_images
 
 
 DEFAULT_OUTPUT_DIR = ROOT_DIR / ".logs" / "image-generation"

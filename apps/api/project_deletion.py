@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from blueprint_core.config import config
+from forma_core.config import config
 import re
 import uuid
 from collections import Counter
@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Iterable, List, Optional
 
 from apps.api.video_storage import delete_project_videos
-from blueprint_core.database import (
+from forma_core.database import (
     add_project_deletion_audit,
     anonymize_project_contribution_consent,
     anonymize_project_contribution_snapshot,
@@ -28,8 +28,8 @@ from blueprint_core.database import (
     upsert_project_contribution_snapshot,
     withdraw_project_contribution_consent,
 )
-from blueprint_core.jobs.store import JOB_STORE
-from blueprint_core.persistence.images import delete_project_images
+from forma_core.jobs.store import JOB_STORE
+from forma_core.persistence.images import delete_project_images
 
 logger = logging.getLogger(__name__)
 

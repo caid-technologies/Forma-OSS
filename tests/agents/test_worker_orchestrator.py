@@ -7,9 +7,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workers import (
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workers import (
     WORKER_CONTRACT_VERSION,
     OrchestrationTaskStatus,
     WorkerCapability,
@@ -22,7 +22,7 @@ from blueprint_core.workers import (
     WorkerRequest,
     WorkerResult,
 )
-from blueprint_core.workspaces.workflow import (
+from forma_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -126,12 +126,57 @@ class FakeWorker:
         )
 
 
+class CheckpointThenFailWorker(FakeWorker):
+    async def execute(self, request: WorkerRequest, report_progress: Any) -> WorkerResult:
+        self.execution_count += 1
+        self.received.append(request)
+        sequence = int(request.metadata.get("progress_sequence_start") or 0)
+        sequence += 1
+        await report_progress(WorkerProgress(
+            **request_context(request.worker_id, request.capability_id, request.job_id),
+            sequence=sequence,
+            status="running",
+            percent_complete=75,
+            message="Packaging project artifacts: completed",
+            metadata={"pipeline_event": {
+                "workflow": "default",
+                "step_id": "package_project",
+                "status": "completed",
+                "agent": "ArtifactPackager",
+                "label": "Packaging project artifacts",
+                "description": "Package the generated project.",
+                "observed_at": "2026-08-16T00:00:00Z",
+                "details": {},
+            }},
+        ))
+        sequence += 1
+        await report_progress(WorkerProgress(
+            **request_context(request.worker_id, request.capability_id, request.job_id),
+            sequence=sequence,
+            status="running",
+            percent_complete=None,
+            message="Persisting generation stage checkpoint.",
+            metadata={"generation_stage_checkpoint": {
+                "generation_run_id": "run-finalization-failure",
+                "workflow": "default",
+                "retry_stage": None,
+                "status": "succeeded",
+                "record": {
+                    "stage_id": "package_project",
+                    "status": "succeeded",
+                    "dependencies": [],
+                },
+            }},
+        ))
+        raise RuntimeError("revision finalization failed")
+
+
 class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="worker orchestrator test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()
@@ -226,6 +271,111 @@ class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(OrchestrationTaskStatus.BLOCKED, completed.jobs["job-dependent"].status)
         self.assertEqual("required_dependency_failed", completed.jobs["job-dependent"].error.code)
         self.assertEqual(0, dependent.execution_count)
+
+    async def test_failed_plan_can_be_reset_and_run_again(self) -> None:
+        self.enter_building()
+        source = FakeWorker("source")
+        flaky = FakeWorker("flaky", fail=True)
+        orchestrator = WorkerOrchestrator(self.repository, [source, flaky], workflow_service=self.workflow)
+        plan = orchestrator.create_plan(
+            [
+                make_request("source", "job-source"),
+                make_request(
+                    "flaky",
+                    "job-flaky",
+                    dependencies=[WorkerDependency(job_id="job-source", required=True)],
+                ),
+            ],
+            OWNER,
+        )
+
+        failed = await orchestrator.execute(plan.plan_id, OWNER)
+        reset = await orchestrator.reset(plan.plan_id, OWNER)
+
+        self.assertEqual(WorkerPlanStatus.FAILED, failed.status)
+        self.assertEqual(2, reset.attempt)
+        self.assertEqual(WorkerPlanStatus.PLANNED, reset.status)
+        self.assertEqual(OrchestrationTaskStatus.SUCCEEDED, reset.jobs["job-source"].status)
+        self.assertEqual(OrchestrationTaskStatus.QUEUED, reset.jobs["job-flaky"].status)
+        self.assertEqual([], reset.jobs["job-flaky"].progress)
+        self.assertIsNone(reset.jobs["job-flaky"].error)
+        self.assertEqual(ProjectWorkflowState.BUILDING, self.workflow.get(str(PROJECT_ID), OWNER).state)
+
+        flaky.fail = False
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+
+        self.assertEqual(1, source.execution_count)
+        self.assertEqual(2, flaky.execution_count)
+        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
+        self.assertEqual(ProjectWorkflowState.AWAITING_FEEDBACK, self.workflow.get(str(PROJECT_ID), OWNER).state)
+
+    async def test_non_failed_plan_cannot_be_reset(self) -> None:
+        self.enter_building()
+        worker = FakeWorker("generation")
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([make_request("generation", "job-generation")], OWNER)
+
+        with self.assertRaises(WorkerPlanningError) as raised:
+            await orchestrator.reset(plan.plan_id, OWNER)
+
+        self.assertEqual("worker_plan_not_failed", raised.exception.code)
+
+    async def test_finalization_failure_reset_reuses_completed_generation_checkpoints(self) -> None:
+        self.enter_building()
+        worker = CheckpointThenFailWorker("generation")
+        orchestrator = WorkerOrchestrator(self.repository, [worker], workflow_service=self.workflow)
+        plan = orchestrator.create_plan([make_request("generation", "job-generation")], OWNER)
+
+        failed = await orchestrator.execute(plan.plan_id, OWNER)
+        reset = await orchestrator.reset(plan.plan_id, OWNER)
+
+        self.assertEqual(WorkerPlanStatus.FAILED, failed.status)
+        self.assertEqual(2, len(reset.jobs["job-generation"].progress))
+        self.assertEqual(
+            "run-finalization-failure",
+            reset.jobs["job-generation"].request.metadata["prior_generation_run"]["generation_run_id"],
+        )
+        self.assertIsNone(reset.jobs["job-generation"].request.metadata["retry_stage"])
+
+    async def test_named_job_retry_preserves_successful_upstream_results(self) -> None:
+        self.enter_building()
+        source = FakeWorker("source")
+        flaky = FakeWorker("flaky", fail=True)
+        downstream = FakeWorker("downstream")
+        orchestrator = WorkerOrchestrator(
+            self.repository,
+            [source, flaky, downstream],
+            workflow_service=self.workflow,
+        )
+        plan = orchestrator.create_plan(
+            [
+                make_request("source", "job-source"),
+                make_request(
+                    "flaky",
+                    "job-flaky",
+                    dependencies=[WorkerDependency(job_id="job-source", required=True)],
+                ),
+                make_request(
+                    "downstream",
+                    "job-downstream",
+                    dependencies=[WorkerDependency(job_id="job-flaky", required=True)],
+                ),
+            ],
+            OWNER,
+        )
+        await orchestrator.execute(plan.plan_id, OWNER)
+
+        reset = await orchestrator.reset_job(plan.plan_id, OWNER, "job-flaky")
+
+        self.assertEqual(OrchestrationTaskStatus.SUCCEEDED, reset.jobs["job-source"].status)
+        self.assertEqual(OrchestrationTaskStatus.QUEUED, reset.jobs["job-flaky"].status)
+        self.assertEqual(OrchestrationTaskStatus.QUEUED, reset.jobs["job-downstream"].status)
+        flaky.fail = False
+        completed = await orchestrator.execute(plan.plan_id, OWNER)
+        self.assertEqual(1, source.execution_count)
+        self.assertEqual(2, flaky.execution_count)
+        self.assertEqual(1, downstream.execution_count)
+        self.assertEqual(WorkerPlanStatus.SUCCEEDED, completed.status)
 
     async def test_planned_build_can_be_cancelled_without_running_workers(self) -> None:
         self.enter_building()

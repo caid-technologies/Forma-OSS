@@ -12,13 +12,13 @@ export const webConfig = {
     (development ? "http://127.0.0.1:8000" : ""),
   publicDeveloperTools:
     development ||
-    truthy(process.env.NEXT_PUBLIC_BLUEPRINT_DEBUG) ||
-    truthy(process.env.NEXT_PUBLIC_BLUEPRINT_DEV_MODE),
+    truthy(process.env.NEXT_PUBLIC_FORMA_DEBUG) ||
+    truthy(process.env.NEXT_PUBLIC_FORMA_DEV_MODE),
   serverDeveloperTools:
     development ||
-    truthy(process.env.BLUEPRINT_DEBUG) ||
-    truthy(process.env.BLUEPRINT_DEV_MODE) ||
-    truthy(process.env.NEXT_PUBLIC_BLUEPRINT_DEBUG) ||
-    truthy(process.env.NEXT_PUBLIC_BLUEPRINT_DEV_MODE),
-  authMode: (process.env.BLUEPRINT_AUTH_MODE || "").trim().toLowerCase(),
+    truthy(process.env.FORMA_DEBUG) ||
+    truthy(process.env.FORMA_DEV_MODE) ||
+    truthy(process.env.NEXT_PUBLIC_FORMA_DEBUG) ||
+    truthy(process.env.NEXT_PUBLIC_FORMA_DEV_MODE),
+  authMode: (process.env.FORMA_AUTH_MODE || "").trim().toLowerCase(),
 } as const;

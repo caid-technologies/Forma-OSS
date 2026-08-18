@@ -17,7 +17,7 @@ with normalized_jobs as (
       else replace(lower(coalesce(payload_json ->> 'workflow', result_summary_json ->> 'workflow', 'default')), '-', '_')
     end as workflow
   from public.a2a_jobs
-  where action = 'blueprint.generate_project'
+  where action = 'forma.generate_project'
     and (source_usage_json is null or source_usage_json = '{}'::jsonb)
 )
 update public.a2a_jobs as jobs

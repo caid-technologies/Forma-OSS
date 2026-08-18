@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from blueprint_core.debug import api_error_detail, runtime_safe_error_message
+from forma_core.debug import api_error_detail, runtime_safe_error_message
 
 
 class ApiErrorVisibilityTests(unittest.TestCase):
@@ -13,7 +13,7 @@ class ApiErrorVisibilityTests(unittest.TestCase):
             "cloudflare response did not include text content."
         )
 
-        with patch.dict(os.environ, {"BLUEPRINT_DEV_MODE": "false"}):
+        with patch.dict(os.environ, {"FORMA_DEV_MODE": "false"}):
             detail = api_error_detail(
                 code="llm_output_invalid",
                 message=message,
@@ -33,7 +33,7 @@ class ApiErrorVisibilityTests(unittest.TestCase):
     def test_development_error_preserves_runtime_diagnostics(self) -> None:
         message = "Generation failed for provider=cloudflare model=nvidia/nemotron: empty response."
 
-        with patch.dict(os.environ, {"BLUEPRINT_DEV_MODE": "true"}):
+        with patch.dict(os.environ, {"FORMA_DEV_MODE": "true"}):
             detail = api_error_detail(
                 code="llm_output_invalid",
                 message=message,

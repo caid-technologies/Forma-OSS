@@ -4,8 +4,12 @@ import { test } from "node:test";
 
 import {
   arcticLight,
+  DEFAULT_AUTO_THEME_CONFIG,
   FORMA_THEMES,
   normalizeTheme,
+  parseAutoThemeConfig,
+  resolveAutoTheme,
+  solarizedDark,
   solarizedLight,
   solarizedPublishedAccents,
   themeBootstrapScript,
@@ -69,14 +73,16 @@ test("theme preferences use a stable local storage key", () => {
 test("theme preferences accept every known theme and default the rest to dark", () => {
   assert.equal(normalizeTheme("light"), "light");
   assert.equal(normalizeTheme("arctic"), "arctic");
-  assert.equal(normalizeTheme("dark"), "dark");
-  assert.equal(normalizeTheme(null), "dark");
-  assert.equal(normalizeTheme("system"), "dark");
-  assert.equal(normalizeTheme("solarized"), "dark");
+  assert.equal(normalizeTheme("solarized-dark"), "solarized-dark");
+  assert.equal(normalizeTheme("dark"), "solarized-dark");
+  assert.equal(normalizeTheme(null), "solarized-dark");
+  assert.equal(normalizeTheme("system"), "solarized-dark");
+  assert.equal(normalizeTheme("solarized"), "solarized-dark");
 });
 
 test("every theme resolves to a native colour scheme", () => {
   // `color-scheme: arctic` is not a thing, so the theme id cannot be passed through.
+  assert.equal(themeColorScheme("solarized-dark"), "dark");
   assert.equal(themeColorScheme("dark"), "dark");
   assert.equal(themeColorScheme("light"), "light");
   assert.equal(themeColorScheme("arctic"), "light");
@@ -182,6 +188,28 @@ test("every Arctic tone clears WCAG AA for normal text on its own page", () => {
     if (["page", "surface", "surfaceMuted", "border"].includes(name)) continue;
     const ratio = contrastRatio(hex, arcticLight.page);
     assert.ok(ratio >= 4.2, `${name} ${hex} is ${ratio.toFixed(2)}:1 on the Arctic page`);
+  }
+});
+
+test("the Solarized Dark+ block declares the exported palette", () => {
+  const block = themeBlock("solarized-dark");
+  assert.match(block, new RegExp(`--forma-page: ${solarizedDark.base03};`));
+  assert.match(block, new RegExp(`--forma-surface: ${solarizedDark.base04};`));
+  assert.match(block, new RegExp(`--forma-surface-muted: ${solarizedDark.base02};`));
+  assert.match(block, new RegExp(`--forma-text: ${solarizedDark.base0};`));
+  assert.match(block, new RegExp(`--forma-text-strong: ${solarizedDark.base3};`));
+  assert.match(block, new RegExp(`--forma-text-secondary: ${solarizedDark.base1};`));
+  assert.match(block, new RegExp(`--forma-text-muted: ${solarizedDark.base00};`));
+  assert.match(block, /--forma-selected-wash-alpha: 0\.15;/);
+  for (const [name, hex] of Object.entries({
+    cyan: solarizedDark.cyan,
+    green: solarizedDark.green,
+    yellow: solarizedDark.yellow,
+    red: solarizedDark.red,
+    violet: solarizedDark.violet,
+  })) {
+    assert.match(block, new RegExp(`--forma-${name}-rgb: ${channels(hex).join(" ")};`), `${name} is missing`);
+    assert.match(block, new RegExp(`--forma-${name}-soft: ${hex};`), `${name} soft tone is missing`);
   }
 });
 

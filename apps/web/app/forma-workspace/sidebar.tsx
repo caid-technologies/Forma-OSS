@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Database,
@@ -30,6 +31,75 @@ export type ChatListItem = {
   projectCount: number;
 };
 
+export function EditableWorkspaceTitle({
+  value,
+  canEdit,
+  onCommit,
+  label,
+  className = "truncate text-sm font-semibold tracking-tight text-zinc-100",
+  element = "h2",
+}: {
+  value: string;
+  canEdit: boolean;
+  onCommit: (nextTitle: string) => void;
+  label: string;
+  className?: string;
+  element?: "h2" | "h3" | "div";
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const TitleTag = element;
+
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [editing, value]);
+
+  if (!canEdit) {
+    return <TitleTag className={className}>{value}</TitleTag>;
+  }
+
+  if (editing) {
+    return (
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          const next = draft.trim() || value.trim() || "Untitled Hardware Project";
+          setEditing(false);
+          if (next !== value) onCommit(next);
+          else setDraft(value);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+          if (event.key === "Escape") {
+            event.preventDefault();
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        autoFocus
+        aria-label={label}
+        className={`min-w-0 flex-1 bg-transparent ${className} outline-none`}
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      title={`Rename ${label.toLowerCase()}`}
+      aria-label={`Rename ${label.toLowerCase()}`}
+      className={`min-w-0 flex-1 truncate text-left ${className} hover:text-white`}
+    >
+      {value}
+    </button>
+  );
+}
+
 function formatSidebarDate(value: string | null) {
   if (!value) return "";
   const date = new Date(value);
@@ -57,7 +127,7 @@ function ApiConnectionStatus({ status }: { status: WorkspaceStatusPresentation }
 export function WorkspaceStatusCorner({ status }: { status: WorkspaceStatusPresentation }) {
   return (
     <div className="pointer-events-none absolute right-4 top-4 z-40 flex items-center gap-2 overflow-visible">
-      <span className="select-none rounded-md border border-white/10 bg-[#181b22]/90 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-400 backdrop-blur-sm">
+      <span className="workspace-beta-badge">
         BETA
       </span>
       <span className="pointer-events-auto">
@@ -75,7 +145,7 @@ export function MobileWorkspaceBar({
   authRequired: boolean;
 }) {
   return (
-    <header className="fixed inset-x-0 top-0 z-40 flex h-12 shrink-0 items-center justify-between gap-3 bg-[#0f1117]/80 px-4 pr-16 backdrop-blur-md md:hidden">
+    <header className="workspace-chrome-header fixed inset-x-0 top-0 z-30 flex min-h-14 shrink-0 items-center justify-between gap-3 px-3 pb-5 pt-2 pr-16 md:hidden">
       <MobileSidebarButton onClick={onOpenSidebar} />
       <AuthStatusControl authRequired={authRequired} compact />
     </header>
@@ -135,6 +205,7 @@ export function MobileSidebarDrawer({
   onNewChat,
   newChatDisabled,
   onOpenChat,
+  onRenameChat,
   waitingChatIds,
   chatsLoading,
   showJobs,
@@ -152,6 +223,7 @@ export function MobileSidebarDrawer({
   onNewChat: () => void;
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
+  onRenameChat?: (item: ChatListItem, title: string) => void;
   waitingChatIds: Set<string>;
   chatsLoading?: boolean;
   showJobs: boolean;
@@ -182,6 +254,7 @@ export function MobileSidebarDrawer({
           onNewChat={onNewChat}
           newChatDisabled={newChatDisabled}
           onOpenChat={onOpenChat}
+          onRenameChat={onRenameChat}
           waitingChatIds={waitingChatIds}
           chatsLoading={chatsLoading}
           showJobs={showJobs}
@@ -248,6 +321,7 @@ export function ChatSidebar({
   onNewChat,
   newChatDisabled,
   onOpenChat,
+  onRenameChat,
   waitingChatIds,
   chatsLoading = false,
   showJobs,
@@ -266,6 +340,7 @@ export function ChatSidebar({
   onNewChat: () => void;
   newChatDisabled: boolean;
   onOpenChat: (item: ChatListItem) => void;
+  onRenameChat?: (item: ChatListItem, title: string) => void;
   waitingChatIds: Set<string>;
   chatsLoading?: boolean;
   showJobs: boolean;
@@ -276,6 +351,14 @@ export function ChatSidebar({
 }) {
   const isDrawer = mode === "drawer";
   const compact = !isDrawer && collapsed;
+  const [renamingChatId, setRenamingChatId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+
+  const commitSidebarRename = (chat: ChatListItem) => {
+    const nextTitle = renameDraft.trim() || chat.title;
+    setRenamingChatId(null);
+    if (nextTitle !== chat.title) onRenameChat?.(chat, nextTitle);
+  };
 
   return (
     <aside
@@ -359,6 +442,62 @@ export function ChatSidebar({
                 const active = chat.chatId === activeChatId;
                 const dateLabel = formatSidebarDate(chat.createdAt);
                 const waiting = waitingChatIds.has(chat.chatId);
+                const renaming = !compact && Boolean(onRenameChat) && renamingChatId === chat.chatId;
+                const rowClassName = `flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors ${
+                  active
+                    ? "bg-emerald-500/10 text-emerald-400"
+                    : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
+                } ${compact ? "justify-center px-0" : ""}`;
+                const rowContent = compact ? (
+                  waiting ? (
+                    <RefreshCw className={`h-4 w-4 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+                  ) : (
+                    <MessageSquare className={`h-4 w-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+                  )
+                ) : (
+                  <>
+                    <div className="min-w-0 flex-1">
+                      {renaming ? (
+                        <input
+                          value={renameDraft}
+                          onChange={(event) => setRenameDraft(event.target.value)}
+                          onBlur={() => commitSidebarRename(chat)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              event.currentTarget.blur();
+                            }
+                            if (event.key === "Escape") {
+                              event.preventDefault();
+                              setRenameDraft(chat.title);
+                              setRenamingChatId(null);
+                            }
+                          }}
+                          onClick={(event) => event.stopPropagation()}
+                          autoFocus
+                          aria-label={`Rename ${chat.title}`}
+                          className="w-full bg-transparent text-xs font-medium text-zinc-100 outline-none"
+                        />
+                      ) : (
+                        <div className="truncate">{chat.title}</div>
+                      )}
+                      {chat.projectCount > 1 && (
+                        <div className="mt-0.5 text-[10px] text-zinc-600">{chat.projectCount} projects</div>
+                      )}
+                    </div>
+                    {waiting && (
+                      <RefreshCw className={`h-3.5 w-3.5 shrink-0 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
+                    )}
+                    {dateLabel && <div className="shrink-0 text-[10px] text-zinc-600">{dateLabel}</div>}
+                  </>
+                );
+                if (renaming) {
+                  return (
+                    <div key={chat.chatId} className={rowClassName}>
+                      {rowContent}
+                    </div>
+                  );
+                }
                 return (
                   <button
                     key={chat.chatId}
@@ -367,34 +506,18 @@ export function ChatSidebar({
                       onOpenChat(chat);
                       onNavigate?.();
                     }}
-                    className={`flex w-full min-w-0 items-center gap-2.5 rounded-lg px-3 py-2 text-left text-xs font-medium transition-colors ${
-                      active
-                        ? "bg-emerald-500/10 text-emerald-400"
-                        : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
-                    } ${compact ? "justify-center px-0" : ""}`}
-                    title={waiting ? `${chat.title} is waiting` : chat.title}
+                    onDoubleClick={(event) => {
+                      if (compact || !onRenameChat) return;
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setRenameDraft(chat.title);
+                      setRenamingChatId(chat.chatId);
+                    }}
+                    className={rowClassName}
+                    title={waiting ? `${chat.title} is waiting` : onRenameChat ? `${chat.title}. Double-click to rename.` : chat.title}
                     aria-label={`Open chat ${chat.title}${waiting ? " (waiting)" : ""}`}
                   >
-                    {compact ? (
-                      waiting ? (
-                        <RefreshCw className={`h-4 w-4 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
-                      ) : (
-                        <MessageSquare className={`h-4 w-4 ${active ? "text-emerald-400" : "text-zinc-500"}`} />
-                      )
-                    ) : (
-                      <>
-                        <div className="min-w-0 flex-1">
-                          <div className="truncate">{chat.title}</div>
-                          {chat.projectCount > 1 && (
-                            <div className="mt-0.5 text-[10px] text-zinc-600">{chat.projectCount} projects</div>
-                          )}
-                        </div>
-                        {waiting && (
-                          <RefreshCw className={`h-3.5 w-3.5 shrink-0 animate-spin ${active ? "text-emerald-400" : "text-zinc-500"}`} />
-                        )}
-                        {dateLabel && <div className="shrink-0 text-[10px] text-zinc-600">{dateLabel}</div>}
-                      </>
-                    )}
+                    {rowContent}
                   </button>
                 );
               })

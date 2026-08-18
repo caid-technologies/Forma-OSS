@@ -70,12 +70,15 @@ import {
 } from "./forma-workspace/project-detail-panels";
 import {
   ChatSidebar,
+  EditableWorkspaceTitle,
   MobileSidebarButton,
   MobileSidebarDrawer,
   MobileWorkspaceBar,
   type ChatListItem,
 } from "./forma-workspace/sidebar";
 import WorkspaceFrame from "./forma-workspace/workspace-frame";
+import UserIntegrationsPage from "./user/user-integrations-page";
+import AboutView from "./forma-workspace/about-view";
 import {
   Sparkles,
   Cpu,
@@ -1579,7 +1582,7 @@ type HomeProps = {
   routeProjectId?: string | null;
   routeChatId?: string | null;
   showDeveloperTools?: boolean;
-  homeView?: "chat" | "projects" | "my-projects" | "jobs" | "logs";
+  homeView?: "chat" | "projects" | "my-projects" | "jobs" | "logs" | "settings" | "about";
 };
 
 export function FormaWorkspace({
@@ -2263,7 +2266,9 @@ export function FormaWorkspace({
     if ((authRequired && !isSignedIn) || !chatId || typeof window === "undefined") return;
     const nextMessages = persistableChatMessages(messages);
     if (!chatHasStarted(nextMessages)) return;
-    const title = explicitTitle?.trim() || chatTitleFromMessages(nextMessages);
+    const listedTitle = chatListItems.find((item) => item.chatId === chatId)?.title?.trim() || "";
+    const title = explicitTitle?.trim()
+      || (listedTitle && listedTitle !== NEW_PROJECT_TITLE ? listedTitle : chatTitleFromMessages(nextMessages));
     const existingTimer = chatPersistenceTimersRef.current[chatId];
     if (existingTimer) window.clearTimeout(existingTimer);
     chatPersistenceTimersRef.current[chatId] = window.setTimeout(async () => {
@@ -4664,6 +4669,50 @@ export function FormaWorkspace({
     activeSidebarChatItem?.projectId ||
     activeSidebarChatItem?.projectCount
   );
+  const commitOwnedWorkspaceTitle = async (nextTitle: string, options?: { chatId?: string | null; projectId?: string | null }) => {
+    const title = nextTitle.trim() || "Untitled Hardware Project";
+    const chatId = options && "chatId" in options
+      ? options.chatId
+      : (currentProjectChatId || chatIdFromIR(projectIR) || activeChatId);
+    const projectId = ((options && "projectId" in options ? options.projectId : currentProjectId) || "");
+    if (projectId && projectId === currentProjectId && !currentUserOwnsProject) return;
+    if (projectIR && projectId && projectId === currentProjectId) {
+      setProjectIR((current: any) => {
+        if (!current) return current;
+        return {
+          ...current,
+          overview: {
+            ...(current.overview || {}),
+            title,
+          },
+        };
+      });
+    }
+    if (chatId) {
+      rememberChatItem({
+        chatId,
+        title,
+        ...(projectId ? { projectId } : {}),
+      });
+    }
+    if (!projectId || (authRequired && !isSignedIn)) return;
+    const existingProject = myProjectHistory.find((project: any) => project?.project_id === projectId)
+      || projectHistory.find((project: any) => project?.project_id === projectId);
+    if (existingProject) rememberProjectRecord({ ...existingProject, title });
+    try {
+      const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
+        method: "PATCH",
+        headers: await generationRequestHeaders(),
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) throw new Error(await readApiErrorMessage(res));
+    } catch (error) {
+      console.error("Error renaming project", error);
+    }
+  };
+  const renameSidebarChat = (item: ChatListItem, title: string) => {
+    void commitOwnedWorkspaceTitle(title, { chatId: item.chatId, projectId: item.projectId || null });
+  };
   const newChatDisabled = homeView === "chat" && !routedProjectId && !activeSidebarChatStarted;
   const waitingChatIds = useMemo(() => {
     const ids = new Set<string>();
@@ -4837,6 +4886,7 @@ export function FormaWorkspace({
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
+            onRenameChat={renameSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4855,6 +4905,7 @@ export function FormaWorkspace({
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
+            onRenameChat={renameSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4890,6 +4941,7 @@ export function FormaWorkspace({
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
+            onRenameChat={renameSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4908,6 +4960,7 @@ export function FormaWorkspace({
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
+            onRenameChat={renameSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4945,6 +4998,7 @@ export function FormaWorkspace({
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
+            onRenameChat={renameSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4963,6 +5017,7 @@ export function FormaWorkspace({
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
             onOpenChat={openChatItem}
+            onRenameChat={renameSidebarChat}
             waitingChatIds={waitingChatIds}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
@@ -4973,10 +5028,10 @@ export function FormaWorkspace({
         )}
       >
         <MobileWorkspaceBar onOpenSidebar={() => setMobileSidebarOpen(true)} authRequired={authRequired} />
-	        <main className={`mx-auto w-full ${homeView === "chat" ? "max-w-none" : "max-w-6xl"} ${
+	        <main className={`mx-auto w-full ${homeView === "chat" || homeView === "settings" ? "max-w-none" : "max-w-6xl"} ${
 	          homeView === "chat"
 	            ? "flex min-h-0 flex-1 flex-col overflow-hidden px-0 pb-0 pt-3 sm:pt-4"
-            : "min-h-0 flex-1 overflow-y-auto px-4 py-6 sm:px-5 sm:py-8"
+            : "min-h-0 flex-1 overflow-y-auto px-4 py-6 pr-16 sm:px-5 sm:py-8"
         }`}>
           {homeView === "projects" ? (
               <ProjectGallery
@@ -5064,10 +5119,31 @@ export function FormaWorkspace({
                 </div>
               )}
             </>
+          ) : homeView === "settings" ? (
+            <UserIntegrationsPage embedded />
+          ) : homeView === "about" ? (
+            <AboutView />
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
               conversationKey={activeChatId || "new-chat"}
+              workspaceTitle={
+                activeSidebarChatStarted ? (
+                  <EditableWorkspaceTitle
+                    value={activeSidebarChatItem?.title || NEW_PROJECT_TITLE}
+                    canEdit
+                    label="Chat title"
+                    onCommit={(title) => {
+                      if (activeChatId) {
+                        void commitOwnedWorkspaceTitle(title, {
+                          chatId: activeChatId,
+                          projectId: activeSidebarChatItem?.projectId || null,
+                        });
+                      }
+                    }}
+                  />
+                ) : null
+              }
               messages={chatMessages}
               renderPipelineProgress={(message) => (
                 <AgentPipelineProgressView
@@ -5098,6 +5174,8 @@ export function FormaWorkspace({
                     <ChatProjectArtifact
                       projectId={currentProjectId}
                       projectTitle={projectTitle}
+                      canEdit={currentUserOwnsProject}
+                      onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                       namespaceTabs={visibleWorkspaceTabs}
                       activeNamespace={activeWorkspaceTab.id}
                       activeNamespaceName={displayedWorkspaceNamespace}
@@ -5188,6 +5266,7 @@ export function FormaWorkspace({
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
+          onRenameChat={renameSidebarChat}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
           showJobs={canViewJobs}
@@ -5206,6 +5285,7 @@ export function FormaWorkspace({
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
           onOpenChat={openChatItem}
+          onRenameChat={renameSidebarChat}
           waitingChatIds={waitingChatIds}
           chatsLoading={sidebarChatsLoading}
           showJobs={canViewJobs}
@@ -5228,18 +5308,11 @@ export function FormaWorkspace({
             {routedProjectId ? (
               <ProjectDetailWorkspace
                 onOpenSidebar={() => setMobileSidebarOpen(true)}
-                projectId={currentProjectId}
                 projectTitle={projectTitle}
                 owned={currentUserOwnsProject}
-                onDelete={currentProjectId
-                  ? () => openProjectDeletion({ projectId: currentProjectId, title: projectTitle })
-                  : undefined}
-                onOpenChat={ownerProjectChatId
-                  ? () => router.push(chatRoute(ownerProjectChatId))
-                  : undefined}
+                onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
-                activeNamespaceName={displayedWorkspaceNamespace}
                 onNamespaceChange={setActiveTab}
                 projectContent={projectNamespaceContent}
               />
@@ -5249,6 +5322,7 @@ export function FormaWorkspace({
                 projectId={currentProjectId}
                 chatId={currentProjectChatId}
                 projectTitle={projectTitle}
+                onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 messages={currentProjectChatMessages}
                 input={projectChatInput}
                 setInput={setProjectChatInput}
@@ -6478,32 +6552,26 @@ function VideoGalleryItem({
 
 function ProjectDetailWorkspace({
   onOpenSidebar,
-  projectId,
   projectTitle,
   owned,
-  onDelete,
-  onOpenChat,
+  onRenameTitle,
   namespaceTabs,
   activeNamespace,
-  activeNamespaceName,
   onNamespaceChange,
   projectContent,
 }: {
   onOpenSidebar: () => void;
-  projectId: string | null;
   projectTitle: string;
   owned: boolean;
-  onDelete?: () => void;
-  onOpenChat?: () => void;
+  onRenameTitle?: (title: string) => void;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
-  activeNamespaceName: string;
   onNamespaceChange: (value: string) => void;
   projectContent: React.ReactNode;
 }) {
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
-      <header className="flex min-h-14 min-w-0 items-center gap-3 overflow-hidden border-b border-white/5 bg-[#0f1117]/80 px-3 py-2 backdrop-blur-md sm:px-4">
+      <header className="workspace-chrome-header flex min-h-14 min-w-0 items-center gap-3 overflow-hidden px-3 pb-5 pt-2 sm:px-4">
         <MobileSidebarButton onClick={onOpenSidebar} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
@@ -6511,38 +6579,14 @@ function ProjectDetailWorkspace({
               <Eye className="h-3 w-3" />
               {owned ? "Your project" : "Public project"}
             </span>
-            <h2 className="truncate text-sm font-semibold tracking-tight text-zinc-100">{projectTitle}</h2>
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-zinc-600">
-            <span className="truncate">{projectId || "No project id"}</span>
-            <span className="text-zinc-700">·</span>
-            <span className="truncate">{activeNamespaceName}</span>
+            <EditableWorkspaceTitle
+              value={projectTitle}
+              canEdit={owned && Boolean(onRenameTitle)}
+              label="Project title"
+              onCommit={(title) => onRenameTitle?.(title)}
+            />
           </div>
         </div>
-        {owned && (
-          <div className="flex shrink-0 items-center gap-2">
-            {onDelete && (
-              <button
-                type="button"
-                onClick={onDelete}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-red-400/35 px-2.5 text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Delete</span>
-              </button>
-            )}
-            {onOpenChat && (
-              <button
-                type="button"
-                onClick={onOpenChat}
-                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20"
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">Open chat</span>
-              </button>
-            )}
-          </div>
-        )}
       </header>
 
       <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#0f1117]" aria-label="Project workspace">
@@ -6563,6 +6607,7 @@ function ChatWorkspace({
   projectId,
   chatId,
   projectTitle,
+  onRenameTitle,
   messages,
   input,
   setInput,
@@ -6582,6 +6627,7 @@ function ChatWorkspace({
   projectId: string | null;
   chatId: string | null;
   projectTitle: string;
+  onRenameTitle?: (title: string) => void;
   messages: ChatMessage[];
   input: string;
   setInput: (value: string) => void;
@@ -6598,10 +6644,27 @@ function ChatWorkspace({
   projectContent: React.ReactNode;
 }) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
+  const lastHeaderScrollRef = useRef(0);
+  const [headerAway, setHeaderAway] = useState(false);
+
+  const onChatScroll = () => {
+    handleScroll();
+    const container = containerRef.current;
+    if (!container) return;
+    const top = container.scrollTop;
+    const delta = top - lastHeaderScrollRef.current;
+    lastHeaderScrollRef.current = top;
+    if (top <= 16) {
+      setHeaderAway(false);
+      return;
+    }
+    if (delta > 8) setHeaderAway(true);
+    else if (delta < -8) setHeaderAway(false);
+  };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
-      <header className="flex min-h-14 min-w-0 items-center gap-3 overflow-hidden border-b border-white/5 bg-[#0f1117]/80 px-3 py-2 backdrop-blur-md sm:px-4">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
+      <header className={`workspace-chrome-header absolute inset-x-0 top-0 z-20 flex min-h-14 min-w-0 items-center gap-3 px-3 pb-5 pt-2 sm:px-4 ${headerAway ? "is-away" : ""}`}>
         <MobileSidebarButton onClick={onOpenSidebar} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
@@ -6609,12 +6672,12 @@ function ChatWorkspace({
               {canChat ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
               {canChat ? "Project chat" : "Read-only project"}
             </span>
-            <h2 className="truncate text-sm font-semibold tracking-tight text-zinc-100">{projectTitle}</h2>
-          </div>
-          <div className="mt-0.5 flex min-w-0 items-center gap-2 font-mono text-[10px] text-zinc-600">
-            <span className="truncate">{chatId || projectId || "No project id"}</span>
-            <span className="text-zinc-700">·</span>
-            <span className="truncate">{activeNamespaceName}</span>
+            <EditableWorkspaceTitle
+              value={projectTitle}
+              canEdit={canChat && Boolean(onRenameTitle)}
+              label="Project chat title"
+              onCommit={(title) => onRenameTitle?.(title)}
+            />
           </div>
         </div>
       </header>
@@ -6624,8 +6687,8 @@ function ChatWorkspace({
           <div className="flex h-full min-h-0 min-w-0 flex-col">
             <div
               ref={containerRef}
-              onScroll={handleScroll}
-              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 py-5 sm:px-5 sm:py-6"
+              onScroll={onChatScroll}
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-5 sm:pb-6 sm:pt-16"
             >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
                 {messages.length ? (
@@ -6676,6 +6739,8 @@ function ChatWorkspace({
                 <ChatProjectArtifact
                   projectId={projectId}
                   projectTitle={projectTitle}
+                  canEdit={canChat && Boolean(onRenameTitle)}
+                  onRenameTitle={onRenameTitle}
                   namespaceTabs={namespaceTabs}
                   activeNamespace={activeNamespace}
                   activeNamespaceName={activeNamespaceName}
@@ -6720,7 +6785,7 @@ function ChatWorkspace({
         )}
 
         {!canChat && (
-          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#0f1117]" aria-label="Project workspace">
+          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#0f1117] pt-14" aria-label="Project workspace">
             <ProjectWorkspacePanel
               namespaceTabs={namespaceTabs}
               activeNamespace={activeNamespace}
@@ -6748,6 +6813,8 @@ function scrollableVerticalParent(node: HTMLElement | null) {
 function ChatProjectArtifact({
   projectId,
   projectTitle,
+  canEdit = false,
+  onRenameTitle,
   namespaceTabs,
   activeNamespace,
   activeNamespaceName,
@@ -6756,6 +6823,8 @@ function ChatProjectArtifact({
 }: {
   projectId: string | null;
   projectTitle: string;
+  canEdit?: boolean;
+  onRenameTitle?: (title: string) => void;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceName: string;
@@ -6837,14 +6906,21 @@ function ChatProjectArtifact({
       aria-labelledby="chat-project-title"
     >
       <header className="flex min-h-[56px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-[#181b22] px-4 py-2.5">
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
             <Layers className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
             <h3 id="chat-project-title" className="truncate text-[10px] font-medium text-zinc-500">
               Project
             </h3>
           </div>
-          <div className="mt-0.5 truncate text-xs font-semibold text-zinc-100">{projectTitle}</div>
+          <EditableWorkspaceTitle
+            value={projectTitle}
+            canEdit={canEdit && Boolean(onRenameTitle)}
+            label="Project title"
+            element="div"
+            className="mt-0.5 truncate text-xs font-semibold text-zinc-100"
+            onCommit={(title) => onRenameTitle?.(title)}
+          />
         </div>
         <div className="flex min-w-0 items-center justify-end gap-3">
           <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-zinc-600 sm:flex">

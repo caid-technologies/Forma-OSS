@@ -7,7 +7,7 @@ type WorkspaceRouteShellProps = {
   showDeveloperTools: boolean;
 };
 
-type WorkspaceHomeView = "chat" | "projects" | "my-projects" | "jobs";
+type WorkspaceHomeView = "chat" | "projects" | "my-projects" | "jobs" | "settings" | "about";
 
 function dynamicSegment(pathname: string, prefix: string): string | null {
   if (!pathname.startsWith(prefix)) return null;
@@ -26,6 +26,10 @@ export default function WorkspaceRouteShell({ showDeveloperTools }: WorkspaceRou
     homeView = "my-projects";
   } else if (pathname === "/jobs" || pathname.startsWith("/jobs/")) {
     homeView = "jobs";
+  } else if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+    homeView = "settings";
+  } else if (pathname === "/about" || pathname.startsWith("/about/")) {
+    homeView = "about";
   }
 
   return (

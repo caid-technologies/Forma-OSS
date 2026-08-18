@@ -15,9 +15,11 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Snowflake,
+  Sparkles,
   Sun,
   Trash2,
 } from "lucide-react";
@@ -30,7 +32,7 @@ import {
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
-import { arcticLight, solarizedLight } from "../../lib/theme";
+import { arcticLight, solarizedDark, solarizedLight, type FormaTheme } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
 import { ProviderMarkTile } from "../../components/provider-mark";
 import { imageOutputIsEnabled, parsePreferredLlmProvider, settingsNavBadge, type SettingsNavBadge as SettingsNavBadgeModel } from "../../lib/settings-nav-status";
@@ -1496,13 +1498,30 @@ function ImageModelTestPanel({
   );
 }
 
+function formatTime(date: Date): string {
+  try {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
 function ThemeSettingsPanel() {
-  const { theme, setTheme } = useTheme();
-  const options = [
+  const { theme, themeMode, solarInfo, setTheme, setThemeMode } = useTheme();
+
+  const themeCards: Array<{
+    id: FormaTheme;
+    label: string;
+    badge?: string;
+    description: string;
+    icon: typeof Sun;
+    previewStyle: React.CSSProperties;
+  }> = [
     {
-      id: "light" as const,
-      label: "Light",
-      description: "Solarized Light: warm low-glare surfaces for daytime and high-ambient-light use.",
+      id: "light",
+      label: "Solarized Light+",
+      badge: "Day default",
+      description: "Warm low-glare #fdf6e3 surfaces with classic Solarized palette.",
       icon: Sun,
       previewStyle: {
         backgroundColor: solarizedLight.base3,
@@ -1511,22 +1530,28 @@ function ThemeSettingsPanel() {
       },
     },
     {
-      id: "arctic" as const,
+      id: "solarized-dark",
+      label: "Solarized Dark+",
+      badge: "Night default",
+      description: "Deep cyan #002b36 base & #001f26 panels with rich syntax colors.",
+      icon: Moon,
+      previewStyle: {
+        backgroundColor: solarizedDark.base03,
+        borderColor: solarizedDark.base01,
+        color: solarizedDark.base0,
+      },
+    },
+    {
+      id: "arctic",
       label: "Arctic",
-      description: "Cool white panels on a slate page, for higher contrast than Solarized Light.",
+      badge: "Slate Light",
+      description: "Cool white panels on a slate #eef2f7 page for higher contrast.",
       icon: Snowflake,
       previewStyle: {
         backgroundColor: arcticLight.surface,
         borderColor: arcticLight.border,
         color: arcticLight.textBody,
       },
-    },
-    {
-      id: "dark" as const,
-      label: "Dark",
-      description: "Low-luminance surfaces with light text for focused or low-light use.",
-      icon: Moon,
-      previewStyle: { backgroundColor: "#0f1117", borderColor: "#2c2f37", color: "#f1f5f9" },
     },
   ];
 
@@ -1535,47 +1560,115 @@ function ThemeSettingsPanel() {
       <SettingsPaneHeader
         title="Appearance"
         description="Choose how Forma looks in this browser. Changes apply immediately across the workspace."
-        badges={<SettingsNavBadge tone="allowed">Browser preference</SettingsNavBadge>}
+        badges={
+          <div className="flex items-center gap-2">
+            <SettingsNavBadge tone="allowed">Browser preference</SettingsNavBadge>
+            {themeMode === "auto" ? (
+              <SettingsNavBadge tone="ready">
+                Auto {solarInfo?.isDaylight ? "Day" : "Night"}
+              </SettingsNavBadge>
+            ) : null}
+          </div>
+        }
       />
 
-      <div className="p-5">
-        <h3 className="text-sm font-medium text-white">Theme</h3>
-        <p className="mt-1 text-xs leading-5 text-slate-500">
-          Your selection is saved automatically on this device and restored before the interface loads.
-        </p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
-          {options.map((option) => {
-            const Icon = option.icon;
-            const selected = theme === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                onClick={() => setTheme(option.id)}
-                className={`min-w-0 rounded-xl border p-3 text-left transition ${
-                  selected
-                    ? "border-emerald-500/40 bg-emerald-500/10"
-                    : "border-zinc-700/40 bg-[#0f1117] hover:border-zinc-600"
-                }`}
-              >
-                <span className="relative flex h-16 items-center justify-center overflow-hidden rounded-lg border border-zinc-700/40" style={option.previewStyle} aria-hidden="true">
-                  <Icon className="h-6 w-6" />
-                  <span
-                    className={`absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full border ${
-                      selected ? "border-emerald-400 bg-emerald-500 text-white" : "border-zinc-500 bg-transparent"
-                    }`}
-                  >
-                    {selected ? <Check className="h-3 w-3" /> : null}
+      <div className="space-y-6 p-5">
+        {/* Compact Auto Day/Night Banner & Switch */}
+        <div className="flex flex-col gap-3 rounded-xl border border-[#2c2f37] bg-[#101115] p-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <div
+              className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+                themeMode === "auto"
+                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                  : "border-zinc-700/40 bg-zinc-800/30 text-slate-400"
+              }`}
+            >
+              <Sparkles className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white">Auto Day / Night Schedule</span>
+                {themeMode === "auto" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                    {solarInfo?.isDaylight ? "☀️ Daytime active" : "🌙 Nighttime active"}
                   </span>
-                </span>
-                <span className="mt-3 block text-sm font-medium text-white">{option.label}</span>
-                <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
-              </button>
-            );
-          })}
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {themeMode === "auto" && solarInfo
+                  ? `Switches to ${solarInfo.nextEvent === "sunset" ? "Solarized Dark+" : "Solarized Light+"} automatically at ${formatTime(solarInfo.nextTime)}.`
+                  : "Automatically switches between Solarized Light+ by day and Solarized Dark+ at night based on your local sunrise & sunset."}
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setThemeMode(themeMode === "auto" ? "manual" : "auto")}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+              themeMode === "auto"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                : "border-zinc-700/40 bg-[#181b22] text-slate-300 hover:border-zinc-600 hover:text-white"
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${themeMode === "auto" ? "bg-emerald-400" : "bg-slate-500"}`} />
+            <span>{themeMode === "auto" ? "Auto enabled" : "Enable auto"}</span>
+          </button>
+        </div>
+
+        {/* Theme Cards Grid */}
+        <div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-white">Themes</h3>
+            <span className="text-xs text-slate-500">
+              Active: <span className="font-medium text-slate-300">{themeCards.find((c) => c.id === theme)?.label || theme}</span>
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
+            {themeCards.map((card) => {
+              const Icon = card.icon;
+              const selected = theme === card.id;
+              return (
+                <button
+                  key={card.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => setTheme(card.id)}
+                  className={`min-w-0 rounded-xl border p-3 text-left transition ${
+                    selected
+                      ? "border-emerald-500/50 bg-emerald-500/10 shadow-md ring-1 ring-emerald-500/30"
+                      : "border-zinc-700/40 bg-[#0f1117] hover:border-zinc-600"
+                  }`}
+                >
+                  <span
+                    className="relative flex h-16 items-center justify-center overflow-hidden rounded-lg border border-zinc-700/40 shadow-inner"
+                    style={card.previewStyle}
+                    aria-hidden="true"
+                  >
+                    <Icon className="h-6 w-6" />
+                    <span
+                      className={`absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full border ${
+                        selected ? "border-emerald-400 bg-emerald-500 text-white" : "border-zinc-500 bg-transparent"
+                      }`}
+                    >
+                      {selected ? <Check className="h-3 w-3" /> : null}
+                    </span>
+                  </span>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="block text-sm font-medium text-white">{card.label}</span>
+                    {card.badge && (
+                      <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">
+                        {card.badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">{card.description}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </article>
@@ -1676,7 +1769,7 @@ function SettingsNavBrandGroup({
   );
 }
 
-export default function UserIntegrationsPage() {
+export default function UserIntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { authRequired, getToken, hasIdentity, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
   const [forms, setForms] = useState<Record<string, IntegrationFormState>>({});
@@ -2185,36 +2278,59 @@ export default function UserIntegrationsPage() {
     }
   }
 
+  const contentWidth = "mx-auto w-full max-w-7xl";
+  const signedOutGrid = embedded
+    ? `${contentWidth} grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]`
+    : `${contentWidth} grid gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_360px]`;
+  const signedInGrid = embedded
+    ? `${contentWidth} grid gap-5 md:grid-cols-[240px_minmax(0,1fr)]`
+    : `${contentWidth} grid gap-5 px-4 py-5 md:grid-cols-[240px_minmax(0,1fr)]`;
+
+  const pageHeading = (
+    <div className={embedded ? "mb-6" : "min-w-0"}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+          <Settings className="h-3 w-3" />
+          Workspace
+        </span>
+        <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">Settings</h1>
+      </div>
+      <p className={`${embedded ? "mt-2" : "mt-1"} text-sm leading-6 text-zinc-500`}>
+        Appearance, provider credentials, model defaults, and account data preferences.
+      </p>
+    </div>
+  );
+
   return (
-    <main className="min-h-screen bg-[#0f1117] font-sans text-slate-100">
-      <header className="border-b border-[#2c2f37] bg-[#0f1117]/95 px-4 py-4">
-        <div className="mx-auto flex w-full max-w-7xl items-center gap-3">
-          <Link href="/" className={BUTTON_OUTLINE_CLASS}>
-            <ArrowLeft className="h-3.5 w-3.5" />
-            Home
-          </Link>
-          <div className="min-w-0">
-            <h1 className="truncate text-lg font-semibold tracking-tight text-white">Settings</h1>
-            <p className="mt-1 text-xs leading-5 text-slate-400">
-              Appearance, provider credentials, model defaults, and account data preferences.
-            </p>
+    <div className={embedded ? "font-sans text-zinc-100" : "min-h-screen bg-[#0f1117] font-sans text-zinc-100"}>
+      {embedded ? pageHeading : (
+        <header className="workspace-chrome-header px-4 pb-5 pt-2">
+          <div className="mx-auto flex w-full max-w-7xl items-center gap-3">
+            <Link
+              href="/"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" />
+              Home
+            </Link>
+            {pageHeading}
           </div>
-        </div>
-      </header>
+        </header>
+      )}
 
       {authRequired && !isLoaded ? (
-        <section className="mx-auto w-full max-w-7xl px-4 py-5">
-          <div className={`${CARD_SURFACE_CLASS} p-6 text-sm text-slate-500`}>Checking session...</div>
+        <section className={embedded ? contentWidth : `${contentWidth} px-4 py-5`}>
+          <div className={`${CARD_SURFACE_CLASS} p-6 text-sm text-zinc-500`}>Checking session...</div>
         </section>
       ) : !hasIdentity ? (
-        <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <section className={signedOutGrid}>
           <ThemeSettingsPanel />
           <div className={`h-fit ${CARD_SURFACE_CLASS} p-6`}>
-            <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-100">
               <KeyRound className="h-4 w-4 text-emerald-400" />
               Sign in required
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-400">
+            <p className="mt-3 text-sm leading-6 text-zinc-500">
               Settings store API keys and provider defaults for your account. Sign in to manage your models.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
@@ -2226,15 +2342,17 @@ export default function UserIntegrationsPage() {
                 <KeyRound className="h-3.5 w-3.5" />
                 Sign in
               </button>
-              <Link href="/" className={BUTTON_OUTLINE_CLASS}>
-                <ArrowLeft className="h-3.5 w-3.5" />
-                Home
-              </Link>
+              {embedded ? null : (
+                <Link href="/" className={BUTTON_OUTLINE_CLASS}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Home
+                </Link>
+              )}
             </div>
           </div>
         </section>
       ) : (
-        <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 md:grid-cols-[240px_minmax(0,1fr)]">
+        <section className={signedInGrid}>
         <aside className={`h-fit min-h-0 ${CARD_SURFACE_CLASS} md:sticky md:top-4`}>
           <div className="border-b border-[#2c2f37] px-3 py-3">
             <div className="text-sm font-semibold text-white">Settings</div>
@@ -2524,6 +2642,6 @@ export default function UserIntegrationsPage() {
         </section>
         </section>
       )}
-    </main>
+    </div>
   );
 }

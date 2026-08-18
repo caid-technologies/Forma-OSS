@@ -1154,6 +1154,22 @@ def update_generated_project_hardware_ir(
     return updated
 
 
+def _hardware_ir_with_overview_title(hardware_ir: Any, title: str) -> Optional[Dict[str, Any]]:
+    if hardware_ir is None:
+        return None
+    if hasattr(hardware_ir, "model_dump"):
+        payload = hardware_ir.model_dump(mode="json")
+    elif isinstance(hardware_ir, dict):
+        payload = dict(hardware_ir)
+    else:
+        return None
+    overview = payload.get("overview")
+    next_overview = dict(overview) if isinstance(overview, dict) else {}
+    next_overview["title"] = title
+    payload["overview"] = next_overview
+    return payload
+
+
 def update_generated_project_metadata(
     project_id: str,
     *,
@@ -1168,7 +1184,15 @@ def update_generated_project_metadata(
         return False
     updates: Dict[str, Any] = {}
     if title is not None:
-        updates["title"] = title.strip() or "Untitled Forma Project"
+        next_title = title.strip() or "Untitled Forma Project"
+        updates["title"] = next_title
+        project = get_generated_project(project_id)
+        hardware_ir = _hardware_ir_with_overview_title(
+            None if project is None else getattr(project, "hardware_ir", None),
+            next_title,
+        )
+        if hardware_ir is not None:
+            updates["hardware_ir"] = hardware_ir
     if prompt is not None:
         updates["prompt"] = prompt.strip()
     if visibility is not None:

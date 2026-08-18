@@ -20,7 +20,7 @@ export default function RootLayout({
 }>) {
   const authMode = formaAuthMode();
   const document = (
-    <html lang="en" data-theme="dark" suppressHydrationWarning>
+    <html lang="en" data-theme="solarized-dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
       </head>

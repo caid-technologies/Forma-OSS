@@ -38,6 +38,7 @@ type HomeChatMessage = {
 type HomeChatViewProps = {
   started: boolean;
   conversationKey: string;
+  workspaceTitle?: ReactNode;
   messages: HomeChatMessage[];
   renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
   projectArtifact?: ReactNode;
@@ -78,6 +79,7 @@ function formatTimestamp(value: string) {
 export default function HomeChatView({
   started,
   conversationKey,
+  workspaceTitle,
   messages,
   renderPipelineProgress,
   projectArtifact,
@@ -148,6 +150,11 @@ export default function HomeChatView({
             : "mt-4 flex-1 overflow-hidden sm:mt-5 md:mx-auto md:w-full md:max-w-2xl md:flex-none md:overflow-visible"
         } flex min-h-0 flex-col text-left`}
       >
+        {started && workspaceTitle ? (
+          <div className="flex min-w-0 shrink-0 items-center px-3 pb-1 sm:px-4">
+            {workspaceTitle}
+          </div>
+        ) : null}
         {started && (
           <div
             ref={containerRef}

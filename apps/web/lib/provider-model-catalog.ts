@@ -26,7 +26,7 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gpt-5.5", "GPT-5.5", "Previous-generation model"),
   ],
   gemini: [
-    model("gemini-3.6-flash", "Gemini 3.6 Flash", "Agentic and multimodal workloads"),
+    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Agentic and multimodal workloads"),
     model("gemini-3.5-flash", "Gemini 3.5 Flash", "Coding and sustained agentic tasks"),
     model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "High-throughput, cost-efficient tasks"),
     model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Fast general-purpose model"),
@@ -34,7 +34,7 @@ export const LLM_MODEL_OPTIONS: Record<string, ProviderModelOption[]> = {
     model("gemini-2.5-flash", "Gemini 2.5 Flash", "Stable previous-generation flash model"),
   ],
   vertex: [
-    model("gemini-3.6-flash", "Gemini 3.6 Flash", "Vertex AI agentic and multimodal workloads"),
+    model("gemini-3.7-flash", "Gemini 3.7 Flash", "Vertex AI agentic and multimodal workloads"),
     model("gemini-3.5-flash", "Gemini 3.5 Flash", "Vertex AI coding and sustained agentic tasks"),
     model("gemini-3.5-flash-lite", "Gemini 3.5 Flash-Lite", "Vertex AI high-throughput workloads"),
     model("gemini-3.1-flash-lite", "Gemini 3.1 Flash-Lite", "Vertex AI fast general-purpose model"),

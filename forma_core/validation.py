@@ -124,6 +124,52 @@ def validate_circuit(
         for pin in comp.pins:
             pin_lookup[(comp.ref_des, pin.pin_id)] = pin
 
+    # Reject malformed endpoints before applying electrical rules. This keeps
+    # provider hallucinations and duplicate references visible instead of
+    # silently omitting them from the pin lookup below.
+    for net in nets:
+        if not net.pins:
+            issues.append(ValidationIssue(
+                severity="CRITICAL",
+                category="Empty Net",
+                description=f"Net '{net.name}' ({net.net_id}) contains no endpoints.",
+                troubleshooting="Add at least one declared component pin or remove the empty net.",
+            ))
+        seen_endpoints: set[tuple[str, str]] = set()
+        for pin_ref in net.pins:
+            endpoint = (pin_ref.ref_des, pin_ref.pin_id)
+            if endpoint in seen_endpoints:
+                issues.append(ValidationIssue(
+                    severity="CRITICAL",
+                    category="Duplicate Endpoint",
+                    description=(
+                        f"Endpoint '{pin_ref.ref_des}.{pin_ref.pin_id}' appears more than once "
+                        f"in net '{net.net_id}'."
+                    ),
+                    troubleshooting="List each physical endpoint at most once per net.",
+                ))
+            seen_endpoints.add(endpoint)
+            if pin_ref.ref_des not in component_lookup:
+                issues.append(ValidationIssue(
+                    severity="CRITICAL",
+                    category="Unknown Component Reference",
+                    description=(
+                        f"Net '{net.net_id}' references unknown component "
+                        f"'{pin_ref.ref_des}'."
+                    ),
+                    troubleshooting="Choose a component reference declared in the project BOM.",
+                ))
+            elif endpoint not in pin_lookup:
+                issues.append(ValidationIssue(
+                    severity="CRITICAL",
+                    category="Unknown Pin Reference",
+                    description=(
+                        f"Net '{net.net_id}' references undeclared pin "
+                        f"'{pin_ref.pin_id}' on component '{pin_ref.ref_des}'."
+                    ),
+                    troubleshooting="Choose a pin declared by the component's shared part definition.",
+                ))
+
     # Pin to Nets reverse lookup to find pin conflict issues
     # key: (ref_des, pin_id) -> List of net_ids
     pin_to_nets: Dict[tuple, List[str]] = {}

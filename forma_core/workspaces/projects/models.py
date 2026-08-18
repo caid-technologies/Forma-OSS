@@ -12,6 +12,9 @@ class PinDefinition(BaseModel):
     pin_type: str = Field(..., description="Type of pin: Power, Ground, Digital, Analog, I2C, SPI, UART, PWM, Passive")
     voltage: Optional[float] = Field(None, description="Operating voltage of the pin in Volts, e.g., 3.3 or 5.0")
     description: Optional[str] = Field(None, description="Detailed description of the pin function")
+    direction: Optional[str] = Field(None, description="Signal direction such as input, output, or bidirectional")
+    power_role: Optional[str] = Field(None, description="Power role such as input, source, regulated_output, or return")
+    interface: Optional[str] = Field(None, description="Logical interface such as I2C, SPI, UART, PWM, or analog")
 
 class ComponentTemplate(BaseModel):
     part_number: str = Field(..., description="Manufacturer or generic part number, e.g., 'ESP32-WROOM-32D', 'DHT11'")

@@ -2,6 +2,7 @@
 
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
+  DEFAULT_AUTO_THEME_CONFIG,
   normalizeTheme,
   parseAutoThemeConfig,
   resolveAutoTheme,

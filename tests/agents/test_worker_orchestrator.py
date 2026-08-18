@@ -7,9 +7,9 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workers import (
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workers import (
     WORKER_CONTRACT_VERSION,
     OrchestrationTaskStatus,
     WorkerCapability,
@@ -22,7 +22,7 @@ from blueprint_core.workers import (
     WorkerRequest,
     WorkerResult,
 )
-from blueprint_core.workspaces.workflow import (
+from forma_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -176,7 +176,7 @@ class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="worker orchestrator test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()

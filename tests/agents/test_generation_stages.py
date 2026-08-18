@@ -3,15 +3,15 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from blueprint_core.agents.pipeline import GenerationStageRun, GenerationStageSpec
-from blueprint_core.agents.orchestrator import (
+from forma_core.agents.pipeline import GenerationStageRun, GenerationStageSpec
+from forma_core.agents.orchestrator import (
     DefaultAssemblyOutput,
     DefaultComponentSelection,
     DefaultValidationOutput,
     DefaultWiringOutput,
     HardwarePipelineOrchestrator,
 )
-from blueprint_core.agents.web_research_workflow import (
+from forma_core.agents.web_research_workflow import (
     AssemblyWrapper,
     CompletenessAudit,
     WebComponentSelection,
@@ -19,8 +19,8 @@ from blueprint_core.agents.web_research_workflow import (
     WebResearchHardwarePipeline,
     WiringWrapper,
 )
-from blueprint_core.external_sources import ExternalSourceLibrary
-from blueprint_core.workspaces.projects.models import (
+from forma_core.external_sources import ExternalSourceLibrary
+from forma_core.workspaces.projects.models import (
     ComponentInstance,
     FunctionalRequirements,
     MechanicalNotes,

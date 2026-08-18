@@ -8,20 +8,20 @@ from io import BytesIO
 from types import SimpleNamespace
 from typing import Iterator
 
-from blueprint_core.agents.firecrawl_mcp import (
+from forma_core.agents.firecrawl_mcp import (
     FirecrawlResearchResult,
     FirecrawlSearchHit,
     _MCPStdioSession,
     _flatten_firecrawl_hits,
 )
-from blueprint_core.external_sources import (
+from forma_core.external_sources import (
     ExternalSourceLibrary,
     ExternalSourceProviderConfig,
     ExternalSourceRecord,
     FirecrawlExternalSourceProvider,
     build_external_source_provider,
 )
-from blueprint_core.jobs.source_usage import infer_source_usage, normalize_source_usage
+from forma_core.jobs.source_usage import infer_source_usage, normalize_source_usage
 
 
 EXTERNAL_SOURCE_ENV_KEYS = {
@@ -228,7 +228,7 @@ class ExternalSourceTests(unittest.TestCase):
 
     def test_source_usage_reads_requested_external_provider(self) -> None:
         usage = infer_source_usage(
-            action="blueprint.generate_project",
+            action="forma.generate_project",
             payload={"workflow": "web_research", "external_source_provider": "firecrawl"},
         )
 

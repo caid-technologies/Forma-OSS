@@ -13,7 +13,7 @@ ASYNC_SAMPLE_SCRIPT = ROOT_DIR / "scripts" / "models" / "sample_async.py"
 
 
 def load_async_sample_module():
-    spec = importlib.util.spec_from_file_location("blueprint_sample_async", ASYNC_SAMPLE_SCRIPT)
+    spec = importlib.util.spec_from_file_location("forma_sample_async", ASYNC_SAMPLE_SCRIPT)
     if spec is None or spec.loader is None:
         raise RuntimeError("Could not load scripts/models/sample_async.py")
     module = importlib.util.module_from_spec(spec)

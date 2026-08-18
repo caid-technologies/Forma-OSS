@@ -8,12 +8,12 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
 
-from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
-from blueprint_core.agents.pipeline import emit_agent_pipeline_event
-from blueprint_core.database import list_project_generation_jobs
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workers import (
+from forma_core.agents.orchestrator import HardwarePipelineOrchestrator, extract_power_rails
+from forma_core.agents.pipeline import emit_agent_pipeline_event
+from forma_core.database import list_project_generation_jobs
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workers import (
     GENERATION_CAPABILITY_ID,
     GENERATION_INPUT_VERSION,
     GENERATION_OUTPUT_VERSION,
@@ -28,19 +28,19 @@ from blueprint_core.workers import (
     WorkerRequest,
     build_generation_draft,
 )
-from blueprint_core.workspaces.design_briefs import (
+from forma_core.workspaces.design_briefs import (
     DESIGN_BRIEF_SCHEMA_VERSION,
     DesignBrief,
     DesignBriefReference,
 )
-from blueprint_core.workspaces.projects import (
+from forma_core.workspaces.projects import (
     ProjectArtifact,
     ProjectRevisionDraft,
     ProjectStateError,
     ProjectStateService,
     ProjectSystem,
 )
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     BusConnection,
     ComponentInstance,
     ConnectionNet,
@@ -49,7 +49,7 @@ from blueprint_core.workspaces.projects.models import (
     PowerRail,
     ProjectOverview,
 )
-from blueprint_core.workspaces.workflow import (
+from forma_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -211,7 +211,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="generation worker test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()
@@ -241,8 +241,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             assembly_metadata={"project_id": str(self.project_id)},
         )
         with (
-            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
-            patch("blueprint_core.workers.generation.attach_product_image") as attach_image,
+            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("forma_core.workers.generation.attach_product_image") as attach_image,
         ):
             orchestrator_type.return_value.generate_project.return_value = state
 
@@ -260,8 +260,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
             "generation_run": {"generation_run_id": "failed-run", "records": {}},
         })
         with (
-            patch("blueprint_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
-            patch("blueprint_core.workers.generation.attach_product_image"),
+            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("forma_core.workers.generation.attach_product_image"),
         ):
             orchestrator_type.return_value.generate_project.return_value = state
 
@@ -301,6 +301,41 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
                     )
                 ],
             )
+
+    def test_generation_draft_keeps_same_voltage_power_nets_as_unique_systems(self) -> None:
+        component = ComponentInstance(
+            ref_des="U1",
+            part_number="ESP32-DEVKIT",
+            name="ESP32 controller",
+            category="Microcontroller",
+            rationale="Provides processing and connectivity.",
+        )
+        nets = [
+            ConnectionNet(
+                net_id="NET_VCC_5V",
+                name="Always-on logic power",
+                net_type="Power",
+                voltage=5.0,
+                pins=[PinReference(ref_des="U1", pin_id="VIN")],
+            ),
+            ConnectionNet(
+                net_id="NET_SERVO_VCC",
+                name="Switched servo power",
+                net_type="Power",
+                voltage=5.0,
+                pins=[PinReference(ref_des="U1", pin_id="VIN")],
+            ),
+        ]
+        rails = extract_power_rails([component], nets)
+        state = HardwareIR(components=[component], nets=nets, power_rails=rails)
+
+        draft = build_generation_draft(self.brief, state)
+
+        self.assertEqual(["RAIL_NET_VCC_5V", "RAIL_NET_SERVO_VCC"], [rail.rail_id for rail in rails])
+        self.assertEqual(
+            ["system-primary", "power-RAIL_NET_VCC_5V", "power-RAIL_NET_SERVO_VCC"],
+            [system.system_id for system in draft.systems],
+        )
 
     def test_generation_draft_reuses_persisted_stage_artifact_references(self) -> None:
         stage_artifact = ProjectArtifact(
@@ -608,7 +643,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         plan = orchestrator.create_plan([self.request()], OWNER)
         await orchestrator.execute(plan.plan_id, OWNER)
 
-        with patch("blueprint_core.database._DATABASE_REPOSITORY", self.repository):
+        with patch("forma_core.database._DATABASE_REPOSITORY", self.repository):
             jobs = list_project_generation_jobs(limit=10)
 
         projected = next(job for job in jobs if job["job_id"] == "job-generation-initial")
@@ -706,8 +741,8 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(str(persisted.revision_id), second.output["project_revision"]["revision_id"])
         self.assertEqual(1, len(engine.received))
 
-    @patch("blueprint_core.agents.orchestrator.ensure_agent_pipeline_active")
-    @patch("blueprint_core.agents.orchestrator.save_generated_project")
+    @patch("forma_core.agents.orchestrator.ensure_agent_pipeline_active")
+    @patch("forma_core.agents.orchestrator.save_generated_project")
     def test_generation_engine_mode_disables_legacy_direct_project_write(
         self,
         save_generated_project: Any,

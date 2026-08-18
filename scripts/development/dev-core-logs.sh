@@ -8,8 +8,8 @@ FRONTEND_HOST="${FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
-BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/blueprint-core-dev.log}"
-BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-blueprint_core,apps.api.main,apps.api.user_integrations_api,apps.api.logging_config}"
+BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/forma-core-dev.log}"
+BACKEND_LOG_NAMESPACES="${BACKEND_LOG_NAMESPACES:-forma_core,apps.api.main,apps.api.user_integrations_api,apps.api.logging_config}"
 FRONTEND_LOG_FILE="${FRONTEND_LOG_FILE:-$ROOT_DIR/.logs/frontend-dev.log}"
 UVICORN_LOG_LEVEL="${UVICORN_LOG_LEVEL:-warning}"
 UVICORN_ACCESS_LOG="${UVICORN_ACCESS_LOG:-false}"
@@ -22,7 +22,7 @@ frontend_pid=""
 cleaned_up="false"
 
 log() {
-  printf '[blueprint-core-dev] %s\n' "$*"
+  printf '[forma-core-dev] %s\n' "$*"
 }
 
 is_truthy() {

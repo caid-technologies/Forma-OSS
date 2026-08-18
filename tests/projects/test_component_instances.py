@@ -4,7 +4,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     BOMLineItem,
     ComponentInstance,
     ConnectionNet,

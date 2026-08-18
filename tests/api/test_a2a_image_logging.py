@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from apps.api import a2a
 from apps.api.storage import StoredImage
-from blueprint_core.image_providers import GeneratedImage
+from forma_core.image_providers import GeneratedImage
 
 
 class A2AImageLoggingTests(unittest.TestCase):

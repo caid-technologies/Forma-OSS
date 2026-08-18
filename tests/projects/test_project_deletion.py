@@ -8,10 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from apps.api import project_deletion
-from blueprint_core import database
-from blueprint_core.persistence.models import DBProjectContributionSnapshot
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
+from forma_core import database
+from forma_core.persistence.models import DBProjectContributionSnapshot
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
 
 
 class ProjectDeletionLifecycleTests(unittest.TestCase):
@@ -19,7 +19,7 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="project deletion test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None

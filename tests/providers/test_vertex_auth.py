@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from google.auth import identity_pool
 
-from blueprint_core.vertex_auth import (
+from forma_core.vertex_auth import (
     VercelOidcContextMiddleware,
     _VercelOidcTokenSupplier,
     bind_vertex_oidc_token,

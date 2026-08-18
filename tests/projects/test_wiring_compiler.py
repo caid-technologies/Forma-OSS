@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.validation import validate_circuit
-from blueprint_core.wiring import (
+from forma_core.validation import validate_circuit
+from forma_core.wiring import (
     NetIntent,
     WiringIntent,
     build_endpoint_catalog,
@@ -11,7 +11,7 @@ from blueprint_core.wiring import (
     derive_pin_mappings,
     wiring_failure_category,
 )
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     ComponentInstance,
     ConnectionNet,
     PinDefinition,

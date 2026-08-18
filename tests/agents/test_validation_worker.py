@@ -7,10 +7,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from blueprint_core.persistence.models import DBProjectRevision
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workers import (
+from forma_core.persistence.models import DBProjectRevision
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workers import (
     VALIDATION_CAPABILITY_ID,
     VALIDATION_INPUT_VERSION,
     VALIDATION_WORKER_ID,
@@ -22,21 +22,21 @@ from blueprint_core.workers import (
     WorkerRequest,
     build_validation_request,
 )
-from blueprint_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
-from blueprint_core.workspaces.projects import (
+from forma_core.workspaces.design_briefs import DESIGN_BRIEF_SCHEMA_VERSION, DesignBrief
+from forma_core.workspaces.projects import (
     ProjectArtifact,
     ProjectRevision,
     ProjectRevisionDraft,
     ProjectStateService,
 )
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     ComponentInstance,
     HardwareIR,
     ProjectOverview,
     ValidationIssue,
     ValidationSummary,
 )
-from blueprint_core.workspaces.validation import (
+from forma_core.workspaces.validation import (
     ValidationCheckStatus,
     ValidationFindingDraft,
     ValidationFindingKind,
@@ -44,7 +44,7 @@ from blueprint_core.workspaces.validation import (
     ValidationReportService,
     ValidationSeverity,
 )
-from blueprint_core.workspaces.workflow import (
+from forma_core.workspaces.workflow import (
     ProjectWorkflowService,
     ProjectWorkflowState,
     WorkflowActorType,
@@ -79,7 +79,7 @@ class ValidationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.directory = tempfile.TemporaryDirectory()
         provider = create_sqlite_provider(
             source="validation worker test",
-            url=f"sqlite:///{Path(self.directory.name) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         provider.initialize()

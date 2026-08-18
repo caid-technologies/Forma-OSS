@@ -13,7 +13,7 @@ from starlette.requests import Request
 
 from apps.api import main
 from apps.api.auth import UserContext, optional_user_context
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
     HardwareIR,
@@ -81,7 +81,7 @@ def _project(
 
 class LocalProjectIdentityTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_user_context_owns_local_dev_user_projects(self) -> None:
-        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=False):
+        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "local"}, clear=False):
             context = await optional_user_context(_request())
 
         self.assertEqual("local", context.provider)
@@ -346,6 +346,63 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertEqual(private_project.project_id, response["project_id"])
         self.assertTrue(response["can_chat"])
         self.assertEqual("chat-private-project", response["chat_id"])
+
+    def test_owner_can_update_project_title(self) -> None:
+        project = _project("owned-project", owner_user_id="user-a", visibility="public")
+
+        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+            main,
+            "update_generated_project_metadata",
+            return_value=True,
+        ) as update_meta:
+            response = main.update_project_endpoint(
+                project.project_id,
+                main.ProjectUpdateRequest(title="Desk lamp"),
+                _user_context("user-a"),
+            )
+
+        self.assertEqual({"ok": True, "project_id": project.project_id}, response)
+        update_meta.assert_called_once_with(
+            project.project_id,
+            owner_user_id="user-a",
+            title="Desk lamp",
+            prompt=None,
+            visibility=None,
+        )
+
+    def test_community_member_cannot_update_project_title(self) -> None:
+        project = _project("public-project", owner_user_id="user-b", visibility="public")
+
+        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+            main,
+            "update_generated_project_metadata",
+        ) as update_meta:
+            with self.assertRaises(HTTPException) as raised:
+                main.update_project_endpoint(
+                    project.project_id,
+                    main.ProjectUpdateRequest(title="Hacked title"),
+                    _user_context("user-a"),
+                )
+
+        self.assertEqual(403, raised.exception.status_code)
+        update_meta.assert_not_called()
+
+    def test_anonymous_user_cannot_update_project_title(self) -> None:
+        project = _project("public-project", owner_user_id="user-b", visibility="public")
+
+        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+            main,
+            "update_generated_project_metadata",
+        ) as update_meta:
+            with self.assertRaises(HTTPException) as raised:
+                main.update_project_endpoint(
+                    project.project_id,
+                    main.ProjectUpdateRequest(title="Hacked title"),
+                    _anonymous_context(),
+                )
+
+        self.assertEqual(401, raised.exception.status_code)
+        update_meta.assert_not_called()
 
     def test_nonowner_private_project_read_returns_not_found(self) -> None:
         private_project = _project(

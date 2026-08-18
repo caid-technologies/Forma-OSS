@@ -1,7 +1,7 @@
 import base64
 from collections import defaultdict, deque
 import json
-from blueprint_core.config import config
+from forma_core.config import config
 import threading
 import time
 from dataclasses import dataclass, field
@@ -193,7 +193,7 @@ def clerk_user_profile(user_id: str) -> Optional[Dict[str, Optional[str]]]:
         headers={
             "Authorization": f"Bearer {secret_key}",
             "Accept": "application/json",
-            "User-Agent": "Forma/1.0 (+https://github.com/caid-technologies/blueprint-oss)",
+            "User-Agent": "Forma/1.0 (+https://github.com/caid-technologies/forma-oss)",
         },
         method="GET",
     )
@@ -257,7 +257,7 @@ def clerk_user_is_admin(auth_claims: Optional[Dict[str, Any]]) -> bool:
     if not user_id:
         return False
 
-    admin_user_ids = _csv_env("BLUEPRINT_ADMIN_USER_IDS") | _csv_env("CLERK_ADMIN_USER_IDS")
+    admin_user_ids = _csv_env("FORMA_ADMIN_USER_IDS") | _csv_env("CLERK_ADMIN_USER_IDS")
     if user_id in admin_user_ids:
         return True
 
@@ -269,7 +269,7 @@ def clerk_user_is_admin(auth_claims: Optional[Dict[str, Any]]) -> bool:
         if isinstance(metadata, dict) and metadata.get("admin") is True:
             return True
 
-    admin_emails = {email.lower() for email in (_csv_env("BLUEPRINT_ADMIN_EMAILS") | _csv_env("CLERK_ADMIN_EMAILS"))}
+    admin_emails = {email.lower() for email in (_csv_env("FORMA_ADMIN_EMAILS") | _csv_env("CLERK_ADMIN_EMAILS"))}
     if not admin_emails:
         return False
     email = clerk_user_email(user_id)

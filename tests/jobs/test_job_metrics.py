@@ -4,8 +4,8 @@ import unittest
 from datetime import datetime, timezone
 import tempfile
 
-from blueprint_core.jobs.metrics import summarize_job_metrics
-from blueprint_core.jobs.store import JobMetadataStore
+from forma_core.jobs.metrics import summarize_job_metrics
+from forma_core.jobs.store import JobMetadataStore
 
 
 class JobMetricsTests(unittest.TestCase):
@@ -17,9 +17,9 @@ class JobMetricsTests(unittest.TestCase):
                     job_id=job_id,
                     message_id=f"message_{job_id}",
                     correlation_id=None,
-                    action="blueprint.generate_project",
+                    action="forma.generate_project",
                     sender="frontend",
-                    recipient="blueprint",
+                    recipient="forma",
                     payload={"prompt": job_id},
                     server_owned=True,
                 )
@@ -43,9 +43,9 @@ class JobMetricsTests(unittest.TestCase):
                 job_id="a2a_success",
                 message_id="message_success",
                 correlation_id=None,
-                action="blueprint.generate_project",
+                action="forma.generate_project",
                 sender="frontend",
-                recipient="blueprint",
+                recipient="forma",
                 payload={"prompt": "success"},
                 server_owned=True,
             )

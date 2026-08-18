@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Path, status
 
 from apps.api.auth import UserContext, require_user_context
-from blueprint_core.database import (
+from forma_core.database import (
     DesignBriefAccessError,
     DesignBriefNotFoundError,
     create_design_brief_version,
@@ -13,7 +13,7 @@ from blueprint_core.database import (
     get_latest_design_brief,
     list_design_brief_versions,
 )
-from blueprint_core.workspaces.design_briefs import (
+from forma_core.workspaces.design_briefs import (
     DesignBrief,
     DesignBriefCreate,
     DesignBriefVersionList,

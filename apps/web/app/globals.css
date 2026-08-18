@@ -379,7 +379,8 @@ html:is([data-theme="light"], [data-theme="arctic"]) .caid-logo-on-light {
  * `html:is([data-theme="light"], [data-theme="arctic"])` is an exact
  * specificity match for the `html[data-theme="light"]` these rules replaced.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1117]'] {
   background-color: var(--forma-page);
 }
 
@@ -388,6 +389,7 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]'] {
  * tone, so the wells nested inside it still read as recessed.
  */
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#141519]/95'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1117]/95'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]/95'] {
   background-color: rgb(var(--forma-chrome-rgb) / 0.95);
 }
@@ -405,6 +407,7 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#050609]/85'] 
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#17181d]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#181b22]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#15161b]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#111216]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101116]'],
@@ -426,6 +429,7 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-slate-900"] {
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#101115]/70'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
   background-color: var(--forma-surface-muted);
 }
@@ -435,11 +439,13 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='bg-[#0f1014]'] {
  * state as well as the static fill so it cannot flash a near-black rectangle
  * in either light theme. Keep the text on the theme's strong foreground.
  */
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-[#17181d]']:hover {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-[#17181d]']:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:bg-zinc-800/40']:hover {
   background-color: var(--forma-surface-muted);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-white"]:hover {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-white"]:hover,
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="hover:text-zinc-200"]:hover {
   color: var(--forma-text-strong);
 }
 
@@ -495,7 +501,8 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-cyan-300/10"] {
   background-color: rgb(var(--forma-cyan-rgb) / var(--forma-selected-wash-alpha));
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-400/10"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="bg-emerald-500/10"] {
   background-color: rgb(var(--forma-green-rgb) / 0.1);
 }
 
@@ -547,17 +554,20 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-100"] {
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-300"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-300"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-200"] {
   color: var(--forma-text-body);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-400"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-400"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-400"] {
   color: var(--forma-text-secondary);
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-500"],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-600"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-700"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-slate-700"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-zinc-500"] {
   color: var(--forma-text-muted);
 }
 
@@ -593,7 +603,8 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-cyan-300"] {
 }
 
 html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-200"],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-300"] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-300"],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~="text-emerald-400"] {
   color: rgb(var(--forma-green-rgb));
 }
 
@@ -634,7 +645,12 @@ html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#333844]']
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#34363f]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#343740]'],
 html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#3a3d46]'],
-html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#4b4d56]'] {
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-[#4b4d56]'],
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='border-zinc-700/40'] {
+  border-color: var(--forma-border);
+}
+
+html:is([data-theme="light"], [data-theme="arctic"]) [class~='hover:border-zinc-600']:hover {
   border-color: var(--forma-border);
 }
 

@@ -35,7 +35,17 @@ import { webConfig } from "../../lib/config";
 import { imageOutputIsEnabled, parsePreferredLlmProvider, settingsNavBadge } from "../../lib/settings-nav-status";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
-const NAV_COLLAPSE_STORAGE_KEY = "forma.settings.collapsed-nav.v2";
+
+const FIELD_CONTROL_CLASS =
+  "h-9 w-full rounded-lg border border-[#2c2f37] bg-[#101115] px-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-60";
+const BUTTON_PRIMARY_CLASS =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-medium text-black transition hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50";
+const BUTTON_OUTLINE_CLASS =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium text-slate-300 transition hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50";
+const BUTTON_DANGER_CLASS =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-400/30 px-3 text-xs font-medium text-rose-200 transition hover:bg-rose-500/15 disabled:cursor-wait disabled:opacity-50";
+const CARD_SURFACE_CLASS = "rounded-xl border border-[#2c2f37] bg-[#181b22]";
+const STATUS_PILL_CLASS = "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium";
 
 type IntegrationFieldStatus = {
   id: string;
@@ -115,6 +125,7 @@ type ImageProviderOption = {
   configFieldIds: string[];
   advancedFieldIds: string[];
   summary: string;
+  tier: "basic" | "advanced";
 };
 
 const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
@@ -128,6 +139,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_resolution", "image_aspect_ratio", "image_output_format", "image_timeout_seconds"],
     summary: "Nano Banana image generation using your Google Cloud project and Application Default Credentials.",
+    tier: "advanced",
   },
   {
     id: "huggingface",
@@ -148,6 +160,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
       "image_timeout_seconds",
     ],
     summary: "Hosted Hugging Face image inference. Add a scoped HF token; Forma preselects FLUX.",
+    tier: "advanced",
   },
   {
     id: "openai",
@@ -159,6 +172,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_size", "image_quality", "image_output_format", "image_timeout_seconds", "base_url"],
     summary: "OpenAI image generation. Add an OpenAI key where BYOK is allowed.",
+    tier: "basic",
   },
   {
     id: "gmi",
@@ -181,6 +195,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
       "image_timeout_seconds",
     ],
     summary: "GMI Cloud image generation through its native GPT Image endpoint or request queue, with model-specific settings.",
+    tier: "advanced",
   },
   {
     id: "together",
@@ -192,6 +207,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_base_url", "image_size", "image_steps", "image_output_format", "image_timeout_seconds"],
     summary: "Together AI image generation. Add a project-scoped key dedicated to Forma.",
+    tier: "advanced",
   },
   {
     id: "openai-compatible",
@@ -203,6 +219,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["model"],
     advancedFieldIds: ["size", "quality", "output_format", "timeout_seconds"],
     summary: "Generic OpenAI-compatible image endpoint. Add the provider key and base URL.",
+    tier: "advanced",
   },
   {
     id: "none",
@@ -214,6 +231,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: [],
     advancedFieldIds: [],
     summary: "Disable generated product images.",
+    tier: "basic",
   },
 ];
 
@@ -226,13 +244,6 @@ type IntegrationNavigationDefinition = {
   imageProviderId?: string;
 };
 
-const DEFAULT_COLLAPSED_NAV_KEYS = [
-  "integrations:llm-advanced",
-  "integrations:image-advanced",
-  "integrations:tools-advanced",
-  "integrations:other-advanced",
-];
-
 const INTEGRATION_NAV_GROUPS: Array<{
   id: string;
   label: string;
@@ -240,10 +251,10 @@ const INTEGRATION_NAV_GROUPS: Array<{
   basic?: IntegrationNavigationDefinition[];
   advanced?: IntegrationNavigationDefinition[];
 }> = [
-  { id: "workspace", label: "Workspace", items: [{ integrationId: "runtime", view: "all" }] },
+  { id: "workspace", label: "Runtime defaults", items: [{ integrationId: "runtime", view: "all", label: "Runtime defaults" }] },
   {
     id: "llm",
-    label: "Language models",
+    label: "Model providers",
     basic: [
       { integrationId: "anthropic", view: "llm", label: "Anthropic" },
       { integrationId: "openai", view: "llm", label: "OpenAI" },
@@ -274,7 +285,7 @@ const INTEGRATION_NAV_GROUPS: Array<{
       { integrationId: "image", view: "image", label: "Custom / OpenAI-compatible" },
     ],
   },
-  { id: "tools", label: "Tools", advanced: [{ integrationId: "firecrawl", view: "all" }] },
+  { id: "tools", label: "Tool providers", basic: [{ integrationId: "firecrawl", view: "all" }] },
 ];
 
 type IntegrationNavigationItem = IntegrationNavigationDefinition & {
@@ -283,17 +294,12 @@ type IntegrationNavigationItem = IntegrationNavigationDefinition & {
   integration: IntegrationStatus;
 };
 
-type IntegrationNavigationSubgroup = {
-  id: string;
-  label: string;
-  items: IntegrationNavigationItem[];
-};
-
 type IntegrationNavigationGroup = {
   id: string;
   label: string;
   items: IntegrationNavigationItem[];
-  subgroups: IntegrationNavigationSubgroup[];
+  basic: IntegrationNavigationItem[];
+  advanced: IntegrationNavigationItem[];
 };
 
 function navItemsFromDefs(defs: IntegrationNavigationDefinition[] | undefined, integrations: IntegrationStatus[]) {
@@ -304,6 +310,10 @@ function navItemsFromDefs(defs: IntegrationNavigationDefinition[] | undefined, i
   });
 }
 
+function navigationGroupItems(group: IntegrationNavigationGroup) {
+  return [...group.items, ...group.basic, ...group.advanced];
+}
+
 function integrationNavigationGroups(integrations: IntegrationStatus[]) {
   const includedIds = new Set<string>(
     INTEGRATION_NAV_GROUPS.flatMap((group) => [
@@ -312,15 +322,13 @@ function integrationNavigationGroups(integrations: IntegrationStatus[]) {
       ...(group.advanced || []),
     ]).map((item) => item.integrationId)
   );
-  const groups: IntegrationNavigationGroup[] = INTEGRATION_NAV_GROUPS.map((group) => {
-    const basic = navItemsFromDefs(group.basic, integrations);
-    const advanced = navItemsFromDefs(group.advanced, integrations);
-    const items = navItemsFromDefs(group.items, integrations);
-    const subgroups: IntegrationNavigationSubgroup[] = [];
-    if (basic.length) subgroups.push({ id: `${group.id}-basic`, label: "Basic", items: basic });
-    if (advanced.length) subgroups.push({ id: `${group.id}-advanced`, label: "Advanced", items: advanced });
-    return { id: group.id, label: group.label, items, subgroups };
-  }).filter((group) => group.items.length > 0 || group.subgroups.some((subgroup) => subgroup.items.length > 0));
+  const groups: IntegrationNavigationGroup[] = INTEGRATION_NAV_GROUPS.map((group) => ({
+    id: group.id,
+    label: group.label,
+    items: navItemsFromDefs(group.items, integrations),
+    basic: navItemsFromDefs(group.basic, integrations),
+    advanced: navItemsFromDefs(group.advanced, integrations),
+  })).filter((group) => navigationGroupItems(group).length > 0);
 
   const other = integrations.filter((integration) => !includedIds.has(integration.id));
   if (other.length) {
@@ -328,26 +336,17 @@ function integrationNavigationGroups(integrations: IntegrationStatus[]) {
       id: "other",
       label: "Other",
       items: [],
-      subgroups: [
-        {
-          id: "other-advanced",
-          label: "Advanced",
-          items: other.map((integration) => ({
-            integrationId: integration.id,
-            view: "all" as const,
-            key: `${integration.id}:all`,
-            label: integration.label,
-            integration,
-          })),
-        },
-      ],
+      basic: [],
+      advanced: other.map((integration) => ({
+        integrationId: integration.id,
+        view: "all" as const,
+        key: `${integration.id}:all`,
+        label: integration.label,
+        integration,
+      })),
     });
   }
   return groups;
-}
-
-function navigationGroupItems(group: IntegrationNavigationGroup) {
-  return [...group.items, ...group.subgroups.flatMap((subgroup) => subgroup.items)];
 }
 
 function navigationDescription(item: IntegrationNavigationItem | null) {
@@ -376,12 +375,6 @@ function formFromIntegration(integration: IntegrationStatus): IntegrationFormSta
   return { enabled: integration.enabled, fields };
 }
 
-function sourceLabel(field: IntegrationFieldStatus) {
-  if (field.source === "saved") return "Saved";
-  if (field.source === "environment") return "Environment";
-  return "Unset";
-}
-
 function isChooserField(field: IntegrationFieldStatus) {
   return ["model", "fallback_model", "llm_selector", "llm_model", "image_model"].includes(field.id);
 }
@@ -395,14 +388,12 @@ function SettingsChip({
   active?: boolean;
   onClick?: () => void;
 }) {
-  const className = `inline-flex h-7 items-center border px-2 text-[10px] font-black uppercase tracking-widest ${
-    active
-      ? "border-cyan-300 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.18)]"
-      : "border-[#2c2f37] bg-[#101115] text-slate-500"
+  const className = `${STATUS_PILL_CLASS} ${
+    active ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-slate-500"
   }`;
   if (!onClick) return <span className={className}>{label}</span>;
   return (
-    <button type="button" onClick={onClick} className={`${className} transition hover:border-cyan-300 hover:text-cyan-100`}>
+    <button type="button" onClick={onClick} className={`${className} transition hover:text-slate-200`}>
       {label}
     </button>
   );
@@ -419,8 +410,8 @@ function SettingsEnabledControl({
 }) {
   return (
     <label
-      className={`inline-flex h-9 cursor-pointer items-center gap-2 border px-3 text-[11px] font-semibold ${
-        checked ? "border-cyan-300 text-white" : "border-[#2c2f37] text-slate-300"
+      className={`inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#2c2f37] px-2.5 text-xs font-medium ${
+        checked ? "bg-emerald-500/10 text-emerald-400" : "text-slate-400"
       } ${disabled ? "cursor-wait opacity-60" : ""}`}
     >
       <input
@@ -428,17 +419,81 @@ function SettingsEnabledControl({
         checked={checked}
         disabled={disabled}
         onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 accent-cyan-300"
+        className="h-3.5 w-3.5 accent-emerald-400"
       />
       Enabled
     </label>
   );
 }
 
+function SettingsPaneHeader({
+  title,
+  description,
+  meta,
+  badges,
+  actions,
+}: {
+  title: string;
+  description?: React.ReactNode;
+  meta?: React.ReactNode;
+  badges?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-4 border-b border-[#2c2f37] px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="min-w-0">
+        <p className="text-xs text-slate-500">Settings</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold tracking-tight text-white">{title}</h2>
+          {badges}
+        </div>
+        {description ? <div className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{description}</div> : null}
+        {meta}
+      </div>
+      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+function SettingsNavSubhead({ children }: { children: React.ReactNode }) {
+  return <div className="px-2 pb-1 pt-2 text-[11px] font-medium text-slate-500">{children}</div>;
+}
+
+function SettingsAdvancedDisclosure({
+  open,
+  onToggle,
+  description,
+  configuredCount = 0,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  description: string;
+  configuredCount?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-[#2c2f37] bg-[#101115]/70">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${open ? "" : "-rotate-90"}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-white">Advanced</span>
+            <span className={`${STATUS_PILL_CLASS} ${configuredCount ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-slate-500"}`}>
+              {configuredCount ? `${configuredCount} configured` : "Optional"}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>
+        </div>
+      </button>
+      {open ? <div className="space-y-8 border-t border-[#2c2f37] px-4 py-4">{children}</div> : null}
+    </section>
+  );
+}
+
 function SettingsFieldCard({
   title,
   chips,
-  envName,
   help,
   extraHelp,
   notice,
@@ -446,23 +501,21 @@ function SettingsFieldCard({
 }: {
   title: string;
   chips?: React.ReactNode;
-  envName?: string;
   help?: string;
   extraHelp?: string;
   notice?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded border border-[#2c2f37] bg-[#141519] p-4">
-      <h4 className="text-sm font-black uppercase tracking-wide text-white">{title}</h4>
-      {chips ? <div className="mt-3 flex flex-wrap items-center gap-2">{chips}</div> : null}
-      {envName ? (
-        <div className="mt-3 font-mono text-[10px] uppercase tracking-widest text-slate-500">{envName}</div>
-      ) : null}
-      <div className={envName ? "mt-2" : "mt-3"}>{children}</div>
-      {help ? <p className="mt-2 text-xs leading-5 text-slate-500">{help}</p> : null}
+    <div className="min-w-0">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-xs font-medium text-slate-300">{title}</h4>
+        {chips ? <div className="flex flex-wrap items-center gap-1.5">{chips}</div> : null}
+      </div>
+      {children}
+      {help ? <p className="mt-1.5 text-xs leading-5 text-slate-500">{help}</p> : null}
       {extraHelp ? <p className="mt-1 text-xs leading-5 text-slate-500">{extraHelp}</p> : null}
-      {notice ? <p className="mt-2 text-xs leading-5 text-amber-200">{notice}</p> : null}
+      {notice ? <p className="mt-1.5 text-xs leading-5 text-amber-200">{notice}</p> : null}
     </div>
   );
 }
@@ -570,13 +623,12 @@ type IntegrationFieldGroup = {
   id: string;
   label: string;
   description: string;
+  level: "basic" | "advanced";
   fields: IntegrationFieldStatus[];
 };
 
-const LANGUAGE_MODEL_FIELD_IDS = new Set([
-  "model",
-  "fallback_model",
-  "max_tokens",
+const BASIC_LANGUAGE_MODEL_FIELD_IDS = new Set(["model", "fallback_model", "max_tokens"]);
+const ADVANCED_LANGUAGE_MODEL_FIELD_IDS = new Set([
   "model_revision",
   "model_license",
   "inference_provider",
@@ -588,21 +640,31 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
     const runtimeGroups = [
       {
         id: "language",
-        label: "Language Model Defaults",
-        description: "Choose the default LLM and optional runtime restrictions.",
-        fieldIds: ["llm_selector", "llm_provider", "llm_model", "allowed_providers"],
+        label: "Language model defaults",
+        description: "Choose the default LLM used for new work.",
+        level: "basic" as const,
+        fieldIds: ["llm_selector"],
       },
       {
         id: "image",
-        label: "Image Defaults",
+        label: "Image defaults",
         description: "Fallback image provider and model values for generated visuals.",
+        level: "basic" as const,
         fieldIds: ["image_provider", "image_model"],
       },
       {
         id: "research",
-        label: "Research Tools",
+        label: "Research tools",
         description: "Select the external source used for web research.",
+        level: "basic" as const,
         fieldIds: ["external_source_provider"],
+      },
+      {
+        id: "language-advanced",
+        label: "Provider overrides",
+        description: "Pin a provider, model, or allow-list instead of relying on the default selector.",
+        level: "advanced" as const,
+        fieldIds: ["llm_provider", "llm_model", "allowed_providers"],
       },
     ];
     return runtimeGroups
@@ -616,11 +678,13 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
   }
 
   const groups: IntegrationFieldGroup[] = [
-    { id: "credentials", label: "Credentials", description: "Authentication and required credential-scope confirmations.", fields: [] },
-    { id: "language", label: "Language Models", description: "Text model defaults and generation settings.", fields: [] },
-    { id: "image", label: "Image Generation", description: "Image model defaults and rendering settings.", fields: [] },
-    { id: "video", label: "Video Generation", description: "Video endpoints and model defaults.", fields: [] },
-    { id: "connection", label: "Connection & Advanced", description: "Endpoint, timeout, storage, and provider-specific settings.", fields: [] },
+    { id: "credentials", label: "Credentials", description: "Authentication and required credential-scope confirmations.", level: "basic", fields: [] },
+    { id: "language", label: "Language models", description: "Primary text model and generation defaults.", level: "basic", fields: [] },
+    { id: "image", label: "Image generation", description: "Default image model for this provider.", level: "basic", fields: [] },
+    { id: "language-advanced", label: "Language model extras", description: "Revision, license, inference routing, and gated-model options.", level: "advanced", fields: [] },
+    { id: "image-advanced", label: "Image rendering", description: "Size, quality, format, and other rendering overrides.", level: "advanced", fields: [] },
+    { id: "video", label: "Video generation", description: "Video endpoints and model defaults.", level: "advanced", fields: [] },
+    { id: "connection", label: "Connection", description: "Endpoint, timeout, storage, and provider-specific settings.", level: "advanced", fields: [] },
   ];
   const byId = new Map(groups.map((group) => [group.id, group]));
 
@@ -630,16 +694,19 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
     } else if (field.id.startsWith("video_") || field.id === "image_to_video_model") {
       byId.get("video")?.fields.push(field);
     } else if (integration.id === "image" || integration.id === "together" || field.id.startsWith("image_")) {
-      byId.get("image")?.fields.push(field);
-    } else if (LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
+      if (field.id === "image_model" || field.id === "model") byId.get("image")?.fields.push(field);
+      else byId.get("image-advanced")?.fields.push(field);
+    } else if (BASIC_LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
       byId.get("language")?.fields.push(field);
+    } else if (ADVANCED_LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
+      byId.get("language-advanced")?.fields.push(field);
     } else {
       byId.get("connection")?.fields.push(field);
     }
   });
   const populatedGroups = groups.filter((group) => group.fields.length > 0);
-  if (view === "llm") return populatedGroups.filter((group) => ["credentials", "language", "connection"].includes(group.id));
-  if (view === "image") return populatedGroups.filter((group) => ["credentials", "image"].includes(group.id));
+  if (view === "llm") return populatedGroups.filter((group) => ["credentials", "language", "language-advanced", "connection"].includes(group.id));
+  if (view === "image") return populatedGroups.filter((group) => ["credentials", "image", "image-advanced"].includes(group.id));
   return populatedGroups;
 }
 
@@ -676,7 +743,7 @@ function ModelCombobox({
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
       }}
     >
-      <div className="flex h-11 border border-[#2c2f37] bg-black focus-within:border-cyan-300">
+      <div className="flex h-9 rounded-lg border border-[#2c2f37] bg-[#101115] focus-within:border-emerald-500">
         <Search className="ml-3 h-4 w-4 shrink-0 self-center text-slate-600" />
         <input
           id={id}
@@ -693,26 +760,26 @@ function ModelCombobox({
           placeholder={placeholder}
           disabled={disabled}
           autoComplete="off"
-          className="h-full min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-slate-300 outline-none placeholder:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-600"
+          className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed disabled:text-slate-600"
         />
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
           disabled={disabled}
           aria-label={`Show ${suggestionType} suggestions`}
-          className="inline-flex w-10 shrink-0 items-center justify-center border-l border-[#2c2f37] text-slate-500 hover:bg-white hover:text-black disabled:cursor-not-allowed"
+          className="inline-flex w-9 shrink-0 items-center justify-center text-slate-500 hover:text-white disabled:cursor-not-allowed"
         >
           <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
         </button>
       </div>
 
       {open && !disabled && (
-        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto border border-[#3a3d46] bg-[#0f1013] shadow-2xl">
+        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-[#2c2f37] bg-[#181b22] shadow-2xl">
           {filteredOptions.length ? (
             filteredOptions.map((option, index) => (
               <React.Fragment key={option.value}>
                 {option.group && option.group !== filteredOptions[index - 1]?.group && (
-                  <div className="sticky top-0 border-b border-[#3a3d46] bg-[#17181d] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">
+                  <div className="sticky top-0 border-b border-[#2c2f37] bg-[#181b22] px-3 py-2 text-xs font-medium text-slate-400">
                     {option.group}
                   </div>
                 )}
@@ -724,20 +791,20 @@ function ModelCombobox({
                     onChange(option.value);
                     setOpen(false);
                   }}
-                  className={`block w-full border-b border-[#24262c] px-3 py-3 text-left last:border-b-0 hover:bg-cyan-300/10 ${
-                    option.value === value ? "bg-cyan-300/10" : ""
+                  className={`block w-full px-3 py-2.5 text-left hover:bg-white/5 ${
+                    option.value === value ? "bg-emerald-500/10" : ""
                   }`}
                 >
-                  <span className="block text-sm font-black text-white">{option.label}</span>
-                  <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">{option.value}</span>
-                  {option.detail && <span className="mt-1 block text-[11px] text-slate-400">{option.detail}</span>}
+                  <span className="block text-sm font-medium text-white">{option.label}</span>
+                  <span className="mt-0.5 block break-all font-mono text-[11px] text-slate-500">{option.value}</span>
+                  {option.detail && <span className="mt-0.5 block text-[11px] text-slate-400">{option.detail}</span>}
                 </button>
               </React.Fragment>
             ))
           ) : (
             <div className="px-3 py-3 text-xs leading-5 text-slate-400">No matching suggestion. Keep your custom model ID and save it.</div>
           )}
-          <div className="sticky bottom-0 border-t border-[#3a3d46] bg-[#17181d] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+          <div className="sticky bottom-0 border-t border-[#2c2f37] bg-[#181b22] px-3 py-2 text-[11px] text-slate-500">
             {suggestionType === "model"
               ? `${options.length} suggestions · any model ID is allowed`
               : "Suggestions only · custom values are allowed"}
@@ -764,6 +831,8 @@ type ImageProviderSetupProps = {
   onEnabledChange: (integrationId: string, enabled: boolean) => void;
   onSave: () => void;
   onClear: (integration: IntegrationStatus) => void;
+  onReload?: () => void;
+  reloading?: boolean;
   onToggleAdvanced: () => void;
 };
 
@@ -783,6 +852,8 @@ function ImageProviderSetup({
   onEnabledChange,
   onSave,
   onClear,
+  onReload,
+  reloading,
   onToggleAdvanced,
 }: ImageProviderSetupProps) {
   const enabled = provider !== "none" && (forms.image?.enabled ?? imageIntegration?.enabled ?? true);
@@ -799,30 +870,28 @@ function ImageProviderSetup({
   const canSave = !saving && provider !== "none" ? missingRequiredFields.length === 0 : !saving;
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-[#2c2f37] bg-[#17181d]">
-      <div className="border-b border-[#2c2f37] p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-semibold tracking-tight text-white">Image generation</h2>
-              <span
-                className={`border px-2 py-1 text-[10px] font-black uppercase ${
-                  providerIntegration?.configured
-                    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                    : "border-[#2c2f37] text-slate-500"
-                }`}
-              >
-                {providerIntegration?.configured ? "Configured" : "Not configured"}
-              </span>
-            </div>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{providerOption.summary}</p>
+    <article className={CARD_SURFACE_CLASS}>
+      <SettingsPaneHeader
+        title="Image generation"
+        description={providerOption.summary}
+        badges={
+          <>
+            {providerOption.tier === "advanced" && <SettingsNavBadge tone="muted">Advanced</SettingsNavBadge>}
+            <SettingsNavBadge tone={providerIntegration?.configured ? "ready" : "muted"}>
+              {providerIntegration?.configured ? "Configured" : "Unset"}
+            </SettingsNavBadge>
+          </>
+        }
+        meta={
+          <>
             {providerIntegration?.policy_notice && <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{providerIntegration.policy_notice}</p>}
             {providerIntegration?.updated_at && (
               <p className="mt-2 text-xs text-slate-500">Updated {formatTimestamp(providerIntegration.updated_at)}</p>
             )}
-          </div>
-
-          <div className="flex shrink-0 flex-wrap gap-2">
+          </>
+        }
+        actions={
+          <>
             <SettingsEnabledControl
               checked={Boolean(enabled)}
               disabled={saving}
@@ -832,76 +901,72 @@ function ImageProviderSetup({
                 if (providerIntegration) onEnabledChange(providerIntegration.id, checked);
               }}
             />
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={!canSave}
-              className="inline-flex h-9 items-center gap-2 bg-white px-3 text-[11px] font-semibold text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-            >
-              <Save className="h-4 w-4" />
+            <button type="button" onClick={onSave} disabled={!canSave} className={BUTTON_PRIMARY_CLASS}>
+              <Save className="h-3.5 w-3.5" />
               Save
             </button>
             {providerIntegration?.configured && (
-              <button
-                type="button"
-                onClick={() => onClear(providerIntegration)}
-                disabled={saving}
-                className="inline-flex h-9 items-center gap-2 border border-rose-400/40 px-3 text-[11px] font-semibold text-rose-200 hover:bg-rose-500 hover:text-white disabled:cursor-wait disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
+              <button type="button" onClick={() => onClear(providerIntegration)} disabled={saving} className={BUTTON_DANGER_CLASS}>
+                <Trash2 className="h-3.5 w-3.5" />
                 Clear
               </button>
             )}
-          </div>
-        </div>
-      </div>
+            {onReload && (
+              <button type="button" onClick={onReload} disabled={reloading} className={BUTTON_OUTLINE_CLASS}>
+                <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} />
+                Reload integrations
+              </button>
+            )}
+          </>
+        }
+      />
 
-      <div className="grid gap-5 p-5">
-        <section className="rounded border border-[#2c2f37] bg-[#101115] p-4">
-          <div className="mb-4 border-b border-[#2c2f37] pb-4">
-            <h3 className="text-sm font-semibold text-white">Provider</h3>
-            <p className="mt-2 text-xs leading-5 text-slate-500">Pick the service used for generated product images.</p>
-          </div>
-          <SettingsFieldCard
-            title="Image Provider"
-            envName="IMAGE_PROVIDER"
-            extraHelp={requiredCount ? `${readyCount}/${requiredCount} required credential fields set.` : undefined}
-            chips={<SettingsChip label={providerOption.label} active={provider !== "none"} />}
-          >
-            <select
-              value={provider}
-              onChange={(event) => onProviderChange(event.target.value)}
-              className="h-11 w-full border border-[#2c2f37] bg-black px-3 font-mono text-sm text-slate-300 outline-none focus:border-cyan-300"
+      <div className="space-y-8 p-5">
+        <section>
+          <h3 className="text-sm font-medium text-white">Provider</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Pick the service used for generated product images.</p>
+          <div className="mt-4">
+            <SettingsFieldCard
+              title="Image provider"
+              extraHelp={requiredCount ? `${readyCount}/${requiredCount} required credential fields set.` : undefined}
             >
-              {IMAGE_PROVIDER_OPTIONS.map((option) => (
-                <option key={option.id} value={option.id}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </SettingsFieldCard>
+              <select
+                value={provider}
+                onChange={(event) => onProviderChange(event.target.value)}
+                className={FIELD_CONTROL_CLASS}
+              >
+                <optgroup label="Basic">
+                  {IMAGE_PROVIDER_OPTIONS.filter((option) => option.tier === "basic").map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Advanced">
+                  {IMAGE_PROVIDER_OPTIONS.filter((option) => option.tier === "advanced").map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+              </select>
+            </SettingsFieldCard>
+          </div>
           {missingRequiredFields.length > 0 && (
-            <div className="mt-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
               Missing required setup: {missingRequiredFields.map((field) => field.label).join(", ")}.
             </div>
           )}
         </section>
 
         {provider === "none" ? (
-          <section className="rounded border border-[#2c2f37] bg-[#101115] p-5 text-sm leading-6 text-slate-400">
-            Image generation is off. Generated projects will skip product visuals.
-          </section>
+          <p className="text-sm leading-6 text-slate-400">Image generation is off. Generated projects will skip product visuals.</p>
         ) : (
           <>
-            <section className="rounded border border-[#2c2f37] bg-[#101115] p-4">
-              <div className="mb-4 flex items-center justify-between gap-3 border-b border-[#2c2f37] pb-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Required Setup</h3>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">API credentials and required confirmations for this provider.</p>
-                </div>
-                <SettingsChip label="API credentials" />
-              </div>
-              <div className="grid gap-4">
+            <section>
+              <h3 className="text-sm font-medium text-white">Required setup</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">API credentials and required confirmations for this provider.</p>
+              <div className="mt-4 grid gap-4">
                 {credentialFields.length ? (
                   credentialFields.map((field) => (
                     <ImageSetupField
@@ -918,40 +983,17 @@ function ImageProviderSetup({
               </div>
             </section>
 
-            <section className="rounded border border-[#2c2f37] bg-[#101115] p-4">
-              <div className="mb-4 flex flex-col gap-3 border-b border-[#2c2f37] pb-4 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-white">Model Defaults</h3>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
-                    Use the preconfigured default now. Open advanced settings whenever you want to switch models.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onToggleAdvanced}
-                  className="inline-flex h-10 items-center justify-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  {showAdvanced ? "Hide advanced" : "Advanced"}
-                </button>
-              </div>
-
-              <div className="grid gap-4">
+            <section>
+              <h3 className="text-sm font-medium text-white">Model defaults</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Use the preconfigured default now. Open advanced for rendering, timeout, and endpoint overrides.
+              </p>
+              <div className="mt-4 grid gap-4">
                 {!providerOption.preconfigured && modelField && (
                   <SettingsFieldCard
-                    title="Image Model"
-                    envName={modelField.env_names[0] || "IMAGE_MODEL"}
+                    title="Image model"
                     extraHelp="Search the suggestions or enter any model ID supported by this provider."
-                    chips={
-                      <>
-                        <SettingsChip label="Unset" active={!model.trim()} onClick={() => onModelChange("")} />
-                        <SettingsChip
-                          label="Type or choose"
-                          active={Boolean(model.trim())}
-                          onClick={() => document.getElementById(`image-model-${providerOption.id}`)?.focus()}
-                        />
-                      </>
-                    }
+                    chips={!model.trim() ? undefined : <SettingsChip label="Unset" onClick={() => onModelChange("")} />}
                   >
                     <ModelCombobox
                       id={`image-model-${providerOption.id}`}
@@ -964,7 +1006,7 @@ function ImageProviderSetup({
                 )}
 
                 {providerOption.preconfigured && (
-                  <div className="border border-emerald-400/25 bg-emerald-500/10 p-3 text-sm leading-6 text-emerald-100">
+                  <div className="rounded-lg bg-emerald-500/10 p-3 text-sm leading-6 text-emerald-100">
                     Ready with provider defaults after credentials are saved.
                     {model ? <span className="font-mono"> Current override: {model}</span> : null}
                   </div>
@@ -982,28 +1024,25 @@ function ImageProviderSetup({
               </div>
             </section>
 
-            {showAdvanced && (
-              <section className="rounded border border-[#2c2f37] bg-[#101115] p-4">
-                <div className="mb-4 border-b border-[#2c2f37] pb-4">
-                  <h3 className="text-sm font-semibold text-white">Advanced Provider Settings</h3>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">Optional rendering, timeout, and provider-specific overrides.</p>
-                </div>
+            {advancedFields.length > 0 && (
+              <SettingsAdvancedDisclosure
+                open={showAdvanced}
+                onToggle={onToggleAdvanced}
+                description="Optional rendering, timeout, and provider-specific overrides."
+                configuredCount={advancedFields.filter((field) => fieldHasValue(forms, providerIntegration, field)).length}
+              >
                 <div className="grid gap-4">
-                  {advancedFields.length ? (
-                    advancedFields.map((field) => (
-                      <ImageSetupField
-                        key={field.id}
-                        integration={providerIntegration}
-                        field={field}
-                        forms={forms}
-                        onFieldChange={onFieldChange}
-                      />
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-500">No advanced settings for this provider.</p>
-                  )}
+                  {advancedFields.map((field) => (
+                    <ImageSetupField
+                      key={field.id}
+                      integration={providerIntegration}
+                      field={field}
+                      forms={forms}
+                      onFieldChange={onFieldChange}
+                    />
+                  ))}
                 </div>
-              </section>
+              </SettingsAdvancedDisclosure>
             )}
           </>
         )}
@@ -1015,20 +1054,10 @@ function ImageProviderSetup({
 function FieldStatusChips({ field }: { field: IntegrationFieldStatus }) {
   return (
     <>
-      {field.secret && (
-        <span className="inline-flex h-7 items-center border border-cyan-300/30 bg-cyan-300/10 px-2 text-[10px] font-black uppercase tracking-widest text-cyan-200">
-          Secret
-        </span>
-      )}
-      {field.policy_blocked && (
-        <span className="inline-flex h-7 items-center border border-rose-400/40 bg-rose-500/10 px-2 text-[10px] font-black uppercase tracking-widest text-rose-200">
-          Not accepted in Cloud
-        </span>
-      )}
+      {field.secret && <span className={`${STATUS_PILL_CLASS} bg-cyan-300/10 text-cyan-200`}>Secret</span>}
+      {field.policy_blocked && <span className={`${STATUS_PILL_CLASS} bg-rose-500/10 text-rose-200`}>Not accepted in Cloud</span>}
       {!field.policy_blocked && field.policy_conditional && (
-        <span className="inline-flex h-7 items-center border border-amber-400/40 bg-amber-500/10 px-2 text-[10px] font-black uppercase tracking-widest text-amber-200">
-          Conditional
-        </span>
+        <span className={`${STATUS_PILL_CLASS} bg-amber-500/10 text-amber-200`}>Conditional</span>
       )}
     </>
   );
@@ -1060,24 +1089,12 @@ function ImageSetupField({
   return (
     <SettingsFieldCard
       title={field.label}
-      envName={field.env_names[0]}
       help={field.help}
       extraHelp={isModelField || hasSettingOptions ? "Search the suggestions or enter any model ID supported by this provider." : undefined}
       notice={field.policy_notice}
       chips={
         <>
-          {chooser ? (
-            <>
-              <SettingsChip label="Unset" active={!hasValue} onClick={() => onFieldChange(integration.id, field.id, "")} />
-              <SettingsChip
-                label="Type or choose"
-                active={hasValue}
-                onClick={() => document.getElementById(inputId)?.focus()}
-              />
-            </>
-          ) : (
-            <SettingsChip label={sourceLabel(field)} />
-          )}
+          {chooser && hasValue ? <SettingsChip label="Unset" onClick={() => onFieldChange(integration.id, field.id, "")} /> : null}
           <FieldStatusChips field={field} />
         </>
       }
@@ -1085,7 +1102,7 @@ function ImageSetupField({
       {confirmationField ? (
         <label
           htmlFor={inputId}
-          className="flex min-h-11 cursor-pointer items-start gap-3 border border-amber-400/35 bg-amber-500/10 px-3 py-3 text-sm leading-5 text-amber-100"
+          className="flex min-h-9 cursor-pointer items-start gap-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2.5 text-sm leading-5 text-amber-100"
         >
           <input
             id={inputId}
@@ -1093,7 +1110,7 @@ function ImageSetupField({
             checked={isTruthyFieldValue(fieldValue)}
             onChange={(event) => onFieldChange(integration.id, field.id, event.target.checked ? "confirmed" : "")}
             disabled={!field.editable}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-300"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-400"
           />
           <span>{confirmationLabel(integration, field)}</span>
         </label>
@@ -1116,7 +1133,7 @@ function ImageSetupField({
           placeholder={fieldPlaceholder(field)}
           disabled={!field.editable}
           autoComplete="off"
-          className="h-11 w-full border border-[#2c2f37] bg-black px-3 font-mono text-sm text-slate-300 outline-none placeholder:text-slate-700 focus:border-cyan-300 disabled:cursor-not-allowed disabled:border-rose-400/25 disabled:text-slate-600 disabled:placeholder:text-rose-200/50"
+          className={FIELD_CONTROL_CLASS}
         />
       )}
     </SettingsFieldCard>
@@ -1158,20 +1175,12 @@ function IntegrationFieldEditor({
   return (
     <SettingsFieldCard
       title={field.label}
-      envName={field.env_names[0]}
       help={field.help}
       extraHelp={chooser ? "Search the suggestions or enter any model ID supported by this provider." : undefined}
       notice={field.policy_notice}
       chips={
         <>
-          {chooser ? (
-            <>
-              <SettingsChip label="Unset" active={!hasValue} onClick={unsetField} />
-              <SettingsChip label="Type or choose" active={hasValue} onClick={() => document.getElementById(inputId)?.focus()} />
-            </>
-          ) : (
-            <SettingsChip label={sourceLabel(field)} />
-          )}
+          {chooser && hasValue ? <SettingsChip label="Unset" onClick={unsetField} /> : null}
           <FieldStatusChips field={field} />
         </>
       }
@@ -1179,7 +1188,7 @@ function IntegrationFieldEditor({
       {confirmationField ? (
         <label
           htmlFor={inputId}
-          className="flex min-h-11 cursor-pointer items-start gap-3 border border-amber-400/35 bg-amber-500/10 px-3 py-3 text-sm leading-5 text-amber-100"
+          className="flex min-h-9 cursor-pointer items-start gap-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2.5 text-sm leading-5 text-amber-100"
         >
           <input
             id={inputId}
@@ -1187,7 +1196,7 @@ function IntegrationFieldEditor({
             checked={isTruthyFieldValue(value)}
             onChange={(event) => onChange(event.target.checked ? "confirmed" : "")}
             disabled={!field.editable}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-300"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-400"
           />
           <span>{confirmationLabel(integration, field)}</span>
         </label>
@@ -1209,10 +1218,50 @@ function IntegrationFieldEditor({
           placeholder={placeholder}
           disabled={!field.editable}
           autoComplete="off"
-          className="h-11 w-full border border-[#2c2f37] bg-black px-3 font-mono text-sm text-slate-300 outline-none placeholder:text-slate-700 focus:border-cyan-300 disabled:cursor-not-allowed disabled:border-rose-400/25 disabled:text-slate-600 disabled:placeholder:text-rose-200/50"
+          className={FIELD_CONTROL_CLASS}
         />
       )}
     </SettingsFieldCard>
+  );
+}
+
+function IntegrationFieldGroupList({
+  groups,
+  integration,
+  forms,
+  saving,
+  onChange,
+  onClearSaved,
+}: {
+  groups: IntegrationFieldGroup[];
+  integration: IntegrationStatus;
+  forms: Record<string, IntegrationFormState>;
+  saving: boolean;
+  onChange: (fieldId: string, value: string) => void;
+  onClearSaved: (fieldId: string) => void;
+}) {
+  return (
+    <>
+      {groups.map((group) => (
+        <section key={group.id}>
+          <h3 className="text-sm font-medium text-white">{group.label}</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{group.description}</p>
+          <div className="mt-4 grid gap-4">
+            {group.fields.map((field) => (
+              <IntegrationFieldEditor
+                key={field.id}
+                integration={integration}
+                field={field}
+                value={forms[integration.id]?.fields[field.id] || ""}
+                saving={saving}
+                onChange={(value) => onChange(field.id, value)}
+                onClearSaved={() => onClearSaved(field.id)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -1247,59 +1296,47 @@ function ImageModelTestPanel({
     : errorDetails;
 
   return (
-    <article className="mt-4 overflow-hidden rounded-2xl border border-[#2c2f37] bg-[#17181d]">
-      <div className="flex flex-col gap-4 border-b border-[#2c2f37] p-5 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold tracking-tight text-white">Test image model</h2>
-            <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-              Local / Preview only
-            </span>
-          </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-            Makes one direct provider request. It does not run the main agent, create a project, or execute the image sequence.
-          </p>
-          <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-slate-500">
-            {provider || "none"} / {model || "no model"}
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onRun}
-          disabled={running || !prompt.trim() || provider === "none" || !model}
-          className="inline-flex h-9 shrink-0 items-center gap-2 bg-white px-3 text-[11px] font-semibold text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-        >
-          <FlaskConical className={`h-4 w-4 ${running ? "animate-pulse" : ""}`} />
-          {running ? "Testing model" : "Generate one test image"}
-        </button>
-      </div>
-
-      <div className="grid gap-5 p-5">
-        <section className="rounded border border-[#2c2f37] bg-[#101115] p-4">
-          <div className="mb-4 border-b border-[#2c2f37] pb-4">
-            <h3 className="text-sm font-semibold text-white">Test Prompt</h3>
-            <p className="mt-2 text-xs leading-5 text-slate-500">Uses saved settings and may incur one provider image-generation charge.</p>
-          </div>
-          <SettingsFieldCard
-            title="Prompt"
-            extraHelp="Save provider/model changes above before testing."
-            chips={<SettingsChip label={prompt.trim() ? "Type or choose" : "Unset"} active={Boolean(prompt.trim())} />}
+    <article className={`mt-4 ${CARD_SURFACE_CLASS}`}>
+      <SettingsPaneHeader
+        title="Test image model"
+        description="Makes one direct provider request. It does not run the main agent, create a project, or execute the image sequence."
+        badges={<SettingsNavBadge tone="allowed">Local / preview only</SettingsNavBadge>}
+        meta={<p className="mt-2 text-xs text-slate-500">{provider || "none"} / {model || "no model"}</p>}
+        actions={
+          <button
+            type="button"
+            onClick={onRun}
+            disabled={running || !prompt.trim() || provider === "none" || !model}
+            className={BUTTON_PRIMARY_CLASS}
           >
-            <textarea
-              id="image-model-test-prompt"
-              value={prompt}
-              onChange={(event) => onPromptChange(event.target.value)}
-              rows={3}
-              maxLength={2000}
-              placeholder="A clean studio product render of a compact electronics enclosure..."
-              className="w-full resize-y border border-[#2c2f37] bg-black px-3 py-3 font-mono text-sm leading-6 text-slate-300 outline-none placeholder:text-slate-700 focus:border-cyan-300"
-            />
-          </SettingsFieldCard>
+            <FlaskConical className={`h-3.5 w-3.5 ${running ? "animate-pulse" : ""}`} />
+            {running ? "Testing model" : "Generate one test image"}
+          </button>
+        }
+      />
+
+      <div className="space-y-6 p-5">
+        <section>
+          <h3 className="text-sm font-medium text-white">Test prompt</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Uses saved settings and may incur one provider image-generation charge.</p>
+          <div className="mt-4">
+            <SettingsFieldCard title="Prompt" extraHelp="Save provider/model changes above before testing.">
+              <textarea
+                id="image-model-test-prompt"
+                value={prompt}
+                onChange={(event) => onPromptChange(event.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="A clean studio product render of a compact electronics enclosure..."
+                className="w-full resize-y rounded-lg border border-[#2c2f37] bg-[#101115] px-3 py-2.5 text-sm leading-6 text-slate-200 outline-none placeholder:text-slate-600 focus:border-emerald-500"
+              />
+            </SettingsFieldCard>
+          </div>
         </section>
 
         {error && (
-          <div className="border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
-            <div className="flex items-center gap-2 font-black uppercase tracking-wide">
+          <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
+            <div className="flex items-center gap-2 text-sm font-medium">
               <AlertTriangle className="h-4 w-4" />
               Test failed
             </div>
@@ -1309,17 +1346,17 @@ function ImageModelTestPanel({
 
         {result && (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="flex min-h-72 items-center justify-center rounded border border-[#2c2f37] bg-black p-3">
+            <div className="flex min-h-72 items-center justify-center rounded-lg border border-[#2c2f37] bg-[#101115] p-3">
               {/* Provider results can be data URLs or short-lived remote URLs, so Next image optimization is not appropriate here. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={result.image_data_url} alt="Direct image model test result" className="max-h-[640px] w-full object-contain" />
             </div>
             <div className="grid content-start gap-3">
-              <div className="rounded border border-emerald-400/35 bg-emerald-400/10 p-3 text-emerald-100">
-                <div className="text-[10px] font-black uppercase tracking-widest">Request succeeded</div>
+              <div className="rounded-lg bg-emerald-500/10 p-3 text-emerald-100">
+                <div className="text-xs font-medium">Request succeeded</div>
                 <div className="mt-2 font-mono text-sm">{result.elapsed_ms.toLocaleString()} ms</div>
               </div>
-              <div className="rounded border border-[#2c2f37] p-3 font-mono text-xs leading-5 text-slate-400">
+              <div className="rounded-lg border border-[#2c2f37] p-3 font-mono text-xs leading-5 text-slate-400">
                 <div><span className="text-slate-600">Provider:</span> {result.provider}</div>
                 <div><span className="text-slate-600">Model:</span> {result.model}</div>
                 <div><span className="text-slate-600">Size:</span> {result.size || "Provider default"}</div>
@@ -1330,8 +1367,8 @@ function ImageModelTestPanel({
         )}
 
         {diagnostics != null && (
-          <details className="rounded border border-[#2c2f37] bg-black">
-            <summary className="cursor-pointer px-3 py-3 text-xs font-black uppercase tracking-widest text-slate-400">
+          <details className="rounded-lg border border-[#2c2f37] bg-[#101115]">
+            <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-slate-400">
               Raw diagnostics
             </summary>
             <pre className="max-h-96 overflow-auto border-t border-[#2c2f37] p-3 text-[11px] leading-5 text-slate-400">
@@ -1374,175 +1411,88 @@ function ThemeSettingsPanel() {
       label: "Dark",
       description: "Low-luminance surfaces with light text for focused or low-light use.",
       icon: Moon,
-      previewStyle: { backgroundColor: "#111216", borderColor: "#343740", color: "#f1f5f9" },
+      previewStyle: { backgroundColor: "#0f1117", borderColor: "#2c2f37", color: "#f1f5f9" },
     },
   ];
 
   return (
-    <article className="overflow-hidden rounded-2xl border border-[#2c2f37] bg-[#17181d]">
-      <div className="border-b border-[#2c2f37] p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Palette className="h-5 w-5 text-cyan-300" />
-          <h2 className="text-lg font-semibold tracking-tight text-white">Appearance</h2>
-          <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-            Browser preference
-          </span>
-        </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          Choose how Forma looks in this browser. Changes apply immediately across the workspace.
+    <article className={CARD_SURFACE_CLASS}>
+      <SettingsPaneHeader
+        title="Appearance"
+        description="Choose how Forma looks in this browser. Changes apply immediately across the workspace."
+        badges={<SettingsNavBadge tone="allowed">Browser preference</SettingsNavBadge>}
+      />
+
+      <div className="p-5">
+        <h3 className="text-sm font-medium text-white">Theme</h3>
+        <p className="mt-1 text-xs leading-5 text-slate-500">
+          Your selection is saved automatically on this device and restored before the interface loads.
         </p>
-      </div>
 
-      <div className="grid gap-5 p-5">
-        <section className="rounded border border-[#2c2f37] bg-[#101115] p-4 sm:p-5">
-          <div className="mb-5 border-b border-[#2c2f37] pb-4">
-            <h3 className="text-sm font-semibold text-white">Theme</h3>
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              Your selection is saved automatically on this device and restored before the interface loads.
-            </p>
-          </div>
-
-          <div className="grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
-            {options.map((option) => {
-              const Icon = option.icon;
-              const selected = theme === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => setTheme(option.id)}
-                  className={`min-w-0 rounded-xl border p-4 text-left transition ${
-                    selected
-                      ? "border-cyan-300 bg-cyan-300/10 shadow-[0_0_20px_rgba(34,211,238,0.16)]"
-                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
-                  }`}
-                >
-                  <span className="flex h-20 items-center justify-center border" style={option.previewStyle} aria-hidden="true">
-                    <Icon className="h-7 w-7" />
+        <div className="mt-4 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
+          {options.map((option) => {
+            const Icon = option.icon;
+            const selected = theme === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                onClick={() => setTheme(option.id)}
+                className={`min-w-0 rounded-xl border p-3 text-left transition ${
+                  selected
+                    ? "border-emerald-500/40 bg-emerald-500/10"
+                    : "border-zinc-700/40 bg-[#0f1117] hover:border-zinc-600"
+                }`}
+              >
+                <span className="relative flex h-16 items-center justify-center overflow-hidden rounded-lg border border-zinc-700/40" style={option.previewStyle} aria-hidden="true">
+                  <Icon className="h-6 w-6" />
+                  <span
+                    className={`absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full border ${
+                      selected ? "border-emerald-400 bg-emerald-500 text-white" : "border-zinc-500 bg-transparent"
+                    }`}
+                  >
+                    {selected ? <Check className="h-3 w-3" /> : null}
                   </span>
-                  <span className="mt-4 flex items-center justify-between gap-3">
-                    <span className="text-sm font-black uppercase tracking-wide text-white">{option.label}</span>
-                    <span className={`border px-2 py-1 text-[10px] font-black uppercase ${
-                      selected
-                        ? "border-cyan-300 text-cyan-200 shadow-[0_0_12px_rgba(34,211,238,0.18)]"
-                        : "border-[#2c2f37] text-slate-500"
-                    }`}>
-                      {selected ? "Selected" : "Choose"}
-                    </span>
-                  </span>
-                  <span className="mt-2 block text-xs leading-5 text-slate-500">{option.description}</span>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+                </span>
+                <span className="mt-3 block text-sm font-medium text-white">{option.label}</span>
+                <span className="mt-1 block text-xs leading-5 text-slate-500">{option.description}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </article>
   );
 }
 
-function navBodyId(collapseKey: string) {
-  return `settings-nav-${collapseKey.replace(/[^a-z0-9]+/gi, "-")}`;
-}
-
 function SettingsNavSection({
-  collapseKey,
   title,
-  description,
-  icon: Icon,
-  collapsed,
-  onToggle,
   children,
 }: {
-  collapseKey: string;
   title: string;
-  description?: string;
-  icon: React.ComponentType<{ className?: string }>;
-  collapsed: boolean;
-  onToggle: () => void;
   children: React.ReactNode;
 }) {
-  const bodyId = navBodyId(collapseKey);
-
   return (
-    <section>
-      <h2>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition hover:bg-white/5"
-        >
-          <Icon className="h-3.5 w-3.5 shrink-0 text-slate-500" />
-          <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-400">{title}</span>
-          <ChevronDown className={`h-3.5 w-3.5 shrink-0 text-slate-600 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-        </button>
-      </h2>
-      <div id={bodyId} hidden={collapsed} className="mt-1 space-y-3 pl-1">
-        {description ? <p className="px-2 text-[11px] leading-5 text-slate-500">{description}</p> : null}
-        {children}
-      </div>
+    <section className="space-y-1">
+      <h2 className="px-2 pb-1 pt-1 text-[11px] font-medium text-slate-500">{title}</h2>
+      {children}
     </section>
-  );
-}
-
-function SettingsNavGroup({
-  collapseKey,
-  label,
-  count,
-  collapsed,
-  onToggle,
-  muted = false,
-  children,
-}: {
-  collapseKey: string;
-  label: string;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-  muted?: boolean;
-  children: React.ReactNode;
-}) {
-  const bodyId = navBodyId(collapseKey);
-
-  return (
-    <div className="pl-2">
-      <h3>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          className={`flex w-full items-center gap-2 rounded-md py-1 pr-1 text-left text-[11px] font-medium transition hover:text-slate-200 ${
-            muted ? "text-slate-500" : "text-slate-400"
-          }`}
-        >
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          <span className="shrink-0 tabular-nums text-slate-600">{count}</span>
-          <ChevronDown className={`h-3 w-3 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-        </button>
-      </h3>
-      <div id={bodyId} hidden={collapsed} className="mt-0.5 space-y-0.5 pb-1">
-        {children}
-      </div>
-    </div>
   );
 }
 
 function SettingsNavBadge({ tone, children }: { tone: "ready" | "allowed" | "warn" | "muted"; children: React.ReactNode }) {
   const toneClass =
     tone === "ready"
-      ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
+      ? "bg-emerald-500/10 text-emerald-400"
       : tone === "allowed"
-        ? "border-cyan-300/50 bg-cyan-300/10 text-cyan-200"
-      : tone === "warn"
-        ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
-        : "border-[#2c2f37] text-slate-500";
+        ? "bg-cyan-300/10 text-cyan-200"
+        : tone === "warn"
+          ? "bg-amber-500/10 text-amber-300"
+          : "bg-white/5 text-slate-500";
 
-  return <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black uppercase leading-none tracking-wide ${toneClass}`}>{children}</span>;
+  return <span className={`${STATUS_PILL_CLASS} ${toneClass}`}>{children}</span>;
 }
 
 function SettingsNavRow({
@@ -1552,7 +1502,6 @@ function SettingsNavRow({
   onSelect,
   badge,
   icon: Icon,
-  meter,
 }: {
   label: string;
   title?: string;
@@ -1560,7 +1509,6 @@ function SettingsNavRow({
   onSelect: () => void;
   badge?: React.ReactNode;
   icon?: React.ComponentType<{ className?: string }>;
-  meter?: boolean;
 }) {
   return (
     <button
@@ -1570,21 +1518,13 @@ function SettingsNavRow({
       title={title || label}
       className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${
         selected
-          ? "bg-cyan-300/10 text-white ring-1 ring-cyan-300/40"
-          : "border border-transparent hover:bg-white/5"
+          ? "bg-emerald-500/10 font-medium text-emerald-400"
+          : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
       }`}
     >
-      {Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-cyan-300" : "text-slate-500"}`} />}
-      <span className={`min-w-0 flex-1 truncate text-[13px] ${selected ? "font-medium text-white" : "text-slate-300"}`}>
-        {label}
-      </span>
-      {meter && (
-        <span className="h-1.5 w-8 shrink-0 overflow-hidden rounded-full bg-[#2c2f37]" aria-hidden="true">
-          <span className="block h-full w-3/4 rounded-full bg-cyan-300" />
-        </span>
-      )}
+      {Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-emerald-400" : "text-zinc-500"}`} />}
+      <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
       {badge}
-      {selected && <Check className="h-4 w-4 shrink-0 text-cyan-300" />}
     </button>
   );
 }
@@ -1598,7 +1538,7 @@ export default function UserIntegrationsPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showImageAdvanced, setShowImageAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [imageTestPrompt, setImageTestPrompt] = useState(
     "A clean studio product render of a compact matte-black electronics enclosure, three-quarter view, neutral background, realistic materials."
   );
@@ -1610,9 +1550,6 @@ export default function UserIntegrationsPage() {
   const [allowModelTraining, setAllowModelTraining] = useState(true);
   const [dataUsageLoading, setDataUsageLoading] = useState(true);
   const [dataUsageSaving, setDataUsageSaving] = useState(false);
-  const [collapsedNavKeys, setCollapsedNavKeys] = useState<string[]>(DEFAULT_COLLAPSED_NAV_KEYS);
-  const [navCollapseHydrated, setNavCollapseHydrated] = useState(false);
-  const previousNavKeyRef = useRef(selectedNavigationKey);
 
   const navigationGroups = useMemo(
     () => integrationNavigationGroups(payload?.integrations || []),
@@ -1623,52 +1560,6 @@ export default function UserIntegrationsPage() {
     () => navigationGroups.flatMap(navigationGroupItems).find((item) => item.key === selectedNavigationKey) || null,
     [navigationGroups, selectedNavigationKey]
   );
-
-  const collapsedNav = useMemo(() => new Set(collapsedNavKeys), [collapsedNavKeys]);
-
-  const toggleNavCollapse = useCallback((collapseKey: string) => {
-    setCollapsedNavKeys((current) =>
-      current.includes(collapseKey) ? current.filter((key) => key !== collapseKey) : [...current, collapseKey]
-    );
-  }, []);
-
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(NAV_COLLAPSE_STORAGE_KEY) || "null");
-      if (Array.isArray(stored)) setCollapsedNavKeys(stored.filter((entry): entry is string => typeof entry === "string"));
-      else setCollapsedNavKeys(DEFAULT_COLLAPSED_NAV_KEYS);
-    } catch {
-      // A blocked or corrupt store just means the navigation starts fully expanded.
-    }
-    setNavCollapseHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!navCollapseHydrated) return;
-    try {
-      window.localStorage.setItem(NAV_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedNavKeys));
-    } catch {
-      // Persisting the layout is best effort.
-    }
-  }, [collapsedNavKeys, navCollapseHydrated]);
-
-  // Reveal a page that something other than a nav click selected, without fighting a manual collapse.
-  useEffect(() => {
-    if (previousNavKeyRef.current === selectedNavigationKey) return;
-    previousNavKeyRef.current = selectedNavigationKey;
-
-    const path =
-      selectedNavigationKey === "appearance:theme" || selectedNavigationKey === "privacy:data-usage"
-        ? ["account"]
-        : navigationGroups
-              .filter((group) => navigationGroupItems(group).some((item) => item.key === selectedNavigationKey))
-              .flatMap((group) => {
-                const subgroup = group.subgroups.find((entry) => entry.items.some((item) => item.key === selectedNavigationKey));
-                return ["integrations", `integrations:${group.id}`, ...(subgroup ? [`integrations:${subgroup.id}`] : [])];
-              });
-
-    if (path.length) setCollapsedNavKeys((current) => current.filter((key) => !path.includes(key)));
-  }, [navigationGroups, selectedNavigationKey]);
 
   const isAppearanceView = selectedNavigationKey === "appearance:theme";
   const isDataPrivacyView = selectedNavigationKey === "privacy:data-usage";
@@ -1736,6 +1627,48 @@ export default function UserIntegrationsPage() {
     return imageOutputIsEnabled(formFieldValue(forms, image, "enabled"), imageDefaults.provider);
   }, [forms, imageDefaults.provider, integrationById]);
 
+  const selectedFieldGroups = useMemo(() => {
+    if (!selectedIntegration || isLocalSettingsView || selectedView === "image") return [];
+    return integrationFieldGroups(selectedIntegration, selectedView);
+  }, [isLocalSettingsView, selectedIntegration, selectedView]);
+  const basicFieldGroups = selectedFieldGroups.filter((group) => group.level === "basic");
+  const advancedFieldGroups = selectedFieldGroups.filter((group) => group.level === "advanced");
+  const advancedConfiguredCount = selectedIntegration
+    ? advancedFieldGroups.reduce(
+        (count, group) => count + group.fields.filter((field) => fieldHasValue(forms, selectedIntegration, field)).length,
+        0
+      )
+    : 0;
+
+  const advancedOpenSnapshotRef = useRef({ forms, imageDefaults, selectedIntegration, selectedView });
+  advancedOpenSnapshotRef.current = { forms, imageDefaults, selectedIntegration, selectedView };
+
+  useEffect(() => {
+    const snapshot = advancedOpenSnapshotRef.current;
+    if (snapshot.selectedView === "image") {
+      const ids =
+        snapshot.imageDefaults.provider === "gmi"
+          ? ["image_base_url", ...gmiImageSettingFieldIds(snapshot.imageDefaults.model), "image_timeout_seconds"]
+          : snapshot.imageDefaults.providerOption.advancedFieldIds;
+      setShowAdvanced(
+        ids.some((fieldId) => {
+          const field = integrationField(snapshot.imageDefaults.providerIntegration, fieldId);
+          return Boolean(field && fieldHasValue(snapshot.forms, snapshot.imageDefaults.providerIntegration, field));
+        })
+      );
+      return;
+    }
+    const snapshotIntegration = snapshot.selectedIntegration;
+    if (!snapshotIntegration) {
+      setShowAdvanced(false);
+      return;
+    }
+    const advanced = integrationFieldGroups(snapshotIntegration, snapshot.selectedView).filter((group) => group.level === "advanced");
+    setShowAdvanced(
+      advanced.some((group) => group.fields.some((field) => fieldHasValue(snapshot.forms, snapshotIntegration, field)))
+    );
+  }, [imageDefaults.provider, selectedIntegration?.id, selectedNavigationKey, selectedView]);
+
   function renderIntegrationNavRow(item: IntegrationNavigationItem) {
     const badge = settingsNavBadge({
       view: item.view,
@@ -1753,7 +1686,7 @@ export default function UserIntegrationsPage() {
         label={item.label}
         title={navigationDescription(item)}
         selected={selectedNavigationKey === item.key}
-        meter={item.integrationId === "runtime" && badge.label === "Ready"}
+        icon={item.integrationId === "runtime" ? SlidersHorizontal : undefined}
         onSelect={() => {
           if (item.imageProviderId) updateImageProvider(item.imageProviderId);
           else setSelectedNavigationKey(item.key);
@@ -2077,51 +2010,32 @@ export default function UserIntegrationsPage() {
   }
 
   return (
-    <main className="min-h-screen bg-[#141519] font-sans text-slate-100">
-      <header className="border-b border-[#292b31] bg-[#141519]/95 px-4 py-4">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <Link
-              href="/"
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#2c2f37] px-3 text-[11px] font-medium text-slate-300 hover:bg-white hover:text-black"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Home
-            </Link>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-cyan-300" />
-                <h1 className="truncate text-lg font-semibold tracking-tight text-white">Settings</h1>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-400">
-                Appearance, provider credentials, model defaults, and account data preferences.
-              </p>
-            </div>
+    <main className="min-h-screen bg-[#0f1117] font-sans text-slate-100">
+      <header className="border-b border-[#2c2f37] bg-[#0f1117]/95 px-4 py-4">
+        <div className="mx-auto flex w-full max-w-7xl items-center gap-3">
+          <Link href="/" className={BUTTON_OUTLINE_CLASS}>
+            <ArrowLeft className="h-3.5 w-3.5" />
+            Home
+          </Link>
+          <div className="min-w-0">
+            <h1 className="truncate text-lg font-semibold tracking-tight text-white">Settings</h1>
+            <p className="mt-1 text-xs leading-5 text-slate-400">
+              Appearance, provider credentials, model defaults, and account data preferences.
+            </p>
           </div>
-          {!isLocalSettingsView && (
-            <button
-              type="button"
-              onClick={reloadRuntime}
-              disabled={loading || !hasIdentity}
-              className="inline-flex h-9 shrink-0 items-center gap-2 rounded-lg border border-[#2c2f37] px-3 text-[11px] font-medium text-slate-200 hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Reload integrations
-            </button>
-          )}
         </div>
       </header>
 
       {authRequired && !isLoaded ? (
         <section className="mx-auto w-full max-w-7xl px-4 py-5">
-          <div className="rounded-2xl border border-[#2c2f37] bg-[#17181d] p-6 text-sm text-slate-500">Checking session...</div>
+          <div className={`${CARD_SURFACE_CLASS} p-6 text-sm text-slate-500`}>Checking session...</div>
         </section>
       ) : !hasIdentity ? (
         <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_360px]">
           <ThemeSettingsPanel />
-          <div className="h-fit rounded-2xl border border-[#2c2f37] bg-[#17181d] p-6">
+          <div className={`h-fit ${CARD_SURFACE_CLASS} p-6`}>
             <div className="inline-flex items-center gap-2 text-sm font-semibold text-white">
-              <KeyRound className="h-4 w-4 text-cyan-300" />
+              <KeyRound className="h-4 w-4 text-emerald-400" />
               Sign in required
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-400">
@@ -2131,16 +2045,13 @@ export default function UserIntegrationsPage() {
               <button
                 type="button"
                 onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/settings" })}
-                className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200"
+                className={BUTTON_PRIMARY_CLASS}
               >
-                <KeyRound className="h-4 w-4" />
+                <KeyRound className="h-3.5 w-3.5" />
                 Sign in
               </button>
-              <Link
-                href="/"
-                className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
-              >
-                <ArrowLeft className="h-4 w-4" />
+              <Link href="/" className={BUTTON_OUTLINE_CLASS}>
+                <ArrowLeft className="h-3.5 w-3.5" />
                 Home
               </Link>
             </div>
@@ -2148,20 +2059,14 @@ export default function UserIntegrationsPage() {
         </section>
       ) : (
         <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 md:grid-cols-[240px_minmax(0,1fr)]">
-        <aside className="h-fit min-h-0 overflow-hidden rounded-xl border border-[#2c2f37] bg-[#17181d] md:sticky md:top-4">
+        <aside className={`h-fit min-h-0 ${CARD_SURFACE_CLASS} md:sticky md:top-4`}>
           <div className="border-b border-[#2c2f37] px-3 py-3">
             <div className="text-sm font-semibold text-white">Settings</div>
             <p className="mt-1 text-[11px] leading-4 text-slate-400">Account, models, and workspace defaults.</p>
           </div>
 
           <nav aria-label="Settings" className="max-h-[calc(100vh-180px)] space-y-4 overflow-y-auto p-2">
-            <SettingsNavSection
-              collapseKey="account"
-              title="Account"
-              icon={ShieldCheck}
-              collapsed={collapsedNav.has("account")}
-              onToggle={() => toggleNavCollapse("account")}
-            >
+            <SettingsNavSection title="Account">
               <SettingsNavRow
                 label="Appearance"
                 title="Choose and save your light or dark theme."
@@ -2172,6 +2077,7 @@ export default function UserIntegrationsPage() {
               <SettingsNavRow
                 label="Data & Privacy"
                 title="Control use of your outputs for model improvement."
+                icon={ShieldCheck}
                 selected={isDataPrivacyView}
                 onSelect={() => setSelectedNavigationKey("privacy:data-usage")}
                 badge={
@@ -2182,52 +2088,25 @@ export default function UserIntegrationsPage() {
               />
             </SettingsNavSection>
 
-            <SettingsNavSection
-              collapseKey="integrations"
-              title="Integrations"
-              icon={KeyRound}
-              collapsed={collapsedNav.has("integrations")}
-              onToggle={() => toggleNavCollapse("integrations")}
-            >
+            <SettingsNavSection title="Workspace & Models">
               {loading && !payload ? (
                 <div className="px-2 py-2 text-[11px] leading-5 text-slate-500">Loading integrations...</div>
               ) : !navigationGroups.length ? (
-                <div className="rounded-lg border border-[#2c2f37] bg-[#141519] p-3">
+                <div className="rounded-lg border border-[#2c2f37] p-3">
                   <p className="text-[11px] leading-5 text-slate-400">
                     {error ? "Could not load integrations." : "No integrations are available for this workspace."}
                   </p>
                   {error && <p className="mt-1 break-words text-[11px] leading-5 text-slate-600">{error}</p>}
-                  <button
-                    type="button"
-                    onClick={loadIntegrations}
-                    disabled={loading}
-                    className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[#2c2f37] px-2.5 py-1.5 text-[11px] font-medium text-slate-300 transition hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-                  >
+                  <button type="button" onClick={loadIntegrations} disabled={loading} className={`mt-3 ${BUTTON_OUTLINE_CLASS}`}>
                     <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
                     Retry
                   </button>
                 </div>
               ) : (
                 navigationGroups.map((group) => (
-                  <div key={group.id} className="space-y-1">
-                    <div className="px-2 pt-1 text-[11px] font-medium text-slate-500">{group.label}</div>
-                    {group.items.map(renderIntegrationNavRow)}
-                    {group.subgroups.map((subgroup) => {
-                      const subgroupKey = `integrations:${subgroup.id}`;
-                      return (
-                        <SettingsNavGroup
-                          key={subgroup.id}
-                          collapseKey={subgroupKey}
-                          label={subgroup.label}
-                          count={subgroup.items.length}
-                          collapsed={collapsedNav.has(subgroupKey)}
-                          muted={subgroup.label === "Advanced"}
-                          onToggle={() => toggleNavCollapse(subgroupKey)}
-                        >
-                          {subgroup.items.map(renderIntegrationNavRow)}
-                        </SettingsNavGroup>
-                      );
-                    })}
+                  <div key={group.id} className="space-y-0.5">
+                    {group.id !== "workspace" && <SettingsNavSubhead>{group.label}</SettingsNavSubhead>}
+                    {navigationGroupItems(group).map(renderIntegrationNavRow)}
                   </div>
                 ))
               )}
@@ -2237,8 +2116,8 @@ export default function UserIntegrationsPage() {
 
         <section className="min-w-0">
           {error && (
-            <div className="mb-4 border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
-              <div className="flex items-center gap-2 font-black uppercase tracking-wide">
+            <div className="mb-4 rounded-lg border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
+              <div className="flex items-center gap-2 text-sm font-medium">
                 <AlertTriangle className="h-4 w-4" />
                 Error
               </div>
@@ -2247,8 +2126,8 @@ export default function UserIntegrationsPage() {
           )}
 
           {notice && (
-            <div className="mb-4 border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm leading-6 text-emerald-200">
-              <div className="flex items-center gap-2 font-black uppercase tracking-wide">
+            <div className="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm leading-6 text-emerald-200">
+              <div className="flex items-center gap-2 text-sm font-medium">
                 <CheckCircle className="h-4 w-4" />
                 Applied
               </div>
@@ -2256,117 +2135,75 @@ export default function UserIntegrationsPage() {
             </div>
           )}
 
-          {!isLocalSettingsView && payload && selectedView === "image" && (
-            <section className="mb-4 overflow-hidden rounded-2xl border border-[#2c2f37] bg-[#17181d] p-5">
-              <div className="mb-4 border-b border-[#2c2f37] pb-4">
-                <h2 className="text-sm font-semibold text-white">Image provider</h2>
-                <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-500">
-                  Pick the provider used for generated product images. Required setup appears below.
-                </p>
-              </div>
-              <SettingsFieldCard title="Provider" envName="IMAGE_PROVIDER" chips={<SettingsChip label={imageDefaults.providerOption.label} active={imageDefaults.provider !== "none"} />}>
-                <select
-                  value={imageDefaults.provider}
-                  onChange={(event) => updateImageProvider(event.target.value)}
-                  className="h-11 w-full border border-[#2c2f37] bg-black px-3 font-mono text-sm text-slate-300 outline-none focus:border-cyan-300"
-                >
-                  {IMAGE_PROVIDER_OPTIONS.map((option) => (
-                    <option key={option.id} value={option.id}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </SettingsFieldCard>
-            </section>
-          )}
-
           {isAppearanceView ? (
             <ThemeSettingsPanel />
           ) : isDataPrivacyView ? (
-            <article className="overflow-hidden rounded-2xl border border-[#2c2f37] bg-[#17181d]">
-              <div className="border-b border-[#2c2f37] p-5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-cyan-300" />
-                  <h2 className="text-lg font-semibold tracking-tight text-white">Data & Privacy</h2>
-                  <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-                    Account preference
-                  </span>
-                </div>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                  Set an account-wide limit on future dataset use. This setting never grants project contribution consent.
-                </p>
-              </div>
-
-              <div className="grid gap-5 p-5">
-                <section className="rounded border border-[#2c2f37] bg-[#101115] p-4 sm:p-5">
-                  <div className="mb-4 border-b border-[#2c2f37] pb-4">
-                    <h3 className="text-sm font-semibold text-white">Account-wide contribution limit</h3>
-                    <p className="mt-2 text-xs leading-5 text-slate-500">
-                      Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice.
-                    </p>
-                  </div>
-                  <SettingsFieldCard
-                    title="Model training eligibility"
-                    help="Turn this off to block account-linked outputs from future training-dataset exports. Eligibility alone does not contribute a project."
-                    extraHelp="Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy."
-                    chips={
-                      <>
-                        <SettingsChip label={allowModelTraining ? "Eligible" : "Opted out"} active={allowModelTraining} />
-                        <span className="inline-flex h-7 items-center border border-emerald-400/35 bg-emerald-400/10 px-2 text-[10px] font-black uppercase tracking-widest text-emerald-300">
-                          No blanket consent
-                        </span>
-                      </>
-                    }
-                  >
-                    <label
-                      className={`inline-flex h-11 cursor-pointer items-center gap-3 border px-3 text-xs font-black uppercase tracking-widest ${
-                        dataUsageLoading
-                          ? "cursor-wait border-[#2c2f37] text-slate-600"
-                          : allowModelTraining
-                            ? "border-cyan-300 text-white"
-                            : "border-[#2c2f37] text-slate-300"
-                      }`}
+            <article className={CARD_SURFACE_CLASS}>
+              <SettingsPaneHeader
+                title="Data & Privacy"
+                description="Set an account-wide limit on future dataset use. This setting never grants project contribution consent."
+                badges={<SettingsNavBadge tone="allowed">Account preference</SettingsNavBadge>}
+                actions={
+                  <>
+                    <Link href="/legal/privacy-policy" className={BUTTON_OUTLINE_CLASS}>
+                      Privacy Policy
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={saveDataUsagePreference}
+                      disabled={dataUsageLoading || dataUsageSaving}
+                      className={BUTTON_PRIMARY_CLASS}
                     >
-                      <input
-                        type="checkbox"
-                        checked={allowModelTraining}
-                        onChange={(event) => setAllowModelTraining(event.target.checked)}
-                        disabled={dataUsageLoading || dataUsageSaving}
-                        className="h-4 w-4 accent-cyan-300"
-                      />
-                      {allowModelTraining ? "Eligible" : "Opted out"}
-                    </label>
-                  </SettingsFieldCard>
+                      <Save className="h-3.5 w-3.5" />
+                      {dataUsageSaving ? "Saving" : "Save"}
+                    </button>
+                  </>
+                }
+              />
 
-                  <div className="mt-5 flex flex-col gap-3 border-t border-[#2c2f37] pt-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-xs leading-5 text-slate-500">
-                      {dataUsagePreference?.source === "user"
-                        ? `Saved ${formatTimestamp(dataUsagePreference.updated_at)}`
-                        : "Using the default setting; no account preference has been saved yet."}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href="/legal/privacy-policy"
-                        className="inline-flex h-10 items-center border border-[#2c2f37] px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
+              <div className="space-y-8 p-5">
+                <section>
+                  <h3 className="text-sm font-medium text-white">Account-wide contribution limit</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice.
+                  </p>
+                  <div className="mt-4">
+                    <SettingsFieldCard
+                      title="Model training eligibility"
+                      help="Turn this off to block account-linked outputs from future training-dataset exports. Eligibility alone does not contribute a project."
+                      extraHelp="Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy."
+                      chips={<SettingsNavBadge tone={allowModelTraining ? "allowed" : "warn"}>{allowModelTraining ? "Eligible" : "Opted out"}</SettingsNavBadge>}
+                    >
+                      <label
+                        className={`inline-flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium ${
+                          dataUsageLoading
+                            ? "cursor-wait text-slate-600"
+                            : allowModelTraining
+                              ? "bg-emerald-500/10 text-emerald-400"
+                              : "text-slate-300"
+                        }`}
                       >
-                        Privacy Policy
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={saveDataUsagePreference}
-                        disabled={dataUsageLoading || dataUsageSaving}
-                        className="inline-flex h-10 items-center gap-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-                      >
-                        <Save className="h-4 w-4" />
-                        {dataUsageSaving ? "Saving" : "Save preference"}
-                      </button>
-                    </div>
+                        <input
+                          type="checkbox"
+                          checked={allowModelTraining}
+                          onChange={(event) => setAllowModelTraining(event.target.checked)}
+                          disabled={dataUsageLoading || dataUsageSaving}
+                          className="h-3.5 w-3.5 accent-emerald-400"
+                        />
+                        {allowModelTraining ? "Eligible" : "Opted out"}
+                      </label>
+                    </SettingsFieldCard>
                   </div>
+                  <p className="mt-4 text-xs leading-5 text-slate-500">
+                    {dataUsagePreference?.source === "user"
+                      ? `Saved ${formatTimestamp(dataUsagePreference.updated_at)}`
+                      : "Using the default setting; no account preference has been saved yet."}
+                  </p>
                 </section>
 
-                <section className="rounded border border-[#2c2f37] bg-[#101115] p-4 text-xs leading-5 text-slate-500">
-                  <h3 className="text-sm font-semibold text-white">How opt-outs are tracked</h3>
-                  <p className="mt-3">
+                <section>
+                  <h3 className="text-sm font-medium text-white">How opt-outs are tracked</h3>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
                     Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set, and eligibility never replaces a project-specific consent record.
                   </p>
                 </section>
@@ -2383,14 +2220,16 @@ export default function UserIntegrationsPage() {
                 model={imageDefaults.model}
                 modelOptions={imageDefaults.modelOptions}
                 saving={savingId !== null}
-                showAdvanced={showImageAdvanced}
+                showAdvanced={showAdvanced}
                 onProviderChange={updateImageProvider}
                 onModelChange={updateImageModel}
                 onFieldChange={updateField}
                 onEnabledChange={updateEnabled}
                 onSave={saveImageDefaults}
                 onClear={clearIntegration}
-                onToggleAdvanced={() => setShowImageAdvanced((current) => !current)}
+                onReload={reloadRuntime}
+                reloading={loading}
+                onToggleAdvanced={() => setShowAdvanced((current) => !current)}
               />
               {payload.image_model_test_available && (
                 <ImageModelTestPanel
@@ -2407,89 +2246,97 @@ export default function UserIntegrationsPage() {
               )}
             </>
           ) : selectedIntegration ? (
-            <article className="overflow-hidden rounded-2xl border border-[#2c2f37] bg-[#17181d]">
-              <div className="flex flex-col gap-4 border-b border-[#2c2f37] p-5 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-lg font-semibold tracking-tight text-white">{selectedNavigationItem?.label || selectedIntegration.label}</h2>
-                    {selectedView === "llm" && (
-                      <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">LLM only</span>
+            <article className={CARD_SURFACE_CLASS}>
+              <SettingsPaneHeader
+                title={selectedNavigationItem?.label || selectedIntegration.label}
+                description={navigationDescription(selectedNavigationItem)}
+                badges={
+                  <>
+                    {navigationGroups.some((group) => group.advanced.some((item) => item.key === selectedNavigationKey)) && (
+                      <SettingsNavBadge tone="muted">Advanced</SettingsNavBadge>
                     )}
-                    <span
-                      className={`border px-2 py-1 text-[10px] font-black uppercase ${
-                        selectedIntegration.configured
-                          ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                          : "border-[#2c2f37] text-slate-500"
-                      }`}
-                    >
-                      {selectedIntegration.configured ? "Configured" : "Not configured"}
-                    </span>
+                    {selectedView === "llm" && <SettingsNavBadge tone="allowed">LLM only</SettingsNavBadge>}
+                    <SettingsNavBadge tone={selectedIntegration.configured ? "ready" : "muted"}>
+                      {selectedIntegration.configured ? "Configured" : "Unset"}
+                    </SettingsNavBadge>
                     {selectedIntegration.policy_status && selectedIntegration.policy_status !== "enabled" && (
-                      <span className="border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-300">
-                        BYOK {selectedIntegration.policy_status}
-                      </span>
+                      <SettingsNavBadge tone="warn">BYOK {selectedIntegration.policy_status}</SettingsNavBadge>
                     )}
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{navigationDescription(selectedNavigationItem)}</p>
-                  {selectedIntegration.policy_notice && (
-                    <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{selectedIntegration.policy_notice}</p>
-                  )}
-                  <p className="mt-2 text-xs text-slate-500">Updated {formatTimestamp(selectedIntegration.updated_at)}</p>
-                </div>
+                  </>
+                }
+                meta={
+                  <>
+                    {selectedIntegration.policy_notice && (
+                      <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{selectedIntegration.policy_notice}</p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-500">Updated {formatTimestamp(selectedIntegration.updated_at)}</p>
+                  </>
+                }
+                actions={
+                  <>
+                    <SettingsEnabledControl
+                      checked={forms[selectedIntegration.id]?.enabled ?? selectedIntegration.enabled}
+                      disabled={savingId === selectedIntegration.id}
+                      onChange={(checked) => updateEnabled(selectedIntegration.id, checked)}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveIntegration(selectedIntegration)}
+                      disabled={savingId === selectedIntegration.id}
+                      className={BUTTON_PRIMARY_CLASS}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => clearIntegration(selectedIntegration)}
+                      disabled={savingId === selectedIntegration.id}
+                      className={BUTTON_DANGER_CLASS}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear
+                    </button>
+                    <button type="button" onClick={reloadRuntime} disabled={loading} className={BUTTON_OUTLINE_CLASS}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                      Reload integrations
+                    </button>
+                  </>
+                }
+              />
 
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <SettingsEnabledControl
-                    checked={forms[selectedIntegration.id]?.enabled ?? selectedIntegration.enabled}
-                    disabled={savingId === selectedIntegration.id}
-                    onChange={(checked) => updateEnabled(selectedIntegration.id, checked)}
+              <div className="space-y-8 p-5">
+                {basicFieldGroups.length > 0 && (
+                  <IntegrationFieldGroupList
+                    groups={basicFieldGroups}
+                    integration={selectedIntegration}
+                    forms={forms}
+                    saving={savingId === selectedIntegration.id}
+                    onChange={(fieldId, value) => updateField(selectedIntegration.id, fieldId, value)}
+                    onClearSaved={(fieldId) => saveIntegration(selectedIntegration, [fieldId])}
                   />
-                  <button
-                    type="button"
-                    onClick={() => saveIntegration(selectedIntegration)}
-                    disabled={savingId === selectedIntegration.id}
-                    className="inline-flex h-9 items-center gap-2 bg-white px-3 text-[11px] font-semibold text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
+                )}
+                {advancedFieldGroups.length > 0 && (
+                  <SettingsAdvancedDisclosure
+                    open={showAdvanced}
+                    onToggle={() => setShowAdvanced((current) => !current)}
+                    description="Connection, timeouts, rendering extras, and other optional provider settings."
+                    configuredCount={advancedConfiguredCount}
                   >
-                    <Save className="h-4 w-4" />
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => clearIntegration(selectedIntegration)}
-                    disabled={savingId === selectedIntegration.id}
-                    className="inline-flex h-9 items-center gap-2 border border-rose-400/40 px-3 text-[11px] font-semibold text-rose-200 hover:bg-rose-500 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Clear
-                  </button>
-                </div>
-              </div>
-
-              <div className="grid gap-5 p-5">
-                {integrationFieldGroups(selectedIntegration, selectedView).map((group) => (
-                  <section key={group.id} className="rounded border border-[#2c2f37] bg-[#101115] p-4">
-                    <div className="mb-4 border-b border-[#2c2f37] pb-4">
-                      <h3 className="text-sm font-semibold text-white">{group.label}</h3>
-                      <p className="mt-2 text-xs leading-5 text-slate-500">{group.description}</p>
-                    </div>
-                    <div className="grid gap-4">
-                      {group.fields.map((field) => (
-                        <IntegrationFieldEditor
-                          key={field.id}
-                          integration={selectedIntegration}
-                          field={field}
-                          value={forms[selectedIntegration.id]?.fields[field.id] || ""}
-                          saving={savingId === selectedIntegration.id}
-                          onChange={(value) => updateField(selectedIntegration.id, field.id, value)}
-                          onClearSaved={() => saveIntegration(selectedIntegration, [field.id])}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
+                    <IntegrationFieldGroupList
+                      groups={advancedFieldGroups}
+                      integration={selectedIntegration}
+                      forms={forms}
+                      saving={savingId === selectedIntegration.id}
+                      onChange={(fieldId, value) => updateField(selectedIntegration.id, fieldId, value)}
+                      onClearSaved={(fieldId) => saveIntegration(selectedIntegration, [fieldId])}
+                    />
+                  </SettingsAdvancedDisclosure>
+                )}
               </div>
             </article>
           ) : (
-            <div className="border border-[#2c2f37] bg-[#17181d] p-6 text-slate-500">No integrations found.</div>
+            <div className={`${CARD_SURFACE_CLASS} p-6 text-slate-500`}>No integrations found.</div>
           )}
         </section>
         </section>

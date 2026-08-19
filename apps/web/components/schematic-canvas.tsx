@@ -102,15 +102,36 @@ function cacheNodePositions(projectKey: string, nodes: FlowNode<SchematicNodeDat
   }
 }
 
+const schematicAccent = {
+  cyan: "rgb(var(--forma-cyan-rgb))",
+  green: "rgb(var(--forma-green-rgb))",
+  yellow: "rgb(var(--forma-yellow-rgb))",
+  red: "rgb(var(--forma-red-rgb))",
+  violet: "rgb(var(--forma-violet-rgb))",
+  muted: "var(--forma-text-muted)",
+} as const;
+
 const schematicTones: Record<string, { label: string; border: string; text: string; soft: string }> = {
-  microcontroller: { label: "MCU", border: "#22d3ee", text: "#a5f3fc", soft: "#082f49" },
-  sensor: { label: "SENSOR", border: "#60a5fa", text: "#bfdbfe", soft: "#10233f" },
-  actuator: { label: "ACTUATOR", border: "#fb923c", text: "#fed7aa", soft: "#3a1b0c" },
-  power: { label: "POWER", border: "#facc15", text: "#fef08a", soft: "#352a08" },
-  passives: { label: "MODULE", border: "#a78bfa", text: "#ddd6fe", soft: "#24163f" },
-  communication: { label: "MODULE", border: "#a78bfa", text: "#ddd6fe", soft: "#24163f" },
-  display: { label: "DISPLAY", border: "#f472b6", text: "#fbcfe8", soft: "#3a1230" },
-  default: { label: "PART", border: "#94a3b8", text: "#cbd5e1", soft: "#1e293b" },
+  microcontroller: { label: "MCU", border: schematicAccent.cyan, text: schematicAccent.cyan, soft: "rgb(var(--forma-cyan-rgb) / 0.1)" },
+  sensor: { label: "SENSOR", border: schematicAccent.green, text: schematicAccent.green, soft: "rgb(var(--forma-green-rgb) / 0.1)" },
+  actuator: { label: "ACTUATOR", border: schematicAccent.yellow, text: schematicAccent.yellow, soft: "rgb(var(--forma-yellow-rgb) / 0.1)" },
+  power: { label: "POWER", border: schematicAccent.yellow, text: schematicAccent.yellow, soft: "rgb(var(--forma-yellow-rgb) / 0.1)" },
+  passives: { label: "MODULE", border: schematicAccent.violet, text: schematicAccent.violet, soft: "rgb(var(--forma-violet-rgb) / 0.1)" },
+  communication: { label: "MODULE", border: schematicAccent.violet, text: schematicAccent.violet, soft: "rgb(var(--forma-violet-rgb) / 0.1)" },
+  display: { label: "DISPLAY", border: schematicAccent.violet, text: schematicAccent.violet, soft: "rgb(var(--forma-violet-rgb) / 0.1)" },
+  default: { label: "PART", border: "var(--forma-border)", text: schematicAccent.muted, soft: "var(--forma-surface-muted)" },
+};
+
+const schematicNetStyles: Record<string, { color: string; dash?: string; width: number }> = {
+  ground: { color: schematicAccent.muted, width: 1.8 },
+  power: { color: schematicAccent.red, width: 2.2 },
+  i2c: { color: schematicAccent.cyan, width: 2 },
+  spi: { color: schematicAccent.green, width: 2 },
+  uart: { color: schematicAccent.violet, width: 2 },
+  digital: { color: schematicAccent.violet, width: 2 },
+  analog: { color: schematicAccent.yellow, width: 2 },
+  pwm: { color: schematicAccent.yellow, width: 2 },
+  default: { color: schematicAccent.cyan, width: 2 },
 };
 
 const schematicNodeTypes = {
@@ -164,30 +185,30 @@ function SchematicPartCard({ data, viewMode = false }: { data: SchematicNodeData
     >
       <div className={`flex items-start ${viewMode ? "gap-4" : "gap-3"}`}>
         <div
-          className={`flex shrink-0 items-center justify-center border border-[var(--schematic-accent)] bg-[var(--schematic-soft)] text-[var(--schematic-text)] ${viewMode ? "h-14 w-14" : "h-9 w-9"}`}
+          className={`flex shrink-0 items-center justify-center rounded-md border border-[var(--schematic-accent)] bg-[var(--schematic-soft)] text-[var(--schematic-text)] ${viewMode ? "h-14 w-14" : "h-9 w-9"}`}
         >
           <Icon className={viewMode ? "h-6 w-6" : "h-4 w-4"} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <div className={`${viewMode ? "text-[11px]" : "text-[9px]"} font-black uppercase leading-none tracking-[0.16em] text-[var(--schematic-text)]`}>
+            <div className={`${viewMode ? "text-[11px]" : "text-[9px]"} font-medium uppercase leading-none tracking-[0.14em] text-[var(--schematic-text)]`}>
               {roleLabel || tone.label}
             </div>
-            <div className="h-px flex-1" style={{ backgroundColor: tone.border, opacity: 0.35 }} />
+            <div className="h-px flex-1 bg-[var(--schematic-accent)] opacity-35" />
           </div>
-          <div className={`${viewMode ? "mt-2 break-words text-xl" : "mt-1 truncate text-[13px]"} font-black leading-tight text-white`}>
+          <div className={`${viewMode ? "mt-2 break-words text-xl" : "mt-1 truncate text-[13px]"} font-semibold leading-tight tracking-tight text-[var(--forma-text-strong)]`}>
             {component.name || component.ref_des}
           </div>
-          <div className={`mt-1 flex items-center gap-2 font-bold uppercase tracking-[0.08em] text-slate-500 ${viewMode ? "text-[10px]" : "text-[8px]"}`}>
+          <div className={`mt-1 flex items-center gap-2 font-medium uppercase tracking-[0.08em] text-[var(--forma-text-muted)] ${viewMode ? "text-[10px]" : "text-[8px]"}`}>
             <span className="truncate">{partNumber}</span>
-            <span className="h-1 w-1 shrink-0 bg-slate-700" />
+            <span className="h-1 w-1 shrink-0 rounded-full bg-[var(--forma-text-muted)]" />
             <span className="shrink-0">{component.ref_des}</span>
           </div>
         </div>
       </div>
 
       {!isController && (
-        <div className={`${viewMode ? "mt-5 pt-3 text-[11px]" : "mt-3 pt-2 text-[9px]"} flex items-center justify-between gap-2 border-t border-[#2b3038] font-bold uppercase tracking-[0.12em] text-slate-500`}>
+        <div className={`${viewMode ? "mt-5 pt-3 text-[11px]" : "mt-3 pt-2 text-[9px]"} flex items-center justify-between gap-2 border-t border-[var(--forma-border)] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]`}>
           <span className="truncate">{subtitle}</span>
           <span className="shrink-0 text-[var(--schematic-text)]">{visiblePinCount || 0} pins</span>
         </div>
@@ -212,10 +233,10 @@ function SchematicPartCard({ data, viewMode = false }: { data: SchematicNodeData
           />
         )}
         {isController && (
-          <div className={`flex flex-col items-center justify-center border border-[#334155] bg-[#0f1720] px-2 text-center ${viewMode ? "min-h-[230px]" : "min-h-[156px]"}`}>
-            <Cpu className={`mb-2 text-cyan-200 ${viewMode ? "h-10 w-10" : "h-7 w-7"}`} />
-            <div className={`${viewMode ? "text-xs" : "text-[8px]"} font-black uppercase tracking-[0.12em] text-white`}>{component.ref_des}</div>
-            <div className={`mt-1 font-bold leading-tight text-slate-500 ${viewMode ? "text-[9px]" : "text-[7px]"}`}>Controller</div>
+          <div className={`flex flex-col items-center justify-center rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-2 text-center ${viewMode ? "min-h-[230px]" : "min-h-[156px]"}`}>
+            <Cpu className={`mb-2 text-[rgb(var(--forma-cyan-rgb))] ${viewMode ? "h-10 w-10" : "h-7 w-7"}`} />
+            <div className={`${viewMode ? "text-xs" : "text-[8px]"} font-semibold uppercase tracking-[0.12em] text-[var(--forma-text-strong)]`}>{component.ref_des}</div>
+            <div className={`mt-1 font-medium leading-tight text-[var(--forma-text-muted)] ${viewMode ? "text-[9px]" : "text-[7px]"}`}>Controller</div>
           </div>
         )}
         {isController ? (
@@ -258,7 +279,7 @@ function PinColumn({
 }) {
   if (!pins.length) {
     return (
-      <div className={`border border-dashed border-[#333844] bg-[#101116] px-3 font-bold uppercase tracking-[0.12em] text-slate-600 ${viewMode ? "py-4 text-[11px]" : "py-2 text-[9px]"}`}>
+      <div className={`rounded-md border border-dashed border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)] ${viewMode ? "py-4 text-[11px]" : "py-2 text-[9px]"}`}>
         {emptyLabel || "No pins"}
       </div>
     );
@@ -285,7 +306,7 @@ function PinColumn({
                   style={{
                     ...handleStyle,
                     ["--handle-border" as string]: tone.border,
-                    ["--handle-color" as string]: pin.connected ? tone.border : "#111216",
+                    ["--handle-color" as string]: pin.connected ? tone.border : "var(--forma-surface)",
                   }}
                 />
                 <Handle
@@ -296,14 +317,14 @@ function PinColumn({
                   style={{
                     ...handleStyle,
                     ["--handle-border" as string]: tone.border,
-                    ["--handle-color" as string]: pin.connected ? tone.border : "#111216",
+                    ["--handle-color" as string]: pin.connected ? tone.border : "var(--forma-surface)",
                   }}
                 />
               </>
             )}
-            <span className={`block truncate font-black uppercase leading-none text-white ${viewMode ? "text-[11px]" : "text-[8px]"}`}>{pin.pin_id}</span>
+            <span className={`block truncate font-medium uppercase leading-none text-[var(--forma-text-strong)] ${viewMode ? "text-[11px]" : "text-[8px]"}`}>{pin.pin_id}</span>
             {pin.name && (
-              <span className={`mt-0.5 block truncate font-bold uppercase leading-none text-slate-500 ${viewMode ? "text-[8px]" : "text-[6px]"}`}>
+              <span className={`mt-0.5 block truncate font-medium uppercase leading-none text-[var(--forma-text-muted)] ${viewMode ? "text-[8px]" : "text-[6px]"}`}>
                 {pin.name}
               </span>
             )}
@@ -568,17 +589,7 @@ function buildSchematicGraph(project: any): SchematicGraph {
     });
   });
 
-  const netStyles: Record<string, { color: string; dash?: string; width: number }> = {
-    ground: { color: "#64748b", width: 1.8 },
-    power: { color: "#ef4444", width: 2.2 },
-    i2c: { color: "#0ea5e9", width: 2 },
-    spi: { color: "#22c55e", width: 2 },
-    uart: { color: "#ec4899", width: 2 },
-    digital: { color: "#8b5cf6", width: 2 },
-    analog: { color: "#eab308", width: 2 },
-    pwm: { color: "#f97316", width: 2 },
-    default: { color: "#14b8a6", width: 2 },
-  };
+  const netStyles = schematicNetStyles;
 
   const pinTypeForRef = (pinRef: any) =>
     pinMapByRef.get(pinRef.ref_des)?.get(pinRef.pin_id)?.pin_type?.toLowerCase() || "";
@@ -644,21 +655,21 @@ function buildSchematicGraph(project: any): SchematicGraph {
 
 function SchematicLegend() {
   const wireRows = [
-    { label: "VCC", color: "#ef4444", dash: "none" },
-    { label: "GND", color: "#64748b", dash: "none" },
-    { label: "I2C", color: "#0ea5e9", dash: "none" },
-    { label: "DATA", color: "#8b5cf6", dash: "none" },
-    { label: "PWM", color: "#f97316", dash: "none" },
+    { label: "VCC", color: schematicAccent.red, dash: "none" },
+    { label: "GND", color: schematicAccent.muted, dash: "none" },
+    { label: "I2C", color: schematicAccent.cyan, dash: "none" },
+    { label: "DATA", color: schematicAccent.violet, dash: "none" },
+    { label: "PWM", color: schematicAccent.yellow, dash: "none" },
   ];
 
   return (
-    <div className="pointer-events-none absolute left-4 top-4 z-10 max-w-[calc(100%-2rem)] border border-[#30343d] bg-[#15161b]/90 px-3 py-2 shadow-[0_16px_36px_rgba(0,0,0,0.28)] backdrop-blur">
+    <div className="schematic-legend pointer-events-none absolute left-4 top-4 z-10 max-w-[calc(100%-2rem)] rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 shadow-[var(--forma-card-shadow)] backdrop-blur">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <div className="mr-1 text-[9px] font-black uppercase tracking-[0.18em] text-slate-500">Wires</div>
+        <div className="mr-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Wires</div>
         {wireRows.map((wire) => (
           <div
             key={wire.label}
-            className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.08em]"
+            className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em]"
             style={{ color: wire.color }}
           >
             <svg width="24" height="8" viewBox="0 0 40 8" aria-hidden="true">
@@ -705,7 +716,7 @@ function ComponentViewOverlay({ data, onClose }: { data: SchematicNodeData; onCl
 
   return (
     <div
-      className="absolute inset-0 z-50 flex items-center justify-center bg-[#050609]/85 p-4 backdrop-blur-sm"
+      className="absolute inset-0 z-50 flex items-center justify-center bg-[rgb(var(--forma-scrim-rgb)/0.85)] p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="schematic-view-mode-title"
@@ -714,12 +725,12 @@ function ComponentViewOverlay({ data, onClose }: { data: SchematicNodeData; onCl
       }}
     >
       <div
-        className={`flex max-h-full w-full flex-col overflow-hidden border border-[#3a3d46] bg-[#101116] shadow-[0_30px_100px_rgba(0,0,0,0.8)] ${data.isController ? "max-w-[640px]" : "max-w-[480px]"}`}
+        className={`flex max-h-full w-full flex-col overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] shadow-[var(--forma-card-shadow)] ${data.isController ? "max-w-[640px]" : "max-w-[480px]"}`}
       >
-        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[#30343d] bg-[#17181d] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-4 border-b border-[var(--forma-border)] bg-[var(--forma-surface)] px-4 py-3">
           <div className="min-w-0">
-            <div className="text-[9px] font-black uppercase tracking-[0.18em] text-cyan-300">View mode</div>
-            <h2 id="schematic-view-mode-title" className="mt-1 truncate text-sm font-black text-white">
+            <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">View mode</div>
+            <h2 id="schematic-view-mode-title" className="mt-1 truncate text-sm font-semibold tracking-tight text-[var(--forma-text-strong)]">
               {title}
             </h2>
           </div>
@@ -727,7 +738,7 @@ function ComponentViewOverlay({ data, onClose }: { data: SchematicNodeData; onCl
             ref={closeButtonRef}
             type="button"
             onClick={onClose}
-            className="flex h-10 w-10 shrink-0 items-center justify-center border border-[#3a3d46] text-slate-300 hover:border-white hover:bg-white hover:text-black focus:outline-none focus:ring-2 focus:ring-cyan-300"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-body)] hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--forma-cyan-rgb)/0.45)]"
             aria-label="Close component view"
             title="Close component view (Escape)"
           >
@@ -769,14 +780,14 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
   }, [graph, project, projectKey, setEdges, setNodes]);
 
   return (
-    <div className="relative flex h-full min-h-[620px] flex-col overflow-hidden bg-[#111216]">
-      <div className="flex min-h-[60px] flex-wrap items-center gap-3 border-b border-[#2a2c33] bg-[#17181d] px-4 py-3">
-        <div className="mr-2 text-sm font-black text-white">Wiring diagram</div>
-        <div className="inline-flex h-10 items-center gap-2 border border-[#3a3d46] bg-[#101116] px-3 text-xs font-black text-white">
-          <Cpu className="h-4 w-4 text-slate-400" />
+    <div className="relative flex h-full min-h-[620px] flex-col overflow-hidden bg-[var(--forma-page)]">
+      <div className="schematic-header flex min-h-[60px] flex-wrap items-center gap-3 border-b border-[var(--forma-border)] bg-[var(--forma-surface)] px-4 py-3">
+        <div className="mr-2 text-sm font-semibold tracking-tight text-[var(--forma-text-strong)]">Wiring diagram</div>
+        <div className="inline-flex h-10 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-xs font-medium text-[var(--forma-text-strong)]">
+          <Cpu className="h-4 w-4 text-[var(--forma-text-muted)]" />
           <span>{primaryControllerLabel(project)}</span>
         </div>
-        <div className="ml-auto text-[9px] font-bold uppercase tracking-[0.12em] text-slate-500">
+        <div className="ml-auto text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
           Click a component to view
         </div>
       </div>
@@ -792,12 +803,12 @@ export default function SchematicCanvas({ project }: SchematicCanvasProps) {
         minZoom={0.28}
         maxZoom={1.6}
         proOptions={{ hideAttribution: true }}
-        className="schematic-flow flex-1 bg-[#0f1014]"
+        className="schematic-flow flex-1 bg-[var(--forma-page)]"
       >
-        <Background color="#262b33" gap={28} size={1.1} />
+        <Background color="var(--forma-text-muted)" gap={28} size={1.1} />
         <Controls
           position="bottom-right"
-          className="!border !border-[#2f333c] !bg-[#15161b] !text-white"
+          className="!rounded-md !border !border-[var(--forma-border)] !bg-[var(--forma-surface)] !text-[var(--forma-text)]"
         />
         <SchematicLegend />
       </ReactFlow>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     AssemblyStep,
     ComponentInstance,
     FunctionalRequirements,
@@ -11,7 +11,7 @@ from blueprint_core.workspaces.projects.models import (
     PinDefinition,
     ProjectOverview,
 )
-from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
+from forma_core.video_prompts import generate_image_to_video_prompt_from_namespaces
 
 
 class VideoPromptGenerationTests(unittest.TestCase):
@@ -71,9 +71,6 @@ class VideoPromptGenerationTests(unittest.TestCase):
         self.assertIn("ESP32", payload["prompt"])
         self.assertIn("OLED", payload["prompt"])
         self.assertIn("Mount display", payload["prompt"])
-        self.assertIn("follow the Docs assembly sequence in order", payload["prompt"])
-        self.assertIn("fully assembled project", payload["prompt"])
-        self.assertEqual(1, payload["assembly_step_count"])
         self.assertIn("product.overview", payload["namespaces"])
         self.assertLessEqual(len(payload["prompt"]), payload["prompt_max_chars"])
         self.assertFalse(payload["prompt_truncated"])

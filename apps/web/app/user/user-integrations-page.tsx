@@ -5,6 +5,7 @@ import Link from "next/link";
 import {
   AlertTriangle,
   ArrowLeft,
+  Check,
   CheckCircle,
   ChevronDown,
   FlaskConical,
@@ -14,9 +15,11 @@ import {
   RefreshCw,
   Save,
   Search,
+  Settings,
   ShieldCheck,
   SlidersHorizontal,
   Snowflake,
+  Sparkles,
   Sun,
   Trash2,
 } from "lucide-react";
@@ -29,11 +32,23 @@ import {
 } from "../../lib/provider-model-catalog";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { useTheme } from "../../lib/theme-provider";
-import { arcticLight, solarizedLight } from "../../lib/theme";
+import { arcticLight, solarizedDark, solarizedLight, type FormaTheme } from "../../lib/theme";
 import { webConfig } from "../../lib/config";
+import { ProviderMarkTile } from "../../components/provider-mark";
+import { imageOutputIsEnabled, parsePreferredLlmProvider, settingsNavBadge, type SettingsNavBadge as SettingsNavBadgeModel } from "../../lib/settings-nav-status";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
-const NAV_COLLAPSE_STORAGE_KEY = "forma.settings.collapsed-nav";
+
+const FIELD_CONTROL_CLASS =
+  "h-9 w-full rounded-lg border border-[#2c2f37] bg-[#101115] px-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 focus:border-emerald-500 disabled:cursor-not-allowed disabled:opacity-60";
+const BUTTON_PRIMARY_CLASS =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg bg-white px-3 text-xs font-medium text-black transition hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50";
+const BUTTON_OUTLINE_CLASS =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium text-slate-300 transition hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50";
+const BUTTON_DANGER_CLASS =
+  "inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-400/30 px-3 text-xs font-medium text-rose-200 transition hover:bg-rose-500/15 disabled:cursor-wait disabled:opacity-50";
+const CARD_SURFACE_CLASS = "rounded-xl border border-[#2c2f37] bg-[#181b22]";
+const STATUS_PILL_CLASS = "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium";
 
 type IntegrationFieldStatus = {
   id: string;
@@ -113,6 +128,7 @@ type ImageProviderOption = {
   configFieldIds: string[];
   advancedFieldIds: string[];
   summary: string;
+  tier: "basic" | "advanced";
 };
 
 const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
@@ -126,6 +142,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_resolution", "image_aspect_ratio", "image_output_format", "image_timeout_seconds"],
     summary: "Nano Banana image generation using your Google Cloud project and Application Default Credentials.",
+    tier: "basic",
   },
   {
     id: "huggingface",
@@ -146,6 +163,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
       "image_timeout_seconds",
     ],
     summary: "Hosted Hugging Face image inference. Add a scoped HF token; Forma preselects FLUX.",
+    tier: "advanced",
   },
   {
     id: "openai",
@@ -157,6 +175,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_size", "image_quality", "image_output_format", "image_timeout_seconds", "base_url"],
     summary: "OpenAI image generation. Add an OpenAI key where BYOK is allowed.",
+    tier: "basic",
   },
   {
     id: "gmi",
@@ -179,6 +198,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
       "image_timeout_seconds",
     ],
     summary: "GMI Cloud image generation through its native GPT Image endpoint or request queue, with model-specific settings.",
+    tier: "advanced",
   },
   {
     id: "together",
@@ -190,6 +210,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["image_model"],
     advancedFieldIds: ["image_base_url", "image_size", "image_steps", "image_output_format", "image_timeout_seconds"],
     summary: "Together AI image generation. Add a project-scoped key dedicated to Forma.",
+    tier: "advanced",
   },
   {
     id: "openai-compatible",
@@ -201,6 +222,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: ["model"],
     advancedFieldIds: ["size", "quality", "output_format", "timeout_seconds"],
     summary: "Generic OpenAI-compatible image endpoint. Add the provider key and base URL.",
+    tier: "advanced",
   },
   {
     id: "none",
@@ -212,6 +234,7 @@ const IMAGE_PROVIDER_OPTIONS: ImageProviderOption[] = [
     configFieldIds: [],
     advancedFieldIds: [],
     summary: "Disable generated product images.",
+    tier: "basic",
   },
 ];
 
@@ -221,41 +244,123 @@ type IntegrationNavigationDefinition = {
   integrationId: string;
   view: IntegrationView;
   label?: string;
+  logo?: string;
   imageProviderId?: string;
 };
 
-const INTEGRATION_NAV_GROUPS: Array<{ id: string; label: string; items: IntegrationNavigationDefinition[] }> = [
-  { id: "workspace", label: "Workspace Defaults", items: [{ integrationId: "runtime", view: "all" }] },
+type ProviderBrandNavDefinition = {
+  id: string;
+  label: string;
+  logo: string;
+  items: IntegrationNavigationDefinition[];
+};
+
+type IntegrationNavBlockDefinition =
+  | { type: "items"; items: IntegrationNavigationDefinition[] }
+  | { type: "brand"; brand: ProviderBrandNavDefinition };
+
+type IntegrationNavSectionDefinition = {
+  id: string;
+  label: string;
+  blocks: IntegrationNavBlockDefinition[];
+};
+
+const INTEGRATION_NAV_GROUPS: Array<{
+  id: string;
+  label: string;
+  items?: IntegrationNavigationDefinition[];
+  basic?: IntegrationNavigationDefinition[];
+  advanced?: IntegrationNavigationDefinition[];
+  sections?: IntegrationNavSectionDefinition[];
+}> = [
+  { id: "workspace", label: "Runtime defaults", items: [{ integrationId: "runtime", view: "all", label: "Runtime defaults" }] },
   {
     id: "llm",
-    label: "Language Model Providers",
-    items: [
-      { integrationId: "openai", view: "llm", label: "OpenAI LLM" },
-      { integrationId: "anthropic", view: "llm" },
-      { integrationId: "gemini", view: "llm" },
-      { integrationId: "vertex", view: "llm" },
-      { integrationId: "baseten", view: "llm" },
-      { integrationId: "gmi", view: "llm", label: "GMI Cloud LLM" },
-      { integrationId: "huggingface", view: "llm", label: "Hugging Face LLM" },
-      { integrationId: "cloudflare", view: "llm", label: "Cloudflare AI" },
-      { integrationId: "nvidia", view: "llm" },
-      { integrationId: "runpod", view: "llm" },
-      { integrationId: "ollama", view: "llm" },
+    label: "Model providers",
+    sections: [
+      {
+        id: "foundational",
+        label: "Foundational models",
+        blocks: [
+          {
+            type: "items",
+            items: [
+              { integrationId: "anthropic", view: "llm", label: "Anthropic", logo: "anthropic" },
+            ],
+          },
+          {
+            type: "brand",
+            brand: {
+              id: "google",
+              label: "Google",
+              logo: "google",
+              items: [
+                { integrationId: "gemini", view: "llm", label: "Gemini", logo: "gemini" },
+                { integrationId: "vertex", view: "llm", label: "Vertex AI", logo: "vertex" },
+              ],
+            },
+          },
+          {
+            type: "items",
+            items: [
+              { integrationId: "openai", view: "llm", label: "OpenAI", logo: "openai" },
+              { integrationId: "xai", view: "llm", label: "Grok", logo: "xai" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "inference",
+        label: "Inference providers",
+        blocks: [
+          {
+            type: "items",
+            items: [
+              { integrationId: "baseten", view: "llm", label: "Baseten", logo: "baseten" },
+              { integrationId: "together", view: "llm", label: "Together AI", logo: "together" },
+              { integrationId: "gmi", view: "llm", label: "GMI Cloud", logo: "gmi" },
+              { integrationId: "huggingface", view: "llm", label: "Hugging Face", logo: "huggingface" },
+              { integrationId: "cloudflare", view: "llm", label: "Cloudflare Workers AI", logo: "workersai" },
+              { integrationId: "nvidia", view: "llm", label: "NVIDIA", logo: "nvidia" },
+              { integrationId: "runpod", view: "llm", label: "Runpod", logo: "runpod" },
+            ],
+          },
+        ],
+      },
+      {
+        id: "custom",
+        label: "Custom / open-source",
+        blocks: [
+          {
+            type: "items",
+            items: [{ integrationId: "ollama", view: "llm", label: "Ollama", logo: "ollama" }],
+          },
+        ],
+      },
     ],
   },
   {
     id: "image",
-    label: "Image Providers",
-    items: [
-      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", imageProviderId: "vertex" },
-      { integrationId: "openai", view: "image", label: "OpenAI Images", imageProviderId: "openai" },
-      { integrationId: "gmi", view: "image", label: "GMI Cloud Images", imageProviderId: "gmi" },
-      { integrationId: "huggingface", view: "image", label: "Hugging Face Images", imageProviderId: "huggingface" },
-      { integrationId: "together", view: "image", label: "Together AI Images", imageProviderId: "together" },
-      { integrationId: "image", view: "image", label: "Image Output & Custom" },
+    label: "Image / Video",
+    basic: [
+      { integrationId: "vertex", view: "image", label: "Vertex Nano Banana", logo: "vertex", imageProviderId: "vertex" },
+      { integrationId: "openai", view: "image", label: "OpenAI Images", logo: "openai", imageProviderId: "openai" },
+    ],
+    advanced: [
+      { integrationId: "gmi", view: "image", label: "GMI Cloud", logo: "gmi", imageProviderId: "gmi" },
+      { integrationId: "huggingface", view: "image", label: "Hugging Face", logo: "huggingface", imageProviderId: "huggingface" },
+      { integrationId: "together", view: "image", label: "Together AI", logo: "together", imageProviderId: "together" },
+      { integrationId: "image", view: "image", label: "Custom / OpenAI-compatible", logo: "custom" },
     ],
   },
-  { id: "tools", label: "Tools & Search", items: [{ integrationId: "firecrawl", view: "all" }] },
+  {
+    id: "tools",
+    label: "Tool providers",
+    basic: [
+      { integrationId: "firecrawl", view: "all", logo: "firecrawl" },
+      { integrationId: "tavily", view: "all", logo: "tavily" },
+    ],
+  },
 ];
 
 type IntegrationNavigationItem = IntegrationNavigationDefinition & {
@@ -264,35 +369,109 @@ type IntegrationNavigationItem = IntegrationNavigationDefinition & {
   integration: IntegrationStatus;
 };
 
+type IntegrationNavBlock =
+  | { type: "items"; items: IntegrationNavigationItem[] }
+  | { type: "brand"; brand: { id: string; label: string; logo: string; items: IntegrationNavigationItem[] } };
+
+type IntegrationNavSection = {
+  id: string;
+  label: string;
+  blocks: IntegrationNavBlock[];
+};
+
 type IntegrationNavigationGroup = {
   id: string;
   label: string;
   items: IntegrationNavigationItem[];
+  basic: IntegrationNavigationItem[];
+  advanced: IntegrationNavigationItem[];
+  sections: IntegrationNavSection[];
 };
 
+function navItemsFromDefs(defs: IntegrationNavigationDefinition[] | undefined, integrations: IntegrationStatus[]) {
+  return (defs || []).flatMap((item) => {
+    const integration = integrations.find((candidate) => candidate.id === item.integrationId);
+    if (!integration) return [];
+    return [{ ...item, key: `${item.integrationId}:${item.view}`, label: item.label || integration.label, integration }];
+  });
+}
+
+function defsFromNavBlocks(blocks: IntegrationNavBlockDefinition[] | undefined) {
+  return (blocks || []).flatMap((block) => (block.type === "brand" ? block.brand.items : block.items));
+}
+
+function resolveNavBlocks(blocks: IntegrationNavBlockDefinition[] | undefined, integrations: IntegrationStatus[]): IntegrationNavBlock[] {
+  const resolved: IntegrationNavBlock[] = [];
+  for (const block of blocks || []) {
+    if (block.type === "brand") {
+      const items = navItemsFromDefs(block.brand.items, integrations);
+      if (items.length) resolved.push({ type: "brand", brand: { ...block.brand, items } });
+      continue;
+    }
+    const items = navItemsFromDefs(block.items, integrations);
+    if (items.length) resolved.push({ type: "items", items });
+  }
+  return resolved;
+}
+
+function navigationGroupItems(group: IntegrationNavigationGroup) {
+  return [
+    ...group.items,
+    ...group.basic,
+    ...group.advanced,
+    ...group.sections.flatMap(navigationSectionItems),
+  ];
+}
+
+function navigationSectionItems(section: IntegrationNavSection) {
+  return section.blocks.flatMap((block) => (block.type === "brand" ? block.brand.items : block.items));
+}
+
+function aggregateNavBadge(badges: SettingsNavBadgeModel[]): SettingsNavBadgeModel {
+  if (badges.some((badge) => badge.label === "Ready")) return { tone: "ready", label: "Ready" };
+  if (badges.some((badge) => badge.label === "Off")) return { tone: "warn", label: "Off" };
+  return { tone: "muted", label: "Unset" };
+}
+
 function integrationNavigationGroups(integrations: IntegrationStatus[]) {
-  const includedIds = new Set<string>(INTEGRATION_NAV_GROUPS.flatMap((group) => group.items.map((item) => item.integrationId)));
+  const includedIds = new Set<string>(
+    INTEGRATION_NAV_GROUPS.flatMap((group) => [
+      ...(group.items || []),
+      ...(group.basic || []),
+      ...(group.advanced || []),
+      ...(group.sections || []).flatMap((section) => defsFromNavBlocks(section.blocks)),
+    ]).map((item) => item.integrationId)
+  );
   const groups: IntegrationNavigationGroup[] = INTEGRATION_NAV_GROUPS.map((group) => ({
     id: group.id,
     label: group.label,
-    items: group.items.flatMap((item) => {
-      const integration = integrations.find((candidate) => candidate.id === item.integrationId);
-      if (!integration) return [];
-      return [{ ...item, key: `${item.integrationId}:${item.view}`, label: item.label || integration.label, integration }];
-    }),
-  })).filter((group) => group.items.length > 0);
+    items: navItemsFromDefs(group.items, integrations),
+    basic: navItemsFromDefs(group.basic, integrations),
+    advanced: navItemsFromDefs(group.advanced, integrations),
+    sections: (group.sections || [])
+      .map((section) => ({
+        id: section.id,
+        label: section.label,
+        blocks: resolveNavBlocks(section.blocks, integrations),
+      }))
+      .filter((section) => section.blocks.length > 0),
+  })).filter((group) => navigationGroupItems(group).length > 0);
+
   const other = integrations.filter((integration) => !includedIds.has(integration.id));
   if (other.length) {
     groups.push({
       id: "other",
       label: "Other",
-      items: other.map((integration) => ({
+      items: [],
+      basic: [],
+      advanced: other.map((integration) => ({
         integrationId: integration.id,
-        view: "all",
+        view: "all" as const,
         key: `${integration.id}:all`,
         label: integration.label,
         integration,
       })),
+      sections: [],
     });
   }
   return groups;
@@ -324,10 +503,187 @@ function formFromIntegration(integration: IntegrationStatus): IntegrationFormSta
   return { enabled: integration.enabled, fields };
 }
 
-function sourceLabel(field: IntegrationFieldStatus) {
-  if (field.source === "saved") return "Saved local";
-  if (field.source === "environment") return "Environment";
-  return "Unset";
+function isChooserField(field: IntegrationFieldStatus) {
+  return ["model", "fallback_model", "llm_selector", "llm_model", "image_model"].includes(field.id);
+}
+
+function SettingsChip({
+  label,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
+  const className = `${STATUS_PILL_CLASS} ${
+    active ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-slate-500"
+  }`;
+  if (!onClick) return <span className={className}>{label}</span>;
+  return (
+    <button type="button" onClick={onClick} className={`${className} transition hover:text-slate-200`}>
+      {label}
+    </button>
+  );
+}
+
+function SettingsEnabledControl({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={`inline-flex h-8 cursor-pointer items-center gap-2 rounded-lg border border-[#2c2f37] px-2.5 text-xs font-medium ${
+        checked ? "bg-emerald-500/10 text-emerald-400" : "text-slate-400"
+      } ${disabled ? "cursor-wait opacity-60" : ""}`}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.checked)}
+        className="h-3.5 w-3.5 accent-emerald-400"
+      />
+      Enabled
+    </label>
+  );
+}
+
+function SettingsPaneHeader({
+  title,
+  description,
+  meta,
+  badges,
+  actions,
+}: {
+  title: string;
+  description?: React.ReactNode;
+  meta?: React.ReactNode;
+  badges?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-4 px-5 py-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-lg font-semibold tracking-tight text-white">{title}</h2>
+          {badges}
+        </div>
+        {description ? <div className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{description}</div> : null}
+        {meta}
+      </div>
+      {actions ? <div className="flex shrink-0 flex-wrap gap-2">{actions}</div> : null}
+    </div>
+  );
+}
+
+function SettingsNavFolder({
+  label,
+  defaultOpen = false,
+  children,
+}: {
+  label: string;
+  defaultOpen?: boolean;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <details
+      className="group space-y-0.5"
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 px-2 pb-1 pt-2 marker:content-none [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-3 w-3 shrink-0 -rotate-90 text-slate-600 transition-transform group-open:rotate-0" />
+        <span className="text-[11px] font-medium text-slate-500">{label}</span>
+      </summary>
+      <div className="space-y-0.5">{children}</div>
+    </details>
+  );
+}
+
+function SettingsCollapsible({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <details className="group rounded-xl border border-[#2c2f37] bg-[#101115]/70">
+      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-500 transition-transform group-open:rotate-0" />
+        <span className="text-sm font-medium text-white">{title}</span>
+      </summary>
+      <div className="space-y-2 border-t border-[#2c2f37] px-4 py-3 text-xs leading-5 text-slate-500">{children}</div>
+    </details>
+  );
+}
+
+function SettingsAdvancedDisclosure({
+  open,
+  onToggle,
+  description,
+  configuredCount = 0,
+  children,
+}: {
+  open: boolean;
+  onToggle: () => void;
+  description: string;
+  configuredCount?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="rounded-xl border border-[#2c2f37] bg-[#101115]/70">
+      <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${open ? "" : "-rotate-90"}`} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-white">Advanced</span>
+            <span className={`${STATUS_PILL_CLASS} ${configuredCount ? "bg-emerald-500/10 text-emerald-400" : "bg-white/5 text-slate-500"}`}>
+              {configuredCount ? `${configuredCount} configured` : "Optional"}
+            </span>
+          </div>
+          <p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>
+        </div>
+      </button>
+      {open ? <div className="space-y-8 border-t border-[#2c2f37] px-4 py-4">{children}</div> : null}
+    </section>
+  );
+}
+
+function SettingsFieldCard({
+  title,
+  chips,
+  help,
+  extraHelp,
+  notice,
+  children,
+}: {
+  title: string;
+  chips?: React.ReactNode;
+  help?: string;
+  extraHelp?: string;
+  notice?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-0">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+        <h4 className="text-xs font-medium text-slate-300">{title}</h4>
+        {chips ? <div className="flex flex-wrap items-center gap-1.5">{chips}</div> : null}
+      </div>
+      {children}
+      {help ? <p className="mt-1.5 text-xs leading-5 text-slate-500">{help}</p> : null}
+      {extraHelp ? <p className="mt-1 text-xs leading-5 text-slate-500">{extraHelp}</p> : null}
+      {notice ? <p className="mt-1.5 text-xs leading-5 text-amber-200">{notice}</p> : null}
+    </div>
+  );
 }
 
 function formatTimestamp(value: string | null | undefined) {
@@ -353,7 +709,7 @@ function isTruthyFieldValue(value: string | null | undefined) {
     "project-scoped",
     "organization-scoped",
     "dedicated-project",
-    "dedicated-to-blueprint",
+    "dedicated-to-forma",
   ].includes((value || "").trim().toLowerCase());
 }
 
@@ -433,13 +789,12 @@ type IntegrationFieldGroup = {
   id: string;
   label: string;
   description: string;
+  level: "basic" | "advanced";
   fields: IntegrationFieldStatus[];
 };
 
-const LANGUAGE_MODEL_FIELD_IDS = new Set([
-  "model",
-  "fallback_model",
-  "max_tokens",
+const BASIC_LANGUAGE_MODEL_FIELD_IDS = new Set(["model", "fallback_model", "max_tokens"]);
+const ADVANCED_LANGUAGE_MODEL_FIELD_IDS = new Set([
   "model_revision",
   "model_license",
   "inference_provider",
@@ -451,21 +806,31 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
     const runtimeGroups = [
       {
         id: "language",
-        label: "Language Model Defaults",
-        description: "Choose the default LLM and optional runtime restrictions.",
-        fieldIds: ["llm_selector", "llm_provider", "llm_model", "allowed_providers"],
+        label: "Language model defaults",
+        description: "Choose the default LLM used for new work.",
+        level: "basic" as const,
+        fieldIds: ["llm_selector"],
       },
       {
         id: "image",
-        label: "Image Defaults",
+        label: "Image defaults",
         description: "Fallback image provider and model values for generated visuals.",
+        level: "basic" as const,
         fieldIds: ["image_provider", "image_model"],
       },
       {
         id: "research",
-        label: "Research Tools",
+        label: "Research tools",
         description: "Select the external source used for web research.",
+        level: "basic" as const,
         fieldIds: ["external_source_provider"],
+      },
+      {
+        id: "language-advanced",
+        label: "Provider overrides",
+        description: "Pin a provider, model, or allow-list instead of relying on the default selector.",
+        level: "advanced" as const,
+        fieldIds: ["llm_provider", "llm_model", "allowed_providers"],
       },
     ];
     return runtimeGroups
@@ -478,12 +843,62 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
       .filter((group) => group.fields.length > 0);
   }
 
+  if (integration.id === "tavily") {
+    const tavilyGroups = [
+      {
+        id: "credentials",
+        label: "Credentials",
+        description: "Tavily API key from app.tavily.com.",
+        level: "basic" as const,
+        fieldIds: ["api_key"],
+      },
+      {
+        id: "search",
+        label: "Search",
+        description: "Tavily Search settings used for web queries.",
+        level: "basic" as const,
+        fieldIds: ["search_depth", "search_limit", "include_answer", "include_raw_content"],
+      },
+      {
+        id: "crawl",
+        label: "Crawl",
+        description: "Tavily Crawl settings used when the query is a URL.",
+        level: "basic" as const,
+        fieldIds: ["crawl_max_depth", "crawl_limit", "crawl_extract_depth"],
+      },
+      {
+        id: "research",
+        label: "Research",
+        description: "Tavily Research agent size and report length.",
+        level: "basic" as const,
+        fieldIds: ["research_model", "research_output_length"],
+      },
+      {
+        id: "connection",
+        label: "Connection",
+        description: "Request timeout for Tavily API calls.",
+        level: "advanced" as const,
+        fieldIds: ["timeout_seconds"],
+      },
+    ];
+    return tavilyGroups
+      .map((group) => ({
+        ...group,
+        fields: group.fieldIds
+          .map((fieldId) => integration.fields.find((field) => field.id === fieldId))
+          .filter(Boolean) as IntegrationFieldStatus[],
+      }))
+      .filter((group) => group.fields.length > 0);
+  }
+
   const groups: IntegrationFieldGroup[] = [
-    { id: "credentials", label: "Credentials", description: "Authentication and required credential-scope confirmations.", fields: [] },
-    { id: "language", label: "Language Models", description: "Text model defaults and generation settings.", fields: [] },
-    { id: "image", label: "Image Generation", description: "Image model defaults and rendering settings.", fields: [] },
-    { id: "video", label: "Video Generation", description: "Video endpoints and model defaults.", fields: [] },
-    { id: "connection", label: "Connection & Advanced", description: "Endpoint, timeout, storage, and provider-specific settings.", fields: [] },
+    { id: "credentials", label: "Credentials", description: "Authentication and required credential-scope confirmations.", level: "basic", fields: [] },
+    { id: "language", label: "Language models", description: "Primary text model and generation defaults.", level: "basic", fields: [] },
+    { id: "image", label: "Image generation", description: "Default image model for this provider.", level: "basic", fields: [] },
+    { id: "language-advanced", label: "Language model extras", description: "Revision, license, inference routing, and gated-model options.", level: "advanced", fields: [] },
+    { id: "image-advanced", label: "Image rendering", description: "Size, quality, format, and other rendering overrides.", level: "advanced", fields: [] },
+    { id: "video", label: "Video generation", description: "Video endpoints and model defaults.", level: "advanced", fields: [] },
+    { id: "connection", label: "Connection", description: "Endpoint, timeout, storage, and provider-specific settings.", level: "advanced", fields: [] },
   ];
   const byId = new Map(groups.map((group) => [group.id, group]));
 
@@ -492,17 +907,20 @@ function integrationFieldGroups(integration: IntegrationStatus, view: Integratio
       byId.get("credentials")?.fields.push(field);
     } else if (field.id.startsWith("video_") || field.id === "image_to_video_model") {
       byId.get("video")?.fields.push(field);
-    } else if (integration.id === "image" || integration.id === "together" || field.id.startsWith("image_")) {
-      byId.get("image")?.fields.push(field);
-    } else if (LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
+    } else if (integration.id === "image" || field.id.startsWith("image_")) {
+      if (field.id === "image_model" || field.id === "model") byId.get("image")?.fields.push(field);
+      else byId.get("image-advanced")?.fields.push(field);
+    } else if (BASIC_LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
       byId.get("language")?.fields.push(field);
+    } else if (ADVANCED_LANGUAGE_MODEL_FIELD_IDS.has(field.id)) {
+      byId.get("language-advanced")?.fields.push(field);
     } else {
       byId.get("connection")?.fields.push(field);
     }
   });
   const populatedGroups = groups.filter((group) => group.fields.length > 0);
-  if (view === "llm") return populatedGroups.filter((group) => ["credentials", "language", "connection"].includes(group.id));
-  if (view === "image") return populatedGroups.filter((group) => ["credentials", "image"].includes(group.id));
+  if (view === "llm") return populatedGroups.filter((group) => ["credentials", "language", "language-advanced", "connection"].includes(group.id));
+  if (view === "image") return populatedGroups.filter((group) => ["credentials", "image", "image-advanced"].includes(group.id));
   return populatedGroups;
 }
 
@@ -539,7 +957,7 @@ function ModelCombobox({
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
       }}
     >
-      <div className="flex h-11 border border-[#2c2f37] bg-black focus-within:border-cyan-300">
+      <div className="flex h-9 rounded-lg border border-[#2c2f37] bg-[#101115] focus-within:border-emerald-500">
         <Search className="ml-3 h-4 w-4 shrink-0 self-center text-slate-600" />
         <input
           id={id}
@@ -556,26 +974,26 @@ function ModelCombobox({
           placeholder={placeholder}
           disabled={disabled}
           autoComplete="off"
-          className="h-full min-w-0 flex-1 bg-transparent px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 disabled:cursor-not-allowed disabled:text-slate-600"
+          className="h-full min-w-0 flex-1 bg-transparent px-3 text-sm text-slate-200 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed disabled:text-slate-600"
         />
         <button
           type="button"
           onClick={() => setOpen((current) => !current)}
           disabled={disabled}
           aria-label={`Show ${suggestionType} suggestions`}
-          className="inline-flex w-10 shrink-0 items-center justify-center border-l border-[#2c2f37] text-slate-500 hover:bg-white hover:text-black disabled:cursor-not-allowed"
+          className="inline-flex w-9 shrink-0 items-center justify-center text-slate-500 hover:text-white disabled:cursor-not-allowed"
         >
           <ChevronDown className={`h-4 w-4 transition ${open ? "rotate-180" : ""}`} />
         </button>
       </div>
 
       {open && !disabled && (
-        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto border border-[#3a3d46] bg-[#0f1013] shadow-2xl">
+        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-[#2c2f37] bg-[#181b22] shadow-2xl">
           {filteredOptions.length ? (
             filteredOptions.map((option, index) => (
               <React.Fragment key={option.value}>
                 {option.group && option.group !== filteredOptions[index - 1]?.group && (
-                  <div className="sticky top-0 border-b border-[#3a3d46] bg-[#17181d] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-cyan-300">
+                  <div className="sticky top-0 border-b border-[#2c2f37] bg-[#181b22] px-3 py-2 text-xs font-medium text-slate-400">
                     {option.group}
                   </div>
                 )}
@@ -587,20 +1005,20 @@ function ModelCombobox({
                     onChange(option.value);
                     setOpen(false);
                   }}
-                  className={`block w-full border-b border-[#24262c] px-3 py-3 text-left last:border-b-0 hover:bg-cyan-300/10 ${
-                    option.value === value ? "bg-cyan-300/10" : ""
+                  className={`block w-full px-3 py-2.5 text-left hover:bg-white/5 ${
+                    option.value === value ? "bg-emerald-500/10" : ""
                   }`}
                 >
-                  <span className="block text-sm font-black text-white">{option.label}</span>
-                  <span className="mt-1 block break-all font-mono text-[11px] text-slate-500">{option.value}</span>
-                  {option.detail && <span className="mt-1 block text-[11px] text-slate-400">{option.detail}</span>}
+                  <span className="block text-sm font-medium text-white">{option.label}</span>
+                  <span className="mt-0.5 block break-all font-mono text-[11px] text-slate-500">{option.value}</span>
+                  {option.detail && <span className="mt-0.5 block text-[11px] text-slate-400">{option.detail}</span>}
                 </button>
               </React.Fragment>
             ))
           ) : (
             <div className="px-3 py-3 text-xs leading-5 text-slate-400">No matching suggestion. Keep your custom model ID and save it.</div>
           )}
-          <div className="sticky bottom-0 border-t border-[#3a3d46] bg-[#17181d] px-3 py-2 text-[10px] font-black uppercase tracking-wider text-slate-500">
+          <div className="sticky bottom-0 border-t border-[#2c2f37] bg-[#181b22] px-3 py-2 text-[11px] text-slate-500">
             {suggestionType === "model"
               ? `${options.length} suggestions · any model ID is allowed`
               : "Suggestions only · custom values are allowed"}
@@ -627,6 +1045,8 @@ type ImageProviderSetupProps = {
   onEnabledChange: (integrationId: string, enabled: boolean) => void;
   onSave: () => void;
   onClear: (integration: IntegrationStatus) => void;
+  onReload?: () => void;
+  reloading?: boolean;
   onToggleAdvanced: () => void;
 };
 
@@ -646,6 +1066,8 @@ function ImageProviderSetup({
   onEnabledChange,
   onSave,
   onClear,
+  onReload,
+  reloading,
   onToggleAdvanced,
 }: ImageProviderSetupProps) {
   const enabled = provider !== "none" && (forms.image?.enabled ?? imageIntegration?.enabled ?? true);
@@ -662,120 +1084,102 @@ function ImageProviderSetup({
   const canSave = !saving && provider !== "none" ? missingRequiredFields.length === 0 : !saving;
 
   return (
-    <article className="border border-[#2c2f37] bg-[#17181d]">
-      <div className="border-b border-[#2c2f37] p-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-xl font-black uppercase tracking-wide text-white">Image Generation</h2>
-              <span className="border border-cyan-300/35 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-                {providerOption.label}
-              </span>
-              {providerIntegration?.configured && (
-                <span className="border border-emerald-400/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">
-                  Credentials saved
-                </span>
-              )}
-            </div>
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{providerOption.summary}</p>
+    <article className={CARD_SURFACE_CLASS}>
+      <SettingsPaneHeader
+        title="Image generation"
+        description={providerOption.summary}
+        badges={
+          <>
+            {providerOption.tier === "advanced" && <SettingsNavBadge tone="muted">Advanced</SettingsNavBadge>}
+            <SettingsNavBadge tone={providerIntegration?.configured ? "ready" : "muted"}>
+              {providerIntegration?.configured ? "Configured" : "Unset"}
+            </SettingsNavBadge>
+          </>
+        }
+        meta={
+          <>
             {providerIntegration?.policy_notice && <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{providerIntegration.policy_notice}</p>}
-          </div>
-
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <label className="inline-flex h-11 cursor-pointer items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-300">
-              <input
-                type="checkbox"
-                checked={Boolean(enabled)}
-                onChange={(event) => {
-                  onProviderChange(event.target.checked ? provider : "none");
-                  if (imageIntegration) onEnabledChange(imageIntegration.id, event.target.checked);
-                  if (providerIntegration) onEnabledChange(providerIntegration.id, event.target.checked);
-                }}
-                className="h-4 w-4 accent-cyan-300"
-              />
-              Enabled
-            </label>
-            <button
-              type="button"
-              onClick={onSave}
-              disabled={!canSave}
-              className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-            >
-              <Save className="h-4 w-4" />
+            {providerIntegration?.updated_at && (
+              <p className="mt-2 text-xs text-slate-500">Updated {formatTimestamp(providerIntegration.updated_at)}</p>
+            )}
+          </>
+        }
+        actions={
+          <>
+            <SettingsEnabledControl
+              checked={Boolean(enabled)}
+              disabled={saving}
+              onChange={(checked) => {
+                onProviderChange(checked ? provider : "none");
+                if (imageIntegration) onEnabledChange(imageIntegration.id, checked);
+                if (providerIntegration) onEnabledChange(providerIntegration.id, checked);
+              }}
+            />
+            <button type="button" onClick={onSave} disabled={!canSave} className={BUTTON_PRIMARY_CLASS}>
+              <Save className="h-3.5 w-3.5" />
               Save
             </button>
             {providerIntegration?.configured && (
-              <button
-                type="button"
-                onClick={() => onClear(providerIntegration)}
-                disabled={saving}
-                className="inline-flex h-11 items-center gap-2 border border-rose-400/40 px-4 text-xs font-black uppercase tracking-widest text-rose-200 hover:bg-rose-500 hover:text-white disabled:cursor-wait disabled:opacity-50"
-              >
-                <Trash2 className="h-4 w-4" />
+              <button type="button" onClick={() => onClear(providerIntegration)} disabled={saving} className={BUTTON_DANGER_CLASS}>
+                <Trash2 className="h-3.5 w-3.5" />
                 Clear
               </button>
             )}
-          </div>
-        </div>
-      </div>
+            {onReload && (
+              <button type="button" onClick={onReload} disabled={reloading} className={BUTTON_OUTLINE_CLASS}>
+                <RefreshCw className={`h-3.5 w-3.5 ${reloading ? "animate-spin" : ""}`} />
+                Reload integrations
+              </button>
+            )}
+          </>
+        }
+      />
 
-      <div className="grid gap-5 p-5">
-        <section className="border border-[#2c2f37] bg-[#141519] p-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(180px,280px)_minmax(0,1fr)]">
-            <label className="min-w-0">
-              <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">Provider</span>
+      <div className="space-y-8 p-5">
+        <section>
+          <h3 className="text-sm font-medium text-white">Provider</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Pick the service used for generated product images.</p>
+          <div className="mt-4">
+            <SettingsFieldCard
+              title="Image provider"
+              extraHelp={requiredCount ? `${readyCount}/${requiredCount} required credential fields set.` : undefined}
+            >
               <select
                 value={provider}
                 onChange={(event) => onProviderChange(event.target.value)}
-                className="h-11 w-full border border-[#2c2f37] bg-black px-3 text-sm font-black uppercase tracking-wide text-white outline-none focus:border-cyan-300"
+                className={FIELD_CONTROL_CLASS}
               >
-                {IMAGE_PROVIDER_OPTIONS.map((option) => (
-                  <option key={option.id} value={option.id}>
-                    {option.label}
-                  </option>
-                ))}
+                <optgroup label="Basic">
+                  {IMAGE_PROVIDER_OPTIONS.filter((option) => option.tier === "basic").map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Advanced">
+                  {IMAGE_PROVIDER_OPTIONS.filter((option) => option.tier === "advanced").map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
               </select>
-            </label>
-
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="border border-[#2c2f37] p-3">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Required</div>
-                <div className="mt-2 text-sm font-black text-white">
-                  {requiredCount ? `${readyCount}/${requiredCount} set` : "None"}
-                </div>
-              </div>
-              <div className="border border-[#2c2f37] p-3">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Model</div>
-                <div className="mt-2 truncate text-sm font-black text-white">
-                  {providerOption.preconfigured && !model ? "Provider default" : model || "Off"}
-                </div>
-              </div>
-              <div className="border border-[#2c2f37] p-3">
-                <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">Mode</div>
-              <div className="mt-2 text-sm font-black text-white">{providerOption.preconfigured ? "Preconfigured" : "Configurable"}</div>
-              </div>
-            </div>
+            </SettingsFieldCard>
           </div>
           {missingRequiredFields.length > 0 && (
-            <div className="mt-4 border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
+            <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-200">
               Missing required setup: {missingRequiredFields.map((field) => field.label).join(", ")}.
             </div>
           )}
         </section>
 
         {provider === "none" ? (
-          <section className="border border-[#2c2f37] bg-[#141519] p-5 text-sm leading-6 text-slate-400">
-            Image generation is off. Generated projects will skip product visuals.
-          </section>
+          <p className="text-sm leading-6 text-slate-400">Image generation is off. Generated projects will skip product visuals.</p>
         ) : (
           <>
-            <section className="border border-[#2c2f37] bg-[#141519] p-4">
-              <div className="flex items-center justify-between gap-3">
-                <h3 className="text-sm font-black uppercase tracking-wide text-white">Required Setup</h3>
-                <span className="border border-[#2c2f37] px-2 py-1 text-[10px] font-black uppercase text-slate-500">
-                  API credentials
-                </span>
-              </div>
+            <section>
+              <h3 className="text-sm font-medium text-white">Required setup</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">API credentials and required confirmations for this provider.</p>
               <div className="mt-4 grid gap-4">
                 {credentialFields.length ? (
                   credentialFields.map((field) => (
@@ -793,49 +1197,56 @@ function ImageProviderSetup({
               </div>
             </section>
 
-            <section className="border border-[#2c2f37] bg-[#141519] p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <h3 className="text-sm font-black uppercase tracking-wide text-white">Model Defaults</h3>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
-                    Use the preconfigured default now. Open advanced settings whenever you want to switch models.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={onToggleAdvanced}
-                  className="inline-flex h-10 items-center justify-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
-                >
-                  <SlidersHorizontal className="h-4 w-4" />
-                  {showAdvanced ? "Hide advanced" : "Advanced"}
-                </button>
-              </div>
+            <section>
+              <h3 className="text-sm font-medium text-white">Model defaults</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-500">
+                Use the preconfigured default now. Open advanced for rendering, timeout, and endpoint overrides.
+              </p>
+              <div className="mt-4 grid gap-4">
+                {!providerOption.preconfigured && modelField && (
+                  <SettingsFieldCard
+                    title="Image model"
+                    extraHelp="Search the suggestions or enter any model ID supported by this provider."
+                    chips={!model.trim() ? undefined : <SettingsChip label="Unset" onClick={() => onModelChange("")} />}
+                  >
+                    <ModelCombobox
+                      id={`image-model-${providerOption.id}`}
+                      value={model}
+                      onChange={onModelChange}
+                      options={modelOptions}
+                      placeholder={providerOption.models[0]?.value || modelField.placeholder || "provider/model-name"}
+                    />
+                  </SettingsFieldCard>
+                )}
 
-              {!providerOption.preconfigured && modelField && (
-                <div className="mt-4">
-                  <label htmlFor={`image-model-${providerOption.id}`} className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">
-                    Image model
-                  </label>
-                  <ModelCombobox
-                    id={`image-model-${providerOption.id}`}
-                    value={model}
-                    onChange={onModelChange}
-                    options={modelOptions}
-                    placeholder={providerOption.models[0]?.value || modelField.placeholder || "provider/model-name"}
+                {providerOption.preconfigured && (
+                  <div className="rounded-lg bg-emerald-500/10 p-3 text-sm leading-6 text-emerald-100">
+                    Ready with provider defaults after credentials are saved.
+                    {model ? <span className="font-mono"> Current override: {model}</span> : null}
+                  </div>
+                )}
+
+                {configFields.map((field) => (
+                  <ImageSetupField
+                    key={field.id}
+                    integration={providerIntegration}
+                    field={field}
+                    forms={forms}
+                    onFieldChange={onFieldChange}
                   />
-                </div>
-              )}
+                ))}
+              </div>
+            </section>
 
-              {providerOption.preconfigured && (
-                <div className="mt-4 border border-emerald-400/25 bg-emerald-500/10 p-3 text-sm leading-6 text-emerald-100">
-                  Ready with provider defaults after credentials are saved.
-                  {model ? <span className="font-mono"> Current override: {model}</span> : null}
-                </div>
-              )}
-
-              {configFields.length > 0 && (
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  {configFields.map((field) => (
+            {advancedFields.length > 0 && (
+              <SettingsAdvancedDisclosure
+                open={showAdvanced}
+                onToggle={onToggleAdvanced}
+                description="Optional rendering, timeout, and provider-specific overrides."
+                configuredCount={advancedFields.filter((field) => fieldHasValue(forms, providerIntegration, field)).length}
+              >
+                <div className="grid gap-4">
+                  {advancedFields.map((field) => (
                     <ImageSetupField
                       key={field.id}
                       integration={providerIntegration}
@@ -845,33 +1256,24 @@ function ImageProviderSetup({
                     />
                   ))}
                 </div>
-              )}
-            </section>
-
-            {showAdvanced && (
-              <section className="border border-[#2c2f37] bg-[#141519] p-4">
-                <h3 className="text-sm font-black uppercase tracking-wide text-white">Advanced Provider Settings</h3>
-                <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  {advancedFields.length ? (
-                    advancedFields.map((field) => (
-                      <ImageSetupField
-                        key={field.id}
-                        integration={providerIntegration}
-                        field={field}
-                        forms={forms}
-                        onFieldChange={onFieldChange}
-                      />
-                    ))
-                  ) : (
-                    <p className="text-sm text-slate-500">No advanced settings for this provider.</p>
-                  )}
-                </div>
-              </section>
+              </SettingsAdvancedDisclosure>
             )}
           </>
         )}
       </div>
     </article>
+  );
+}
+
+function FieldStatusChips({ field }: { field: IntegrationFieldStatus }) {
+  return (
+    <>
+      {field.secret && <span className={`${STATUS_PILL_CLASS} bg-cyan-300/10 text-cyan-200`}>Secret</span>}
+      {field.policy_blocked && <span className={`${STATUS_PILL_CLASS} bg-rose-500/10 text-rose-200`}>Not accepted in Cloud</span>}
+      {!field.policy_blocked && field.policy_conditional && (
+        <span className={`${STATUS_PILL_CLASS} bg-amber-500/10 text-amber-200`}>Conditional</span>
+      )}
+    </>
   );
 }
 
@@ -889,50 +1291,46 @@ function ImageSetupField({
   if (!integration) return null;
   const fieldValue = forms[integration.id]?.fields[field.id] || "";
   const confirmationField = isConfirmationField(field);
-  const isModelField = field.id === "image_model" || field.id === "model";
+  const isModelField = isChooserField(field);
   const modelOptions = uniqueModelOptions(modelOptionsForField(integration.id, field.id));
   const selectedImageModel = forms[integration.id]?.fields.image_model || integrationField(integration, "image_model")?.value || "";
   const settingOptions = uniqueModelOptions(settingOptionsForField(integration.id, field.id, selectedImageModel));
   const hasSettingOptions = settingOptions.length > 0;
+  const chooser = isModelField || hasSettingOptions;
+  const inputId = `image-setup-${integration.id}-${field.id}`;
+  const hasValue = Boolean(fieldValue.trim());
 
   return (
-    <div>
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <label htmlFor={`image-setup-${integration.id}-${field.id}`} className="text-xs font-black uppercase tracking-wide text-white">
-          {field.label}
-        </label>
-        {field.secret && <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-0.5 text-[10px] font-black uppercase text-cyan-200">Secret</span>}
-        {field.saved && <span className="border border-[#2c2f37] px-2 py-0.5 text-[10px] font-black uppercase text-slate-500">Saved</span>}
-        {field.policy_blocked && (
-          <span className="border border-rose-400/40 bg-rose-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-rose-200">
-            Not accepted in Cloud
-          </span>
-        )}
-        {!field.policy_blocked && field.policy_conditional && (
-          <span className="border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-black uppercase text-amber-200">
-            Conditional
-          </span>
-        )}
-      </div>
-
+    <SettingsFieldCard
+      title={field.label}
+      help={field.help}
+      extraHelp={isModelField || hasSettingOptions ? "Search the suggestions or enter any model ID supported by this provider." : undefined}
+      notice={field.policy_notice}
+      chips={
+        <>
+          {chooser && hasValue ? <SettingsChip label="Unset" onClick={() => onFieldChange(integration.id, field.id, "")} /> : null}
+          <FieldStatusChips field={field} />
+        </>
+      }
+    >
       {confirmationField ? (
         <label
-          htmlFor={`image-setup-${integration.id}-${field.id}`}
-          className="flex min-h-11 cursor-pointer items-start gap-3 border border-amber-400/35 bg-amber-500/10 px-3 py-3 text-sm leading-5 text-amber-100"
+          htmlFor={inputId}
+          className="flex min-h-9 cursor-pointer items-start gap-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2.5 text-sm leading-5 text-amber-100"
         >
           <input
-            id={`image-setup-${integration.id}-${field.id}`}
+            id={inputId}
             type="checkbox"
             checked={isTruthyFieldValue(fieldValue)}
             onChange={(event) => onFieldChange(integration.id, field.id, event.target.checked ? "confirmed" : "")}
             disabled={!field.editable}
-            className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-300"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-400"
           />
           <span>{confirmationLabel(integration, field)}</span>
         </label>
       ) : isModelField || hasSettingOptions ? (
         <ModelCombobox
-          id={`image-setup-${integration.id}-${field.id}`}
+          id={inputId}
           value={fieldValue}
           options={isModelField ? modelOptions : settingOptions}
           onChange={(value) => onFieldChange(integration.id, field.id, value)}
@@ -942,19 +1340,17 @@ function ImageSetupField({
         />
       ) : (
         <input
-          id={`image-setup-${integration.id}-${field.id}`}
+          id={inputId}
           type={field.secret ? "password" : "text"}
           value={fieldValue}
           onChange={(event) => onFieldChange(integration.id, field.id, event.target.value)}
           placeholder={fieldPlaceholder(field)}
           disabled={!field.editable}
           autoComplete="off"
-          className="h-11 w-full border border-[#2c2f37] bg-black px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 focus:border-cyan-300 disabled:cursor-not-allowed disabled:border-rose-400/25 disabled:text-slate-600 disabled:placeholder:text-rose-200/50"
+          className={FIELD_CONTROL_CLASS}
         />
       )}
-      {field.help && <p className="mt-2 text-xs leading-5 text-slate-500">{field.help}</p>}
-      {field.policy_notice && <p className="mt-2 text-xs leading-5 text-amber-200">{field.policy_notice}</p>}
-    </div>
+    </SettingsFieldCard>
   );
 }
 
@@ -979,93 +1375,107 @@ function IntegrationFieldEditor({
     : field.secret && field.masked_value
     ? `Saved: ${field.masked_value}`
     : field.placeholder || field.env_names[0] || "";
-  const isModelField = ["model", "fallback_model", "llm_selector", "llm_model", "image_model"].includes(field.id);
+  const chooser = isChooserField(field);
   const modelOptions = uniqueModelOptions(modelOptionsForField(integration.id, field.id));
   const inputId = `${integration.id}-${field.id}`;
+  const hasValue = Boolean(value.trim());
+
+  function unsetField() {
+    if (saving) return;
+    onChange("");
+    if (field.saved) onClearSaved();
+  }
 
   return (
-    <div className="border border-[#2c2f37] bg-[#141519] p-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-        <div className="min-w-0">
-          <label htmlFor={inputId} className="text-sm font-black uppercase tracking-wide text-white">
-            {field.label}
-          </label>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <span className="border border-[#2c2f37] px-2 py-1 text-[10px] font-black uppercase text-slate-500">{sourceLabel(field)}</span>
-            {isModelField && (
-              <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-                Type or choose
-              </span>
-            )}
-            {field.secret && (
-              <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">Secret</span>
-            )}
-            {field.policy_blocked && (
-              <span className="border border-rose-400/40 bg-rose-500/10 px-2 py-1 text-[10px] font-black uppercase text-rose-200">
-                Not accepted in Cloud
-              </span>
-            )}
-            {!field.policy_blocked && field.policy_conditional && (
-              <span className="border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-200">Conditional</span>
-            )}
-          </div>
-        </div>
-        <p className="min-w-0 break-all font-mono text-[11px] leading-5 text-slate-500 md:text-right">{field.env_names.join(", ")}</p>
-      </div>
-
-      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
-        {confirmationField ? (
-          <label
-            htmlFor={inputId}
-            className="flex min-h-11 flex-1 cursor-pointer items-start gap-3 border border-amber-400/35 bg-amber-500/10 px-3 py-3 text-sm leading-5 text-amber-100"
-          >
-            <input
-              id={inputId}
-              type="checkbox"
-              checked={isTruthyFieldValue(value)}
-              onChange={(event) => onChange(event.target.checked ? "confirmed" : "")}
-              disabled={!field.editable}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-cyan-300"
-            />
-            <span>{confirmationLabel(integration, field)}</span>
-          </label>
-        ) : isModelField ? (
-          <ModelCombobox
-            id={inputId}
-            value={value}
-            options={modelOptions}
-            onChange={onChange}
-            placeholder={placeholder}
-            disabled={!field.editable}
-          />
-        ) : (
+    <SettingsFieldCard
+      title={field.label}
+      help={field.help}
+      extraHelp={chooser ? "Search the suggestions or enter any model ID supported by this provider." : undefined}
+      notice={field.policy_notice}
+      chips={
+        <>
+          {chooser && hasValue ? <SettingsChip label="Unset" onClick={unsetField} /> : null}
+          <FieldStatusChips field={field} />
+        </>
+      }
+    >
+      {confirmationField ? (
+        <label
+          htmlFor={inputId}
+          className="flex min-h-9 cursor-pointer items-start gap-3 rounded-lg border border-amber-400/35 bg-amber-500/10 px-3 py-2.5 text-sm leading-5 text-amber-100"
+        >
           <input
             id={inputId}
-            type={field.secret ? "password" : "text"}
-            value={value}
-            onChange={(event) => onChange(event.target.value)}
-            placeholder={placeholder}
+            type="checkbox"
+            checked={isTruthyFieldValue(value)}
+            onChange={(event) => onChange(event.target.checked ? "confirmed" : "")}
             disabled={!field.editable}
-            autoComplete="off"
-            className="h-11 min-w-0 flex-1 border border-[#2c2f37] bg-black px-3 font-mono text-sm text-white outline-none placeholder:text-slate-700 focus:border-cyan-300 disabled:cursor-not-allowed disabled:border-rose-400/25 disabled:text-slate-600 disabled:placeholder:text-rose-200/50"
+            className="mt-0.5 h-4 w-4 shrink-0 accent-emerald-400"
           />
-        )}
-        {field.saved && (
-          <button
-            type="button"
-            onClick={onClearSaved}
-            disabled={saving}
-            className="inline-flex h-11 items-center justify-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-          >
-            <Trash2 className="h-4 w-4" />
-            Clear saved
-          </button>
-        )}
-      </div>
-      {field.help && <p className="mt-2 text-xs leading-5 text-slate-500">{field.help}</p>}
-      {isModelField && <p className="mt-2 text-xs leading-5 text-slate-500">Search the suggestions or enter any model ID supported by this provider.</p>}
-      {field.policy_notice && <p className="mt-2 text-xs leading-5 text-amber-200">{field.policy_notice}</p>}
-    </div>
+          <span>{confirmationLabel(integration, field)}</span>
+        </label>
+      ) : chooser ? (
+        <ModelCombobox
+          id={inputId}
+          value={value}
+          options={modelOptions}
+          onChange={onChange}
+          placeholder={placeholder}
+          disabled={!field.editable}
+        />
+      ) : (
+        <input
+          id={inputId}
+          type={field.secret ? "password" : "text"}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          disabled={!field.editable}
+          autoComplete="off"
+          className={FIELD_CONTROL_CLASS}
+        />
+      )}
+    </SettingsFieldCard>
+  );
+}
+
+function IntegrationFieldGroupList({
+  groups,
+  integration,
+  forms,
+  saving,
+  onChange,
+  onClearSaved,
+}: {
+  groups: IntegrationFieldGroup[];
+  integration: IntegrationStatus;
+  forms: Record<string, IntegrationFormState>;
+  saving: boolean;
+  onChange: (fieldId: string, value: string) => void;
+  onClearSaved: (fieldId: string) => void;
+}) {
+  return (
+    <>
+      {groups.map((group) => (
+        <section key={group.id}>
+          <h3 className="text-sm font-medium text-white">{group.label}</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">{group.description}</p>
+          <div className="mt-4 grid gap-4">
+            {group.fields.map((field) => (
+              <IntegrationFieldEditor
+                key={field.id}
+                integration={integration}
+                field={field}
+                value={forms[integration.id]?.fields[field.id] || ""}
+                saving={saving}
+                onChange={(value) => onChange(field.id, value)}
+                onClearSaved={() => onClearSaved(field.id)}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
   );
 }
 
@@ -1100,108 +1510,115 @@ function ImageModelTestPanel({
     : errorDetails;
 
   return (
-    <section className="mt-4 border border-fuchsia-400/40 bg-[#17181d] p-5">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <FlaskConical className="h-4 w-4 text-fuchsia-300" />
-            <h2 className="text-sm font-black uppercase tracking-wide text-white">Test Image Model</h2>
-            <span className="border border-fuchsia-400/35 bg-fuchsia-400/10 px-2 py-1 text-[10px] font-black uppercase text-fuchsia-200">
-              Local / Preview only
-            </span>
-          </div>
-          <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-            Makes one direct provider request. It does not run the main agent, create a project, or execute the image sequence.
-          </p>
-          <p className="mt-2 break-all font-mono text-[11px] text-cyan-200">
-            {provider || "none"}/{model || "no model"}
-          </p>
-        </div>
-        <div className="border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-[11px] leading-5 text-amber-100">
-          Uses saved settings and may incur one provider image-generation charge.
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3">
-        <label htmlFor="image-model-test-prompt" className="text-xs font-black uppercase tracking-wide text-white">
-          Test prompt
-        </label>
-        <textarea
-          id="image-model-test-prompt"
-          value={prompt}
-          onChange={(event) => onPromptChange(event.target.value)}
-          rows={3}
-          maxLength={2000}
-          placeholder="A clean studio product render of a compact electronics enclosure..."
-          className="w-full resize-y border border-[#2c2f37] bg-black px-3 py-3 text-sm leading-6 text-white outline-none placeholder:text-slate-700 focus:border-fuchsia-300"
-        />
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-[11px] text-slate-500">Save provider/model changes above before testing.</span>
+    <article className={`mt-4 ${CARD_SURFACE_CLASS}`}>
+      <SettingsPaneHeader
+        title="Test image model"
+        description="Makes one direct provider request. It does not run the main agent, create a project, or execute the image sequence."
+        badges={<SettingsNavBadge tone="allowed">Local / preview only</SettingsNavBadge>}
+        meta={<p className="mt-2 text-xs text-slate-500">{provider || "none"} / {model || "no model"}</p>}
+        actions={
           <button
             type="button"
             onClick={onRun}
             disabled={running || !prompt.trim() || provider === "none" || !model}
-            className="inline-flex h-11 items-center gap-2 bg-fuchsia-300 px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-fuchsia-200 disabled:cursor-wait disabled:opacity-50"
+            className={BUTTON_PRIMARY_CLASS}
           >
-            <FlaskConical className={`h-4 w-4 ${running ? "animate-pulse" : ""}`} />
-            {running ? "Testing model..." : "Generate one test image"}
+            <FlaskConical className={`h-3.5 w-3.5 ${running ? "animate-pulse" : ""}`} />
+            {running ? "Testing model" : "Generate one test image"}
           </button>
-        </div>
+        }
+      />
+
+      <div className="space-y-6 p-5">
+        <section>
+          <h3 className="text-sm font-medium text-white">Test prompt</h3>
+          <p className="mt-1 text-xs leading-5 text-slate-500">Uses saved settings and may incur one provider image-generation charge.</p>
+          <div className="mt-4">
+            <SettingsFieldCard title="Prompt" extraHelp="Save provider/model changes above before testing.">
+              <textarea
+                id="image-model-test-prompt"
+                value={prompt}
+                onChange={(event) => onPromptChange(event.target.value)}
+                rows={3}
+                maxLength={2000}
+                placeholder="A clean studio product render of a compact electronics enclosure..."
+                className="w-full resize-y rounded-lg border border-[#2c2f37] bg-[#101115] px-3 py-2.5 text-sm leading-6 text-slate-200 outline-none placeholder:text-slate-600 focus:border-emerald-500"
+              />
+            </SettingsFieldCard>
+          </div>
+        </section>
+
+        {error && (
+          <div className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
+            <div className="flex items-center gap-2 text-sm font-medium">
+              <AlertTriangle className="h-4 w-4" />
+              Test failed
+            </div>
+            <p className="mt-2 break-words">{error}</p>
+          </div>
+        )}
+
+        {result && (
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
+            <div className="flex min-h-72 items-center justify-center rounded-lg border border-[#2c2f37] bg-[#101115] p-3">
+              {/* Provider results can be data URLs or short-lived remote URLs, so Next image optimization is not appropriate here. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={result.image_data_url} alt="Direct image model test result" className="max-h-[640px] w-full object-contain" />
+            </div>
+            <div className="grid content-start gap-3">
+              <div className="rounded-lg bg-emerald-500/10 p-3 text-emerald-100">
+                <div className="text-xs font-medium">Request succeeded</div>
+                <div className="mt-2 font-mono text-sm">{result.elapsed_ms.toLocaleString()} ms</div>
+              </div>
+              <div className="rounded-lg border border-[#2c2f37] p-3 font-mono text-xs leading-5 text-slate-400">
+                <div><span className="text-slate-600">Provider:</span> {result.provider}</div>
+                <div><span className="text-slate-600">Model:</span> {result.model}</div>
+                <div><span className="text-slate-600">Size:</span> {result.size || "Provider default"}</div>
+                <div><span className="text-slate-600">Format:</span> {result.output_format}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {diagnostics != null && (
+          <details className="rounded-lg border border-[#2c2f37] bg-[#101115]">
+            <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-slate-400">
+              Raw diagnostics
+            </summary>
+            <pre className="max-h-96 overflow-auto border-t border-[#2c2f37] p-3 text-[11px] leading-5 text-slate-400">
+              {JSON.stringify(diagnostics, null, 2)}
+            </pre>
+          </details>
+        )}
       </div>
-
-      {error && (
-        <div className="mt-5 border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
-          <div className="flex items-center gap-2 font-black uppercase tracking-wide">
-            <AlertTriangle className="h-4 w-4" />
-            Test failed
-          </div>
-          <p className="mt-2 break-words">{error}</p>
-        </div>
-      )}
-
-      {result && (
-        <div className="mt-5 grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-          <div className="flex min-h-72 items-center justify-center border border-[#2c2f37] bg-black p-3">
-            {/* Provider results can be data URLs or short-lived remote URLs, so Next image optimization is not appropriate here. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={result.image_data_url} alt="Direct image model test result" className="max-h-[640px] w-full object-contain" />
-          </div>
-          <div className="grid content-start gap-3">
-            <div className="border border-emerald-400/35 bg-emerald-400/10 p-3 text-emerald-100">
-              <div className="text-[10px] font-black uppercase tracking-widest">Request succeeded</div>
-              <div className="mt-2 font-mono text-sm">{result.elapsed_ms.toLocaleString()} ms</div>
-            </div>
-            <div className="border border-[#2c2f37] p-3 text-xs leading-5 text-slate-400">
-              <div><span className="text-slate-600">Provider:</span> {result.provider}</div>
-              <div><span className="text-slate-600">Model:</span> {result.model}</div>
-              <div><span className="text-slate-600">Size:</span> {result.size || "Provider default"}</div>
-              <div><span className="text-slate-600">Format:</span> {result.output_format}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {diagnostics != null && (
-        <details className="mt-4 border border-[#2c2f37] bg-black">
-          <summary className="cursor-pointer px-3 py-3 text-xs font-black uppercase tracking-widest text-slate-400">
-            Raw diagnostics
-          </summary>
-          <pre className="max-h-96 overflow-auto border-t border-[#2c2f37] p-3 text-[11px] leading-5 text-slate-400">
-            {JSON.stringify(diagnostics, null, 2)}
-          </pre>
-        </details>
-      )}
-    </section>
+    </article>
   );
 }
 
+function formatTime(date: Date): string {
+  try {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
 function ThemeSettingsPanel() {
-  const { theme, setTheme } = useTheme();
-  const options = [
+  const { theme, themeMode, solarInfo, setTheme, setThemeMode } = useTheme();
+
+  const themeCards: Array<{
+    id: FormaTheme;
+    label: string;
+    badge?: string;
+    description: string;
+    icon: typeof Sun;
+    previewStyle: React.CSSProperties;
+  }> = [
     {
-      id: "light" as const,
-      label: "Light",
-      description: "Solarized Light: warm low-glare surfaces for daytime and high-ambient-light use.",
+      id: "light",
+      label: "Solarized Light+",
+      badge: "Day default",
+      description: "Warm low-glare #fdf6e3 surfaces with classic Solarized palette.",
       icon: Sun,
       previewStyle: {
         backgroundColor: solarizedLight.base3,
@@ -1210,9 +1627,22 @@ function ThemeSettingsPanel() {
       },
     },
     {
-      id: "arctic" as const,
+      id: "solarized-dark",
+      label: "Solarized Dark+",
+      badge: "Night default",
+      description: "Deep cyan #002b36 base & #001f26 panels with rich syntax colors.",
+      icon: Moon,
+      previewStyle: {
+        backgroundColor: solarizedDark.base03,
+        borderColor: solarizedDark.base01,
+        color: solarizedDark.base0,
+      },
+    },
+    {
+      id: "arctic",
       label: "Arctic",
-      description: "Cool white panels on a slate page, for higher contrast than Solarized Light.",
+      badge: "Slate Light",
+      description: "Cool white panels on a slate #eef2f7 page for higher contrast.",
       icon: Snowflake,
       previewStyle: {
         backgroundColor: arcticLight.surface,
@@ -1220,174 +1650,150 @@ function ThemeSettingsPanel() {
         color: arcticLight.textBody,
       },
     },
-    {
-      id: "dark" as const,
-      label: "Dark",
-      description: "Low-luminance surfaces with light text for focused or low-light use.",
-      icon: Moon,
-      previewStyle: { backgroundColor: "#111216", borderColor: "#343740", color: "#f1f5f9" },
-    },
   ];
 
   return (
-    <article className="border border-[#2c2f37] bg-[#17181d]">
-      <div className="border-b border-[#2c2f37] p-5">
-        <div className="flex flex-wrap items-center gap-2">
-          <Palette className="h-5 w-5 text-cyan-300" />
-          <h2 className="text-xl font-black uppercase tracking-wide text-white">Appearance</h2>
-          <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-            Browser preference
-          </span>
-        </div>
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-          Choose how Forma looks in this browser. Changes apply immediately across the workspace.
-        </p>
-      </div>
+    <article className={CARD_SURFACE_CLASS}>
+      <SettingsPaneHeader
+        title="Appearance"
+        description="Choose how Forma looks in this browser. Changes apply immediately across the workspace."
+        badges={
+          <div className="flex items-center gap-2">
+            <SettingsNavBadge tone="allowed">Browser preference</SettingsNavBadge>
+            {themeMode === "auto" ? (
+              <SettingsNavBadge tone="ready">
+                Auto {solarInfo?.isDaylight ? "Day" : "Night"}
+              </SettingsNavBadge>
+            ) : null}
+          </div>
+        }
+      />
 
-      <div className="grid gap-5 p-5">
-        <section className="border border-[#2c2f37] bg-[#101115] p-4 sm:p-5">
-          <div>
-            <h3 className="text-sm font-black uppercase tracking-wide text-white">Theme</h3>
-            <p className="mt-2 text-xs leading-5 text-slate-500">
-              Your selection is saved automatically on this device and restored before the interface loads.
-            </p>
+      <div className="space-y-6 p-5">
+        {/* Compact Auto Day/Night Banner & Switch */}
+        <div className="flex flex-col gap-3 rounded-xl border border-[#2c2f37] bg-[#101115] p-3.5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3">
+            <Sparkles
+              className={`h-4 w-4 shrink-0 ${
+                themeMode === "auto" ? "text-emerald-400" : "text-slate-400"
+              }`}
+            />
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-white">Auto Day / Night Schedule</span>
+                {themeMode === "auto" && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                    {solarInfo?.isDaylight ? "☀️ Daytime active" : "🌙 Nighttime active"}
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-slate-400">
+                {themeMode === "auto" && solarInfo
+                  ? `Switches to ${solarInfo.nextEvent === "sunset" ? "Solarized Dark+" : "Solarized Light+"} automatically at ${formatTime(solarInfo.nextTime)}.`
+                  : "Automatically switches between Solarized Light+ by day and Solarized Dark+ at night based on your local sunrise & sunset."}
+              </p>
+            </div>
           </div>
 
-          <div className="mt-5 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
-            {options.map((option) => {
-              const Icon = option.icon;
-              const selected = theme === option.id;
+          <button
+            type="button"
+            onClick={() => setThemeMode(themeMode === "auto" ? "manual" : "auto")}
+            className={`inline-flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+              themeMode === "auto"
+                ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20"
+                : "border-zinc-700/40 bg-[#181b22] text-slate-300 hover:border-zinc-600 hover:text-white"
+            }`}
+          >
+            <span className={`h-2 w-2 rounded-full ${themeMode === "auto" ? "bg-emerald-400" : "bg-slate-500"}`} />
+            <span>{themeMode === "auto" ? "Auto enabled" : "Enable auto"}</span>
+          </button>
+        </div>
+
+        {/* Theme Cards Grid */}
+        <div>
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-medium text-white">Themes</h3>
+            <span className="text-xs text-slate-500">
+              Active: <span className="font-medium text-slate-300">{themeCards.find((c) => c.id === theme)?.label || theme}</span>
+            </span>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Color theme">
+            {themeCards.map((card) => {
+              const Icon = card.icon;
+              const selected = theme === card.id;
               return (
                 <button
-                  key={option.id}
+                  key={card.id}
                   type="button"
                   role="radio"
                   aria-checked={selected}
-                  onClick={() => setTheme(option.id)}
-                  className={`min-w-0 border p-4 text-left transition ${
+                  onClick={() => setTheme(card.id)}
+                  className={`min-w-0 rounded-xl border p-3 text-left transition ${
                     selected
-                      ? "border-cyan-300 bg-cyan-300/10"
-                      : "border-[#2c2f37] bg-[#141519] hover:border-slate-500"
+                      ? "border-emerald-500/50 bg-emerald-500/10 shadow-md ring-1 ring-emerald-500/30"
+                      : "border-zinc-700/40 bg-[#0f1117] hover:border-zinc-600"
                   }`}
                 >
-                  <span className="flex h-20 items-center justify-center border" style={option.previewStyle} aria-hidden="true">
-                    <Icon className="h-7 w-7" />
-                  </span>
-                  <span className="mt-4 flex items-center justify-between gap-3">
-                    <span className="text-sm font-black uppercase tracking-wide text-white">{option.label}</span>
-                    <span className={`border px-2 py-1 text-[10px] font-black uppercase ${
-                      selected
-                        ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-200"
-                        : "border-[#2c2f37] text-slate-500"
-                    }`}>
-                      {selected ? "Selected" : "Choose"}
+                  <span
+                    className="relative flex h-16 items-center justify-center overflow-hidden rounded-lg border border-zinc-700/40 shadow-inner"
+                    style={card.previewStyle}
+                    aria-hidden="true"
+                  >
+                    <Icon className="h-6 w-6" />
+                    <span
+                      className={`absolute right-2 top-2 flex h-4 w-4 items-center justify-center rounded-full border ${
+                        selected ? "border-emerald-400 bg-emerald-500 text-white" : "border-zinc-500 bg-transparent"
+                      }`}
+                    >
+                      {selected ? <Check className="h-3 w-3" /> : null}
                     </span>
                   </span>
-                  <span className="mt-2 block text-xs leading-5 text-slate-500">{option.description}</span>
+                  <div className="mt-3 flex items-center justify-between">
+                    <span className="block text-sm font-medium text-white">{card.label}</span>
+                    {card.badge && (
+                      <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">
+                        {card.badge}
+                      </span>
+                    )}
+                  </div>
+                  <span className="mt-1 block text-xs leading-5 text-slate-400">{card.description}</span>
                 </button>
               );
             })}
           </div>
-        </section>
+        </div>
       </div>
     </article>
   );
 }
 
-function navBodyId(collapseKey: string) {
-  return `settings-nav-${collapseKey.replace(/[^a-z0-9]+/gi, "-")}`;
-}
-
 function SettingsNavSection({
-  collapseKey,
   title,
-  description,
-  icon: Icon,
-  collapsed,
-  onToggle,
   children,
 }: {
-  collapseKey: string;
   title: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  collapsed: boolean;
-  onToggle: () => void;
   children: React.ReactNode;
 }) {
-  const bodyId = navBodyId(collapseKey);
-
   return (
-    <section className="border border-[#2c2f37] bg-[#101115]">
-      <h2>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          className="flex w-full items-center gap-2 bg-black/30 p-3 text-left transition hover:bg-black/50"
-        >
-          <Icon className="h-4 w-4 shrink-0 text-cyan-300" />
-          <span className="min-w-0 flex-1 truncate text-xs font-black uppercase tracking-[0.16em] text-white">{title}</span>
-          <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-        </button>
-      </h2>
-      <div id={bodyId} hidden={collapsed} className="border-t border-[#2c2f37] p-3">
-        <p className="mb-3 text-[11px] leading-5 text-slate-500">{description}</p>
-        <div className="space-y-2">{children}</div>
-      </div>
+    <section className="space-y-1">
+      <h2 className="px-2 pb-1 pt-1 text-[11px] font-medium text-slate-500">{title}</h2>
+      {children}
     </section>
   );
 }
 
-function SettingsNavGroup({
-  collapseKey,
-  label,
-  count,
-  collapsed,
-  onToggle,
-  children,
-}: {
-  collapseKey: string;
-  label: string;
-  count: number;
-  collapsed: boolean;
-  onToggle: () => void;
-  children: React.ReactNode;
-}) {
-  const bodyId = navBodyId(collapseKey);
-
-  return (
-    <div className="border-l border-[#3a3d46] pl-3">
-      <h3>
-        <button
-          type="button"
-          onClick={onToggle}
-          aria-expanded={!collapsed}
-          aria-controls={bodyId}
-          className="flex w-full items-center gap-2 py-1.5 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 transition hover:text-slate-200"
-        >
-          <span className="min-w-0 flex-1 truncate">{label}</span>
-          <span className="shrink-0 tabular-nums text-slate-600">{count}</span>
-          <ChevronDown className={`h-3.5 w-3.5 shrink-0 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-        </button>
-      </h3>
-      <div id={bodyId} hidden={collapsed} className="mt-1 space-y-0.5 pb-1">
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function SettingsNavBadge({ tone, children }: { tone: "ready" | "warn" | "muted"; children: React.ReactNode }) {
+function SettingsNavBadge({ tone, children }: { tone: "ready" | "allowed" | "warn" | "muted"; children: React.ReactNode }) {
   const toneClass =
     tone === "ready"
-      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-      : tone === "warn"
-        ? "border-amber-400/40 bg-amber-500/10 text-amber-300"
-        : "border-[#2c2f37] text-slate-500";
+      ? "bg-emerald-500/10 text-emerald-400"
+      : tone === "allowed"
+        ? "bg-cyan-300/10 text-cyan-200"
+        : tone === "warn"
+          ? "bg-amber-500/10 text-amber-300"
+          : "bg-white/5 text-slate-500";
 
-  return <span className={`shrink-0 border px-1.5 py-0.5 text-[9px] font-black uppercase leading-none ${toneClass}`}>{children}</span>;
+  return <span className={`${STATUS_PILL_CLASS} ${toneClass}`}>{children}</span>;
 }
 
 function SettingsNavRow({
@@ -1397,6 +1803,7 @@ function SettingsNavRow({
   onSelect,
   badge,
   icon: Icon,
+  mark,
 }: {
   label: string;
   title?: string;
@@ -1404,6 +1811,7 @@ function SettingsNavRow({
   onSelect: () => void;
   badge?: React.ReactNode;
   icon?: React.ComponentType<{ className?: string }>;
+  mark?: React.ReactNode;
 }) {
   return (
     <button
@@ -1411,20 +1819,50 @@ function SettingsNavRow({
       onClick={onSelect}
       aria-current={selected ? "page" : undefined}
       title={title || label}
-      className={`flex w-full items-center gap-2 border-l-2 py-2 pl-2.5 pr-2 text-left transition ${
-        selected ? "border-l-cyan-300 bg-cyan-300/10" : "border-l-transparent hover:bg-white/5"
+      className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition ${
+        selected
+          ? "bg-emerald-500/10 font-medium text-emerald-400"
+          : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
       }`}
     >
-      {Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-cyan-300" : "text-slate-500"}`} />}
-      <span className={`min-w-0 flex-1 truncate text-[11px] font-black uppercase tracking-wide ${selected ? "text-white" : "text-slate-400"}`}>
-        {label}
-      </span>
+      {mark}
+      {!mark && Icon && <Icon className={`h-3.5 w-3.5 shrink-0 ${selected ? "text-emerald-400" : "text-zinc-500"}`} />}
+      <span className="min-w-0 flex-1 truncate text-[13px]">{label}</span>
       {badge}
     </button>
   );
 }
 
-export default function UserIntegrationsPage() {
+function SettingsNavBrandGroup({
+  label,
+  logo,
+  selected,
+  badge,
+  children,
+}: {
+  label: string;
+  logo: string;
+  selected: boolean;
+  badge: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-0.5" role="group" aria-label={label}>
+      <div
+        className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 ${
+          selected ? "text-emerald-400" : "text-zinc-400"
+        }`}
+      >
+        <ProviderMarkTile id={logo} />
+        <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{label}</span>
+        {badge}
+      </div>
+      <div className="ml-3 space-y-0.5 border-l border-[#2c2f37] pl-1.5">{children}</div>
+    </div>
+  );
+}
+
+export default function UserIntegrationsPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { authRequired, getToken, hasIdentity, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [payload, setPayload] = useState<IntegrationsPayload | null>(null);
   const [forms, setForms] = useState<Record<string, IntegrationFormState>>({});
@@ -1433,7 +1871,7 @@ export default function UserIntegrationsPage() {
   const [savingId, setSavingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [showImageAdvanced, setShowImageAdvanced] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [imageTestPrompt, setImageTestPrompt] = useState(
     "A clean studio product render of a compact matte-black electronics enclosure, three-quarter view, neutral background, realistic materials."
   );
@@ -1445,9 +1883,6 @@ export default function UserIntegrationsPage() {
   const [allowModelTraining, setAllowModelTraining] = useState(true);
   const [dataUsageLoading, setDataUsageLoading] = useState(true);
   const [dataUsageSaving, setDataUsageSaving] = useState(false);
-  const [collapsedNavKeys, setCollapsedNavKeys] = useState<string[]>([]);
-  const [navCollapseHydrated, setNavCollapseHydrated] = useState(false);
-  const previousNavKeyRef = useRef(selectedNavigationKey);
 
   const navigationGroups = useMemo(
     () => integrationNavigationGroups(payload?.integrations || []),
@@ -1455,54 +1890,9 @@ export default function UserIntegrationsPage() {
   );
 
   const selectedNavigationItem = useMemo(
-    () => navigationGroups.flatMap((group) => group.items).find((item) => item.key === selectedNavigationKey) || null,
+    () => navigationGroups.flatMap(navigationGroupItems).find((item) => item.key === selectedNavigationKey) || null,
     [navigationGroups, selectedNavigationKey]
   );
-
-  const collapsedNav = useMemo(() => new Set(collapsedNavKeys), [collapsedNavKeys]);
-
-  const toggleNavCollapse = useCallback((collapseKey: string) => {
-    setCollapsedNavKeys((current) =>
-      current.includes(collapseKey) ? current.filter((key) => key !== collapseKey) : [...current, collapseKey]
-    );
-  }, []);
-
-  useEffect(() => {
-    try {
-      const stored = JSON.parse(window.localStorage.getItem(NAV_COLLAPSE_STORAGE_KEY) || "null");
-      if (Array.isArray(stored)) setCollapsedNavKeys(stored.filter((entry): entry is string => typeof entry === "string"));
-    } catch {
-      // A blocked or corrupt store just means the navigation starts fully expanded.
-    }
-    setNavCollapseHydrated(true);
-  }, []);
-
-  useEffect(() => {
-    if (!navCollapseHydrated) return;
-    try {
-      window.localStorage.setItem(NAV_COLLAPSE_STORAGE_KEY, JSON.stringify(collapsedNavKeys));
-    } catch {
-      // Persisting the layout is best effort.
-    }
-  }, [collapsedNavKeys, navCollapseHydrated]);
-
-  // Reveal a page that something other than a nav click selected, without fighting a manual collapse.
-  useEffect(() => {
-    if (previousNavKeyRef.current === selectedNavigationKey) return;
-    previousNavKeyRef.current = selectedNavigationKey;
-
-    const path =
-      selectedNavigationKey === "appearance:theme"
-        ? ["account", "account:personalization"]
-        : selectedNavigationKey === "privacy:data-usage"
-          ? ["account", "account:data-controls"]
-          : navigationGroups
-              .filter((group) => group.items.some((item) => item.key === selectedNavigationKey))
-              .map((group) => `integrations:${group.id}`)
-              .flatMap((groupKey) => ["integrations", groupKey]);
-
-    if (path.length) setCollapsedNavKeys((current) => current.filter((key) => !path.includes(key)));
-  }, [navigationGroups, selectedNavigationKey]);
 
   const isAppearanceView = selectedNavigationKey === "appearance:theme";
   const isDataPrivacyView = selectedNavigationKey === "privacy:data-usage";
@@ -1557,6 +1947,117 @@ export default function UserIntegrationsPage() {
     return { provider: providerOption.id, model, modelOptions, providerOption, providerIntegration };
   }, [forms, integrationById]);
 
+  const defaultLlmProvider = useMemo(() => {
+    const runtime = integrationById("runtime");
+    return parsePreferredLlmProvider(
+      formFieldValue(forms, runtime, "llm_selector"),
+      formFieldValue(forms, runtime, "llm_provider"),
+    );
+  }, [forms, integrationById]);
+
+  const imageOutputEnabled = useMemo(() => {
+    const image = integrationById("image");
+    return imageOutputIsEnabled(formFieldValue(forms, image, "enabled"), imageDefaults.provider);
+  }, [forms, imageDefaults.provider, integrationById]);
+
+  const selectedFieldGroups = useMemo(() => {
+    if (!selectedIntegration || isLocalSettingsView || selectedView === "image") return [];
+    return integrationFieldGroups(selectedIntegration, selectedView);
+  }, [isLocalSettingsView, selectedIntegration, selectedView]);
+  const basicFieldGroups = selectedFieldGroups.filter((group) => group.level === "basic");
+  const advancedFieldGroups = selectedFieldGroups.filter((group) => group.level === "advanced");
+  const advancedConfiguredCount = selectedIntegration
+    ? advancedFieldGroups.reduce(
+        (count, group) => count + group.fields.filter((field) => fieldHasValue(forms, selectedIntegration, field)).length,
+        0
+      )
+    : 0;
+
+  const advancedOpenSnapshotRef = useRef({ forms, imageDefaults, selectedIntegration, selectedView });
+  advancedOpenSnapshotRef.current = { forms, imageDefaults, selectedIntegration, selectedView };
+
+  useEffect(() => {
+    const snapshot = advancedOpenSnapshotRef.current;
+    if (snapshot.selectedView === "image") {
+      const ids =
+        snapshot.imageDefaults.provider === "gmi"
+          ? ["image_base_url", ...gmiImageSettingFieldIds(snapshot.imageDefaults.model), "image_timeout_seconds"]
+          : snapshot.imageDefaults.providerOption.advancedFieldIds;
+      setShowAdvanced(
+        ids.some((fieldId) => {
+          const field = integrationField(snapshot.imageDefaults.providerIntegration, fieldId);
+          return Boolean(field && fieldHasValue(snapshot.forms, snapshot.imageDefaults.providerIntegration, field));
+        })
+      );
+      return;
+    }
+    const snapshotIntegration = snapshot.selectedIntegration;
+    if (!snapshotIntegration) {
+      setShowAdvanced(false);
+      return;
+    }
+    const advanced = integrationFieldGroups(snapshotIntegration, snapshot.selectedView).filter((group) => group.level === "advanced");
+    setShowAdvanced(
+      advanced.some((group) => group.fields.some((field) => fieldHasValue(snapshot.forms, snapshotIntegration, field)))
+    );
+  }, [imageDefaults.provider, selectedIntegration?.id, selectedNavigationKey, selectedView]);
+
+  function navItemBadge(item: IntegrationNavigationItem) {
+    return settingsNavBadge({
+      view: item.view,
+      integrationId: item.integrationId,
+      imageProviderId: item.imageProviderId,
+      configured: item.integration.configured,
+      enabled: item.integration.enabled,
+      defaultLlmProvider,
+      imageOutputEnabled,
+      activeImageProvider: imageDefaults.provider,
+    });
+  }
+
+  function renderIntegrationNavRow(item: IntegrationNavigationItem) {
+    const badge = navItemBadge(item);
+    const markId = item.logo || item.integrationId;
+    return (
+      <SettingsNavRow
+        key={item.key}
+        label={item.label}
+        title={navigationDescription(item)}
+        selected={selectedNavigationKey === item.key}
+        icon={item.integrationId === "runtime" ? SlidersHorizontal : undefined}
+        mark={item.integrationId === "runtime" ? undefined : <ProviderMarkTile id={markId} />}
+        onSelect={() => {
+          if (item.imageProviderId) updateImageProvider(item.imageProviderId);
+          else setSelectedNavigationKey(item.key);
+        }}
+        badge={<SettingsNavBadge tone={badge.tone}>{badge.label}</SettingsNavBadge>}
+      />
+    );
+  }
+
+  function renderNavBlock(block: IntegrationNavBlock, keyPrefix: string) {
+    if (block.type === "brand") {
+      const childSelected = block.brand.items.some((item) => item.key === selectedNavigationKey);
+      const badge = aggregateNavBadge(block.brand.items.map(navItemBadge));
+      return (
+        <SettingsNavBrandGroup
+          key={`${keyPrefix}:${block.brand.id}`}
+          label={block.brand.label}
+          logo={block.brand.logo}
+          selected={childSelected}
+          badge={<SettingsNavBadge tone={badge.tone}>{badge.label}</SettingsNavBadge>}
+        >
+          {block.brand.items.map(renderIntegrationNavRow)}
+        </SettingsNavBrandGroup>
+      );
+    }
+    return (
+      <React.Fragment key={`${keyPrefix}:items:${block.items.map((item) => item.key).join("+")}`}>
+        {block.items.map(renderIntegrationNavRow)}
+      </React.Fragment>
+    );
+  }
+
   useEffect(() => {
     setImageTestResult(null);
     setImageTestError(null);
@@ -1592,7 +2093,7 @@ export default function UserIntegrationsPage() {
       const data = (await response.json()) as IntegrationsPayload;
       setPayload(data);
       setForms(Object.fromEntries(data.integrations.map((integration) => [integration.id, formFromIntegration(integration)])));
-      const availableNavigationItems = integrationNavigationGroups(data.integrations).flatMap((group) => group.items);
+      const availableNavigationItems = integrationNavigationGroups(data.integrations).flatMap(navigationGroupItems);
       setSelectedNavigationKey((current) =>
         current === "appearance:theme" || current === "privacy:data-usage" || availableNavigationItems.some((item) => item.key === current)
           ? current
@@ -1870,191 +2371,152 @@ export default function UserIntegrationsPage() {
     }
   }
 
+  const contentWidth = "mx-auto w-full max-w-7xl";
+  const signedOutGrid = embedded
+    ? `${contentWidth} grid gap-5 lg:grid-cols-[minmax(0,1fr)_360px]`
+    : `${contentWidth} grid gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_360px]`;
+  const signedInGrid = embedded
+    ? `${contentWidth} grid gap-5 md:grid-cols-[240px_minmax(0,1fr)]`
+    : `${contentWidth} grid gap-5 px-4 py-5 md:grid-cols-[240px_minmax(0,1fr)]`;
+
+  const pageHeading = (
+    <div className={embedded ? "mb-6 hidden min-w-0 items-center gap-2 md:flex" : "flex min-w-0 items-center gap-2"}>
+      <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+        <Settings className="h-3 w-3" />
+        General
+      </span>
+      <h1 className="truncate text-sm font-semibold tracking-tight text-zinc-100">Settings</h1>
+    </div>
+  );
+
   return (
-    <main className="min-h-screen bg-[#141519] font-sans text-slate-100">
-      <header className="border-b border-[#292b31] bg-[#141519]/95 px-4 py-4">
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
+    <div className={embedded ? "font-sans text-zinc-100" : "min-h-screen bg-[#0f1117] font-sans text-zinc-100"}>
+      {embedded ? pageHeading : (
+        <header className="workspace-chrome-header px-4 pb-5 pt-2">
+          <div className="mx-auto flex w-full max-w-7xl items-center gap-3">
             <Link
               href="/"
-              className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-400 hover:bg-white hover:text-black"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium text-zinc-400 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100"
             >
-              <ArrowLeft className="h-4 w-4" />
+              <ArrowLeft className="h-3.5 w-3.5" />
               Home
             </Link>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <KeyRound className="h-4 w-4 text-cyan-300" />
-                <h1 className="truncate text-lg font-black uppercase tracking-wide text-white">Settings</h1>
-              </div>
-              <p className="mt-1 text-xs leading-5 text-slate-500">
-                Appearance, provider credentials, model defaults, and account data preferences for your Forma workspace.
-              </p>
-            </div>
+            {pageHeading}
           </div>
-          {!isLocalSettingsView && (
-            <button
-              type="button"
-              onClick={reloadRuntime}
-              disabled={loading || !hasIdentity}
-              className="inline-flex h-11 shrink-0 items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-            >
-              <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Reload integrations
-            </button>
-          )}
-        </div>
-      </header>
+        </header>
+      )}
 
       {authRequired && !isLoaded ? (
-        <section className="mx-auto w-full max-w-7xl px-4 py-5">
-          <div className="border border-[#2c2f37] bg-[#17181d] p-6 text-sm text-slate-500">Checking session...</div>
+        <section className={embedded ? contentWidth : `${contentWidth} px-4 py-5`}>
+          <div className={`${CARD_SURFACE_CLASS} p-6 text-sm text-zinc-500`}>Checking session...</div>
         </section>
       ) : !hasIdentity ? (
-        <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <section className={signedOutGrid}>
           <ThemeSettingsPanel />
-          <div className="h-fit border border-[#2c2f37] bg-[#17181d] p-6">
-            <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
-              <KeyRound className="h-4 w-4 text-cyan-300" />
+          <div className={`h-fit ${CARD_SURFACE_CLASS} p-6`}>
+            <div className="inline-flex items-center gap-2 text-sm font-semibold text-zinc-100">
+              <KeyRound className="h-4 w-4 text-emerald-400" />
               Sign in required
             </div>
-            <p className="mt-3 text-sm leading-6 text-slate-400">
+            <p className="mt-3 text-sm leading-6 text-zinc-500">
               Settings store API keys and provider defaults for your account. Sign in to manage your models.
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() => openSignIn({ redirectUrl: typeof window !== "undefined" ? window.location.href : "/settings" })}
-                className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200"
+                className={BUTTON_PRIMARY_CLASS}
               >
-                <KeyRound className="h-4 w-4" />
+                <KeyRound className="h-3.5 w-3.5" />
                 Sign in
               </button>
-              <Link
-                href="/"
-                className="inline-flex h-11 items-center gap-2 border border-[#2c2f37] px-4 text-xs font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
-              >
-                <ArrowLeft className="h-4 w-4" />
-                Home
-              </Link>
+              {embedded ? null : (
+                <Link href="/" className={BUTTON_OUTLINE_CLASS}>
+                  <ArrowLeft className="h-3.5 w-3.5" />
+                  Home
+                </Link>
+              )}
             </div>
           </div>
         </section>
       ) : (
-        <section className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-5 lg:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="min-h-0 border border-[#2c2f37] bg-[#17181d]">
-          <div className="border-b border-[#2c2f37] p-4">
-            <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
-              <SlidersHorizontal className="h-4 w-4 text-cyan-300" />
-              Settings Navigation
-            </div>
-            <p className="mt-3 text-xs leading-5 text-slate-500">Choose a settings area, then a category and its specific page.</p>
+        <section className={signedInGrid}>
+        <aside className={`h-fit min-h-0 max-h-[calc(100vh-180px)] overflow-y-auto ${CARD_SURFACE_CLASS} md:sticky md:top-4`}>
+          <div className="px-3 py-3">
+            <div className="text-sm font-semibold text-white">Settings</div>
+            <p className="mt-1 text-[11px] leading-4 text-slate-400">Account, models, and workspace defaults.</p>
           </div>
 
-          <nav aria-label="Settings" className="max-h-[calc(100vh-220px)] space-y-3 overflow-y-auto p-3">
-            <SettingsNavSection
-              collapseKey="account"
-              title="Account"
-              description="Privacy and personal account preferences."
-              icon={ShieldCheck}
-              collapsed={collapsedNav.has("account")}
-              onToggle={() => toggleNavCollapse("account")}
-            >
-              <SettingsNavGroup
-                collapseKey="account:personalization"
-                label="Personalization"
-                count={1}
-                collapsed={collapsedNav.has("account:personalization")}
-                onToggle={() => toggleNavCollapse("account:personalization")}
-              >
-                <SettingsNavRow
-                  label="Appearance"
-                  title="Choose and save your light or dark theme."
-                  icon={Palette}
-                  selected={isAppearanceView}
-                  onSelect={() => setSelectedNavigationKey("appearance:theme")}
-                />
-              </SettingsNavGroup>
-
-              <SettingsNavGroup
-                collapseKey="account:data-controls"
-                label="Data controls"
-                count={1}
-                collapsed={collapsedNav.has("account:data-controls")}
-                onToggle={() => toggleNavCollapse("account:data-controls")}
-              >
-                <SettingsNavRow
-                  label="Data & Privacy"
-                  title="Control use of your outputs for model improvement."
-                  selected={isDataPrivacyView}
-                  onSelect={() => setSelectedNavigationKey("privacy:data-usage")}
-                  badge={
-                    <SettingsNavBadge tone={dataUsageLoading ? "muted" : allowModelTraining ? "ready" : "warn"}>
-                      {dataUsageLoading ? "Loading" : allowModelTraining ? "Allowed" : "Opted out"}
-                    </SettingsNavBadge>
-                  }
-                />
-              </SettingsNavGroup>
+          <nav aria-label="Settings" className="space-y-4 p-2">
+            <SettingsNavSection title="Account">
+              <SettingsNavRow
+                label="Appearance"
+                title="Choose and save your light or dark theme."
+                icon={Palette}
+                selected={isAppearanceView}
+                onSelect={() => setSelectedNavigationKey("appearance:theme")}
+              />
+              <SettingsNavRow
+                label="Data & Privacy"
+                title="Control use of your outputs for model improvement."
+                icon={ShieldCheck}
+                selected={isDataPrivacyView}
+                onSelect={() => setSelectedNavigationKey("privacy:data-usage")}
+                badge={
+                  <SettingsNavBadge tone={dataUsageLoading ? "muted" : allowModelTraining ? "allowed" : "warn"}>
+                    {dataUsageLoading ? "Loading" : allowModelTraining ? "Allowed" : "Opted out"}
+                  </SettingsNavBadge>
+                }
+              />
             </SettingsNavSection>
 
-            <SettingsNavSection
-              collapseKey="integrations"
-              title="Integrations & Models"
-              description="Workspace defaults, provider credentials, models, and tools."
-              icon={KeyRound}
-              collapsed={collapsedNav.has("integrations")}
-              onToggle={() => toggleNavCollapse("integrations")}
-            >
+            <SettingsNavSection title="Workspace & Models">
               {loading && !payload ? (
-                <div className="border border-[#2c2f37] p-3 text-xs leading-5 text-slate-500">Loading integrations...</div>
+                <div className="px-2 py-2 text-[11px] leading-5 text-slate-500">Loading integrations...</div>
               ) : !navigationGroups.length ? (
-                <div className="border border-[#2c2f37] bg-[#141519] p-3">
-                  <p className="text-xs leading-5 text-slate-400">
+                <div className="rounded-lg border border-[#2c2f37] p-3">
+                  <p className="text-[11px] leading-5 text-slate-400">
                     {error ? "Could not load integrations." : "No integrations are available for this workspace."}
                   </p>
                   {error && <p className="mt-1 break-words text-[11px] leading-5 text-slate-600">{error}</p>}
-                  <button
-                    type="button"
-                    onClick={loadIntegrations}
-                    disabled={loading}
-                    className="mt-3 inline-flex items-center gap-1.5 border border-[#2c2f37] px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-slate-300 transition hover:bg-white hover:text-black disabled:cursor-wait disabled:opacity-50"
-                  >
+                  <button type="button" onClick={loadIntegrations} disabled={loading} className={`mt-3 ${BUTTON_OUTLINE_CLASS}`}>
                     <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
                     Retry
                   </button>
                 </div>
               ) : (
                 navigationGroups.map((group) => {
-                  const groupKey = `integrations:${group.id}`;
+                  const groupItems = navigationGroupItems(group);
+                  const groupSelected = groupItems.some((item) => item.key === selectedNavigationKey);
+                  const sectionFolders = group.sections.map((section) => {
+                    const sectionSelected = navigationSectionItems(section).some((item) => item.key === selectedNavigationKey);
+                    return (
+                      <SettingsNavFolder
+                        key={`${section.id}:${sectionSelected ? "on" : "off"}`}
+                        label={section.label}
+                        defaultOpen={sectionSelected}
+                      >
+                        {section.blocks.map((block, index) => renderNavBlock(block, `${group.id}:${section.id}:${index}`))}
+                      </SettingsNavFolder>
+                    );
+                  });
+
+                  if (group.id === "workspace") {
+                    return (
+                      <div key={group.id} className="space-y-0.5">
+                        {groupItems.map(renderIntegrationNavRow)}
+                      </div>
+                    );
+                  }
+
                   return (
-                    <SettingsNavGroup
-                      key={group.id}
-                      collapseKey={groupKey}
+                    <SettingsNavFolder
+                      key={`${group.id}:${groupSelected ? "on" : "off"}`}
                       label={group.label}
-                      count={group.items.length}
-                      collapsed={collapsedNav.has(groupKey)}
-                      onToggle={() => toggleNavCollapse(groupKey)}
+                      defaultOpen={groupSelected}
                     >
-                      {group.items.map((item) => (
-                        <SettingsNavRow
-                          key={item.key}
-                          label={item.label}
-                          title={navigationDescription(item)}
-                          selected={selectedNavigationKey === item.key}
-                          onSelect={() => {
-                            if (item.imageProviderId) updateImageProvider(item.imageProviderId);
-                            else setSelectedNavigationKey(item.key);
-                          }}
-                          badge={
-                            <SettingsNavBadge
-                              tone={item.integration.configured ? (item.integration.enabled ? "ready" : "warn") : "muted"}
-                            >
-                              {item.integration.configured ? (item.integration.enabled ? "Ready" : "Off") : "Unset"}
-                            </SettingsNavBadge>
-                          }
-                        />
-                      ))}
-                    </SettingsNavGroup>
+                      {group.sections.length ? sectionFolders : groupItems.map(renderIntegrationNavRow)}
+                    </SettingsNavFolder>
                   );
                 })
               )}
@@ -2064,8 +2526,8 @@ export default function UserIntegrationsPage() {
 
         <section className="min-w-0">
           {error && (
-            <div className="mb-4 border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
-              <div className="flex items-center gap-2 font-black uppercase tracking-wide">
+            <div className="mb-4 rounded-lg border border-rose-500/40 bg-rose-950/30 p-4 text-sm leading-6 text-rose-200">
+              <div className="flex items-center gap-2 text-sm font-medium">
                 <AlertTriangle className="h-4 w-4" />
                 Error
               </div>
@@ -2074,8 +2536,8 @@ export default function UserIntegrationsPage() {
           )}
 
           {notice && (
-            <div className="mb-4 border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm leading-6 text-emerald-200">
-              <div className="flex items-center gap-2 font-black uppercase tracking-wide">
+            <div className="mb-4 rounded-lg border border-emerald-500/40 bg-emerald-950/30 p-4 text-sm leading-6 text-emerald-200">
+              <div className="flex items-center gap-2 text-sm font-medium">
                 <CheckCircle className="h-4 w-4" />
                 Applied
               </div>
@@ -2083,120 +2545,73 @@ export default function UserIntegrationsPage() {
             </div>
           )}
 
-          {!isLocalSettingsView && payload && selectedView === "image" && (
-            <section className="mb-4 border border-cyan-300/40 bg-[#17181d] p-5">
-              <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-                <div className="min-w-0">
-                  <div className="inline-flex items-center gap-2 text-sm font-black uppercase tracking-wide text-white">
-                    <KeyRound className="h-4 w-4 text-cyan-300" />
-                    Image Provider
-                  </div>
-                  <p className="mt-2 max-w-2xl text-xs leading-5 text-slate-500">
-                    Pick the provider used for generated product images. Required setup appears below.
-                  </p>
-                </div>
-
-                <div className="grid w-full gap-3 md:grid-cols-[minmax(180px,280px)] xl:max-w-xs">
-                  <label className="min-w-0">
-                    <span className="mb-2 block text-[10px] font-black uppercase tracking-widest text-slate-500">Provider</span>
-                    <select
-                      value={imageDefaults.provider}
-                      onChange={(event) => updateImageProvider(event.target.value)}
-                      className="h-11 w-full border border-[#2c2f37] bg-black px-3 text-sm font-black uppercase tracking-wide text-white outline-none focus:border-cyan-300"
-                    >
-                      {IMAGE_PROVIDER_OPTIONS.map((option) => (
-                        <option key={option.id} value={option.id}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-              </div>
-            </section>
-          )}
-
           {isAppearanceView ? (
             <ThemeSettingsPanel />
           ) : isDataPrivacyView ? (
-            <article className="border border-[#2c2f37] bg-[#17181d]">
-              <div className="border-b border-[#2c2f37] p-5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <ShieldCheck className="h-5 w-5 text-cyan-300" />
-                  <h2 className="text-xl font-black uppercase tracking-wide text-white">Data & Privacy</h2>
-                  <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">
-                    Account preference
-                  </span>
-                </div>
-                <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
-                  Set an account-wide limit on future dataset use. This setting never grants project contribution consent.
-                </p>
-              </div>
+            <article className={CARD_SURFACE_CLASS}>
+              <SettingsPaneHeader
+                title="Data & Privacy"
+                description="Account-wide training-dataset limit. This never grants project contribution consent."
+                badges={<SettingsNavBadge tone="allowed">Account preference</SettingsNavBadge>}
+                actions={
+                  <>
+                    <Link href="/legal/privacy-policy" className={BUTTON_OUTLINE_CLASS}>
+                      Privacy Policy
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={saveDataUsagePreference}
+                      disabled={dataUsageLoading || dataUsageSaving}
+                      className={BUTTON_PRIMARY_CLASS}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      {dataUsageSaving ? "Saving" : "Save"}
+                    </button>
+                  </>
+                }
+              />
 
-              <div className="grid gap-5 p-5">
-                <section className="border border-[#2c2f37] bg-[#101115] p-4 sm:p-5">
-                  <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="max-w-3xl">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h3 className="text-sm font-black uppercase tracking-wide text-white">Account-wide contribution limit</h3>
-                        <span className="border border-emerald-400/35 bg-emerald-400/10 px-2 py-1 text-[10px] font-black uppercase text-emerald-300">
-                          No blanket consent
-                        </span>
-                      </div>
-                      <p className="mt-3 text-sm leading-6 text-slate-400">
-                        Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice. Turn this off to block account-linked outputs from future training-dataset exports.
-                      </p>
-                      <p className="mt-3 text-xs leading-5 text-slate-500">
-                        Eligibility alone does not contribute a project. Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy.
-                      </p>
-                    </div>
-
-                    <label className={`inline-flex h-11 shrink-0 items-center gap-3 border px-3 text-xs font-black uppercase tracking-widest ${
-                      dataUsageLoading
-                        ? "cursor-wait border-[#2c2f37] text-slate-600"
-                        : "cursor-pointer border-[#2c2f37] text-slate-300 hover:border-cyan-300"
-                    }`}>
-                      <input
-                        type="checkbox"
-                        checked={allowModelTraining}
-                        onChange={(event) => setAllowModelTraining(event.target.checked)}
-                        disabled={dataUsageLoading || dataUsageSaving}
-                        className="h-4 w-4 accent-cyan-300"
-                      />
-                      {allowModelTraining ? "Eligible" : "Opted out"}
-                    </label>
-                  </div>
-
-                  <div className="mt-5 flex flex-col gap-3 border-t border-[#2c2f37] pt-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="text-xs leading-5 text-slate-500">
+              <div className="space-y-3 p-5">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-medium text-white">Model training eligibility</h3>
+                    <p className="mt-1 text-xs leading-5 text-slate-500">
                       {dataUsagePreference?.source === "user"
                         ? `Saved ${formatTimestamp(dataUsagePreference.updated_at)}`
-                        : "Using the default setting; no account preference has been saved yet."}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Link
-                        href="/legal/privacy-policy"
-                        className="inline-flex h-10 items-center border border-[#2c2f37] px-3 text-[10px] font-black uppercase tracking-widest text-slate-300 hover:bg-white hover:text-black"
-                      >
-                        Privacy Policy
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={saveDataUsagePreference}
-                        disabled={dataUsageLoading || dataUsageSaving}
-                        className="inline-flex h-10 items-center gap-2 bg-white px-3 text-[10px] font-black uppercase tracking-widest text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-                      >
-                        <Save className="h-4 w-4" />
-                        {dataUsageSaving ? "Saving" : "Save preference"}
-                      </button>
-                    </div>
+                        : "No account preference saved yet."}
+                    </p>
                   </div>
-                </section>
+                  <label
+                    className={`inline-flex h-9 shrink-0 cursor-pointer items-center gap-2 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium ${
+                      dataUsageLoading
+                        ? "cursor-wait text-slate-600"
+                        : allowModelTraining
+                          ? "bg-emerald-500/10 text-emerald-400"
+                          : "text-slate-300"
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={allowModelTraining}
+                      onChange={(event) => setAllowModelTraining(event.target.checked)}
+                      disabled={dataUsageLoading || dataUsageSaving}
+                      className="h-3.5 w-3.5 accent-emerald-400"
+                    />
+                    {allowModelTraining ? "Eligible" : "Opted out"}
+                  </label>
+                </div>
 
-                <section className="border border-[#2c2f37] bg-black/30 p-4 text-xs leading-5 text-slate-500">
-                  <span className="font-black uppercase tracking-widest text-slate-300">How opt-outs are tracked:</span>{" "}
-                      Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set, and eligibility never replaces a project-specific consent record.
-                </section>
+                <SettingsCollapsible title="How this setting works">
+                  <p>Keep account outputs eligible only when you also make a separate, explicit, purpose-specific project contribution choice.</p>
+                  <p>Turn this off to block account-linked outputs from future training-dataset exports. Eligibility alone does not contribute a project.</p>
+                  <p>Deleted projects are contributed only through the optional, unselected choice in the deletion dialog. For access or deletion requests, use the contact in the Privacy Policy.</p>
+                </SettingsCollapsible>
+
+                <SettingsCollapsible title="How opt-outs are tracked">
+                  <p>
+                    Forma stores the account owner ID, an opt-out flag, and created/updated timestamps. Dataset export jobs must exclude every owner ID whose opt-out flag is set, and eligibility never replaces a project-specific consent record.
+                  </p>
+                </SettingsCollapsible>
               </div>
             </article>
           ) : payload && selectedIntegration && selectedView === "image" ? (
@@ -2210,14 +2625,16 @@ export default function UserIntegrationsPage() {
                 model={imageDefaults.model}
                 modelOptions={imageDefaults.modelOptions}
                 saving={savingId !== null}
-                showAdvanced={showImageAdvanced}
+                showAdvanced={showAdvanced}
                 onProviderChange={updateImageProvider}
                 onModelChange={updateImageModel}
                 onFieldChange={updateField}
                 onEnabledChange={updateEnabled}
                 onSave={saveImageDefaults}
                 onClear={clearIntegration}
-                onToggleAdvanced={() => setShowImageAdvanced((current) => !current)}
+                onReload={reloadRuntime}
+                reloading={loading}
+                onToggleAdvanced={() => setShowAdvanced((current) => !current)}
               />
               {payload.image_model_test_available && (
                 <ImageModelTestPanel
@@ -2234,97 +2651,101 @@ export default function UserIntegrationsPage() {
               )}
             </>
           ) : selectedIntegration ? (
-            <article className="border border-[#2c2f37] bg-[#17181d]">
-              <div className="flex flex-col gap-4 border-b border-[#2c2f37] p-5 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="text-xl font-black uppercase tracking-wide text-white">{selectedNavigationItem?.label || selectedIntegration.label}</h2>
-                    {selectedView === "llm" && (
-                      <span className="border border-cyan-300/30 bg-cyan-300/10 px-2 py-1 text-[10px] font-black uppercase text-cyan-200">LLM only</span>
+            <article className={CARD_SURFACE_CLASS}>
+              <SettingsPaneHeader
+                title={selectedNavigationItem?.label || selectedIntegration.label}
+                description={navigationDescription(selectedNavigationItem)}
+                badges={
+                  <>
+                    {navigationGroups.some((group) => group.advanced.some((item) => item.key === selectedNavigationKey)) && (
+                      <SettingsNavBadge tone="muted">Advanced</SettingsNavBadge>
                     )}
-                    <span
-                      className={`border px-2 py-1 text-[10px] font-black uppercase ${
-                        selectedIntegration.configured
-                          ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
-                          : "border-[#2c2f37] text-slate-500"
-                      }`}
-                    >
-                      {selectedIntegration.configured ? "Configured" : "Not configured"}
-                    </span>
+                    {selectedView === "llm" && <SettingsNavBadge tone="allowed">LLM only</SettingsNavBadge>}
+                    <SettingsNavBadge tone={selectedIntegration.configured ? "ready" : "muted"}>
+                      {selectedIntegration.configured ? "Configured" : "Unset"}
+                    </SettingsNavBadge>
                     {selectedIntegration.policy_status && selectedIntegration.policy_status !== "enabled" && (
-                      <span className="border border-amber-400/40 bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase text-amber-300">
-                        BYOK {selectedIntegration.policy_status}
-                      </span>
+                      <SettingsNavBadge tone="warn">BYOK {selectedIntegration.policy_status}</SettingsNavBadge>
                     )}
-                  </div>
-                  <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">{navigationDescription(selectedNavigationItem)}</p>
-                  {selectedIntegration.policy_notice && (
-                    <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{selectedIntegration.policy_notice}</p>
-                  )}
-                  <p className="mt-2 text-xs text-slate-500">Updated {formatTimestamp(selectedIntegration.updated_at)}</p>
-                </div>
-
-                <div className="flex shrink-0 flex-wrap gap-2">
-                  <label className="inline-flex h-11 cursor-pointer items-center gap-2 border border-[#2c2f37] px-3 text-xs font-black uppercase tracking-widest text-slate-300">
-                    <input
-                      type="checkbox"
+                  </>
+                }
+                meta={
+                  <>
+                    {selectedIntegration.policy_notice && (
+                      <p className="mt-2 max-w-3xl text-xs leading-5 text-amber-200">{selectedIntegration.policy_notice}</p>
+                    )}
+                    <p className="mt-2 text-xs text-slate-500">Updated {formatTimestamp(selectedIntegration.updated_at)}</p>
+                  </>
+                }
+                actions={
+                  <>
+                    <SettingsEnabledControl
                       checked={forms[selectedIntegration.id]?.enabled ?? selectedIntegration.enabled}
-                      onChange={(event) => updateEnabled(selectedIntegration.id, event.target.checked)}
-                      className="h-4 w-4 accent-cyan-300"
+                      disabled={savingId === selectedIntegration.id}
+                      onChange={(checked) => updateEnabled(selectedIntegration.id, checked)}
                     />
-                    Enabled
-                  </label>
-                  <button
-                    type="button"
-                    onClick={() => saveIntegration(selectedIntegration)}
-                    disabled={savingId === selectedIntegration.id}
-                    className="inline-flex h-11 items-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-widest text-black hover:bg-slate-200 disabled:cursor-wait disabled:opacity-50"
-                  >
-                    <Save className="h-4 w-4" />
-                    Save
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => clearIntegration(selectedIntegration)}
-                    disabled={savingId === selectedIntegration.id}
-                    className="inline-flex h-11 items-center gap-2 border border-rose-400/40 px-4 text-xs font-black uppercase tracking-widest text-rose-200 hover:bg-rose-500 hover:text-white disabled:cursor-wait disabled:opacity-50"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    Clear
-                  </button>
-                </div>
-              </div>
+                    <button
+                      type="button"
+                      onClick={() => saveIntegration(selectedIntegration)}
+                      disabled={savingId === selectedIntegration.id}
+                      className={BUTTON_PRIMARY_CLASS}
+                    >
+                      <Save className="h-3.5 w-3.5" />
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => clearIntegration(selectedIntegration)}
+                      disabled={savingId === selectedIntegration.id}
+                      className={BUTTON_DANGER_CLASS}
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Clear
+                    </button>
+                    <button type="button" onClick={reloadRuntime} disabled={loading} className={BUTTON_OUTLINE_CLASS}>
+                      <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+                      Reload integrations
+                    </button>
+                  </>
+                }
+              />
 
-              <div className="grid gap-5 p-5">
-                {integrationFieldGroups(selectedIntegration, selectedView).map((group) => (
-                  <section key={group.id} className="border border-[#2c2f37] bg-[#101115] p-4">
-                    <div className="mb-4 border-b border-[#2c2f37] pb-4">
-                      <h3 className="text-sm font-black uppercase tracking-wide text-white">{group.label}</h3>
-                      <p className="mt-2 text-xs leading-5 text-slate-500">{group.description}</p>
-                    </div>
-                    <div className="grid gap-4">
-                      {group.fields.map((field) => (
-                        <IntegrationFieldEditor
-                          key={field.id}
-                          integration={selectedIntegration}
-                          field={field}
-                          value={forms[selectedIntegration.id]?.fields[field.id] || ""}
-                          saving={savingId === selectedIntegration.id}
-                          onChange={(value) => updateField(selectedIntegration.id, field.id, value)}
-                          onClearSaved={() => saveIntegration(selectedIntegration, [field.id])}
-                        />
-                      ))}
-                    </div>
-                  </section>
-                ))}
+              <div className="space-y-8 p-5">
+                {basicFieldGroups.length > 0 && (
+                  <IntegrationFieldGroupList
+                    groups={basicFieldGroups}
+                    integration={selectedIntegration}
+                    forms={forms}
+                    saving={savingId === selectedIntegration.id}
+                    onChange={(fieldId, value) => updateField(selectedIntegration.id, fieldId, value)}
+                    onClearSaved={(fieldId) => saveIntegration(selectedIntegration, [fieldId])}
+                  />
+                )}
+                {advancedFieldGroups.length > 0 && (
+                  <SettingsAdvancedDisclosure
+                    open={showAdvanced}
+                    onToggle={() => setShowAdvanced((current) => !current)}
+                    description="Connection, timeouts, rendering extras, and other optional provider settings."
+                    configuredCount={advancedConfiguredCount}
+                  >
+                    <IntegrationFieldGroupList
+                      groups={advancedFieldGroups}
+                      integration={selectedIntegration}
+                      forms={forms}
+                      saving={savingId === selectedIntegration.id}
+                      onChange={(fieldId, value) => updateField(selectedIntegration.id, fieldId, value)}
+                      onClearSaved={(fieldId) => saveIntegration(selectedIntegration, [fieldId])}
+                    />
+                  </SettingsAdvancedDisclosure>
+                )}
               </div>
             </article>
           ) : (
-            <div className="border border-[#2c2f37] bg-[#17181d] p-6 text-slate-500">No integrations found.</div>
+            <div className={`${CARD_SURFACE_CLASS} p-6 text-slate-500`}>No integrations found.</div>
           )}
         </section>
         </section>
       )}
-    </main>
+    </div>
   );
 }

@@ -11,11 +11,11 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.config import config
-from blueprint_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
-from blueprint_core.jobs.continuous import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobSpec, FirecrawlJobSourceUsage
-from blueprint_core.openai_streams import load_env_file
-from blueprint_core.prompt_continuity import (
+from forma_core.config import config
+from forma_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
+from forma_core.jobs.continuous import ContinuousOpenAIJobMetadata, ContinuousOpenAIJobSpec, FirecrawlJobSourceUsage
+from forma_core.openai_streams import load_env_file
+from forma_core.prompt_continuity import (
     DEFAULT_CONTINUITY_ANCHOR,
     DEFAULT_PROMPT_BATCH_MAX_OUTPUT_TOKENS,
     DEFAULT_PROMPT_BATCH_MODEL,
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     baseten_job = None
     if args.include_baseten_job:
-        baseten_model = args.baseten_model or config.get("BASETEN_BLUEPRINT_MODEL") or config.get("BASETEN_MODEL") or DEFAULT_BASETEN_BATCH_MODEL
+        baseten_model = args.baseten_model or config.get("BASETEN_FORMA_MODEL") or config.get("BASETEN_MODEL") or DEFAULT_BASETEN_BATCH_MODEL
         total_prompts = len(selected_seeds) + 1
         source_context = source_context_from_firecrawl(report.firecrawl)
         metadata = ContinuousOpenAIJobMetadata(

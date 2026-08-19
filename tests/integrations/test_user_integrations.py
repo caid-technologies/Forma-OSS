@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Iterator
 from unittest.mock import patch
 
-from blueprint_core import user_integrations
-from blueprint_core.user_integrations import (
+from forma_core import user_integrations
+from forma_core.user_integrations import (
     EncryptedFileIntegrationStore,
     SupabaseUserIntegrationStore,
     SupabaseWorkspaceIntegrationStore,
@@ -19,7 +19,7 @@ from blueprint_core.user_integrations import (
     default_integration_store,
     integration_status_payload,
 )
-from blueprint_core.llm_providers import resolve_llm_runtime_config
+from forma_core.llm_providers import resolve_llm_runtime_config
 
 
 TEST_ENV_KEYS = (
@@ -50,10 +50,10 @@ TEST_ENV_KEYS = (
     "LLM_PROVIDER",
     "LLM_MODEL",
     "LLM_ALLOWED_PROVIDERS",
-    "BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND",
-    "BLUEPRINT_USER_INTEGRATIONS_BACKEND",
-    "BLUEPRINT_INTEGRATIONS_BACKEND",
-    "BLUEPRINT_DEV_MODE",
+    "FORMA_WORKSPACE_INTEGRATIONS_BACKEND",
+    "FORMA_USER_INTEGRATIONS_BACKEND",
+    "FORMA_INTEGRATIONS_BACKEND",
+    "FORMA_DEV_MODE",
     "DATABASE_BACKEND",
     "DATABASE_PROVIDER",
     "DB_BACKEND",
@@ -62,13 +62,16 @@ TEST_ENV_KEYS = (
     "NEXT_PUBLIC_SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
     "SUPABASE_SECRET_KEY",
-    "BLUEPRINT_USER_SECRETS_KEY",
-    "BLUEPRINT_DEPLOYMENT",
-    "BLUEPRINT_DEPLOYMENT_MODE",
+    "FORMA_USER_SECRETS_KEY",
+    "FORMA_DEPLOYMENT",
+    "FORMA_DEPLOYMENT_MODE",
     "DEPLOYMENT",
     "DEPLOYMENT_MODE",
-    "NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT",
+    "NEXT_PUBLIC_FORMA_DEPLOYMENT",
     "IMAGE_PROVIDER",
+    "IMAGE_OUTPUT_ENABLED",
+    "OPENAI_IMAGE_OUTPUT_ENABLED",
+    "OPENAI_IMAGE_SIZE",
     "IMAGE_API_KEY",
     "IMAGE_BASE_URL",
     "IMAGE_MODEL",
@@ -76,6 +79,8 @@ TEST_ENV_KEYS = (
     "IMAGE_QUALITY",
     "IMAGE_OUTPUT_FORMAT",
     "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_PROJECT_ID",
+    "GCLOUD_PROJECT",
     "GOOGLE_CLOUD_LOCATION",
     "VERTEX_AI_PROJECT",
     "VERTEX_AI_LOCATION",
@@ -103,6 +108,17 @@ TEST_ENV_KEYS = (
     "TOGETHER_IMAGE_SIZE",
     "TOGETHER_IMAGE_STEPS",
     "TOGETHER_IMAGE_OUTPUT_FORMAT",
+    "TOGETHER_MODEL",
+    "TOGETHER_LLM_BASE_URL",
+    "XAI_API_KEY",
+    "XAI_BASE_URL",
+    "XAI_MODEL",
+    "GROK_API_KEY",
+    "TAVILY_API_KEY",
+    "TAVILY_SEARCH_DEPTH",
+    "TAVILY_SEARCH_LIMIT",
+    "TAVILY_CRAWL_MAX_DEPTH",
+    "TAVILY_RESEARCH_MODEL",
     "HF_TOKEN",
     "HUGGINGFACE_API_KEY",
     "HUGGINGFACE_IMAGE_MODEL",
@@ -117,10 +133,12 @@ def isolated_integration_env() -> Iterator[None]:
     user_integrations._ORIGINAL_ENV_VALUES.clear()
     user_integrations._WORKSPACE_CONFIG_CACHE.clear()
     user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
+    user_integrations._google_cloud_auth_available.cache_clear()
     try:
         for key in TEST_ENV_KEYS:
             os.environ.pop(key, None)
-        yield
+        with patch.object(user_integrations, "_google_cloud_auth_available", return_value=False):
+            yield
     finally:
         for key in TEST_ENV_KEYS:
             os.environ.pop(key, None)
@@ -130,6 +148,7 @@ def isolated_integration_env() -> Iterator[None]:
         user_integrations._ORIGINAL_ENV_VALUES.clear()
         user_integrations._WORKSPACE_CONFIG_CACHE.clear()
         user_integrations._WORKSPACE_CONFIG_FAILURE_CACHE.clear()
+        user_integrations._google_cloud_auth_available.cache_clear()
 
 
 def integration_by_id(payload: dict[str, object], integration_id: str) -> dict[str, object]:
@@ -183,9 +202,9 @@ class UserIntegrationTests(unittest.TestCase):
 
         store = SupabaseUserIntegrationStore("user_test")
         with isolated_integration_env(), patch.object(store, "_client", return_value=Client()):
-            os.environ["BLUEPRINT_USER_SECRETS_KEY"] = "current-server-key"
-            with self.assertLogs("blueprint_core.user_integrations", level="ERROR") as logs:
-                with self.assertRaisesRegex(RuntimeError, "different BLUEPRINT_USER_SECRETS_KEY"):
+            os.environ["FORMA_USER_SECRETS_KEY"] = "current-server-key"
+            with self.assertLogs("forma_core.user_integrations", level="ERROR") as logs:
+                with self.assertRaisesRegex(RuntimeError, "different FORMA_USER_SECRETS_KEY"):
                     store.load()
 
         output = "\n".join(logs.output)
@@ -263,6 +282,64 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertTrue(field_by_id(openai, "api_key")["configured"])
             self.assertEqual("environment", field_by_id(runtime, "image_provider")["source"])
             self.assertTrue(field_by_id(runtime, "image_provider")["configured"])
+
+    def test_image_env_defaults_do_not_mark_openai_or_custom_image_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["IMAGE_OUTPUT_ENABLED"] = "false"
+            os.environ["IMAGE_PROVIDER"] = "openai"
+            os.environ["OPENAI_IMAGE_MODEL"] = "gpt-image-2"
+            os.environ["OPENAI_IMAGE_SIZE"] = "1024x1024"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+
+            payload = integration_status_payload(store)
+            image = integration_by_id(payload, "image")
+            openai = integration_by_id(payload, "openai")
+
+            self.assertFalse(image["configured"])
+            self.assertFalse(openai["configured"])
+
+    def test_saved_openai_image_model_without_key_is_not_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration("openai", field_values={"image_model": "gpt-image-2", "image_size": "1024x1024"})
+
+            payload = integration_status_payload(store)
+            openai = integration_by_id(payload, "openai")
+
+            self.assertFalse(openai["configured"])
+            self.assertTrue(field_by_id(openai, "image_model")["saved"])
+
+    def test_tavily_tool_fields_are_saved_and_configure_the_integration(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            store.update_integration(
+                "tavily",
+                field_values={
+                    "api_key": "tvly-test-key",
+                    "search_depth": "advanced",
+                    "search_limit": "8",
+                    "crawl_max_depth": "2",
+                    "research_model": "mini",
+                },
+            )
+
+            payload = integration_status_payload(store)
+            tavily = integration_by_id(payload, "tavily")
+
+            self.assertTrue(tavily["configured"])
+            self.assertEqual("saved", field_by_id(tavily, "api_key")["source"])
+            self.assertEqual("advanced", field_by_id(tavily, "search_depth")["value"])
+            self.assertEqual("8", field_by_id(tavily, "search_limit")["value"])
+            self.assertEqual("2", field_by_id(tavily, "crawl_max_depth")["value"])
+            self.assertEqual("mini", field_by_id(tavily, "research_model")["value"])
+            self.assertNotIn("tvly-test-key", str(payload))
+
+            apply_user_integrations_to_environment(store)
+            self.assertEqual("tvly-test-key", os.environ["TAVILY_API_KEY"])
+            self.assertEqual("advanced", os.environ["TAVILY_SEARCH_DEPTH"])
+            self.assertEqual("8", os.environ["TAVILY_SEARCH_LIMIT"])
+            self.assertEqual("2", os.environ["TAVILY_CRAWL_MAX_DEPTH"])
+            self.assertEqual("mini", os.environ["TAVILY_RESEARCH_MODEL"])
 
     def test_saved_byok_overrides_environment_without_hiding_other_env_providers(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
@@ -395,7 +472,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = SupabaseUserIntegrationStore("user_policy_test")
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "does not accept user-supplied OpenAI API keys"):
                 store.update_integration("openai", field_values={"api_key": "sk-user-owned"})
 
@@ -403,7 +480,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = SupabaseUserIntegrationStore("user_nvidia_policy_test")
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "does not accept user-supplied NVIDIA Build/API Catalog keys"):
                 store.update_integration("nvidia", field_values={"api_key": "nvapi-user-owned"})
 
@@ -411,7 +488,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = SupabaseUserIntegrationStore("user_cloudflare_policy_test")
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "does not accept user-supplied Cloudflare API tokens"):
                 store.update_integration("cloudflare", field_values={"api_key": "cloudflare-user-owned"})
 
@@ -420,7 +497,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_gmi_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -432,7 +509,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = FakeHostedGmiStore()
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "requires confirmation"):
                 store.update_integration("gmi", field_values={"api_key": "gmi-user-owned"})
 
@@ -441,7 +518,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_gmi_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -452,7 +529,7 @@ class UserIntegrationTests(unittest.TestCase):
 
         store = FakeHostedGmiStore()
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             config = store.update_integration(
                 "gmi",
                 field_values={
@@ -472,7 +549,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_together_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -484,7 +561,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = FakeHostedTogetherStore()
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "project-scoped"):
                 store.update_integration("together", field_values={"api_key": "together-user-owned"})
 
@@ -493,7 +570,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_together_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -504,12 +581,12 @@ class UserIntegrationTests(unittest.TestCase):
 
         store = FakeHostedTogetherStore()
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             config = store.update_integration(
                 "together",
                 field_values={
                     "api_key": "together-user-owned",
-                    "project_key_confirmation": "dedicated-to-blueprint",
+                    "project_key_confirmation": "dedicated-to-forma",
                     "image_model": "openai/gpt-image-2",
                 },
             )
@@ -517,14 +594,14 @@ class UserIntegrationTests(unittest.TestCase):
 
         self.assertIsNotNone(together)
         self.assertEqual("together-user-owned", together.field_value("api_key"))
-        self.assertEqual("dedicated-to-blueprint", together.field_value("project_key_confirmation"))
+        self.assertEqual("dedicated-to-forma", together.field_value("project_key_confirmation"))
 
     def test_local_supabase_user_store_allows_openai_api_key(self) -> None:
         class FakeLocalSupabaseStore(SupabaseUserIntegrationStore):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_local_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -699,6 +776,37 @@ class UserIntegrationTests(unittest.TestCase):
             self.assertEqual("2K", os.environ["VERTEX_AI_IMAGE_RESOLUTION"])
             self.assertEqual("16:9", os.environ["VERTEX_AI_IMAGE_ASPECT_RATIO"])
 
+    def test_google_cloud_adc_marks_gemini_and_vertex_configured(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            with patch.object(user_integrations, "_google_cloud_auth_available", return_value=True):
+                payload = integration_status_payload(store)
+
+            gemini = integration_by_id(payload, "gemini")
+            vertex = integration_by_id(payload, "vertex")
+            openai = integration_by_id(payload, "openai")
+
+            self.assertTrue(gemini["configured"])
+            self.assertTrue(gemini["environment_configured"])
+            self.assertTrue(vertex["configured"])
+            self.assertTrue(vertex["environment_configured"])
+            self.assertFalse(openai["configured"])
+
+    def test_vertex_project_env_marks_vertex_configured_without_adc(self) -> None:
+        with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
+            os.environ["GOOGLE_CLOUD_PROJECT_ID"] = "forma-vertex-test"
+            store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
+            payload = integration_status_payload(store)
+
+            vertex = integration_by_id(payload, "vertex")
+            gemini = integration_by_id(payload, "gemini")
+
+            self.assertTrue(vertex["configured"])
+            self.assertTrue(vertex["environment_configured"])
+            self.assertEqual("environment", field_by_id(vertex, "project")["source"])
+            self.assertEqual("forma-vertex-test", field_by_id(vertex, "project")["value"])
+            self.assertFalse(gemini["configured"])
+
     def test_together_image_config_becomes_active_image_provider(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
             store = UserIntegrationStore(Path(tmpdir) / "integrations.json")
@@ -832,7 +940,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = SupabaseUserIntegrationStore("user_image_policy_test")
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "does not accept generic user-supplied image provider API keys"):
                 store.update_integration("image", field_values={"api_key": "image-provider-secret"})
 
@@ -841,7 +949,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_hf_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -853,7 +961,7 @@ class UserIntegrationTests(unittest.TestCase):
         store = FakeHostedHuggingFaceStore()
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             with self.assertRaisesRegex(ValueError, "requires confirmation"):
                 store.update_integration("huggingface", field_values={"api_key": "hf_secret"})
 
@@ -862,7 +970,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_hf_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -873,7 +981,7 @@ class UserIntegrationTests(unittest.TestCase):
 
         store = FakeHostedHuggingFaceStore()
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             config = store.update_integration(
                 "huggingface",
                 field_values={
@@ -891,7 +999,7 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_hosted_user_policy_sanitizes_saved_openai_api_key(self) -> None:
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             config = user_integrations.UserIntegrationConfig()
             integration = config.ensure_integration("openai")
             integration.set_field("api_key", "sk-legacy-user-owned")
@@ -906,7 +1014,7 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_hosted_user_policy_sanitizes_saved_nvidia_api_key(self) -> None:
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             config = user_integrations.UserIntegrationConfig()
             integration = config.ensure_integration("nvidia")
             integration.set_field("api_key", "nvapi-legacy-user-owned")
@@ -921,7 +1029,7 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_hosted_user_policy_sanitizes_saved_cloudflare_api_key(self) -> None:
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             config = user_integrations.UserIntegrationConfig()
             integration = config.ensure_integration("cloudflare")
             integration.set_field("api_key", "cloudflare-legacy-user-owned")
@@ -939,7 +1047,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_nvidia_status_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -949,7 +1057,7 @@ class UserIntegrationTests(unittest.TestCase):
                 return config
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             store = FakeHostedNvidiaStore()
             nvidia = store.config.ensure_integration("nvidia")
             nvidia.set_field("api_key", "nvapi-legacy-user-owned")
@@ -970,7 +1078,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_cloudflare_status_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -980,7 +1088,7 @@ class UserIntegrationTests(unittest.TestCase):
                 return config
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             store = FakeHostedCloudflareStore()
             cloudflare = store.config.ensure_integration("cloudflare")
             cloudflare.set_field("api_key", "cloudflare-legacy-user-owned")
@@ -1001,7 +1109,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_gmi_status_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -1011,7 +1119,7 @@ class UserIntegrationTests(unittest.TestCase):
                 return config
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             store = FakeHostedGmiStore()
             gmi = store.config.ensure_integration("gmi")
             gmi.set_field("api_key", "gmi-user-owned")
@@ -1034,7 +1142,7 @@ class UserIntegrationTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.config = user_integrations.UserIntegrationConfig()
                 self.user_id = "user_together_status_policy_test"
-                self.path = Path(".blueprint/test")
+                self.path = Path(".forma/test")
 
             def load(self) -> user_integrations.UserIntegrationConfig:
                 return self.config
@@ -1044,11 +1152,11 @@ class UserIntegrationTests(unittest.TestCase):
                 return config
 
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEPLOYMENT"] = "true"
+            os.environ["FORMA_DEPLOYMENT"] = "true"
             store = FakeHostedTogetherStore()
             together = store.config.ensure_integration("together")
             together.set_field("api_key", "together-user-owned")
-            together.set_field("project_key_confirmation", "dedicated-to-blueprint")
+            together.set_field("project_key_confirmation", "dedicated-to-forma")
 
             payload = integration_status_payload(store)
             together_payload = integration_by_id(payload, "together")
@@ -1064,7 +1172,7 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_default_store_uses_encrypted_local_file_unless_workspace_backend_is_supabase(self) -> None:
         with isolated_integration_env():
-            os.environ.pop("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", None)
+            os.environ.pop("FORMA_WORKSPACE_INTEGRATIONS_BACKEND", None)
             self.assertIsInstance(default_integration_store(), EncryptedFileIntegrationStore)
 
     def test_user_store_uses_supabase_when_supabase_is_configured(self) -> None:
@@ -1079,7 +1187,7 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_user_store_file_backend_override_uses_encrypted_local_file(self) -> None:
         with isolated_integration_env():
-            os.environ["BLUEPRINT_USER_INTEGRATIONS_BACKEND"] = "file"
+            os.environ["FORMA_USER_INTEGRATIONS_BACKEND"] = "file"
             os.environ["SUPABASE_URL"] = "https://example.supabase.co"
             os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
 
@@ -1090,7 +1198,7 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_encrypted_file_store_never_writes_secret_plaintext(self) -> None:
         with isolated_integration_env(), tempfile.TemporaryDirectory() as tmpdir:
-            os.environ["BLUEPRINT_USER_SECRETS_KEY"] = "test-encryption-key"
+            os.environ["FORMA_USER_SECRETS_KEY"] = "test-encryption-key"
             store = EncryptedFileIntegrationStore(Path(tmpdir) / "workspace.enc.json")
 
             store.update_integration(
@@ -1128,7 +1236,7 @@ class UserIntegrationTests(unittest.TestCase):
     def test_workspace_supabase_override_is_explicit_opt_in_from_sqlite(self) -> None:
         with isolated_integration_env():
             os.environ["DATABASE_BACKEND"] = "sqlite"
-            os.environ["BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
+            os.environ["FORMA_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
             os.environ["SUPABASE_URL"] = "https://example.supabase.co"
             os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
 
@@ -1144,9 +1252,9 @@ class UserIntegrationTests(unittest.TestCase):
 
     def test_dev_mode_keeps_workspace_integrations_local_despite_override(self) -> None:
         with isolated_integration_env():
-            os.environ["BLUEPRINT_DEV_MODE"] = "true"
+            os.environ["FORMA_DEV_MODE"] = "true"
             os.environ["DATABASE_BACKEND"] = "supabase"
-            os.environ["BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
+            os.environ["FORMA_WORKSPACE_INTEGRATIONS_BACKEND"] = "supabase"
             os.environ["SUPABASE_URL"] = "https://example.supabase.co"
             os.environ["SUPABASE_SERVICE_ROLE_KEY"] = "service-role-secret"
 
@@ -1185,7 +1293,7 @@ class UserIntegrationTests(unittest.TestCase):
 
                 return Client()
 
-        with isolated_integration_env(), self.assertLogs("blueprint_core.user_integrations", level="WARNING") as logs:
+        with isolated_integration_env(), self.assertLogs("forma_core.user_integrations", level="WARNING") as logs:
             first = apply_user_integrations_to_environment(BrokenWorkspaceStore())
             second = apply_user_integrations_to_environment(BrokenWorkspaceStore())
 

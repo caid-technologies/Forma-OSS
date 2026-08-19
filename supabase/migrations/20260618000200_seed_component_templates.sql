@@ -1,4 +1,4 @@
--- Reusable component library copied from blueprint.db.
+-- Reusable component library copied from forma.db.
 
 with seed (
   id,

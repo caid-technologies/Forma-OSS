@@ -40,7 +40,7 @@ Rust integrations are developed in [`isayahc/Forma-Rust`](https://github.com/isa
 ```bash
 git clone https://github.com/isayahc/Forma-Rust.git
 cd Forma-Rust
-cargo run --manifest-path rust/Cargo.toml -p blueprint-edge -- linux-snapshot
+cargo run --manifest-path rust/Cargo.toml -p forma-edge -- linux-snapshot
 ```
 
 ## Adding a new agent

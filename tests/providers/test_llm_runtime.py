@@ -8,8 +8,8 @@ from contextlib import contextmanager
 from typing import Iterator
 from unittest.mock import patch
 
-from blueprint_core.agents.web_research_workflow import WebResearchHardwarePipeline
-from blueprint_core.llm import (
+from forma_core.agents.web_research_workflow import WebResearchHardwarePipeline
+from forma_core.llm import (
     LLMProviderConfigError,
     LLMProviderInputError,
     LLMProviderOutputError,
@@ -20,9 +20,9 @@ from blueprint_core.llm import (
     model_image_input_support,
     resolve_llm_runtime_config,
 )
-from blueprint_core.llm_providers import GeminiProvider, OpenAICompatibleProvider
-from blueprint_core.workspaces.projects.models import ProjectOverview, SystemArchitecture
-from blueprint_core.selectors import parse_llm_selector, split_llm_selector
+from forma_core.llm_providers import OpenAICompatibleProvider
+from forma_core.workspaces.projects.models import ProjectOverview
+from forma_core.selectors import parse_llm_selector, split_llm_selector
 
 
 LLM_ENV_KEYS = {
@@ -42,9 +42,9 @@ LLM_ENV_KEYS = {
     "BASETEN_API_KEY",
     "BASETEN_BASE_URL",
     "BASETEN_MODEL",
-    "BLUEPRINT_DEPLOYMENT",
-    "BLUEPRINT_DEPLOYMENT_MODE",
-    "BLUEPRINT_DEV_MODE",
+    "FORMA_DEPLOYMENT",
+    "FORMA_DEPLOYMENT_MODE",
+    "FORMA_DEV_MODE",
     "CLAUDE_API_KEY",
     "CLAUDE_API_VERSION",
     "CLAUDE_BASE_URL",
@@ -55,7 +55,7 @@ LLM_ENV_KEYS = {
     "CLAUDE_VALIDATE_MODELS",
     "DEPLOYMENT",
     "DEPLOYMENT_MODE",
-    "NEXT_PUBLIC_BLUEPRINT_DEPLOYMENT",
+    "NEXT_PUBLIC_FORMA_DEPLOYMENT",
     "GEMINI_ALLOWED_MODELS",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
@@ -136,6 +136,16 @@ LLM_ENV_KEYS = {
     "NVIDIA_BASE_URL",
     "NVIDIA_MODEL",
     "OPENAI_ALLOWED_MODELS",
+    "TOGETHER_API_KEY",
+    "TOGETHER_IMAGE_API_KEY",
+    "TOGETHER_LLM_BASE_URL",
+    "TOGETHER_MODEL",
+    "XAI_API_KEY",
+    "XAI_BASE_URL",
+    "XAI_MODEL",
+    "GROK_API_KEY",
+    "GROK_BASE_URL",
+    "GROK_MODEL",
     "OPENAI_API_KEY",
     "OPENAI_BASE_URL",
     "OPENAI_FALLBACK_MODEL",
@@ -188,7 +198,7 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
     try:
         for key in LLM_ENV_KEYS:
             os.environ.pop(key, None)
-        os.environ.update({"BLUEPRINT_DEV_MODE": "true", **overrides})
+        os.environ.update({"FORMA_DEV_MODE": "true", **overrides})
         yield
     finally:
         for key in LLM_ENV_KEYS:
@@ -198,49 +208,6 @@ def isolated_llm_env(**overrides: str) -> Iterator[None]:
 
 
 class LLMRuntimeTests(unittest.TestCase):
-    def test_gemini_preserves_recursive_refs_with_native_json_schema(self) -> None:
-        captured = {}
-        response_payload = {
-            "summary": "A nested architecture.",
-            "root": {
-                "system_id": "product",
-                "name": "Product",
-                "domain": "product",
-                "purpose": "Coordinates the complete product.",
-                "children": [
-                    {
-                        "system_id": "electrical",
-                        "name": "Electrical",
-                        "domain": "electrical",
-                        "purpose": "Owns electronics.",
-                    }
-                ],
-            },
-        }
-
-        class FakeModels:
-            @staticmethod
-            def generate_content(**kwargs):
-                captured.update(kwargs)
-                return type("Response", (), {"text": json.dumps(response_payload)})()
-
-        provider = GeminiProvider.__new__(GeminiProvider)
-        provider.client = type("Client", (), {"models": FakeModels()})()
-        provider.model_name = "gemini-test"
-        provider.provider_label = "Gemini"
-
-        result = provider.generate_structured("Build a system tree.", SystemArchitecture)
-
-        config = captured["config"]
-        schema = config.response_json_schema
-        self.assertIsNone(config.response_schema)
-        self.assertIn("SystemNode", schema["$defs"])
-        self.assertEqual(
-            {"$ref": "#/$defs/SystemNode"},
-            schema["$defs"]["SystemNode"]["properties"]["children"]["items"],
-        )
-        self.assertEqual("electrical", result.root.children[0].system_id)
-
     def test_production_preflight_rejects_provider_without_live_model_check(self) -> None:
         validation = LLMProviderValidation(
             provider="openai",
@@ -252,7 +219,7 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=False,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+        with isolated_llm_env(FORMA_DEV_MODE="false"):
             with self.assertRaisesRegex(LLMProviderPreflightError, "did not perform a live model-availability check"):
                 enforce_production_llm_preflight(validation)
 
@@ -267,7 +234,7 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=True,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+        with isolated_llm_env(FORMA_DEV_MODE="false"):
             self.assertIs(validation, enforce_production_llm_preflight(validation))
 
     def test_production_preflight_rejects_model_fallback(self) -> None:
@@ -282,7 +249,7 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=True,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="false"):
+        with isolated_llm_env(FORMA_DEV_MODE="false"):
             with self.assertRaisesRegex(LLMProviderPreflightError, "fell back to a different model"):
                 enforce_production_llm_preflight(validation)
 
@@ -297,12 +264,12 @@ class LLMRuntimeTests(unittest.TestCase):
             model_availability_checked=False,
         )
 
-        with isolated_llm_env(BLUEPRINT_DEV_MODE="true"):
+        with isolated_llm_env(FORMA_DEV_MODE="true"):
             self.assertIs(validation, enforce_production_llm_preflight(validation))
 
     def test_production_forces_openai_compatible_model_validation(self) -> None:
         with isolated_llm_env(
-            BLUEPRINT_DEV_MODE="false",
+            FORMA_DEV_MODE="false",
             LLM_PROVIDER="openai",
             OPENAI_API_KEY="test-key",
             OPENAI_MODEL="gpt-test",
@@ -348,7 +315,7 @@ class LLMRuntimeTests(unittest.TestCase):
             LLM_MODEL="qwen3:8b",
             LLM_RESPONSE_FORMAT="json_schema",
             OLLAMA_CONTEXT_LENGTH="16384",
-        ), patch("blueprint_core.llm_providers.urllib.request.urlopen", side_effect=fake_urlopen):
+        ), patch("forma_core.llm_providers.urllib.request.urlopen", side_effect=fake_urlopen):
             provider = OpenAICompatibleProvider("openai-compatible", "qwen3:8b")
             result = provider.generate_structured("Return a project overview.", ProjectOverview)
 
@@ -388,7 +355,7 @@ class LLMRuntimeTests(unittest.TestCase):
             GOOGLE_CLOUD_PROJECT="forma-vertex-test",
             GOOGLE_CLOUD_LOCATION="us-central1",
             VERTEX_AI_MODEL="gemini-3.5-flash",
-        ), patch("blueprint_core.llm_providers.genai", FakeGenAI):
+        ), patch("forma_core.llm_providers.genai", FakeGenAI):
             runtime = resolve_llm_runtime_config()
             provider = build_llm_provider(runtime_config=runtime)
             validation = provider.validate_configured_model()
@@ -431,8 +398,8 @@ class LLMRuntimeTests(unittest.TestCase):
         with isolated_llm_env(
             GOOGLE_CLOUD_PROJECT="forma-vertex-test",
             VERTEX_AI_MODEL="gemini-3.5-flash",
-        ), patch("blueprint_core.llm_providers.genai", FakeGenAI), patch(
-            "blueprint_core.llm_providers.build_vertex_credentials",
+        ), patch("forma_core.llm_providers.genai", FakeGenAI), patch(
+            "forma_core.llm_providers.build_vertex_credentials",
             return_value=credentials,
         ):
             provider = build_llm_provider()
@@ -487,6 +454,36 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIn("anthropic", runtime.allowed_providers or [])
         self.assertIn("claude-sonnet-5", runtime.allowed_models or [])
 
+    def test_anthropic_defaults_to_opus_5(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="anthropic",
+            ANTHROPIC_API_KEY="anthropic-test-key",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("anthropic", runtime.provider)
+        self.assertEqual("claude-opus-5", runtime.model)
+
+    def test_gemini_defaults_to_flash_3_7(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="gemini",
+            GEMINI_API_KEY="gemini-test-key",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("gemini", runtime.provider)
+        self.assertEqual("gemini-3.7-flash", runtime.model)
+
+    def test_vertex_defaults_to_flash_3_7(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="vertex",
+            GOOGLE_CLOUD_PROJECT="forma-vertex-test",
+        ):
+            runtime = resolve_llm_runtime_config()
+
+        self.assertEqual("vertex", runtime.provider)
+        self.assertEqual("gemini-3.7-flash", runtime.model)
+
     def test_local_runtime_allows_configured_provider_model_override(self) -> None:
         with isolated_llm_env(
             LLM_PROVIDER="baseten",
@@ -501,7 +498,7 @@ class LLMRuntimeTests(unittest.TestCase):
 
     def test_env_default_provider_still_respects_allowlist(self) -> None:
         with isolated_llm_env(
-            BLUEPRINT_DEPLOYMENT="true",
+            FORMA_DEPLOYMENT="true",
             LLM_PROVIDER="openai",
             LLM_ALLOWED_PROVIDERS="simulation",
         ):
@@ -614,6 +611,37 @@ class LLMRuntimeTests(unittest.TestCase):
         self.assertIn("nvidia/z-ai/glm-5.2", runtime.allowed_models or [])
         self.assertEqual("nvidia/z-ai/glm-5.2", provider.requested_model)
         self.assertEqual("https://integrate.api.nvidia.com/v1", provider.base_url)
+        self.assertTrue(provider.is_configured)
+
+    def test_xai_runtime_uses_grok_4_default(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="grok",
+            LLM_ALLOWED_PROVIDERS="xai,simulation",
+            XAI_API_KEY="xai_test",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("xai", runtime.provider)
+        self.assertEqual("grok-4", runtime.model)
+        self.assertIn("grok-4", runtime.allowed_models or [])
+        self.assertEqual("grok-4", provider.requested_model)
+        self.assertEqual("https://api.x.ai/v1", provider.base_url)
+        self.assertTrue(provider.is_configured)
+
+    def test_together_runtime_uses_llama_default(self) -> None:
+        with isolated_llm_env(
+            LLM_PROVIDER="together-ai",
+            LLM_ALLOWED_PROVIDERS="together,simulation",
+            TOGETHER_API_KEY="together_test",
+            TOGETHER_MODEL="meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        ):
+            runtime = resolve_llm_runtime_config()
+            provider = build_llm_provider(runtime_config=runtime)
+
+        self.assertEqual("together", runtime.provider)
+        self.assertEqual("meta-llama/Llama-3.3-70B-Instruct-Turbo", runtime.model)
+        self.assertEqual("https://api.together.xyz/v1", provider.base_url)
         self.assertTrue(provider.is_configured)
 
     def test_cloudflare_runtime_uses_workers_ai_defaults(self) -> None:

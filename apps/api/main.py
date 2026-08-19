@@ -43,7 +43,7 @@ def _ensure_api_package_imports() -> None:
 
 _ensure_api_package_imports()
 
-from blueprint_core.debug import (
+from forma_core.debug import (
     api_error_detail,
     debug_mode_enabled,
     exception_debug_payload,
@@ -60,8 +60,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(REPO_ROOT / ".env")
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
-from blueprint_core.vertex_auth import VercelOidcContextMiddleware
+from forma_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
+from forma_core.vertex_auth import VercelOidcContextMiddleware
 
 apply_user_integrations_to_environment()
 
@@ -69,7 +69,7 @@ from apps.api.logging_config import configure_backend_logging
 
 configure_backend_logging()
 
-from blueprint_core.database import (
+from forma_core.database import (
     append_project_revision,
     DesignBriefNotFoundError,
     count_component_templates,
@@ -91,29 +91,33 @@ from blueprint_core.database import (
     list_latest_project_revisions,
     list_project_deletion_audits,
     list_project_generation_jobs,
+    project_engagement_for_ids,
+    remix_generated_project,
     save_alpha_signup,
+    save_project_for_user,
+    unsave_project_for_user,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
     upsert_project_chat,
 )
-from blueprint_core.project_list_cache import (
+from forma_core.project_list_cache import (
     cache_project_list,
     get_cached_project_list,
     require_project_list_cache_config,
 )
 from apps.api.seed_db import seed_database
-from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
-from blueprint_core.agents.clarification import ask_clarifying_questions
-from blueprint_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
-from blueprint_core.workspaces.projects.models import (
+from forma_core.agents.workflows import get_workflow_debug_config, list_workflows
+from forma_core.agents.clarification import ask_clarifying_questions
+from forma_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
+from forma_core.workspaces.projects.models import (
     ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
-from blueprint_core.workspaces.projects import ProjectStateError
-from blueprint_core.workspaces.workflow import WorkflowStateError
-from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
-from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from forma_core.workspaces.projects import ProjectStateError
+from forma_core.workspaces.workflow import WorkflowStateError
+from forma_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
+from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
 from apps.api.a2a import (
     A2A_HUB,
     A2AAgentRegistration,
@@ -126,18 +130,16 @@ from apps.api.a2a import (
     stop_a2a_tcp_server,
     submit_a2a_message,
 )
-from blueprint_core.images import get_image_output_debug_config
-from blueprint_core.image_providers import GMIImageProvider
-from blueprint_core.config.contract import resolve_runtime_contract
-from blueprint_core.workspaces.projects.iteration import ProjectIterator
-from blueprint_core.llm import LLMProviderConfigError
-from blueprint_core.llm import LLMProviderOutputError
-from blueprint_core.workspaces.projects.objects import build_project_object, list_project_namespaces
-from blueprint_core.workspaces.projects.output import attach_product_image
-from blueprint_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
-from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
-from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
-from blueprint_core.video_review import FireworksVideoReviewClient
+from forma_core.images import get_image_output_debug_config
+from forma_core.config.contract import resolve_runtime_contract
+from forma_core.workspaces.projects.iteration import ProjectIterator
+from forma_core.llm import LLMProviderConfigError
+from forma_core.llm import LLMProviderOutputError
+from forma_core.workspaces.projects.objects import build_project_object, list_project_namespaces
+from forma_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from forma_core.video_prompts import generate_image_to_video_prompt_from_namespaces
+from forma_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
+from forma_core.video_review import FireworksVideoReviewClient
 from apps.api.logs_api import router as logs_router
 from apps.api.streams_api import router as streams_router
 from apps.api.design_briefs_api import router as design_briefs_router
@@ -147,7 +149,6 @@ from apps.api.readiness_api import router as readiness_router
 from apps.api.worker_plans_api import router as worker_plans_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
-from apps.api.contribution_export_api import router as contribution_export_router
 from apps.api.auth import (
     UserContext,
     clerk_user_profile,
@@ -167,19 +168,19 @@ from apps.api.project_deletion import (
     restore_project,
     withdraw_contribution,
 )
-from blueprint_core.jobs.store import JOB_STORE, JobCancelledError
-from blueprint_core.jobs.context import PAST_JOBS_DATA_SOURCE, PastJobContextSource, list_generation_data_sources
-from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
-from blueprint_core.runtime import (
+from forma_core.jobs.store import JOB_STORE, JobCancelledError
+from forma_core.jobs.context import PAST_JOBS_DATA_SOURCE, PastJobContextSource, list_generation_data_sources
+from forma_core.observability import flush_langfuse, get_langfuse_debug_config
+from forma_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
     generation_unavailable_detail,
 )
-from blueprint_core.config.runtime import blueprint_dev_mode_enabled
+from forma_core.config.runtime import forma_dev_mode_enabled
 from apps.api.storage import get_image_storage_config, hydrate_image_storage_metadata
-from blueprint_core.validation import validate_circuit
-from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
+from forma_core.validation import validate_circuit
+from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
 from apps.api.video_providers import (
     GMICloudProvider,
     VIDEO_MODE_IMAGE_TO_VIDEO,
@@ -201,8 +202,8 @@ from apps.api.video_storage import (
 logger = logging.getLogger(__name__)
 ROOT_DIR = REPO_ROOT
 EXAMPLE_RESULTS_DIR = ROOT_DIR / "examples" / "results"
-_CACHE_OWNER_DIGEST_FIELD = "_blueprint_cache_owner_digest"
-_CACHE_OWNER_CHAT_FIELD = "_blueprint_cache_owner_chat_id"
+_CACHE_OWNER_DIGEST_FIELD = "_forma_cache_owner_digest"
+_CACHE_OWNER_CHAT_FIELD = "_forma_cache_owner_chat_id"
 
 
 def _parse_job_timestamp(value: Any) -> Optional[datetime]:
@@ -294,7 +295,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["Content-Disposition", "X-Contribution-Record-Count"],
 )
 
 app.include_router(logs_router, dependencies=[Depends(require_admin_user_context)])
@@ -306,7 +306,6 @@ app.include_router(readiness_router)
 app.include_router(worker_plans_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
-app.include_router(contribution_export_router)
 
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -501,7 +500,7 @@ def debug_config_endpoint(
         llm_config = orchestrator.get_debug_config()
         return {
             **llm_config,
-            "blueprint_dev_mode": blueprint_dev_mode_enabled(),
+            "forma_dev_mode": forma_dev_mode_enabled(),
             "deployment": _deployment_runtime_config(llm_config),
             "database": get_database_config(),
             "job_metadata": JOB_STORE.get_config(),
@@ -560,7 +559,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
             ensure_project_action_allowed(
                 request.project_id,
                 owner_user_id,
-                "blueprint.generate_project",
+                "forma.generate_project",
                 require_workflow=True,
             )
         except WorkflowStateError as exc:
@@ -633,6 +632,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     payload = {
         "prompt": request.prompt,
         "project_id": request.project_id,
+        "retry_stage": request.retry_stage,
         "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
@@ -650,9 +650,9 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         job_id=job_id,
         message_id=message_id,
         correlation_id=None,
-        action="blueprint.generate_project",
+        action="forma.generate_project",
         sender="frontend",
-        recipient="blueprint",
+        recipient="forma",
         payload=payload,
         server_owned=True,
         status="queued",
@@ -688,10 +688,17 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 data_sources=request.data_sources,
                 past_job_context=past_job_context,
                 project_id=request.project_id,
+                retry_stage=request.retry_stage,
             )
         if JOB_STORE.is_cancelled(job_id):
             raise JobCancelledError(f"Job {job_id} was cancelled.")
-        JOB_STORE.mark_succeeded(job_id, response)
+        generation_status = str(response.get("generation_status") or "succeeded").lower()
+        if generation_status == "partial":
+            JOB_STORE.mark_partial(job_id, response)
+        elif generation_status == "failed":
+            JOB_STORE.mark_failed(job_id, "A required root generation stage failed; partial diagnostics were preserved.")
+        else:
+            JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
         if str((job or {}).get("status") or "").lower() in {"cancelled", "canceled"}:
             raise JobCancelledError(f"Job {job_id} was cancelled.")
@@ -869,7 +876,6 @@ class VideoToVideoRequest(BaseModel):
 
 VIDEO_FAILED_STATUSES = {"failed", "failure", "error", "cancelled", "canceled"}
 VIDEO_SUCCESS_STATUSES = {"success", "succeeded", "completed", "complete", "done"}
-ADMIN_ALPHA_GMI_IMAGE_MODEL = "gpt-image-2-generate"
 
 
 def _normalize_video_model(model: str | None, mode: str = VIDEO_MODE_IMAGE_TO_VIDEO) -> str:
@@ -1047,12 +1053,13 @@ def list_video_models_endpoint():
 
 
 @app.get("/video/projects/{project_id}")
-def list_project_videos_endpoint(project_id: str, _user: UserContext = Depends(require_admin_user_context)):
-    """Lists project videos for the temporary admin-alpha media tool."""
+def list_project_videos_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Lists videos saved for one project from configured backend storage."""
     project_id = _require_non_empty(project_id, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     try:
         videos = list_project_videos(project_id)
         return {
@@ -1065,12 +1072,13 @@ def list_project_videos_endpoint(project_id: str, _user: UserContext = Depends(r
 
 
 @app.post("/video/image-to-video")
-def create_image_to_video_endpoint(request: VideoImageToVideoRequest, _user: UserContext = Depends(require_admin_user_context)):
-    """Queues an admin-alpha GMI Cloud image-to-video generation request."""
+def create_image_to_video_endpoint(request: VideoImageToVideoRequest, user: UserContext = Depends(require_user_context)):
+    """Queues a backend-only GMI Cloud image-to-video generation request."""
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     image = _require_non_empty(request.image, "image is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_IMAGE_TO_VIDEO)
@@ -1123,12 +1131,13 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest, _user: Use
 
 
 @app.post("/video/video-to-video")
-def create_video_to_video_endpoint(request: VideoToVideoRequest, _user: UserContext = Depends(require_admin_user_context)):
-    """Queues an admin-alpha GMI Cloud video-to-video generation request."""
+def create_video_to_video_endpoint(request: VideoToVideoRequest, user: UserContext = Depends(require_user_context)):
+    """Queues a backend-only GMI Cloud video-to-video generation request."""
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     video = _require_non_empty(request.video, "video is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_VIDEO_TO_VIDEO)
@@ -1189,14 +1198,15 @@ def get_image_to_video_status_endpoint(
     prompt: str | None = Query(None, description="Prompt used for the original video request."),
     aspectRatio: str | None = Query(None, description="Aspect ratio used for the original video request."),
     sourceUrl: str | None = Query(None, description="Source image or video URL used for the original video request."),
-    _user: UserContext = Depends(require_admin_user_context),
+    user: UserContext = Depends(require_user_context),
 ):
-    """Polls an admin-alpha GMI request and stores completed videos in S3."""
+    """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
     request_id = _require_non_empty(request_id, "requestId is required.")
     project_id = _require_non_empty(projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_owner(project, user)
     normalized_mode = normalize_video_mode(mode)
     model = _normalize_video_model(model, normalized_mode)
     aspect_ratio = _normalize_video_request_aspect_ratio(aspectRatio) if aspectRatio else None
@@ -1284,7 +1294,7 @@ async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
 async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_user_context)):
     """Submits an A2A message and queues an async result for the sender."""
     owner_user_id = user.owner_user_id
-    if owner_user_id and message.action.startswith("blueprint."):
+    if owner_user_id and message.action.startswith("forma."):
         message.payload = {**message.payload, "owner_user_id": owner_user_id}
     ack = await submit_a2a_message(message)
     return ack.model_dump()
@@ -1470,7 +1480,7 @@ def _example_project_object_jobs(limit: int, status: Optional[str]) -> List[Dict
                     "correlation_id": run_id,
                     "action": "examples.project_object_generation",
                     "sender": "examples",
-                    "recipient": "blueprint",
+                    "recipient": "forma",
                     "status": job_status,
                     "server_owned": False,
                     "created_at": _format_example_job_time(started_at),
@@ -1589,7 +1599,6 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         or hydrated_metadata.get("product_case_image_content_type")
         or hydrated_metadata.get("product_image_content_type")
     )
-    star_count = metadata.get("star_count", metadata.get("stars", 0))
     stored_creator_display = metadata.get("creator_display") or metadata.get("creator_username")
     creator_display = (
         stored_creator_display.strip()
@@ -1615,13 +1624,17 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         "creator_username": creator_display,
         "creator_image_url": creator_image_url,
         "parts_count": len(components) if isinstance(components, list) else 0,
-        "star_count": max(0, int(star_count) if isinstance(star_count, (int, float, str)) and str(star_count).isdigit() else 0),
+        "save_count": 0,
+        "remix_count": 0,
+        "saved": False,
         "has_product_image": bool(product_image_url or hydrated_metadata.get("product_image_data")),
         "product_image_url": product_image_url,
         "product_image_content_type": product_image_content_type,
         "product_image_model": hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
         "product_visual_sequence": sequence if isinstance(sequence, list) else [],
         "image_output_status": hydrated_metadata.get("image_output_status"),
+        "generation_status": metadata.get("generation_status", "succeeded"),
+        "project_readiness": metadata.get("project_readiness", "complete"),
     }
 
 
@@ -1686,6 +1699,30 @@ def _personalize_public_project_records(
     return response
 
 
+def _with_project_engagement(
+    records: List[Dict[str, Any]],
+    current_user_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Attach live save/remix counts and the current user's save state."""
+    if not records:
+        return records
+    project_ids = [str(record.get("project_id") or "") for record in records]
+    engagement = project_engagement_for_ids(project_ids, current_user_id)
+    enriched: List[Dict[str, Any]] = []
+    for record in records:
+        project_id = str(record.get("project_id") or "")
+        stats = engagement.get(project_id, {})
+        enriched.append(
+            {
+                **record,
+                "save_count": max(0, int(stats.get("save_count") or 0)),
+                "remix_count": max(0, int(stats.get("remix_count") or 0)),
+                "saved": bool(stats.get("saved")),
+            }
+        )
+    return enriched
+
+
 def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[str, Any]:
     """Keep public project reads inspectable while withholding owner-only files."""
     sanitized = json.loads(json.dumps(hardware_ir))
@@ -1742,7 +1779,10 @@ def list_projects_endpoint(
             )
             items = [_public_project_cache_record(project) for project in projects]
             return {
-                "items": _personalize_public_project_records(items, user.owner_user_id),
+                "items": _with_project_engagement(
+                    _personalize_public_project_records(items, user.owner_user_id),
+                    user.owner_user_id,
+                ),
                 "total": total,
                 "limit": max(1, min(int(limit), 50)),
                 "offset": max(0, int(offset)),
@@ -1750,13 +1790,19 @@ def list_projects_endpoint(
             }
         cached, generation = get_cached_project_list("public", None)
         if cached is not None:
-            return _personalize_public_project_records(cached, user.owner_user_id)
+            return _with_project_engagement(
+                _personalize_public_project_records(cached, user.owner_user_id),
+                user.owner_user_id,
+            )
         projects = [project for project in list_generated_projects() if _project_visibility(project) == "public"]
         cache_records = jsonable_encoder(
             [_public_project_cache_record(project) for project in projects]
         )
         cache_project_list("public", None, cache_records, generation)
-        return _personalize_public_project_records(cache_records, user.owner_user_id)
+        return _with_project_engagement(
+            _personalize_public_project_records(cache_records, user.owner_user_id),
+            user.owner_user_id,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1781,7 +1827,7 @@ def list_my_projects_endpoint(
                 for project in projects
             ]
             return {
-                "items": items,
+                "items": _with_project_engagement(items, owner_user_id),
                 "total": total,
                 "limit": max(1, min(int(limit), 50)),
                 "offset": max(0, int(offset)),
@@ -1789,7 +1835,7 @@ def list_my_projects_endpoint(
             }
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
-            return cached
+            return _with_project_engagement(cached, owner_user_id)
         projects = list_generated_projects(owner_user_id=owner_user_id)
         response = [
             _project_summary_response(project, current_user_id=owner_user_id)
@@ -1823,7 +1869,7 @@ def list_my_projects_endpoint(
         response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
-        return response
+        return _with_project_engagement(response, owner_user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1837,7 +1883,11 @@ def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depe
     _require_project_reader(project, user)
 
     try:
-        return _project_summary_response(project, current_user_id=user.owner_user_id)
+        summaries = _with_project_engagement(
+            [_project_summary_response(project, current_user_id=user.owner_user_id)],
+            user.owner_user_id,
+        )
+        return summaries[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project image summary: {str(e)}")
 
@@ -1874,6 +1924,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_object": build_project_object(ir).model_dump(mode="json"),
             "mermaid_code": generate_mermaid_chart(ir),
             "svg_schematic": generate_svg_schematic(ir),
+            "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     _require_project_reader(project, user)
 
@@ -1907,6 +1960,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_object": None,
             "mermaid_code": None,
             "svg_schematic": None,
+            "generation_status": (response_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (response_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((response_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
 
     try:
@@ -1943,7 +1999,10 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_ir": response_ir.model_dump(),
             "project_object": build_project_object(response_ir).model_dump(mode="json"),
             "mermaid_code": mermaid_code,
-            "svg_schematic": svg_schematic
+            "svg_schematic": svg_schematic,
+            "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     except HTTPException:
         raise
@@ -1972,6 +2031,62 @@ def update_project_endpoint(
     if not saved:
         raise HTTPException(status_code=404, detail="Project not found.")
     return {"ok": True, "project_id": project.project_id}
+
+
+@app.post("/projects/{project_id}/save")
+def save_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Save a readable project for the signed-in user."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        return {"ok": True, "project_id": project.project_id, **save_project_for_user(project.project_id, owner_user_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/projects/{project_id}/save")
+def unsave_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Remove a previously saved project for the signed-in user."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        return {"ok": True, "project_id": project.project_id, **unsave_project_for_user(project.project_id, owner_user_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/remix")
+def remix_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Copy a readable project into a new owned project the signed-in user can edit."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        remixed = remix_generated_project(project.project_id, owner_user_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if remixed is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    engagement = project_engagement_for_ids([project.project_id], owner_user_id).get(project.project_id, {})
+    return {
+        "ok": True,
+        "project_id": remixed.project_id,
+        "chat_id": getattr(remixed, "chat_id", None),
+        "title": remixed.title,
+        "prompt": remixed.prompt,
+        "created_at": remixed.created_at,
+        "source_project_id": project.project_id,
+        "remix_count": max(0, int(engagement.get("remix_count") or 0)),
+        "can_chat": True,
+    }
 
 
 @app.delete("/projects/{project_id}", status_code=status.HTTP_202_ACCEPTED)
@@ -2186,91 +2301,13 @@ def delete_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_
     return {"ok": True, "chat_id": chat_id}
 
 
-def _has_generated_product_image(metadata: Dict[str, Any]) -> bool:
-    direct_keys = (
-        "product_image_url",
-        "product_image_data",
-        "product_image_s3_key",
-        "product_case_image_url",
-        "product_case_image_data",
-        "product_case_image_s3_key",
-    )
-    if any(isinstance(metadata.get(key), str) and metadata[key].strip() for key in direct_keys):
-        return True
-    sequence = metadata.get("product_visual_sequence")
-    if not isinstance(sequence, list):
-        return False
-    return any(
-        isinstance(item, dict)
-        and any(isinstance(item.get(key), str) and item[key].strip() for key in ("url", "data", "s3_key"))
-        for item in sequence
-    )
-
-
-@app.post("/admin-alpha/projects/{project_id}/image")
-def generate_admin_alpha_project_image_endpoint(
-    project_id: str,
-    _user: UserContext = Depends(require_admin_user_context),
-):
-    """Manually adds one GMI GPT Image 2 render to a project that has no generated image."""
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    ir = HardwareIR(**project.hardware_ir)
-    current_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
-    if _has_generated_product_image(current_metadata):
-        raise HTTPException(status_code=409, detail="This project already has a generated product image.")
-
-    provider = GMIImageProvider(force_enabled=True, model_name=ADMIN_ALPHA_GMI_IMAGE_MODEL)
-    provider_config = provider.get_debug_config()
-    if not provider_config.get("configured"):
-        raise HTTPException(
-            status_code=503,
-            detail=provider_config.get("reason") or "GMI GPT Image 2 is not configured.",
-        )
-
-    attach_product_image(
-        project.prompt,
-        ir,
-        generate_image=True,
-        generate_sequence=False,
-        provider_factory=lambda **_kwargs: provider,
-    )
-    metadata = ir.assembly_metadata or {}
-    if metadata.get("image_output_status") != "succeeded" or not _has_generated_product_image(metadata):
-        detail = metadata.get("image_output_error") or "GMI GPT Image 2 returned no project image."
-        raise HTTPException(status_code=502, detail=str(detail))
-
-    saved = update_generated_project_hardware_ir(
-        project.project_id,
-        ir.model_dump(mode="json"),
-        owner_user_id=_project_owner_user_id(project),
-    )
-    if not saved:
-        raise HTTPException(status_code=404, detail="Project not found.")
-
-    ir.assembly_metadata = hydrate_image_storage_metadata(ir.assembly_metadata, project.project_id)
-    return {
-        "project_id": project.project_id,
-        "project_ir": ir.model_dump(mode="json"),
-        "image": {
-            "provider": "gmi",
-            "model": ADMIN_ALPHA_GMI_IMAGE_MODEL,
-            "url": (ir.assembly_metadata or {}).get("product_image_url"),
-        },
-    }
-
-
 @app.get("/projects/{project_id}/video-prompt")
-def generate_project_video_prompt_endpoint(
-    project_id: str,
-    _user: UserContext = Depends(require_admin_user_context),
-):
-    """Builds an admin-alpha assembly video prompt from project Docs data."""
+def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
+    """Builds an image-to-video prompt from Forma project namespaces."""
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
 
     try:
         ir = HardwareIR(**project.hardware_ir)
@@ -2291,7 +2328,7 @@ def iterate_project_endpoint(
     request: IterateProjectRequest,
     user: UserContext = Depends(require_user_context),
 ):
-    """Applies an iteration instruction to an existing project through blueprint_core."""
+    """Applies an iteration instruction to an existing project through forma_core."""
     _apply_user_integrations(user)
     project = get_generated_project(project_id)
     canonical_revision = None
@@ -2319,7 +2356,7 @@ def iterate_project_endpoint(
 
     if save_owner_user_id:
         try:
-            ensure_project_action_allowed(project_id, save_owner_user_id, "blueprint.iterate_project")
+            ensure_project_action_allowed(project_id, save_owner_user_id, "forma.iterate_project")
         except WorkflowStateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
 

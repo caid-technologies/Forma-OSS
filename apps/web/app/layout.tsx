@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { ClerkProvider } from "@clerk/nextjs";
-import { blueprintAuthMode } from "../lib/auth-mode";
+import { formaAuthMode } from "../lib/auth-mode";
 import { FormaAuthProvider } from "../lib/forma-auth";
 import { themeBootstrapScript } from "../lib/theme";
 import { ThemeProvider } from "../lib/theme-provider";
@@ -18,9 +18,9 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const authMode = blueprintAuthMode();
+  const authMode = formaAuthMode();
   const document = (
-    <html lang="en" data-theme="dark" suppressHydrationWarning>
+    <html lang="en" data-theme="solarized-dark" suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
       </head>

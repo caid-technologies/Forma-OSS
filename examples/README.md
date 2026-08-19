@@ -44,19 +44,33 @@ Outputs are written to `examples/results/`:
 The examples run in strict test mode. Provider failures raise and are recorded as
 failed jobs; they do not fall back to simulation.
 
-## Blueprint Core samples
+## Forma Core samples
 
-Focused Blueprint Core examples live in `examples/blueprint_core/`:
+Focused Forma Core examples live in `examples/forma_core/`:
 
 ```bash
-python examples/blueprint_core/sample.py
-python examples/blueprint_core/sample1.py
-python examples/blueprint_core/sample2.py
+python examples/forma_core/sample.py
+python examples/forma_core/sample1.py
+python examples/forma_core/sample2.py
+python examples/forma_core/sample3.py
 ```
 
 - `sample.py` generates a simulated project from a frozen design brief.
 - `sample1.py` generates a project with a local Ollama model.
 - `sample2.py` combines Ollama generation with Firecrawl web research.
+- `sample3.py` combines Vertex AI generation with Firecrawl web research.
+
+For `sample3.py`, authenticate with Google Cloud Application Default Credentials
+and configure the Vertex AI project plus Firecrawl:
+
+```bash
+gcloud auth application-default login
+GOOGLE_CLOUD_PROJECT=your-project-id \
+GOOGLE_CLOUD_LOCATION=global \
+VERTEX_AI_MODEL=gemini-3.5-flash \
+FIRECRAWL_API_KEY=your-firecrawl-key \
+python examples/forma_core/sample3.py
+```
 
 Useful overrides:
 

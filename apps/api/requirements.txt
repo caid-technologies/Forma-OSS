@@ -1,4 +1,4 @@
-# Third-party backend runtime dependencies. The monorepo's blueprint_core source
+# Third-party backend runtime dependencies. The monorepo's forma_core source
 # is bundled by vercel.json includeFiles instead of installed from PyPI.
 fastapi>=0.124.1
 uvicorn
@@ -9,7 +9,7 @@ PyJWT>=2.10.1
 cryptography>=42.0.0
 json-repair>=0.30.0
 google-auth>=2.29.0
-google-genai>=1.21.0
+google-genai>=1.0.0
 sqlalchemy==2.0.31
 supabase==2.31.0
 huggingface-hub>=0.34.0

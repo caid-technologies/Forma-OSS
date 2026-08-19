@@ -22,7 +22,7 @@ from sync_project_objects import (
     scrub,
     utc_run_id,
 )
-from blueprint_core.config import config
+from forma_core.config import config
 
 
 PROMPT = (

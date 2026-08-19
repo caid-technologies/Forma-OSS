@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "caid-blueprint-core"
+name = "caid-forma-core"
 dynamic = ["version"]
 description = "Reusable generation, validation, provider, and project-object core for Forma OSS."
 readme = "README.md"
@@ -38,15 +38,15 @@ Repository = "https://github.com/caid-technologies/Forma-OSS"
 Documentation = "https://github.com/caid-technologies/Forma-OSS#readme"
 
 [project.scripts]
-blueprint-core = "blueprint_core.cli.main:main"
-fabricator = "blueprint_core.fabricator.main:main"
+forma-core = "forma_core.cli.main:main"
+fabricator = "forma_core.fabricator.main:main"
 
 [tool.vercel]
 entrypoint = "apps.api.main:app"
 
 [project.optional-dependencies]
-gemini = ["google-genai>=1.21.0"]
-vertex = ["google-auth>=2.29.0", "google-genai>=1.21.0"]
+gemini = ["google-genai>=1.0.0"]
+vertex = ["google-auth>=2.29.0", "google-genai>=1.0.0"]
 huggingface = ["huggingface-hub>=0.34.0"]
 observability = ["langfuse>=4.0.0"]
 supabase = ["supabase==2.31.0"]
@@ -62,7 +62,7 @@ backend = [
 ]
 s3 = ["boto3==1.35.99"]
 all = [
-    "google-genai>=1.21.0",
+    "google-genai>=1.0.0",
     "boto3==1.35.99",
     "cryptography>=42.0.0",
     "fastapi>=0.124.1",
@@ -84,12 +84,12 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 include = [
-    "blueprint_core",
-    "blueprint_core.*",
+    "forma_core",
+    "forma_core.*",
 ]
 
 [tool.setuptools.package-data]
-blueprint_core = ["py.typed"]
+forma_core = ["py.typed"]
 
 [tool.setuptools.dynamic]
-version = { attr = "blueprint_core._version.__version__" }
+version = { attr = "forma_core._version.__version__" }

@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 from apps.api import logging_config
-from blueprint_core.logs import backend_log_payload, redact_log_line, resolve_backend_log_path
+from forma_core.logs import backend_log_payload, redact_log_line, resolve_backend_log_path
 
 
 class BackendLogCoreTests(unittest.TestCase):
@@ -73,9 +73,9 @@ class BackendLogCoreTests(unittest.TestCase):
     def test_serverless_log_file_falls_back_to_tmp(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             with mock.patch.dict(os.environ, {"VERCEL": "1", "TMPDIR": tmp_dir}, clear=False):
-                fallback = logging_config._tmp_log_fallback_path(Path("/var/task/blueprint-backend.log"))
+                fallback = logging_config._tmp_log_fallback_path(Path("/var/task/forma-backend.log"))
 
-        self.assertEqual(Path(tmp_dir, "blueprint-backend.log").resolve(), fallback)
+        self.assertEqual(Path(tmp_dir, "forma-backend.log").resolve(), fallback)
 
     def test_file_loggers_share_one_non_rotating_handler(self) -> None:
         loggers = [
@@ -114,9 +114,9 @@ class BackendLogCoreTests(unittest.TestCase):
                 raise OSError(errno.EROFS, "Read-only file system")
 
         with tempfile.TemporaryDirectory() as tmp_dir:
-            fallback_path = Path(tmp_dir, "blueprint-backend.log").resolve()
+            fallback_path = Path(tmp_dir, "forma-backend.log").resolve()
             env = {
-                "BACKEND_LOG_FILE": "blueprint-backend.log",
+                "BACKEND_LOG_FILE": "forma-backend.log",
                 "TMPDIR": tmp_dir,
                 "VERCEL": "1",
             }
@@ -126,7 +126,7 @@ class BackendLogCoreTests(unittest.TestCase):
 
                 self.assertEqual(str(fallback_path), os.environ["BACKEND_LOG_FILE"])
 
-        self.assertEqual(Path("blueprint-backend.log").resolve(), calls[0])
+        self.assertEqual(Path("forma-backend.log").resolve(), calls[0])
         self.assertEqual(fallback_path, calls[1])
 
 

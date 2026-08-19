@@ -17,7 +17,7 @@ DIST_NAME = "caid-forma-core"
 class CorePackageTests(unittest.TestCase):
     def test_forma_core_exports_package_version(self) -> None:
         self.assertRegex(forma_core.__version__, r"^\d+\.\d+\.\d+")
-        self.assertEqual(["__version__"], forma_core.__all__)
+        self.assertEqual(["FormaClient", "__version__"], forma_core.__all__)
 
     def test_pyproject_declares_installable_typed_core_package(self) -> None:
         pyproject = tomllib.loads((ROOT_DIR / "pyproject.toml").read_text(encoding="utf-8"))

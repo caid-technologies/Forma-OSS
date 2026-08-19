@@ -41,6 +41,16 @@ For compatibility with existing automation, benchmark reports still default to `
 
 Quality suites belong in `quality/` and should use reusable inputs from `datasets/`. Typical checks include BOM accuracy, component compatibility, wiring correctness, prompt adherence, schema completeness, feasibility, and unsupported-component detection.
 
+The intent-first generation comparison helpers live in
+`quality/design_generation_benchmark.py`. Run the old and intent-first
+pipelines against the same fixed prompt list with multiple iterations, then
+compare valid BOM lines for every attempt, `median_valid_bom_lines`,
+`generation_failure_rate`, `required_capability_coverage`,
+`resolved_obligation_coverage`, localized retries, and partial-project BOM
+retention. Only enable `FORMA_INTENT_FIRST_GENERATION=true` for
+normal generation after its median valid BOM yield improves without increasing
+the failure rate.
+
 Keep evaluation logic separate from production generation code. A quality suite should document its dataset, scoring method, thresholds, and whether it can call paid or networked providers. Deterministic checks should be the default for automated tests; live evaluations must require an explicit flag.
 
 ## Extending the suite

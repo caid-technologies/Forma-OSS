@@ -54,11 +54,43 @@ The reusable core is published on PyPI as [`caid-forma-core`](https://pypi.org/p
 pip install caid-forma-core
 ```
 
-```python
-import forma_core
-from forma_core.generation import HardwarePipelineOrchestrator, list_workflows
-from forma_core.models import HardwareIR
+From a source checkout, install the current working tree into the active
+interpreter before using it outside the repository root:
+
+```bash
+python -m pip install -e .
 ```
+
+```python
+from forma_core import FormaClient
+
+
+client = FormaClient.from_config()
+
+run = client.projects.start_generation(
+    prompt=(
+        "Design a compact desktop environmental monitor using an ESP32, "
+        "a temperature and humidity sensor, an OLED, and USB-C power."
+    ),
+)
+
+result = run.wait()
+
+print(result.status)
+print(result.completeness.valid_bom_line_count)
+print(result.completeness.resolved_obligation_count)
+
+if result.project is not None:
+    print(result.project.model_dump_json(indent=2))
+```
+
+`intent_first` is the default strategy. Pass `strategy="legacy"` only when the
+existing prompt-driven pipeline is explicitly required.
+
+Intent-first generation performs a bounded procurement-gap review after
+selecting the initial physical parts. Missing power, protection, passives,
+programming, interconnect, fabrication, or mounting roles are resolved through
+the normal component pipeline before wiring is generated.
 
 ### Docker
 Build and run both images from the repo root:

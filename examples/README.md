@@ -49,12 +49,15 @@ failed jobs; they do not fall back to simulation.
 Focused Forma Core examples live in `examples/forma_core/`:
 
 ```bash
+python -m pip install -e .
+python examples/forma_core/intent.py
 python examples/forma_core/sample.py
 python examples/forma_core/sample1.py
 python examples/forma_core/sample2.py
 python examples/forma_core/sample3.py
 ```
 
+- `intent.py` uses the public `FormaClient` intent-first generation API.
 - `sample.py` generates a simulated project from a frozen design brief.
 - `sample1.py` generates a project with a local Ollama model.
 - `sample2.py` combines Ollama generation with Firecrawl web research.

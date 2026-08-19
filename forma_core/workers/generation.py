@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
-from typing import Any, Awaitable, Callable, Protocol
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -16,6 +18,8 @@ from forma_core.agents.pipeline import (
     list_agent_pipeline_steps,
     observe_agent_pipeline,
 )
+from forma_core.config import config
+from forma_core.validation import check_safety_violations
 from forma_core.workers.contracts import (
     WorkerArtifact,
     WorkerError,
@@ -25,19 +29,25 @@ from forma_core.workers.contracts import (
     WorkerResultStatus,
 )
 from forma_core.workers.registry import WorkerCapability, WorkerDefinition
-from forma_core.workspaces.design_briefs import DesignBrief, prompt_safe_design_brief, uploaded_image_payload
+from forma_core.workspaces.design_briefs import (
+    DesignBrief,
+    prompt_safe_design_brief,
+    uploaded_image_payload,
+)
 from forma_core.workspaces.projects import (
     ProjectArtifact,
     ProjectRevision,
-    ProjectRevisionOutcome,
     ProjectRevisionDraft,
+    ProjectRevisionOutcome,
     ProjectStateError,
     ProjectStateService,
     ProjectSystem,
 )
 from forma_core.workspaces.projects.models import HardwareIR
-from forma_core.workspaces.projects.output import attach_hardware_reference_image, attach_product_image
-
+from forma_core.workspaces.projects.output import (
+    attach_hardware_reference_image,
+    attach_product_image,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -70,11 +80,17 @@ class HardwareIRGenerationEngine:
         model_name: str | None = None,
         use_simulation: bool = False,
         generate_image: bool = True,
+        use_intent_first: bool | None = None,
     ) -> None:
         self.provider_name = provider_name
         self.model_name = model_name
         self.use_simulation = use_simulation
         self.generate_image = generate_image
+        self.use_intent_first = (
+            config.boolean("FORMA_INTENT_FIRST_GENERATION", False)
+            if use_intent_first is None
+            else use_intent_first
+        )
 
     def generate(
         self,
@@ -93,17 +109,55 @@ class HardwareIRGenerationEngine:
             model_name=self.model_name,
             persist_project=False,
         )
-        state = orchestrator.generate_project(
-            prompt,
-            image_bytes=image_bytes,
-            image_mime_type=decoded_media_type or image_media_type,
-            generation_metadata={
-                "project_id": str(design_brief.project_id),
-                "design_brief_id": str(design_brief.design_brief_id),
-                "design_brief_version": design_brief.brief_version,
-                **(generation_metadata or {}),
-            },
-        )
+        safety_error = check_safety_violations(f"{design_brief.intent}\n{design_brief.summary}")
+        if self.use_intent_first and not self.use_simulation and not safety_error:
+            from forma_core.design_generation.factory import (
+                build_intent_first_engine,
+                snapshot_from_generation_run,
+            )
+            from forma_core.design_generation.state_machine.models import (
+                GenerationOptions,
+            )
+
+            orchestrator.validate_configured_model()
+            generation_metadata = generation_metadata or {}
+            snapshot = snapshot_from_generation_run(generation_metadata.get("prior_generation_run"))
+            engine = build_intent_first_engine(
+                orchestrator._call_llm_structured,
+                checkpoint=generation_metadata.get("stage_checkpoint"),
+                project_id=str(design_brief.project_id),
+                snapshot=snapshot,
+            )
+            options = GenerationOptions(provider_name=self.provider_name, model_name=self.model_name)
+            project_id = str(design_brief.project_id)
+            restored_state = engine.repository.get_state(project_id) if snapshot is not None else None
+            if restored_state is not None:
+                result = engine.resume(project_id, options=options)
+            else:
+                intent = engine.repository.get_intent(project_id) if snapshot is not None else None
+                intent = intent or engine.create_machine_intent(project_id=project_id, prompt=prompt)
+                result = engine.start(
+                    run_id=str(uuid4()),
+                    project_id=project_id,
+                    intent_id=intent.intent_id,
+                    options=options,
+                )
+            if result.project is None:
+                message = result.failures[-1].message if result.failures else "Intent-first generation failed."
+                raise RuntimeError(message)
+            state = result.project
+        else:
+            state = orchestrator.generate_project(
+                prompt,
+                image_bytes=image_bytes,
+                image_mime_type=decoded_media_type or image_media_type,
+                generation_metadata={
+                    "project_id": str(design_brief.project_id),
+                    "design_brief_id": str(design_brief.design_brief_id),
+                    "design_brief_version": design_brief.brief_version,
+                    **(generation_metadata or {}),
+                },
+            )
         generation_error = (state.assembly_metadata or {}).get("generation_error")
         generation_run = (state.assembly_metadata or {}).get("generation_run")
         if (generation_error or (state.assembly_metadata or {}).get("status") == "failed") and not isinstance(

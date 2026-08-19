@@ -5,6 +5,7 @@ import unittest
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import Mock, patch
 
@@ -251,6 +252,29 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         attach_image.assert_called_once()
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
         self.assertEqual("Vertex Image Project", draft.state.overview.title)
+
+    def test_hardware_engine_uses_intent_first_pipeline_only_when_enabled(self) -> None:
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Intent-first project",
+                description="Built one component role at a time.",
+                difficulty="Intermediate",
+                category="IoT",
+            )
+        )
+        with (
+            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("forma_core.design_generation.factory.build_intent_first_engine") as build_engine,
+            patch("forma_core.workers.generation.attach_product_image"),
+        ):
+            build_engine.return_value.start.return_value = SimpleNamespace(project=state, failures=[])
+
+            draft = HardwareIRGenerationEngine(use_intent_first=True).generate(self.brief)
+
+        orchestrator_type.return_value.validate_configured_model.assert_called_once_with()
+        orchestrator_type.return_value.generate_project.assert_not_called()
+        build_engine.return_value.start.assert_called_once()
+        self.assertEqual("Intent-first project", draft.state.overview.title)
 
     def test_hardware_engine_copies_uploaded_reference_onto_the_project(self) -> None:
         brief = self.brief.model_copy(update={

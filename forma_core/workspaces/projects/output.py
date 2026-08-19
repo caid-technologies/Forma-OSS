@@ -92,6 +92,41 @@ def store_project_image(
     }
 
 
+def attach_hardware_reference_image(
+    ir: Any,
+    image_data: str,
+    *,
+    media_type: str | None = None,
+    storage_handler: ImageStorageHandler = store_project_image,
+) -> None:
+    """Copy a user-supplied hardware reference onto assembly metadata for INFO/overview."""
+
+    payload = str(image_data or "").strip()
+    if not payload:
+        return
+    metadata = dict(ir.assembly_metadata or {})
+    if metadata.get("reference_image_url") or metadata.get("reference_image_data"):
+        return
+    storage_metadata = storage_handler(
+        ir,
+        image_data=payload,
+        metadata_prefix="reference_image",
+        object_prefix="reference",
+        fallback_content_type=media_type or "image/png",
+        allow_remote_url=True,
+    )
+    reference_metadata = dict(storage_metadata)
+    if not storage_metadata.get("reference_image_url"):
+        reference_metadata["reference_image_data"] = payload
+        if media_type:
+            reference_metadata["reference_image_content_type"] = media_type
+    ir.assembly_metadata = {
+        **metadata,
+        **reference_metadata,
+        "input_mode": metadata.get("input_mode") or "prompt_image",
+    }
+
+
 def attach_product_image(
     prompt_text: str,
     ir: Any,
@@ -323,6 +358,7 @@ def primary_product_image_data(ir: Any) -> Optional[str]:
 
 
 __all__ = [
+    "attach_hardware_reference_image",
     "attach_product_image",
     "persist_project_output",
     "primary_product_image_data",

@@ -91,7 +91,11 @@ from forma_core.database import (
     list_latest_project_revisions,
     list_project_deletion_audits,
     list_project_generation_jobs,
+    project_engagement_for_ids,
+    remix_generated_project,
     save_alpha_signup,
+    save_project_for_user,
+    unsave_project_for_user,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
     upsert_project_chat,
@@ -1595,7 +1599,6 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         or hydrated_metadata.get("product_case_image_content_type")
         or hydrated_metadata.get("product_image_content_type")
     )
-    star_count = metadata.get("star_count", metadata.get("stars", 0))
     stored_creator_display = metadata.get("creator_display") or metadata.get("creator_username")
     creator_display = (
         stored_creator_display.strip()
@@ -1621,7 +1624,9 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         "creator_username": creator_display,
         "creator_image_url": creator_image_url,
         "parts_count": len(components) if isinstance(components, list) else 0,
-        "star_count": max(0, int(star_count) if isinstance(star_count, (int, float, str)) and str(star_count).isdigit() else 0),
+        "save_count": 0,
+        "remix_count": 0,
+        "saved": False,
         "has_product_image": bool(product_image_url or hydrated_metadata.get("product_image_data")),
         "product_image_url": product_image_url,
         "product_image_content_type": product_image_content_type,
@@ -1694,6 +1699,30 @@ def _personalize_public_project_records(
     return response
 
 
+def _with_project_engagement(
+    records: List[Dict[str, Any]],
+    current_user_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Attach live save/remix counts and the current user's save state."""
+    if not records:
+        return records
+    project_ids = [str(record.get("project_id") or "") for record in records]
+    engagement = project_engagement_for_ids(project_ids, current_user_id)
+    enriched: List[Dict[str, Any]] = []
+    for record in records:
+        project_id = str(record.get("project_id") or "")
+        stats = engagement.get(project_id, {})
+        enriched.append(
+            {
+                **record,
+                "save_count": max(0, int(stats.get("save_count") or 0)),
+                "remix_count": max(0, int(stats.get("remix_count") or 0)),
+                "saved": bool(stats.get("saved")),
+            }
+        )
+    return enriched
+
+
 def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[str, Any]:
     """Keep public project reads inspectable while withholding owner-only files."""
     sanitized = json.loads(json.dumps(hardware_ir))
@@ -1750,7 +1779,10 @@ def list_projects_endpoint(
             )
             items = [_public_project_cache_record(project) for project in projects]
             return {
-                "items": _personalize_public_project_records(items, user.owner_user_id),
+                "items": _with_project_engagement(
+                    _personalize_public_project_records(items, user.owner_user_id),
+                    user.owner_user_id,
+                ),
                 "total": total,
                 "limit": max(1, min(int(limit), 50)),
                 "offset": max(0, int(offset)),
@@ -1758,13 +1790,19 @@ def list_projects_endpoint(
             }
         cached, generation = get_cached_project_list("public", None)
         if cached is not None:
-            return _personalize_public_project_records(cached, user.owner_user_id)
+            return _with_project_engagement(
+                _personalize_public_project_records(cached, user.owner_user_id),
+                user.owner_user_id,
+            )
         projects = [project for project in list_generated_projects() if _project_visibility(project) == "public"]
         cache_records = jsonable_encoder(
             [_public_project_cache_record(project) for project in projects]
         )
         cache_project_list("public", None, cache_records, generation)
-        return _personalize_public_project_records(cache_records, user.owner_user_id)
+        return _with_project_engagement(
+            _personalize_public_project_records(cache_records, user.owner_user_id),
+            user.owner_user_id,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1789,7 +1827,7 @@ def list_my_projects_endpoint(
                 for project in projects
             ]
             return {
-                "items": items,
+                "items": _with_project_engagement(items, owner_user_id),
                 "total": total,
                 "limit": max(1, min(int(limit), 50)),
                 "offset": max(0, int(offset)),
@@ -1797,7 +1835,7 @@ def list_my_projects_endpoint(
             }
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
-            return cached
+            return _with_project_engagement(cached, owner_user_id)
         projects = list_generated_projects(owner_user_id=owner_user_id)
         response = [
             _project_summary_response(project, current_user_id=owner_user_id)
@@ -1831,7 +1869,7 @@ def list_my_projects_endpoint(
         response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
-        return response
+        return _with_project_engagement(response, owner_user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1845,7 +1883,11 @@ def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depe
     _require_project_reader(project, user)
 
     try:
-        return _project_summary_response(project, current_user_id=user.owner_user_id)
+        summaries = _with_project_engagement(
+            [_project_summary_response(project, current_user_id=user.owner_user_id)],
+            user.owner_user_id,
+        )
+        return summaries[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project image summary: {str(e)}")
 
@@ -1989,6 +2031,62 @@ def update_project_endpoint(
     if not saved:
         raise HTTPException(status_code=404, detail="Project not found.")
     return {"ok": True, "project_id": project.project_id}
+
+
+@app.post("/projects/{project_id}/save")
+def save_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Save a readable project for the signed-in user."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        return {"ok": True, "project_id": project.project_id, **save_project_for_user(project.project_id, owner_user_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/projects/{project_id}/save")
+def unsave_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Remove a previously saved project for the signed-in user."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        return {"ok": True, "project_id": project.project_id, **unsave_project_for_user(project.project_id, owner_user_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/remix")
+def remix_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Copy a readable project into a new owned project the signed-in user can edit."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        remixed = remix_generated_project(project.project_id, owner_user_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if remixed is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    engagement = project_engagement_for_ids([project.project_id], owner_user_id).get(project.project_id, {})
+    return {
+        "ok": True,
+        "project_id": remixed.project_id,
+        "chat_id": getattr(remixed, "chat_id", None),
+        "title": remixed.title,
+        "prompt": remixed.prompt,
+        "created_at": remixed.created_at,
+        "source_project_id": project.project_id,
+        "remix_count": max(0, int(engagement.get("remix_count") or 0)),
+        "can_chat": True,
+    }
 
 
 @app.delete("/projects/{project_id}", status_code=status.HTTP_202_ACCEPTED)

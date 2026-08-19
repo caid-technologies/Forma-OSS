@@ -104,6 +104,7 @@ class ProjectReadAccessTests(unittest.TestCase):
         stack.enter_context(patch.object(main, "creator_display_name", return_value="test-user"))
         stack.enter_context(patch.object(main, "get_cached_project_list", return_value=(None, None)))
         stack.enter_context(patch.object(main, "cache_project_list"))
+        stack.enter_context(patch.object(main, "project_engagement_for_ids", return_value={}))
         return stack
 
     def test_public_list_includes_public_and_excludes_another_users_private_project(self) -> None:
@@ -191,7 +192,9 @@ class ProjectReadAccessTests(unittest.TestCase):
             main,
             "get_cached_project_list",
             return_value=([cached_record], "3"),
-        ) as get_cached, patch.object(main, "list_generated_projects") as list_projects:
+        ) as get_cached, patch.object(main, "list_generated_projects") as list_projects, patch.object(
+            main, "project_engagement_for_ids", return_value={}
+        ):
             owner_response = main.list_projects_endpoint(_user_context("user-a"))
             other_response = main.list_projects_endpoint(_user_context("user-b"))
 

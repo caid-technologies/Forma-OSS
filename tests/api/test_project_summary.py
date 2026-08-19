@@ -91,6 +91,8 @@ class ProjectSummaryTests(unittest.TestCase):
             main, "creator_display_name", return_value="isayahc"
         ), patch.object(
             main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata
+        ), patch.object(
+            main, "project_engagement_for_ids", return_value={}
         ), patch.object(main, "HardwareIR", side_effect=AssertionError("HardwareIR should not be constructed")):
             summary = main.get_project_image_summary_endpoint(project.project_id, ANONYMOUS_USER)
 

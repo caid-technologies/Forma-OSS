@@ -121,6 +121,149 @@ export const arcticLight = {
   violet: "#7e22ce",
 } as const;
 
+/** Wireframe and overlay accents so the CAD view tracks each appearance. */
+export type MechanicalScenePalette = {
+  envelope: string;
+  electrical: string;
+  print: string;
+  mechanism: string;
+  structural: string;
+  misc: string;
+  rotate: string;
+  axisX: string;
+  axisY: string;
+  axisZ: string;
+  categories: Record<string, string>;
+};
+
+function mechanicalPalette(accents: {
+  cyan: string;
+  green: string;
+  yellow: string;
+  red: string;
+  violet: string;
+  blue: string;
+  orange: string;
+  muted: string;
+}): MechanicalScenePalette {
+  return {
+    envelope: accents.cyan,
+    electrical: accents.cyan,
+    print: accents.violet,
+    mechanism: accents.red,
+    structural: accents.blue,
+    misc: accents.muted,
+    rotate: accents.yellow,
+    axisX: accents.red,
+    axisY: accents.cyan,
+    axisZ: accents.yellow,
+    categories: {
+      microcontroller: accents.cyan,
+      sensor: accents.green,
+      actuator: accents.orange,
+      display: accents.violet,
+      power: accents.yellow,
+      passives: accents.violet,
+      communication: accents.blue,
+      mechanical: accents.red,
+      "3d print": accents.violet,
+      default: accents.muted,
+    },
+  };
+}
+
+/** Lighting, clear-color, and part accents for the 3D canvas. */
+export type MechanicalSceneAppearance = {
+  background: string;
+  fog: string;
+  ambientIntensity: number;
+  hemisphereSky: string;
+  hemisphereGround: string;
+  hemisphereIntensity: number;
+  keyLight: string;
+  keyLightIntensity: number;
+  selectedEdge: string;
+  fillOpacity: number;
+  selectedFillOpacity: number;
+  palette: MechanicalScenePalette;
+};
+
+export const mechanicalSceneAppearance: Record<FormaTheme, MechanicalSceneAppearance> = {
+  "solarized-dark": {
+    background: solarizedDark.base03,
+    fog: solarizedDark.base03,
+    ambientIntensity: 0.72,
+    hemisphereSky: solarizedDark.base02,
+    hemisphereGround: solarizedDark.base04,
+    hemisphereIntensity: 0.55,
+    keyLight: solarizedDark.base1,
+    keyLightIntensity: 0.62,
+    selectedEdge: solarizedDark.base3,
+    fillOpacity: 0.06,
+    selectedFillOpacity: 0.16,
+    palette: mechanicalPalette({
+      cyan: solarizedDark.cyan,
+      green: solarizedDark.green,
+      yellow: solarizedDark.yellow,
+      red: solarizedDark.red,
+      violet: solarizedDark.violet,
+      blue: solarizedDark.blue,
+      orange: solarizedDark.orange,
+      muted: solarizedDark.base1,
+    }),
+  },
+  light: {
+    background: solarizedLight.base2,
+    fog: solarizedLight.base2,
+    ambientIntensity: 1.05,
+    hemisphereSky: solarizedLight.base3,
+    hemisphereGround: solarizedLight.base2,
+    hemisphereIntensity: 0.7,
+    keyLight: solarizedLight.base3,
+    keyLightIntensity: 0.85,
+    selectedEdge: solarizedLight.base02,
+    fillOpacity: 0.12,
+    selectedFillOpacity: 0.22,
+    palette: mechanicalPalette({
+      cyan: solarizedLight.cyan,
+      green: solarizedLight.green,
+      yellow: solarizedLight.yellow,
+      red: solarizedLight.red,
+      violet: solarizedLight.violet,
+      blue: solarizedDark.blue,
+      orange: solarizedDark.orange,
+      muted: solarizedLight.base1,
+    }),
+  },
+  arctic: {
+    background: arcticLight.page,
+    fog: arcticLight.page,
+    ambientIntensity: 1.12,
+    hemisphereSky: arcticLight.surface,
+    hemisphereGround: arcticLight.page,
+    hemisphereIntensity: 0.78,
+    keyLight: arcticLight.surface,
+    keyLightIntensity: 0.9,
+    selectedEdge: arcticLight.textStrong,
+    fillOpacity: 0.1,
+    selectedFillOpacity: 0.2,
+    palette: mechanicalPalette({
+      cyan: arcticLight.cyan,
+      green: arcticLight.green,
+      yellow: arcticLight.yellow,
+      red: arcticLight.red,
+      violet: arcticLight.violet,
+      blue: arcticLight.cyan,
+      orange: arcticLight.yellow,
+      muted: arcticLight.textMuted,
+    }),
+  },
+};
+
+export function sceneAppearanceForTheme(theme: FormaTheme): MechanicalSceneAppearance {
+  return mechanicalSceneAppearance[theme] || mechanicalSceneAppearance["solarized-dark"];
+}
+
 export function normalizeTheme(value: unknown): FormaTheme {
   if (value === "solarized-light" || value === "light") return "light";
   if (value === "arctic") return "arctic";

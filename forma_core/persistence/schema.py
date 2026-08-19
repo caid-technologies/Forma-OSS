@@ -108,4 +108,12 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         "user_settings",
         ("id", "owner_user_id", "model_training_opt_out", "created_at", "updated_at"),
     ),
+    TableContract(
+        "project_saves",
+        ("id", "project_id", "owner_user_id", "created_at"),
+    ),
+    TableContract(
+        "project_remixes",
+        ("id", "remix_project_id", "source_project_id", "owner_user_id", "created_at"),
+    ),
 )

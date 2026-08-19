@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import logging
 from typing import Any, Awaitable, Callable, Protocol
 
 from pydantic import BaseModel, ConfigDict, ValidationError
@@ -24,7 +25,7 @@ from forma_core.workers.contracts import (
     WorkerResultStatus,
 )
 from forma_core.workers.registry import WorkerCapability, WorkerDefinition
-from forma_core.workspaces.design_briefs import DesignBrief
+from forma_core.workspaces.design_briefs import DesignBrief, prompt_safe_design_brief, uploaded_image_payload
 from forma_core.workspaces.projects import (
     ProjectArtifact,
     ProjectRevision,
@@ -35,7 +36,10 @@ from forma_core.workspaces.projects import (
     ProjectSystem,
 )
 from forma_core.workspaces.projects.models import HardwareIR
-from forma_core.workspaces.projects.output import attach_product_image
+from forma_core.workspaces.projects.output import attach_hardware_reference_image, attach_product_image
+
+
+logger = logging.getLogger(__name__)
 
 
 GENERATION_WORKER_ID = "generation-worker"
@@ -81,6 +85,8 @@ class HardwareIRGenerationEngine:
         from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
 
         prompt = self._prompt(design_brief)
+        image_data, image_media_type = uploaded_image_payload(design_brief)
+        image_bytes, decoded_media_type = _reference_image_bytes(image_data)
         orchestrator = HardwarePipelineOrchestrator(
             use_simulation=self.use_simulation,
             provider_name=self.provider_name,
@@ -89,6 +95,8 @@ class HardwareIRGenerationEngine:
         )
         state = orchestrator.generate_project(
             prompt,
+            image_bytes=image_bytes,
+            image_mime_type=decoded_media_type or image_media_type,
             generation_metadata={
                 "project_id": str(design_brief.project_id),
                 "design_brief_id": str(design_brief.design_brief_id),
@@ -109,6 +117,8 @@ class HardwareIRGenerationEngine:
         if generate_product_image:
             emit_agent_pipeline_event("default", "image_generation", "started")
         attach_product_image(prompt, state, generate_image=generate_product_image)
+        if image_data:
+            attach_hardware_reference_image(state, image_data, media_type=decoded_media_type or image_media_type)
         if generate_product_image:
             image_status = (state.assembly_metadata or {}).get("image_output_status")
             emit_agent_pipeline_event(
@@ -129,8 +139,20 @@ class HardwareIRGenerationEngine:
             "Generate an initial structured hardware project using only this frozen DesignBrief. "
             "Treat only the references declared inside the brief as reference inputs. Do not infer context "
             "from prior conversation or fetch undeclared sources.\n\n"
-            f"Frozen DesignBrief:\n{design_brief.model_dump_json(indent=2)}"
+            f"Frozen DesignBrief:\n{prompt_safe_design_brief(design_brief).model_dump_json(indent=2)}"
         )
+
+
+def _reference_image_bytes(image_data: str | None) -> tuple[bytes | None, str | None]:
+    if not image_data:
+        return None, None
+    try:
+        from forma_core.image_providers import _image_bytes_from_data
+
+        return _image_bytes_from_data(image_data)
+    except Exception:
+        logger.warning("Could not decode the uploaded hardware reference image for generation.")
+        return None, None
 
 
 def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> ProjectRevisionDraft:

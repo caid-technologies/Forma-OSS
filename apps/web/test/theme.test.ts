@@ -6,9 +6,11 @@ import {
   arcticLight,
   DEFAULT_AUTO_THEME_CONFIG,
   FORMA_THEMES,
+  mechanicalSceneAppearance,
   normalizeTheme,
   parseAutoThemeConfig,
   resolveAutoTheme,
+  sceneAppearanceForTheme,
   solarizedDark,
   solarizedLight,
   solarizedPublishedAccents,
@@ -254,4 +256,21 @@ test("light-theme interaction states use theme tokens instead of dark utilities"
   const whiteWash = rules.find(({ selector }) => selector.includes("hover:bg-white/5"));
   assert.ok(whiteWash, "the white hover wash is not translated for light themes");
   assert.match(whiteWash.declarations, /background-color: var\(--forma-surface-muted\)/);
+});
+
+test("the 3D canvas appearance is distinct for every settings theme", () => {
+  const backgrounds = new Set(FORMA_THEMES.map((theme) => mechanicalSceneAppearance[theme].background));
+  assert.equal(backgrounds.size, FORMA_THEMES.length);
+
+  assert.equal(mechanicalSceneAppearance["solarized-dark"].background, solarizedDark.base03);
+  assert.equal(mechanicalSceneAppearance.light.background, solarizedLight.base2);
+  assert.equal(mechanicalSceneAppearance.arctic.background, arcticLight.page);
+
+  assert.ok(mechanicalSceneAppearance["solarized-dark"].ambientIntensity < mechanicalSceneAppearance.light.ambientIntensity);
+  assert.ok(mechanicalSceneAppearance.light.selectedEdge !== mechanicalSceneAppearance["solarized-dark"].selectedEdge);
+  assert.equal(sceneAppearanceForTheme("arctic").background, arcticLight.page);
+
+  assert.equal(mechanicalSceneAppearance["solarized-dark"].palette.envelope, solarizedDark.cyan);
+  assert.equal(mechanicalSceneAppearance.light.palette.envelope, solarizedLight.cyan);
+  assert.equal(mechanicalSceneAppearance.arctic.palette.envelope, arcticLight.cyan);
 });

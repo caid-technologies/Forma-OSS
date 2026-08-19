@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -504,6 +505,9 @@ class SupabaseRepository:
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
+            self._client.table("project_saves").delete().eq("project_id", project_id).execute()
+            self._client.table("project_remixes").delete().eq("remix_project_id", project_id).execute()
+            self._client.table("project_remixes").delete().eq("source_project_id", project_id).execute()
         if not deleted or not getattr(project, "chat_id", None) or not getattr(project, "owner_user_id", None):
             return deleted
         remaining = (
@@ -588,6 +592,9 @@ class SupabaseRepository:
             self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
             self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
+            self._client.table("project_saves").delete().eq("project_id", project_id).execute()
+            self._client.table("project_remixes").delete().eq("remix_project_id", project_id).execute()
+            self._client.table("project_remixes").delete().eq("source_project_id", project_id).execute()
         return deleted
 
     def get_project_contribution_consent(self, project_id: str, user_id: str) -> Optional[Any]:
@@ -883,6 +890,82 @@ class SupabaseRepository:
         response = self._client.table("alpha_signups").insert(record).execute()
         rows = response.data or []
         return _record(rows[0]) if rows else _record(record)
+
+    def insert_project_save(self, record: Dict[str, Any]) -> bool:
+        existing = (
+            self._client.table("project_saves")
+            .select("id")
+            .eq("project_id", record["project_id"])
+            .eq("owner_user_id", record["owner_user_id"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if existing:
+            return False
+        try:
+            self._client.table("project_saves").insert(record).execute()
+            return True
+        except Exception as exc:
+            message = str(exc).lower()
+            if "23505" in message or "duplicate" in message or "unique" in message:
+                return False
+            raise
+
+    def delete_project_save(self, project_id: str, owner_user_id: str) -> bool:
+        response = (
+            self._client.table("project_saves")
+            .delete()
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+        )
+        return bool(response.data)
+
+    def count_project_saves(self, project_ids: List[str]) -> Dict[str, int]:
+        if not project_ids:
+            return {}
+        rows = (
+            self._client.table("project_saves")
+            .select("project_id")
+            .in_("project_id", project_ids)
+            .execute()
+            .data
+            or []
+        )
+        return dict(Counter(str(row["project_id"]) for row in rows if row.get("project_id")))
+
+    def list_saved_project_ids(self, owner_user_id: str, project_ids: List[str]) -> List[str]:
+        if not project_ids:
+            return []
+        rows = (
+            self._client.table("project_saves")
+            .select("project_id")
+            .eq("owner_user_id", owner_user_id)
+            .in_("project_id", project_ids)
+            .execute()
+            .data
+            or []
+        )
+        return [str(row["project_id"]) for row in rows if row.get("project_id")]
+
+    def insert_project_remix(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("project_remixes").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def count_project_remixes(self, project_ids: List[str]) -> Dict[str, int]:
+        if not project_ids:
+            return {}
+        rows = (
+            self._client.table("project_remixes")
+            .select("source_project_id")
+            .in_("source_project_id", project_ids)
+            .execute()
+            .data
+            or []
+        )
+        return dict(Counter(str(row["source_project_id"]) for row in rows if row.get("source_project_id")))
 
     def get_user_settings(self, owner_user_id: str) -> Optional[Any]:
         rows = (

@@ -1,5 +1,6 @@
 import logging
 from forma_core.config import config
+import copy
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -1375,6 +1376,134 @@ def save_alpha_signup(
         "created_at": created_at,
     }
     return _DATABASE_REPOSITORY.save_alpha_signup(record)
+
+
+def project_engagement_for_ids(
+    project_ids: List[str],
+    owner_user_id: Optional[str] = None,
+) -> Dict[str, Dict[str, Any]]:
+    normalized_ids: List[str] = []
+    seen: set[str] = set()
+    for value in project_ids:
+        project_id = str(value or "").strip()
+        if not project_id or project_id in seen:
+            continue
+        seen.add(project_id)
+        normalized_ids.append(project_id)
+    save_counts = _DATABASE_REPOSITORY.count_project_saves(normalized_ids)
+    remix_counts = _DATABASE_REPOSITORY.count_project_remixes(normalized_ids)
+    saved_ids = set()
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if normalized_owner_user_id:
+        saved_ids = set(_DATABASE_REPOSITORY.list_saved_project_ids(normalized_owner_user_id, normalized_ids))
+    return {
+        project_id: {
+            "save_count": int(save_counts.get(project_id, 0)),
+            "remix_count": int(remix_counts.get(project_id, 0)),
+            "saved": project_id in saved_ids,
+        }
+        for project_id in normalized_ids
+    }
+
+
+def _project_engagement_timestamp() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def save_project_for_user(project_id: str, owner_user_id: str) -> Dict[str, Any]:
+    normalized_project_id = str(project_id or "").strip()
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_project_id or not normalized_owner_user_id:
+        raise ValueError("project_id and owner_user_id are required.")
+    created = _DATABASE_REPOSITORY.insert_project_save(
+        {
+            "project_id": normalized_project_id,
+            "owner_user_id": normalized_owner_user_id,
+            "created_at": _project_engagement_timestamp(),
+        }
+    )
+    if created:
+        invalidate_project_lists()
+    engagement = project_engagement_for_ids([normalized_project_id], normalized_owner_user_id).get(
+        normalized_project_id,
+        {"save_count": 0, "remix_count": 0, "saved": True},
+    )
+    return {
+        "saved": True,
+        "save_count": int(engagement.get("save_count") or 0),
+        "remix_count": int(engagement.get("remix_count") or 0),
+    }
+
+
+def unsave_project_for_user(project_id: str, owner_user_id: str) -> Dict[str, Any]:
+    normalized_project_id = str(project_id or "").strip()
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_project_id or not normalized_owner_user_id:
+        raise ValueError("project_id and owner_user_id are required.")
+    deleted = _DATABASE_REPOSITORY.delete_project_save(normalized_project_id, normalized_owner_user_id)
+    if deleted:
+        invalidate_project_lists()
+    engagement = project_engagement_for_ids([normalized_project_id], normalized_owner_user_id).get(
+        normalized_project_id,
+        {"save_count": 0, "remix_count": 0, "saved": False},
+    )
+    return {
+        "saved": False,
+        "save_count": int(engagement.get("save_count") or 0),
+        "remix_count": int(engagement.get("remix_count") or 0),
+    }
+
+
+def remix_generated_project(source_project_id: str, owner_user_id: str) -> Optional[Any]:
+    source = get_generated_project(str(source_project_id or "").strip())
+    if source is None:
+        return None
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required.")
+    new_project_id = str(uuid.uuid4())
+    new_chat_id = str(uuid.uuid4())
+    created_at = _project_engagement_timestamp()
+    source_ir = getattr(source, "hardware_ir", None)
+    hardware_ir = copy.deepcopy(source_ir) if isinstance(source_ir, dict) else {}
+    metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
+    metadata = dict(metadata)
+    metadata["project_id"] = new_project_id
+    metadata["chat_id"] = new_chat_id
+    metadata["source_project_id"] = source.project_id
+    metadata["remixed_from_project_id"] = source.project_id
+    hardware_ir["assembly_metadata"] = metadata
+    title = getattr(source, "title", None) or "Untitled project"
+    record = {
+        "project_id": new_project_id,
+        "chat_id": new_chat_id,
+        "owner_user_id": normalized_owner_user_id,
+        "visibility": _normalize_visibility(getattr(source, "visibility", None)),
+        "title": title,
+        "prompt": getattr(source, "prompt", None) or "",
+        "hardware_ir": hardware_ir,
+        "created_at": created_at,
+        "status": "active",
+    }
+    chat_record = {
+        "chat_id": new_chat_id,
+        "owner_user_id": normalized_owner_user_id,
+        "title": (title.strip()[:80] if isinstance(title, str) else "") or "Untitled chat",
+        "messages": [],
+        "created_at": created_at,
+        "updated_at": created_at,
+    }
+    _DATABASE_REPOSITORY.save_generated_project(record, chat_record)
+    _DATABASE_REPOSITORY.insert_project_remix(
+        {
+            "remix_project_id": new_project_id,
+            "source_project_id": source.project_id,
+            "owner_user_id": normalized_owner_user_id,
+            "created_at": created_at,
+        }
+    )
+    invalidate_project_lists()
+    return get_generated_project(new_project_id)
 
 
 def get_user_settings(owner_user_id: str) -> Optional[Any]:

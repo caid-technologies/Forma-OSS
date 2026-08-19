@@ -12,7 +12,6 @@ import {
   Database,
   Download,
   ExternalLink,
-  Eye,
   GitBranch,
   Monitor,
   Printer,
@@ -22,7 +21,7 @@ import {
   Wrench,
 } from "lucide-react";
 
-import { type ProjectImageCandidate } from "./project-gallery";
+import { isHardwareReferenceCandidate, type ProjectImageCandidate } from "../../lib/project-images";
 
 const RUNPOD_PARTI_BASE_MODEL = "caid-technologies/parti-base";
 const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
@@ -30,22 +29,22 @@ const BASETEN_GLM_MODEL = "zai-org/GLM-5.2";
 const MechanicalScene = dynamic(() => import("../../components/mechanical-scene"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full min-h-[420px] items-center justify-center bg-[var(--forma-page)] text-xs font-black uppercase tracking-[0.16em] text-[var(--forma-text-muted)]">
+    <div className="flex h-full min-h-[420px] items-center justify-center bg-[var(--forma-page)] text-xs font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
       Loading mechanical preview...
     </div>
   ),
 });
 
 const categoryTone: Record<string, { text: string; bg: string; border: string; label: string }> = {
-  microcontroller: { text: "text-cyan-400", bg: "bg-cyan-950/40", border: "border-cyan-500/40", label: "MCU" },
-  sensor: { text: "text-emerald-400", bg: "bg-emerald-950/30", border: "border-emerald-500/30", label: "SENSOR" },
-  actuator: { text: "text-orange-400", bg: "bg-orange-950/35", border: "border-orange-500/40", label: "ACTUATOR" },
-  display: { text: "text-pink-400", bg: "bg-pink-950/35", border: "border-pink-500/40", label: "DISPLAY" },
-  power: { text: "text-yellow-400", bg: "bg-yellow-950/35", border: "border-yellow-500/40", label: "POWER" },
-  passives: { text: "text-violet-400", bg: "bg-violet-950/35", border: "border-violet-500/40", label: "IO" },
-  mechanical: { text: "text-rose-400", bg: "bg-rose-950/30", border: "border-rose-500/35", label: "MECH" },
-  "3d print": { text: "text-indigo-300", bg: "bg-indigo-950/35", border: "border-indigo-400/35", label: "3D PRINT" },
-  default: { text: "text-slate-300", bg: "bg-slate-900", border: "border-slate-700", label: "PART" },
+  microcontroller: { text: "text-[rgb(var(--forma-cyan-rgb))]", bg: "bg-[rgb(var(--forma-cyan-rgb)/0.1)]", border: "border-[rgb(var(--forma-cyan-rgb)/0.35)]", label: "MCU" },
+  sensor: { text: "text-[rgb(var(--forma-green-rgb))]", bg: "bg-[rgb(var(--forma-green-rgb)/0.1)]", border: "border-[rgb(var(--forma-green-rgb)/0.35)]", label: "SENSOR" },
+  actuator: { text: "text-[rgb(var(--forma-yellow-rgb))]", bg: "bg-[rgb(var(--forma-yellow-rgb)/0.1)]", border: "border-[rgb(var(--forma-yellow-rgb)/0.35)]", label: "ACTUATOR" },
+  display: { text: "text-[rgb(var(--forma-violet-rgb))]", bg: "bg-[rgb(var(--forma-violet-rgb)/0.1)]", border: "border-[rgb(var(--forma-violet-rgb)/0.35)]", label: "DISPLAY" },
+  power: { text: "text-[rgb(var(--forma-yellow-rgb))]", bg: "bg-[rgb(var(--forma-yellow-rgb)/0.1)]", border: "border-[rgb(var(--forma-yellow-rgb)/0.35)]", label: "POWER" },
+  passives: { text: "text-[rgb(var(--forma-violet-rgb))]", bg: "bg-[rgb(var(--forma-violet-rgb)/0.1)]", border: "border-[rgb(var(--forma-violet-rgb)/0.35)]", label: "IO" },
+  mechanical: { text: "text-[rgb(var(--forma-red-rgb))]", bg: "bg-[rgb(var(--forma-red-rgb)/0.1)]", border: "border-[rgb(var(--forma-red-rgb)/0.35)]", label: "MECH" },
+  "3d print": { text: "text-[rgb(var(--forma-cyan-rgb))]", bg: "bg-[rgb(var(--forma-cyan-rgb)/0.1)]", border: "border-[rgb(var(--forma-cyan-rgb)/0.35)]", label: "3D PRINT" },
+  default: { text: "text-[var(--forma-text-muted)]", bg: "bg-[var(--forma-surface-muted)]", border: "border-[var(--forma-border)]", label: "PART" },
 };
 
 function projectLlmDisplayLabel(provider: string, model: string) {
@@ -82,91 +81,109 @@ export function OverviewPanel({
     setImageIndex(0);
   }, [imageKey]);
 
-  const activeImage = imageCandidates[imageIndex] || null;
+  const productImages = imageCandidates.filter((candidate) => !isHardwareReferenceCandidate(candidate));
+  const referenceImages = imageCandidates.filter(isHardwareReferenceCandidate);
+  const heroImages = productImages.length ? productImages : referenceImages;
+  const activeImage = heroImages[imageIndex] || null;
   const llmProvider = metadata.runtime_provider || metadata.llm_provider || metadata.requested_provider;
   const llmModel = metadata.runtime_model || metadata.actual_model || metadata.model_name || metadata.requested_model;
   const showProductImage = showImageSection || Boolean(activeImage);
+  const showHardwareReference = productImages.length > 0 && referenceImages.length > 0;
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] px-4 py-6 sm:px-5 sm:py-8">
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
       <div className="mx-auto min-w-0 max-w-[890px]">
         {showProductImage && (
-          <div className="relative border border-[#2a2c33] bg-[#d5d5d3]">
+          <div className="relative overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)]">
             {activeImage ? (
               <img
                 src={activeImage.src}
                 alt={activeImage.label}
                 onError={() => setImageIndex((current) => current + 1)}
-                className="h-[320px] w-full object-contain sm:h-[440px]"
+                className="h-[280px] w-full object-cover object-center sm:h-[380px]"
               />
             ) : (
               <ImageUnavailableState failed={metadata.image_output_failed === true || metadata.image_output_status === "failed"} />
             )}
             {activeImage && (
-              <button className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/90 text-blue-600 shadow-lg" title={activeImage.label}>
-                <Eye className="h-5 w-5" />
-              </button>
-            )}
-            {activeImage && (
-              <div className="absolute left-4 top-4 max-w-[calc(100%-6.5rem)] border border-black/10 bg-white/90 px-3 py-2 text-[11px] font-black uppercase tracking-[0.14em] text-[#202127] shadow-lg">
+              <div className="absolute left-3 top-3 max-w-[calc(100%-1.5rem)] rounded-md border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--forma-text-strong)] shadow-sm backdrop-blur-sm">
                 {activeImage.label}
               </div>
             )}
           </div>
         )}
 
-        {showProductImage && imageCandidates.length > 1 && (
+        {showProductImage && heroImages.length > 1 && (
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            {imageCandidates.slice(0, 3).map((candidate, index) => (
+            {heroImages.slice(0, 3).map((candidate, index) => (
               <button
                 key={`${candidate.src}-${index}`}
                 type="button"
                 onClick={() => setImageIndex(index)}
-                className={`min-w-0 border p-2 text-left transition ${
-                  imageIndex === index ? "border-white bg-white text-black" : "border-[#2a2c33] bg-[#17181d] text-slate-400 hover:border-slate-500 hover:text-white"
+                className={`min-w-0 rounded-lg border p-2 text-left transition ${
+                  imageIndex === index
+                    ? "border-[var(--forma-text-strong)] bg-[var(--forma-surface)] text-[var(--forma-text-strong)]"
+                    : "border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] hover:border-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
                 }`}
               >
-                <img src={candidate.src} alt={candidate.label} className="h-20 w-full bg-black object-cover" />
-                <div className="mt-2 truncate text-[10px] font-black uppercase tracking-[0.14em]">{candidate.label}</div>
+                <img src={candidate.src} alt={candidate.label} className="h-20 w-full rounded-md bg-[var(--forma-surface-muted)] object-cover" />
+                <div className="mt-2 truncate text-[10px] font-medium">{candidate.label}</div>
               </button>
             ))}
           </div>
         )}
 
-        <div className={`min-w-0 px-2 py-6 sm:px-8 sm:py-8 ${showProductImage ? "mt-6 border-t border-[#282a30]" : ""}`}>
-          <h1 className="break-words text-xl font-black uppercase tracking-[0.12em] text-white sm:text-2xl sm:tracking-[0.18em]">{title}</h1>
-          <div className="mt-5 flex flex-wrap gap-2">
+        {showHardwareReference && (
+          <section className="mt-4 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-3 sm:p-4">
+            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--forma-text-muted)]">Hardware reference</div>
+            <p className="mt-1 text-xs leading-5 text-[var(--forma-text-secondary)]">The image you shared for this project.</p>
+            <div className={`mt-3 grid gap-2 ${referenceImages.length > 1 ? "sm:grid-cols-2" : ""}`}>
+              {referenceImages.map((candidate) => (
+                <img
+                  key={candidate.src}
+                  src={candidate.src}
+                  alt={candidate.label}
+                  className="h-44 w-full rounded-lg bg-[var(--forma-surface-muted)] object-cover object-center sm:h-52"
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        <div className={`min-w-0 ${showProductImage ? "mt-6 border-t border-[var(--forma-border)] pt-5 sm:pt-6" : ""}`}>
+          <h1 className="break-words text-xl font-semibold tracking-tight text-[var(--forma-text-strong)] sm:text-2xl">{title}</h1>
+          <div className="mt-4 flex flex-wrap gap-2">
             {metadata.workflow && (
-              <span className="max-w-full break-words border border-cyan-300/30 bg-cyan-300/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-cyan-200 sm:tracking-[0.16em]">
+              <span className="max-w-full break-words rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-[rgb(var(--forma-cyan-rgb))]">
                 {metadata.workflow}
               </span>
             )}
             {showModelName && llmProvider && llmModel && (
-              <span className="max-w-full break-words border border-violet-300/30 bg-violet-300/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-violet-100 sm:tracking-[0.16em]">
+              <span className="max-w-full break-words rounded-md border border-[rgb(var(--forma-violet-rgb)/0.35)] bg-[rgb(var(--forma-violet-rgb)/0.1)] px-2.5 py-1 text-[11px] font-medium uppercase tracking-[0.12em] text-[rgb(var(--forma-violet-rgb))]">
                 {projectLlmDisplayLabel(llmProvider, llmModel)}
               </span>
             )}
             {features.slice(0, 12).map((feature, index) => (
-              <span key={`${feature}-${index}`} className="max-w-full break-words border border-[#333640] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-slate-400 sm:tracking-[0.16em]">
+              <span key={`${feature}-${index}`} className="max-w-full break-words rounded-md border border-[var(--forma-border)] px-2.5 py-1 text-[11px] font-medium text-[var(--forma-text-muted)]">
                 {String(feature).split(":")[0]}
               </span>
             ))}
           </div>
 
-          <div className="mt-7">
-            <div className="text-[11px] font-black uppercase tracking-[0.22em] text-slate-500">Technical Description</div>
-            <p className="mt-4 max-w-3xl break-words text-base leading-8 text-slate-300">{description}</p>
+          <div className="mt-6">
+            <div className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--forma-text-muted)]">Technical Description</div>
+            <p className="mt-3 max-w-3xl break-words text-sm leading-7 text-[var(--forma-text-body)]">{description}</p>
           </div>
 
           {systemArchitecture?.root && (
-            <section className="mt-8 border border-[#2a2c33] bg-[#111216] p-4 sm:p-5">
-              <div className="flex items-start gap-3 border-b border-[#2a2c33] pb-4">
-                <span className="flex h-9 w-9 shrink-0 items-center justify-center border border-cyan-400/30 bg-cyan-400/10 text-cyan-300">
+            <section className="mt-6 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+              <div className="flex items-start gap-3 border-b border-[var(--forma-border)] pb-4">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] text-[rgb(var(--forma-cyan-rgb))]">
                   <GitBranch className="h-4 w-4" />
                 </span>
                 <div className="min-w-0">
-                  <h2 className="text-xs font-black uppercase tracking-[0.18em] text-white">System Architecture</h2>
-                  <p className="mt-2 break-words text-xs leading-5 text-slate-500">{systemArchitecture.summary}</p>
+                  <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--forma-text-strong)]">System Architecture</h2>
+                  <p className="mt-2 break-words text-xs leading-5 text-[var(--forma-text-muted)]">{systemArchitecture.summary}</p>
                 </div>
               </div>
               <div className="mt-4">
@@ -175,8 +192,8 @@ export function OverviewPanel({
             </section>
           )}
 
-          <div className="mt-7 max-w-2xl border border-[#2a2c33]">
-            <div className="grid grid-cols-3 border-b border-[#2a2c33] px-4 py-3 text-[12px] font-black uppercase tracking-[0.18em] text-slate-500">
+          <div className="mt-6 max-w-2xl overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)]">
+            <div className="grid grid-cols-3 border-b border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-4 py-2.5 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
               <span>Category</span>
               <span className="text-center">Parts</span>
               <span className="text-right">Cost</span>
@@ -211,20 +228,20 @@ function SystemTreeNode({ node, depth }: { node: Record<string, any>; depth: num
   const domain = String(node.domain || "system");
 
   return (
-    <div className={depth ? "ml-3 border-l border-[#333640] pl-3 sm:ml-5 sm:pl-5" : ""}>
-      <article className="mb-3 border border-[#292b32] bg-[#17181d] p-3 sm:p-4">
+    <div className={depth ? "ml-3 border-l border-[var(--forma-border)] pl-3 sm:ml-5 sm:pl-5" : ""}>
+      <article className="mb-3 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-page)] p-3 sm:p-4">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="border border-cyan-400/25 bg-cyan-400/10 px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-cyan-300">
+          <span className="rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.3)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.14em] text-[rgb(var(--forma-cyan-rgb))]">
             {domain}
           </span>
-          <h3 className="break-words text-sm font-black text-white">{node.name || node.system_id}</h3>
+          <h3 className="break-words text-sm font-semibold text-[var(--forma-text-strong)]">{node.name || node.system_id}</h3>
         </div>
-        <div className="mt-3 text-[9px] font-black uppercase tracking-[0.18em] text-slate-600">Why needed</div>
-        <p className="mt-1.5 break-words text-xs leading-5 text-slate-400">{node.purpose}</p>
+        <div className="mt-3 text-[9px] font-medium uppercase tracking-[0.16em] text-[var(--forma-text-muted)]">Why needed</div>
+        <p className="mt-1.5 break-words text-xs leading-5 text-[var(--forma-text-secondary)]">{node.purpose}</p>
         {responsibilities.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-1.5">
             {responsibilities.slice(0, 5).map((responsibility: string, index: number) => (
-              <span key={`${node.system_id || node.name}-${index}`} className="max-w-full break-words border border-[#333640] px-2 py-1 text-[9px] font-bold text-slate-500">
+              <span key={`${node.system_id || node.name}-${index}`} className="max-w-full break-words rounded-md border border-[var(--forma-border)] px-2 py-1 text-[9px] font-medium text-[var(--forma-text-muted)]">
                 {responsibility}
               </span>
             ))}
@@ -252,160 +269,168 @@ export function BomPanel({
   canDownloadAssets?: boolean;
 }) {
   return (
-    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-5">
-      <div className="space-y-3 lg:hidden">
-        {components.map((component) => {
-          const tone = categoryTone[component.category?.toLowerCase()] || categoryTone.default;
-          const Icon = iconForCategory(component.category);
-          const subtotal = component.extended_price ?? (component.unit_price || 0) * (component.quantity || 1);
-          const itemKey = component.line_id || component.ref_des || component.part_definition_id;
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
+      <div className="mx-auto flex min-w-0 max-w-[890px] flex-col gap-4">
+        {components.length > 0 && (
+          <div className="space-y-3 lg:hidden">
+            {components.map((component) => {
+              const tone = categoryTone[component.category?.toLowerCase()] || categoryTone.default;
+              const Icon = iconForCategory(component.category);
+              const subtotal = component.extended_price ?? (component.unit_price || 0) * (component.quantity || 1);
+              const itemKey = component.line_id || component.ref_des || component.part_definition_id;
 
-          return (
-            <article key={itemKey} className="border border-[#2a2c33] bg-[#17181d] p-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <span className={`flex h-11 w-11 shrink-0 items-center justify-center border ${tone.border} ${tone.bg}`}>
-                  <Icon className={`h-5 w-5 ${tone.text}`} />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="break-words text-sm font-black text-white">{component.name}</h3>
-                  <p className="mt-2 break-words text-xs leading-5 text-slate-500">{component.rationale}</p>
-                  {Array.isArray(component.instance_refs) && component.instance_refs.length > 0 && (
-                    <p className="mt-2 break-words text-[10px] font-bold text-slate-600">
-                      {component.instance_refs.join(", ")}
-                    </p>
-                  )}
-                  <CategoryBadge category={component.category} />
+              return (
+                <article key={itemKey} className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-md border ${tone.border} ${tone.bg}`}>
+                      <Icon className={`h-5 w-5 ${tone.text}`} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="break-words text-sm font-semibold text-[var(--forma-text-strong)]">{component.name}</h3>
+                      <p className="mt-1.5 break-words text-xs leading-5 text-[var(--forma-text-secondary)]">{component.rationale}</p>
+                      {Array.isArray(component.instance_refs) && component.instance_refs.length > 0 && (
+                        <p className="mt-1.5 break-words text-[10px] font-medium text-[var(--forma-text-muted)]">
+                          {component.instance_refs.join(", ")}
+                        </p>
+                      )}
+                      <CategoryBadge category={component.category} />
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-2">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Qty</div>
+                      <div className="mt-1 font-medium text-[var(--forma-text-body)]">{component.quantity}</div>
+                    </div>
+                    <div className="rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-2 text-right">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Subtotal</div>
+                      <div className="mt-1 font-semibold text-[var(--forma-text-strong)]">~${subtotal.toFixed(2)}</div>
+                    </div>
+                    <div className="rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-2">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Unit</div>
+                      <div className="mt-1 font-medium text-[var(--forma-text-body)]">~${Number(component.unit_price || 0).toFixed(2)}</div>
+                    </div>
+                    <div className="min-w-0 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-2">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Source</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {getSourcesForComponent(component).map((source) => (
+                          <ComponentSourceAction
+                            key={`${source.label}-${source.href}`}
+                            source={source}
+                            component={component}
+                            canDownloadAssets={canDownloadAssets}
+                            className="inline-flex justify-center px-2 py-1 text-[10px]"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+
+        {components.length > 0 && (
+          <div className="hidden overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] lg:block">
+            <div className="overflow-x-auto">
+              <div className="min-w-[980px]">
+                <div className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] border-b border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-5 py-2.5 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
+                  <span>Part</span>
+                  <span className="text-center">Qty</span>
+                  <span>Unit</span>
+                  <span>Source</span>
+                  <span className="text-right">Subtotal</span>
+                </div>
+                <div className="divide-y divide-[var(--forma-border)]">
+                  {components.map((component) => (
+                    <div key={component.line_id || component.ref_des || component.part_definition_id} className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] items-center px-5 py-4">
+                      <div className="flex items-start gap-4">
+                        <PartThumb component={component} />
+                        <div className="min-w-0">
+                          <h3 className="text-sm font-semibold text-[var(--forma-text-strong)]">{component.name}</h3>
+                          <div className="mt-1 text-xs text-[var(--forma-text-muted)]">{component.category}</div>
+                          <p className="mt-2 max-w-xl text-sm leading-6 text-[var(--forma-text-secondary)]">{component.rationale}</p>
+                          {Array.isArray(component.instance_refs) && component.instance_refs.length > 0 && (
+                            <p className="mt-1.5 text-xs font-medium text-[var(--forma-text-muted)]">{component.instance_refs.join(", ")}</p>
+                          )}
+                          <CategoryBadge category={component.category} />
+                        </div>
+                      </div>
+                      <div className="text-center text-sm text-[var(--forma-text-body)]">{component.quantity}</div>
+                      <div className="text-sm text-[var(--forma-text-body)]">~${Number(component.unit_price || 0).toFixed(2)}</div>
+                      <div className="flex flex-col items-start gap-2">
+                        {getSourcesForComponent(component).map((source) => (
+                          <ComponentSourceAction
+                            key={`${source.label}-${source.href}`}
+                            source={source}
+                            component={component}
+                            canDownloadAssets={canDownloadAssets}
+                            className="inline-flex min-w-[86px] justify-center px-3 py-1.5 text-xs"
+                          />
+                        ))}
+                      </div>
+                      <div className="text-right text-sm font-semibold text-[var(--forma-text-strong)]">~${Number(component.extended_price ?? ((component.unit_price || 0) * (component.quantity || 1))).toFixed(2)}</div>
+                    </div>
+                  ))}
                 </div>
               </div>
+            </div>
+          </div>
+        )}
 
-              <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
-                <div className="border border-[#25272e] bg-[#141519] px-3 py-2">
-                  <div className="font-black uppercase text-slate-600">Qty</div>
-                  <div className="mt-1 font-bold text-slate-200">{component.quantity}</div>
+        <div className="flex flex-col gap-1 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-[var(--forma-text-muted)]">Total Estimated Cost</span>
+          <span className="text-xl font-semibold tracking-tight text-[var(--forma-text-strong)] sm:text-2xl">~${metrics.totalCost.toFixed(2)}</span>
+        </div>
+
+        <section className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+          <div className="flex items-start justify-between gap-4 border-b border-[var(--forma-border)] pb-4">
+            <div className="min-w-0">
+              <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-[var(--forma-text-strong)]">CAD Sources</h2>
+              <div className="mt-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">3D Printed</div>
+            </div>
+            <div className="shrink-0 text-right">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Mech Cost</div>
+              <div className="mt-1 text-lg font-semibold tracking-tight text-[var(--forma-text-strong)]">~${fabricationCost.toFixed(2)}</div>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {!canDownloadAssets ? (
+              <div className="rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-3 text-xs leading-6 text-[var(--forma-text-secondary)]">
+                Files are available only on projects you generated.
+              </div>
+            ) : cadSources.length ? cadSources.slice(0, 3).map((source: any) => (
+              <a
+                key={`${source.name}-${source.url}`}
+                href={source.url}
+                target="_blank"
+                rel="noreferrer"
+                className="block rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 transition hover:border-[rgb(var(--forma-cyan-rgb)/0.45)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="break-words text-xs font-semibold text-[var(--forma-text-strong)]">{source.name}</div>
+                    <div className="mt-1.5 break-words text-[11px] font-medium uppercase tracking-[0.12em] text-[rgb(var(--forma-cyan-rgb))]">{source.source_type || "CAD"} / ${(Number(source.estimated_unit_price_usd || 0)).toFixed(2)}</div>
+                  </div>
+                  <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-[var(--forma-text-muted)]" />
                 </div>
-                <div className="border border-[#25272e] bg-[#141519] px-3 py-2 text-right">
-                  <div className="font-black uppercase text-slate-600">Subtotal</div>
-                  <div className="mt-1 font-black text-white">~${subtotal.toFixed(2)}</div>
-                </div>
-                <div className="border border-[#25272e] bg-[#141519] px-3 py-2">
-                  <div className="font-black uppercase text-slate-600">Unit</div>
-                  <div className="mt-1 font-bold text-slate-200">~${Number(component.unit_price || 0).toFixed(2)}</div>
-                </div>
-                <div className="min-w-0 border border-[#25272e] bg-[#141519] px-3 py-2">
-                  <div className="font-black uppercase text-slate-600">Source</div>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {getSourcesForComponent(component).map((source) => (
-                      <ComponentSourceAction
-                        key={`${source.label}-${source.href}`}
-                        source={source}
-                        component={component}
-                        canDownloadAssets={canDownloadAssets}
-                        className="inline-flex justify-center px-2 py-1 text-[10px]"
-                      />
+                {source.file_formats?.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {source.file_formats.map((format: string) => (
+                      <span key={format} className="rounded-md border border-[var(--forma-border)] px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">{format}</span>
                     ))}
                   </div>
-                </div>
+                )}
+              </a>
+            )) : (
+              <div className="rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-3 text-xs leading-6 text-[var(--forma-text-secondary)]">
+                No CAD source records attached.
               </div>
-            </article>
-          );
-        })}
-      </div>
-
-      <div className="hidden overflow-x-auto border border-[#2a2c33] lg:block">
-        <div className="min-w-[980px]">
-          <div className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] border-b border-[#f5f5f5] px-5 py-5 text-sm font-black uppercase tracking-widest text-white">
-            <span>Part</span>
-            <span className="text-center">Qty</span>
-            <span>Unit</span>
-            <span>Source</span>
-            <span className="text-right">Subtotal</span>
+            )}
           </div>
-          <div className="divide-y divide-[#282a30]">
-            {components.map((component) => (
-              <div key={component.line_id || component.ref_des || component.part_definition_id} className="grid grid-cols-[minmax(420px,1fr)_110px_110px_150px_140px] items-center px-5 py-6">
-                <div className="flex items-start gap-4">
-                  <PartThumb component={component} />
-                  <div className="min-w-0">
-                    <h3 className="text-lg font-black text-white">{component.name}</h3>
-                    <div className="mt-2 text-sm text-slate-500">{component.category}</div>
-                    <p className="mt-3 max-w-xl text-sm leading-6 text-slate-500">{component.rationale}</p>
-                    {Array.isArray(component.instance_refs) && component.instance_refs.length > 0 && (
-                      <p className="mt-2 text-xs font-bold text-slate-600">{component.instance_refs.join(", ")}</p>
-                    )}
-                    <CategoryBadge category={component.category} />
-                  </div>
-                </div>
-                <div className="text-center text-base text-slate-200">{component.quantity}</div>
-                <div className="text-base text-slate-200">~${Number(component.unit_price || 0).toFixed(2)}</div>
-                <div className="flex flex-col items-start gap-2">
-                  {getSourcesForComponent(component).map((source) => (
-                    <ComponentSourceAction
-                      key={`${source.label}-${source.href}`}
-                      source={source}
-                      component={component}
-                      canDownloadAssets={canDownloadAssets}
-                      className="inline-flex min-w-[86px] justify-center px-3 py-2 text-xs"
-                    />
-                  ))}
-                </div>
-                <div className="text-right text-lg font-black text-white">~${Number(component.extended_price ?? ((component.unit_price || 0) * (component.quantity || 1))).toFixed(2)}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-5 flex flex-col gap-2 border border-[#2a2c33] px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:py-6">
-        <span className="text-sm font-black uppercase tracking-[0.16em] text-slate-400 sm:tracking-[0.22em]">Total Estimated Cost</span>
-        <span className="text-2xl font-black text-white sm:text-3xl">~${metrics.totalCost.toFixed(2)}</span>
-      </div>
-
-      <div className="mt-5 border border-[#2a2c33] p-4">
-        <div className="flex items-start justify-between gap-4 border-b border-[#333640] pb-3">
-          <div>
-            <h2 className="text-sm font-black uppercase tracking-widest text-white">CAD Sources</h2>
-            <div className="mt-2 text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">3D Printed</div>
-          </div>
-          <div className="text-right">
-            <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-500">Mech Cost</div>
-            <div className="mt-1 text-lg font-black text-white">~${fabricationCost.toFixed(2)}</div>
-          </div>
-        </div>
-
-        <div className="mt-4 space-y-3">
-          {!canDownloadAssets ? (
-            <div className="border border-[#2a2c33] bg-[#141519] p-3 text-xs leading-6 text-slate-500">
-              Files are available only on projects you generated.
-            </div>
-          ) : cadSources.length ? cadSources.slice(0, 3).map((source: any) => (
-            <a
-              key={`${source.name}-${source.url}`}
-              href={source.url}
-              target="_blank"
-              rel="noreferrer"
-              className="block border border-[#2a2c33] bg-[#141519] p-3 hover:border-cyan-400/60"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="break-words text-xs font-black uppercase tracking-[0.12em] text-white sm:tracking-[0.14em]">{source.name}</div>
-                  <div className="mt-2 break-words text-[10px] font-black uppercase tracking-[0.12em] text-cyan-300 sm:tracking-[0.16em]">{source.source_type || "CAD"} / ${(Number(source.estimated_unit_price_usd || 0)).toFixed(2)}</div>
-                </div>
-                <ExternalLink className="mt-0.5 h-4 w-4 shrink-0 text-slate-500" />
-              </div>
-              {source.file_formats?.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-1">
-                  {source.file_formats.map((format: string) => (
-                    <span key={format} className="border border-[#333640] px-2 py-1 text-[10px] font-black uppercase text-slate-500">{format}</span>
-                  ))}
-                </div>
-              )}
-            </a>
-          )) : (
-            <div className="border border-[#2a2c33] bg-[#141519] p-3 text-xs leading-6 text-slate-500">
-              No CAD source records attached.
-            </div>
-          )}
-        </div>
+        </section>
       </div>
     </div>
   );
@@ -423,12 +448,12 @@ export function ComponentSourceAction({
   className?: string;
 }) {
   const isFabricationAsset = source.label.toLowerCase() === "fabricate";
-  const baseClass = `${className} font-black italic transition focus:outline-none focus:ring-2 focus:ring-cyan-300`;
+  const baseClass = `${className} rounded-md font-medium transition focus:outline-none focus:ring-2 focus:ring-[rgb(var(--forma-cyan-rgb)/0.45)]`;
   if (isFabricationAsset && !canDownloadAssets) {
     return (
       <span
         title="Files are available only on projects you generated."
-        className={`${baseClass} cursor-not-allowed border border-[#2a2c33] bg-[#111216] text-slate-600`}
+        className={`${baseClass} cursor-not-allowed border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] text-[var(--forma-text-muted)]`}
       >
         {source.label}
       </span>
@@ -490,6 +515,32 @@ export function MechanicalPanel({
   );
 }
 
+function issueSeverityTone(severity: unknown) {
+  const key = String(severity || "").toLowerCase();
+  if (key === "critical" || key === "error") {
+    return {
+      well: "border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.1)]",
+      chip: "border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.1)] text-[rgb(var(--forma-red-rgb))]",
+    };
+  }
+  if (key === "warning") {
+    return {
+      well: "border-[var(--forma-border)] bg-[var(--forma-surface-muted)]",
+      chip: "border-[rgb(var(--forma-yellow-rgb)/0.35)] bg-[rgb(var(--forma-yellow-rgb)/0.1)] text-[rgb(var(--forma-yellow-rgb))]",
+    };
+  }
+  if (key === "info") {
+    return {
+      well: "border-[var(--forma-border)] bg-[var(--forma-surface-muted)]",
+      chip: "border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] text-[rgb(var(--forma-cyan-rgb))]",
+    };
+  }
+  return {
+    well: "border-[var(--forma-border)] bg-[var(--forma-surface-muted)]",
+    chip: "border-[var(--forma-border)] bg-[var(--forma-surface-muted)] text-[var(--forma-text-muted)]",
+  };
+}
+
 export function AssemblyPanel({
   assembly,
   issues,
@@ -528,115 +579,129 @@ export function AssemblyPanel({
   }, [exportMenuOpen]);
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
-      <div className="mb-6 flex flex-col gap-4 border-b border-[#2a2c33] pb-5 sm:flex-row sm:items-center sm:justify-between">
-        <div className="min-w-0">
-          <h2 className="break-words text-lg font-black uppercase tracking-[0.12em] text-white sm:text-xl sm:tracking-[0.18em]">Build Instructions</h2>
-          <p className="mt-2 text-xs text-slate-500">Sequential assembly from the generated hardware graph.</p>
-        </div>
-        <div ref={exportMenuRef} className="relative shrink-0">
-          <button
-            ref={exportButtonRef}
-            type="button"
-            onClick={() => setExportMenuOpen((open) => !open)}
-            disabled={!canDownloadAssets}
-            aria-haspopup="menu"
-            aria-expanded={exportMenuOpen}
-            aria-controls="docs-export-menu"
-            title={canDownloadAssets ? "Choose an export format" : "Files are available only on projects you generated."}
-            className="flex items-center justify-center gap-2 border border-[#2a2c33] px-4 py-3 text-xs font-black uppercase tracking-widest text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-white"
-          >
-            <Download className="h-4 w-4" />
-            Export
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
-          </button>
-
-          {exportMenuOpen && (
-            <div
-              id="docs-export-menu"
-              role="menu"
-              className="absolute right-0 top-full z-30 mt-2 w-64 border border-[#34363f] bg-[#17181d] p-1 shadow-2xl"
-            >
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setExportMenuOpen(false);
-                  onDownloadJSON();
-                }}
-                className="group block w-full px-3 py-3 text-left hover:bg-white hover:text-black"
-              >
-                <span className="block text-xs font-black uppercase tracking-widest">Project JSON</span>
-                <span className="mt-1 block text-[10px] font-medium normal-case tracking-normal text-slate-500 group-hover:text-black">Full project data (.json)</span>
-              </button>
-              <button
-                type="button"
-                role="menuitem"
-                onClick={() => {
-                  setExportMenuOpen(false);
-                  onDownloadMarkdown();
-                }}
-                className="group block w-full border-t border-[#2a2c33] px-3 py-3 text-left hover:bg-white hover:text-black"
-              >
-                <span className="block text-xs font-black uppercase tracking-widest">Markdown</span>
-                <span className="mt-1 block text-[10px] font-medium normal-case tracking-normal text-slate-500 group-hover:text-black">Build instructions and safety audit (.md)</span>
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_340px]">
-        <div className="space-y-4">
-          {assembly.map((step) => (
-            <section key={step.step_num} className="border border-[#2a2c33] bg-[#17181d] p-5">
-              <div className="flex gap-4">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center bg-white text-sm font-black text-black">
-                  {step.step_num}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-base font-black text-white">{step.title}</h3>
-                  <p className="mt-3 break-words text-sm leading-7 text-slate-400">{step.description}</p>
-                  {step.danger_flag && (
-                    <div className="mt-4 flex gap-2 border border-rose-500/30 bg-rose-950/25 p-3 text-sm leading-6 text-rose-300">
-                      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                      <span className="min-w-0 break-words">{step.danger_message || "Pay close attention to safety constraints during this stage."}</span>
-                    </div>
-                  )}
-                  {step.affected_components?.length > 0 && (
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {step.affected_components.map((part: string) => (
-                        <span key={part} className="border border-[#2a2c33] px-2 py-1 text-[10px] font-black uppercase tracking-widest text-slate-500">
-                          {part}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </section>
-          ))}
-        </div>
-
-        <div className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-cyan-400" />
-            <h3 className="text-sm font-black uppercase tracking-widest text-white">Safety Audit</h3>
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
+      <div className="mx-auto min-w-0 max-w-[890px]">
+        <div className="mb-6 flex flex-col gap-4 border-b border-[var(--forma-border)] pb-5 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <h2 className="break-words text-xl font-semibold tracking-tight text-[var(--forma-text-strong)]">Build Instructions</h2>
+            <p className="mt-2 text-xs text-[var(--forma-text-secondary)]">Sequential assembly from the generated hardware graph.</p>
           </div>
-          {issues.length ? (
-            <div className="space-y-3">
-              {issues.map((issue, index) => (
-                <div key={`${issue.description}-${index}`} className="border border-[#2a2c33] bg-[#141519] p-3">
-                  <div className="text-[10px] font-black uppercase tracking-widest text-slate-500">{issue.severity} / {issue.category}</div>
-                  <p className="mt-2 break-words text-xs leading-6 text-slate-400">{issue.description}</p>
+          <div ref={exportMenuRef} className="relative shrink-0">
+            <button
+              ref={exportButtonRef}
+              type="button"
+              onClick={() => setExportMenuOpen((open) => !open)}
+              disabled={!canDownloadAssets}
+              aria-haspopup="menu"
+              aria-expanded={exportMenuOpen}
+              aria-controls="docs-export-menu"
+              title={canDownloadAssets ? "Choose an export format" : "Files are available only on projects you generated."}
+              className="flex items-center justify-center gap-2 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--forma-surface)] disabled:hover:text-[var(--forma-text-body)]"
+            >
+              <Download className="h-4 w-4" />
+              Export
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {exportMenuOpen && (
+              <div
+                id="docs-export-menu"
+                role="menu"
+                className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-1 shadow-[var(--forma-card-shadow)]"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    onDownloadJSON();
+                  }}
+                  className="block w-full rounded-lg px-3 py-3 text-left text-[var(--forma-text-strong)] transition-colors hover:bg-[var(--forma-surface-muted)]"
+                >
+                  <span className="block text-xs font-medium">Project JSON</span>
+                  <span className="mt-1 block text-[10px] font-medium text-[var(--forma-text-muted)]">Full project data (.json)</span>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setExportMenuOpen(false);
+                    onDownloadMarkdown();
+                  }}
+                  className="block w-full rounded-lg border-t border-[var(--forma-border)] px-3 py-3 text-left text-[var(--forma-text-strong)] transition-colors hover:bg-[var(--forma-surface-muted)]"
+                >
+                  <span className="block text-xs font-medium">Markdown</span>
+                  <span className="mt-1 block text-[10px] font-medium text-[var(--forma-text-muted)]">Build instructions and safety audit (.md)</span>
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1fr_280px]">
+          <div className="space-y-4">
+            {assembly.map((step) => (
+              <section key={step.step_num} className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+                <div className="flex gap-4">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] text-sm font-semibold text-[var(--forma-text-strong)]">
+                    {step.step_num}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-sm font-semibold text-[var(--forma-text-strong)]">{step.title}</h3>
+                    <p className="mt-3 break-words text-sm leading-7 text-[var(--forma-text-body)]">{step.description}</p>
+                    {step.danger_flag && (
+                      <div className="mt-4 flex gap-2 rounded-lg border border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.1)] p-3 text-sm leading-6 text-[rgb(var(--forma-red-rgb))]">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                        <span className="min-w-0 break-words">{step.danger_message || "Pay close attention to safety constraints during this stage."}</span>
+                      </div>
+                    )}
+                    {step.affected_components?.length > 0 && (
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        {step.affected_components.map((part: string) => (
+                          <span key={part} className="rounded-md border border-[var(--forma-border)] px-2 py-1 text-[10px] font-medium text-[var(--forma-text-muted)]">
+                            {part}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-              ))}
+              </section>
+            ))}
+          </div>
+
+          <div className="min-w-0 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+            <div className="mb-4 flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-[rgb(var(--forma-cyan-rgb))]" />
+              <h3 className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Safety Audit</h3>
             </div>
-          ) : (
-            <div className="border border-emerald-500/30 bg-emerald-950/25 p-4 text-xs leading-6 text-emerald-300">
-              All electrical nets validated safely.
-            </div>
-          )}
+            {issues.length ? (
+              <div className="space-y-3">
+                {issues.map((issue, index) => {
+                  const tone = issueSeverityTone(issue.severity);
+                  return (
+                    <div key={`${issue.description}-${index}`} className={`rounded-lg border p-3 ${tone.well}`}>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-md border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.12em] ${tone.chip}`}>
+                          {issue.severity}
+                        </span>
+                        {issue.category && (
+                          <span className="text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
+                            {issue.category}
+                          </span>
+                        )}
+                      </div>
+                      <p className="mt-2 break-words text-xs leading-6 text-[var(--forma-text-secondary)]">{issue.description}</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[rgb(var(--forma-green-rgb)/0.35)] bg-[rgb(var(--forma-green-rgb)/0.1)] p-4 text-xs leading-6 text-[rgb(var(--forma-green-rgb))]">
+                All electrical nets validated safely.
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -681,14 +746,14 @@ export function PartsSidebar({ components, issues, isValid }: { components: any[
 
 export function ImageUnavailableState({ failed = false }: { failed?: boolean }) {
   return (
-    <div className="flex h-[320px] flex-col items-center justify-center bg-[#d5d5d3] px-8 text-center sm:h-[440px]">
-      <div className="flex h-16 w-16 items-center justify-center border border-slate-400/70 bg-white/40 text-slate-600">
+    <div className="flex h-[280px] flex-col items-center justify-center bg-[var(--forma-surface-muted)] px-8 text-center sm:h-[380px]">
+      <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)]">
         {failed ? <AlertTriangle className="h-7 w-7" /> : <Box className="h-7 w-7" />}
       </div>
-      <div className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-slate-700">
+      <div className="mt-5 text-xs font-medium uppercase tracking-[0.16em] text-[var(--forma-text-strong)]">
         {failed ? "Product image unavailable" : "Product image not generated"}
       </div>
-      <p className="mt-2 max-w-md text-xs leading-5 text-slate-600">
+      <p className="mt-2 max-w-md text-xs leading-5 text-[var(--forma-text-muted)]">
         {failed
           ? "Image generation failed for this revision. The project data and build artifacts are still available."
           : "No generated product image is available for this revision."}
@@ -699,7 +764,7 @@ export function ImageUnavailableState({ failed = false }: { failed?: boolean }) 
 
 export function SummaryRow({ label, parts, cost, strong = false }: { label: string; parts: number; cost: number; strong?: boolean }) {
   return (
-    <div className={`grid grid-cols-3 border-b border-[#2a2c33] px-4 py-3 text-base last:border-b-0 ${strong ? "font-black text-white" : "text-slate-300"}`}>
+    <div className={`grid grid-cols-3 border-b border-[var(--forma-border)] px-4 py-2.5 text-sm last:border-b-0 ${strong ? "font-semibold text-[var(--forma-text-strong)]" : "text-[var(--forma-text-body)]"}`}>
       <span>{label}</span>
       <span className="text-center">{parts}</span>
       <span className="text-right">${cost.toFixed(2)}</span>
@@ -711,7 +776,7 @@ export function CategoryBadge({ category }: { category: string }) {
   const tone = categoryTone[category?.toLowerCase()] || categoryTone.default;
   const Icon = iconForCategory(category);
   return (
-    <span className={`mt-4 inline-flex items-center gap-1.5 border ${tone.border} ${tone.bg} px-3 py-2 text-[10px] font-black uppercase tracking-widest ${tone.text}`}>
+    <span className={`mt-3 inline-flex items-center gap-1.5 rounded-md border ${tone.border} ${tone.bg} px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] ${tone.text}`}>
       <Icon className="h-3 w-3" />
       {tone.label}
     </span>
@@ -722,9 +787,9 @@ export function PartThumb({ component }: { component: any }) {
   const tone = categoryTone[component.category?.toLowerCase()] || categoryTone.default;
   const Icon = iconForCategory(component.category);
   return (
-    <div className="flex h-[104px] w-[104px] shrink-0 items-center justify-center bg-white">
-      <div className={`flex h-16 w-16 items-center justify-center border ${tone.border} ${tone.bg}`}>
-        <Icon className={`h-9 w-9 ${tone.text}`} />
+    <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)]">
+      <div className={`flex h-11 w-11 items-center justify-center rounded-md border ${tone.border} ${tone.bg}`}>
+        <Icon className={`h-6 w-6 ${tone.text}`} />
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import type { ChangeEventHandler, ClipboardEventHandler, FormEventHandler, ReactNode, RefObject } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -112,11 +113,13 @@ export default function HomeChatView({
   onImagePaste,
 }: HomeChatViewProps) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
   const latestChoiceMessageId = [...messages]
     .reverse()
     .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
   const retryMode = canRetryFailedBuild && !hasGenerationInput && !generationActive;
   const promptRunning = isLoading || generationActive;
+  const canFinishPrompt = !generationActive && !retryMode && hasGenerationInput && generationReady && !isLoading;
   const primaryActionLabel = generationActive
     ? "Stop generation"
     : retryMode
@@ -124,6 +127,10 @@ export default function HomeChatView({
       : inputValid
         ? "Send context"
         : "Check hardware idea";
+
+  useEffect(() => {
+    if (selectedImage) promptRef.current?.focus();
+  }, [selectedImage]);
 
   return (
     <section
@@ -322,24 +329,6 @@ export default function HomeChatView({
             </section>
           )}
 
-          {selectedImage && (
-            <div className="mb-3 flex items-center gap-3 rounded-xl border border-white/5 bg-[#181b22] p-2">
-              <img src={selectedImage} alt="Attached reference" className="h-16 w-24 rounded-lg object-cover" />
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-zinc-100">Image attached</div>
-                <div className="mt-1 text-[11px] text-zinc-500">Forma will use this image with your next message.</div>
-              </div>
-              <button
-                type="button"
-                onClick={onRemoveImage}
-                className="rounded-lg p-2 text-zinc-500 transition-colors hover:bg-zinc-800/40 hover:text-zinc-200"
-                aria-label="Remove image"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-
           {notice && (
             <div id="generation-input-notice" role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
@@ -353,7 +342,31 @@ export default function HomeChatView({
             }`}
           >
             <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
+            {selectedImage && (
+              <div className="mb-2 flex items-start gap-2 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-1.5 pr-2">
+                <img
+                  src={selectedImage}
+                  alt="Attached prompt image"
+                  className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                />
+                <div className="min-w-0 flex-1 py-0.5">
+                  <div className="text-xs font-medium text-[var(--forma-text-strong)]">Image prompt</div>
+                  <div className="mt-0.5 text-[11px] leading-4 text-[var(--forma-text-muted)]">
+                    Add details below, then press Enter.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onRemoveImage}
+                  className="rounded-md p-1.5 text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
+                  aria-label="Remove image"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             <textarea
+              ref={promptRef}
               value={prompt}
               onChange={(event) => onPromptChange(event.target.value)}
               onPaste={onImagePaste}
@@ -368,7 +381,11 @@ export default function HomeChatView({
                   event.currentTarget.form?.requestSubmit();
                 }
               }}
-              placeholder="Describe the product, constraints, references, and outputs you need…"
+              placeholder={
+                selectedImage
+                  ? "Add constraints, references, or what you want from this image…"
+                  : "Describe the product, constraints, references, and outputs you need…"
+              }
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
               className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
@@ -383,24 +400,33 @@ export default function HomeChatView({
               >
                 <Paperclip className="h-4 w-4" />
               </button>
-              <button
-                type={generationActive || retryMode ? "button" : "submit"}
-                onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
-                disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
-                className="forma-action-fill flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-30"
-                aria-label={primaryActionLabel}
-                title={primaryActionLabel}
-              >
-                {generationActive ? (
-                  <Square className="h-3.5 w-3.5 fill-current" />
-                ) : retryMode ? (
-                  <RefreshCw className={`h-3.5 w-3.5 ${retryingFailedBuild ? "animate-spin" : ""}`} />
-                ) : isLoading ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <ArrowRight className="h-3.5 w-3.5" />
+              <div className="flex items-center gap-1.5">
+                {canFinishPrompt && (
+                  <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
+                    Enter
+                  </span>
                 )}
-              </button>
+                <button
+                  type={generationActive || retryMode ? "button" : "submit"}
+                  onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
+                  disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
+                  className={`prompt-composer-send flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
+                    canFinishPrompt || retryMode ? "is-ready" : ""
+                  }`}
+                  aria-label={canFinishPrompt ? `${primaryActionLabel}, or press Enter` : primaryActionLabel}
+                  title={canFinishPrompt ? `${primaryActionLabel} · Enter` : primaryActionLabel}
+                >
+                  {generationActive ? (
+                    <Square className="h-3.5 w-3.5 fill-current" />
+                  ) : retryMode ? (
+                    <RefreshCw className={`h-3.5 w-3.5 ${retryingFailedBuild ? "animate-spin" : ""}`} />
+                  ) : isLoading ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ArrowRight className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
           </div>
 

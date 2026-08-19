@@ -12,6 +12,7 @@ from forma_core.workspaces.design_briefs import (
     DesignBriefReadiness,
     DesignBriefReference,
 )
+from forma_core.workspaces.design_briefs.references import inline_image_metadata
 from forma_core.workspaces.projects.models import ClarifyingQuestionsRequest
 
 
@@ -65,10 +66,7 @@ def _reference(attachment: ContextAttachment) -> DesignBriefReference:
     if not identity:
         digest_source = "|".join((attachment.kind, attachment.name or "", attachment.uri or "", attachment.data_url or ""))
         identity = f"attachment-{hashlib.sha256(digest_source.encode()).hexdigest()[:20]}"
-    metadata: dict[str, object] = {"source": attachment.source}
-    if attachment.data_url:
-        metadata["inline_data_supplied"] = True
-        metadata["inline_data_length"] = len(attachment.data_url)
+    metadata: dict[str, object] = inline_image_metadata(attachment.data_url, {"source": attachment.source})
     if attachment.extracted_text:
         metadata["text_extracted"] = True
     return DesignBriefReference(

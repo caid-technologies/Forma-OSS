@@ -121,7 +121,58 @@ export const arcticLight = {
   violet: "#7e22ce",
 } as const;
 
-/** Lighting and clear-color for the 3D canvas so it matches each appearance. */
+/** Wireframe and overlay accents so the CAD view tracks each appearance. */
+export type MechanicalScenePalette = {
+  envelope: string;
+  electrical: string;
+  print: string;
+  mechanism: string;
+  structural: string;
+  misc: string;
+  rotate: string;
+  axisX: string;
+  axisY: string;
+  axisZ: string;
+  categories: Record<string, string>;
+};
+
+function mechanicalPalette(accents: {
+  cyan: string;
+  green: string;
+  yellow: string;
+  red: string;
+  violet: string;
+  blue: string;
+  orange: string;
+  muted: string;
+}): MechanicalScenePalette {
+  return {
+    envelope: accents.cyan,
+    electrical: accents.cyan,
+    print: accents.violet,
+    mechanism: accents.red,
+    structural: accents.blue,
+    misc: accents.muted,
+    rotate: accents.yellow,
+    axisX: accents.red,
+    axisY: accents.cyan,
+    axisZ: accents.yellow,
+    categories: {
+      microcontroller: accents.cyan,
+      sensor: accents.green,
+      actuator: accents.orange,
+      display: accents.violet,
+      power: accents.yellow,
+      passives: accents.violet,
+      communication: accents.blue,
+      mechanical: accents.red,
+      "3d print": accents.violet,
+      default: accents.muted,
+    },
+  };
+}
+
+/** Lighting, clear-color, and part accents for the 3D canvas. */
 export type MechanicalSceneAppearance = {
   background: string;
   fog: string;
@@ -134,6 +185,7 @@ export type MechanicalSceneAppearance = {
   selectedEdge: string;
   fillOpacity: number;
   selectedFillOpacity: number;
+  palette: MechanicalScenePalette;
 };
 
 export const mechanicalSceneAppearance: Record<FormaTheme, MechanicalSceneAppearance> = {
@@ -149,6 +201,16 @@ export const mechanicalSceneAppearance: Record<FormaTheme, MechanicalSceneAppear
     selectedEdge: solarizedDark.base3,
     fillOpacity: 0.06,
     selectedFillOpacity: 0.16,
+    palette: mechanicalPalette({
+      cyan: solarizedDark.cyan,
+      green: solarizedDark.green,
+      yellow: solarizedDark.yellow,
+      red: solarizedDark.red,
+      violet: solarizedDark.violet,
+      blue: solarizedDark.blue,
+      orange: solarizedDark.orange,
+      muted: solarizedDark.base1,
+    }),
   },
   light: {
     background: solarizedLight.base2,
@@ -162,6 +224,16 @@ export const mechanicalSceneAppearance: Record<FormaTheme, MechanicalSceneAppear
     selectedEdge: solarizedLight.base02,
     fillOpacity: 0.12,
     selectedFillOpacity: 0.22,
+    palette: mechanicalPalette({
+      cyan: solarizedLight.cyan,
+      green: solarizedLight.green,
+      yellow: solarizedLight.yellow,
+      red: solarizedLight.red,
+      violet: solarizedLight.violet,
+      blue: solarizedDark.blue,
+      orange: solarizedDark.orange,
+      muted: solarizedLight.base1,
+    }),
   },
   arctic: {
     background: arcticLight.page,
@@ -175,6 +247,16 @@ export const mechanicalSceneAppearance: Record<FormaTheme, MechanicalSceneAppear
     selectedEdge: arcticLight.textStrong,
     fillOpacity: 0.1,
     selectedFillOpacity: 0.2,
+    palette: mechanicalPalette({
+      cyan: arcticLight.cyan,
+      green: arcticLight.green,
+      yellow: arcticLight.yellow,
+      red: arcticLight.red,
+      violet: arcticLight.violet,
+      blue: arcticLight.cyan,
+      orange: arcticLight.yellow,
+      muted: arcticLight.textMuted,
+    }),
   },
 };
 

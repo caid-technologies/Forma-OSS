@@ -325,6 +325,7 @@ def gather_project_context_endpoint(
         for item in request.attachments
     ]
     context_project_id = str(project_id) if workflow is not None or brief is not None else None
+    image_preview = next((item.data_url for item in request.attachments if item.kind == "image" and item.data_url), None)
     user_message = {
             "id": f"context-user-{uuid4().hex}",
             "role": "user",
@@ -333,6 +334,8 @@ def gather_project_context_endpoint(
             "timestamp": now,
             "attachments": attachments,
         }
+    if image_preview:
+        user_message["imagePreview"] = image_preview
     assistant_message_record = {
             "id": f"context-assistant-{uuid4().hex}",
             "role": "assistant",

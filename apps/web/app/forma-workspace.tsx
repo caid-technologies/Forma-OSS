@@ -23,6 +23,11 @@ import {
   humanContextSkipChatSummary,
   humanContextSkipPromptSection,
 } from "../lib/human-context-defaults";
+import {
+  contextBuildControls,
+  latestRetryableContextBuildMessage,
+  shouldOfferFailedBuildRetry,
+} from "../lib/conversation-build-state";
 import CopyButton from "../components/copy-button";
 import {
   useAdminSession,
@@ -52,6 +57,9 @@ import {
   isFinalVideoStatus,
 } from "./forma-workspace/admin-panels";
 import HomeChatView from "./forma-workspace/home-chat-view";
+import ConversationMessageList, {
+  type ConversationMessage,
+} from "./forma-workspace/conversation-message-list";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
 import {
@@ -417,12 +425,6 @@ function newFrontendJobId() {
 
 function chatTimestamp() {
   return new Date().toISOString();
-}
-
-function formatChatTimestamp(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function initialChatMessages(timestamp: string = INITIAL_CHAT_TIMESTAMP): ChatMessage[] {
@@ -2414,12 +2416,7 @@ export function FormaWorkspace({
     [chatMessages],
   );
   const retryableContextBuildMessage = useMemo(() => {
-    const latestBuildMessage = [...chatMessages].reverse().find((message) => (
-      Boolean(message.buildPlanId)
-      && Boolean(message.buildJobId)
-      && Boolean(message.contextProjectId)
-    ));
-    return latestBuildMessage?.status === "error" ? latestBuildMessage : null;
+    return latestRetryableContextBuildMessage(chatMessages);
   }, [chatMessages]);
 
   const latestAgentOperation = useMemo(() => {
@@ -3587,6 +3584,24 @@ export function FormaWorkspace({
     } finally {
       setResettingBuildMessageId(null);
     }
+  };
+
+  const renderConversationPipelineProgress = (message: ConversationMessage) => {
+    const buildMessage = message as ChatMessage;
+    const controls = contextBuildControls(
+      buildMessage,
+      Boolean(activeGeneration || pendingContextBuildMessage),
+    );
+    return (
+      <AgentPipelineProgressView
+        progress={buildMessage.pipelineProgress}
+        status={buildMessage.status}
+        compact
+        onStop={controls.canStop ? () => stopContextBuildMessage(buildMessage) : undefined}
+        onReset={controls.canReset ? () => void resetFailedContextBuild(buildMessage) : undefined}
+        resetting={resettingBuildMessageId === buildMessage.id}
+      />
+    );
   };
 
   useEffect(() => {
@@ -4805,6 +4820,10 @@ export function FormaWorkspace({
     () => currentProjectChatId ? chatThreads[currentProjectChatId] || [] : [],
     [chatThreads, currentProjectChatId]
   );
+  const retryableProjectBuildMessage = useMemo(
+    () => latestRetryableContextBuildMessage(currentProjectChatMessages),
+    [currentProjectChatMessages],
+  );
   const projectImageCandidates = useMemo(() => {
     const chatReference =
       hardwareReferenceSrcFromChatMessages(currentProjectChatMessages) ||
@@ -5456,29 +5475,7 @@ export function FormaWorkspace({
                 ) : null
               }
               messages={chatMessages}
-              renderPipelineProgress={(message) => (
-                <AgentPipelineProgressView
-                  progress={message.pipelineProgress as AgentPipelineProgress | null}
-                  status={message.status}
-                  compact
-                  onStop={
-                    message.status === "loading" && message.buildPlanId && message.contextProjectId
-                      ? () => stopContextBuildMessage(message as ChatMessage)
-                      : undefined
-                  }
-                  onReset={
-                    message.status === "error"
-                    && message.buildPlanId
-                    && message.buildJobId
-                    && message.contextProjectId
-                    && !activeGeneration
-                    && !pendingContextBuildMessage
-                      ? () => void resetFailedContextBuild(message as ChatMessage)
-                      : undefined
-                  }
-                  resetting={resettingBuildMessageId === message.id}
-                />
-              )}
+              renderPipelineProgress={renderConversationPipelineProgress}
               projectArtifact={
                 projectIR && inlineChatProjectId && currentProjectId === inlineChatProjectId
                   ? (
@@ -5640,12 +5637,18 @@ export function FormaWorkspace({
                 projectTitle={projectTitle}
                 onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 messages={currentProjectChatMessages}
+                renderPipelineProgress={renderConversationPipelineProgress}
                 input={projectChatInput}
                 setInput={setProjectChatInput}
                 onSubmit={handleProjectChatGenerate}
                 isLoading={isLoading}
                 canStop={activeGeneration?.kind === "project-chat"}
                 onStop={stopActiveGeneration}
+                canRetryFailedBuild={Boolean(retryableProjectBuildMessage)}
+                retryingFailedBuild={resettingBuildMessageId === retryableProjectBuildMessage?.id}
+                onRetryFailedBuild={() => {
+                  if (retryableProjectBuildMessage) void resetFailedContextBuild(retryableProjectBuildMessage);
+                }}
                 canChat={currentUserOwnsProject}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
@@ -6990,12 +6993,16 @@ function ChatWorkspace({
   projectTitle,
   onRenameTitle,
   messages,
+  renderPipelineProgress,
   input,
   setInput,
   onSubmit,
   isLoading,
   canStop,
   onStop,
+  canRetryFailedBuild,
+  retryingFailedBuild,
+  onRetryFailedBuild,
   canChat,
   namespaceTabs,
   activeNamespace,
@@ -7010,12 +7017,16 @@ function ChatWorkspace({
   projectTitle: string;
   onRenameTitle?: (title: string) => void;
   messages: ChatMessage[];
+  renderPipelineProgress: (message: ConversationMessage) => React.ReactNode;
   input: string;
   setInput: (value: string) => void;
   onSubmit: (event: React.FormEvent) => void;
   isLoading: boolean;
   canStop: boolean;
   onStop: () => void;
+  canRetryFailedBuild: boolean;
+  retryingFailedBuild: boolean;
+  onRetryFailedBuild: () => void;
   canChat: boolean;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
@@ -7026,6 +7037,17 @@ function ChatWorkspace({
 }) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
   const { headerAway, updateFromContainer } = useChromeHeaderScroll(chatId || projectId || "project-chat");
+  const hasInput = Boolean(input.trim());
+  const retryMode = shouldOfferFailedBuildRetry({
+    canRetryFailedBuild,
+    hasInput,
+    generationActive: canStop,
+  });
+  const primaryActionLabel = canStop
+    ? "Stop project update"
+    : retryMode
+      ? "Try failed build again"
+      : "Apply change to project, or press Enter";
 
   const onChatScroll = () => {
     handleScroll();
@@ -7061,50 +7083,12 @@ function ChatWorkspace({
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-5 sm:pb-6 sm:pt-16"
             >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
-                {messages.length ? (
-                  messages.map((message) => {
-                    const isUser = message.role === "user";
-                    const isSystem = message.role === "system";
-                    return (
-                      <div key={message.id} className={`mx-auto flex w-full min-w-0 max-w-3xl ${isUser ? "justify-end" : "justify-start"}`}>
-                        <div
-                          className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl border px-4 py-3 ${
-                            isUser
-                              ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
-                              : message.status === "error"
-                                ? "border-rose-400/30 bg-rose-950/25 text-rose-100"
-                                : message.status === "cancelled"
-                                  ? "border-amber-300/30 bg-amber-950/20 text-amber-50"
-                                : isSystem
-                                  ? "border-white/5 bg-black/25 text-zinc-400"
-                                  : "border-white/5 bg-[#181b22] text-zinc-200"
-                          }`}
-                        >
-                          <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-medium text-zinc-500">
-                            <span>{isUser ? "You" : isSystem ? "Context" : "Forma"}</span>
-                            <span className="text-zinc-700">·</span>
-                            <span suppressHydrationWarning>{formatChatTimestamp(message.timestamp)}</span>
-                            {message.status === "loading" && <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />}
-                            {message.status === "cancelled" && <Square className="h-3 w-3 fill-current text-amber-300" />}
-                            <CopyButton
-                              value={message.content}
-                              label={isUser ? "Copy your message" : isSystem ? "Copy context message" : "Copy Forma's message"}
-                              className="ml-auto"
-                            />
-                          </div>
-                          <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                          {!message.projectId && (
-                            <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="mx-auto w-full max-w-3xl rounded-xl border border-white/5 bg-[#181b22] p-5 text-sm leading-6 text-zinc-500">
-                    This chat has no project messages yet.
-                  </div>
-                )}
+                <ConversationMessageList
+                  messages={messages}
+                  renderPipelineProgress={renderPipelineProgress}
+                  variant="project"
+                  emptyMessage="This chat has no project messages yet."
+                />
                 <div ref={endRef} />
                 <ChatProjectArtifact
                   projectId={projectId}
@@ -7129,6 +7113,10 @@ function ChatWorkspace({
                       if (event.key === "Enter" && !event.shiftKey) {
                         event.preventDefault();
                         if (isLoading) return;
+                        if (retryMode) {
+                          onRetryFailedBuild();
+                          return;
+                        }
                         event.currentTarget.form?.requestSubmit();
                       }
                     }}
@@ -7136,22 +7124,30 @@ function ChatWorkspace({
                     className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                   />
                   <div className="mt-1 flex items-center justify-end gap-1.5">
-                    {!canStop && !isLoading && Boolean(input.trim()) && (
+                    {!canStop && !retryMode && !isLoading && hasInput && (
                       <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
                         Enter
                       </span>
                     )}
                     <button
-                      type={canStop ? "button" : "submit"}
-                      onClick={canStop ? onStop : undefined}
-                      disabled={!canStop && (isLoading || !projectId || !input.trim())}
+                      type={canStop || retryMode ? "button" : "submit"}
+                      onClick={canStop ? onStop : retryMode ? onRetryFailedBuild : undefined}
+                      disabled={retryMode ? retryingFailedBuild : !canStop && (isLoading || !projectId || !hasInput)}
                       className={`prompt-composer-send inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
-                        !canStop && !isLoading && input.trim() ? "is-ready" : ""
+                        retryMode || (!canStop && !isLoading && hasInput) ? "is-ready" : ""
                       }`}
-                      aria-label={canStop ? "Stop project update" : "Apply change to project, or press Enter"}
-                      title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName} · Enter`}
+                      aria-label={primaryActionLabel}
+                      title={retryMode || canStop ? primaryActionLabel : `Apply change to ${activeNamespaceName} · Enter`}
                     >
-                      {canStop ? <Square className="h-3.5 w-3.5 fill-current" /> : isLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                      {canStop ? (
+                        <Square className="h-3.5 w-3.5 fill-current" />
+                      ) : retryMode ? (
+                        <RefreshCw className={`h-3.5 w-3.5 ${retryingFailedBuild ? "animate-spin" : ""}`} />
+                      ) : isLoading ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-4 w-4" />
+                      )}
                     </button>
                   </div>
                 </div>

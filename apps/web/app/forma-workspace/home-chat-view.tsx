@@ -7,8 +7,6 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
-  CheckCircle,
-  Cpu,
   KeyRound,
   Paperclip,
   RefreshCw,
@@ -17,32 +15,16 @@ import {
   X,
 } from "lucide-react";
 
-import CopyButton from "../../components/copy-button";
+import { shouldOfferFailedBuildRetry } from "../../lib/conversation-build-state";
+import ConversationMessageList, { type ConversationMessage } from "./conversation-message-list";
 import useChatAutoScroll from "./use-chat-auto-scroll";
-
-type HomeChatMessage = {
-  id: string;
-  role: "assistant" | "user" | "system";
-  content: string;
-  status?: "idle" | "loading" | "success" | "error" | "cancelled";
-  timestamp: string;
-  projectId?: string | null;
-  pipelineProgress?: unknown;
-  imagePreview?: string | null;
-  contextProjectId?: string | null;
-  workflowState?: string | null;
-  contextQuestions?: string[];
-  contextSuggestions?: string[];
-  buildPlanId?: string | null;
-  buildJobId?: string | null;
-};
 
 type HomeChatViewProps = {
   started: boolean;
   conversationKey: string;
   workspaceTitle?: ReactNode;
-  messages: HomeChatMessage[];
-  renderPipelineProgress: (message: HomeChatMessage) => ReactNode;
+  messages: ConversationMessage[];
+  renderPipelineProgress: (message: ConversationMessage) => ReactNode;
   projectArtifact?: ReactNode;
   examples: string[];
   onSelectExample: (example: string) => void;
@@ -71,12 +53,6 @@ type HomeChatViewProps = {
   onImageChange: ChangeEventHandler<HTMLInputElement>;
   onImagePaste: ClipboardEventHandler<HTMLTextAreaElement>;
 };
-
-function formatTimestamp(value: string) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-}
 
 export default function HomeChatView({
   started,
@@ -114,10 +90,11 @@ export default function HomeChatView({
 }: HomeChatViewProps) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
   const promptRef = useRef<HTMLTextAreaElement>(null);
-  const latestChoiceMessageId = [...messages]
-    .reverse()
-    .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id;
-  const retryMode = canRetryFailedBuild && !hasGenerationInput && !generationActive;
+  const retryMode = shouldOfferFailedBuildRetry({
+    canRetryFailedBuild,
+    hasInput: hasGenerationInput,
+    generationActive,
+  });
   const promptRunning = isLoading || generationActive;
   const canFinishPrompt = !generationActive && !retryMode && hasGenerationInput && generationReady && !isLoading;
   const primaryActionLabel = generationActive
@@ -169,86 +146,15 @@ export default function HomeChatView({
             onScroll={handleScroll}
             className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-4 sm:pb-6 md:pt-5"
           >
-            {messages.map((message) => {
-              const isUser = message.role === "user";
-              const statusTone =
-                message.status === "error"
-                  ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
-                  : message.status === "success"
-                    ? "border-emerald-400/35 bg-emerald-950/25 text-emerald-50"
-                    : message.status === "cancelled"
-                      ? "border-amber-300/35 bg-amber-950/20 text-amber-50"
-                      : isUser
-                        ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
-                        : "border-white/5 bg-[#181b22] text-zinc-100";
-              return (
-                <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
-                  <div className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
-                    <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-medium text-zinc-500">
-                      {message.status === "loading" ? (
-                        <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
-                      ) : message.status === "success" ? (
-                        <CheckCircle className="h-3.5 w-3.5 text-emerald-300" />
-                      ) : message.status === "error" ? (
-                        <AlertTriangle className="h-3.5 w-3.5 text-rose-300" />
-                      ) : message.status === "cancelled" ? (
-                        <Square className="h-3.5 w-3.5 fill-current text-amber-300" />
-                      ) : isUser ? (
-                        <ArrowRight className="h-3.5 w-3.5 text-emerald-400" />
-                      ) : (
-                        <Cpu className="h-3.5 w-3.5 text-zinc-400" />
-                      )}
-                      <span>{isUser ? "You" : "Forma"}</span>
-                      <span className="text-zinc-700">·</span>
-                      <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
-                      <CopyButton
-                        value={message.content}
-                        label={isUser ? "Copy your message" : "Copy Forma's message"}
-                        className="ml-auto"
-                      />
-                    </div>
-                    <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
-                    {!isUser && message.id === latestChoiceMessageId && Boolean(message.contextSuggestions?.length) && (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Suggested answers">
-                        {message.contextSuggestions?.map((suggestion) => (
-                          <button
-                            key={suggestion}
-                            type="button"
-                            onClick={() => onSelectContextSuggestion(suggestion)}
-                            disabled={isLoading}
-                            className="flex min-h-12 items-center gap-2 rounded-lg border border-white/10 bg-[#0f1117] px-3 py-2 text-left text-xs font-medium text-zinc-300 transition-colors hover:border-emerald-500/30 hover:text-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            <ArrowRight className="h-3.5 w-3.5 shrink-0" />
-                            <span className="break-words">{suggestion}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {!isUser && canBuildNow && (message.workflowState === "gathering_context" || Boolean(message.contextProjectId)) && (
-                      <button
-                        type="button"
-                        onClick={onBuildNow}
-                        disabled={buildNowLoading || isLoading}
-                        className="mt-3 inline-flex h-8 items-center justify-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-3 text-xs font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:opacity-50"
-                        aria-label="Default — proceed with safe prototype defaults"
-                        title="Default — proceed with safe prototype defaults"
-                      >
-                        {buildNowLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                        Default
-                      </button>
-                    )}
-                    {message.imagePreview && (
-                      <img
-                        src={message.imagePreview}
-                        alt="Hardware reference thumbnail"
-                        className="mt-3 h-24 w-36 rounded-lg border border-white/10 object-cover"
-                      />
-                    )}
-                    {!message.projectId && renderPipelineProgress(message)}
-                  </div>
-                </div>
-              );
-            })}
+            <ConversationMessageList
+              messages={messages}
+              renderPipelineProgress={renderPipelineProgress}
+              onSelectContextSuggestion={onSelectContextSuggestion}
+              isLoading={isLoading}
+              canBuildNow={canBuildNow}
+              buildNowLoading={buildNowLoading}
+              onBuildNow={onBuildNow}
+            />
             {projectArtifact}
             <div ref={endRef} />
           </div>

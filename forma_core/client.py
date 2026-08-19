@@ -22,6 +22,9 @@ from forma_core.workspaces.projects.models import HardwareIR
 
 EngineFactory = Callable[[GenerationOptions], DesignGenerationEngine]
 LegacyRunner = Callable[[str, GenerationOptions], HardwareIR]
+CircuitDocumentRunner = Callable[
+    [str, GenerationOptions, str, str], ProjectGenerationResult
+]
 
 
 def _configured_engine_factory(options: GenerationOptions) -> DesignGenerationEngine:
@@ -46,6 +49,32 @@ def _configured_legacy_runner(prompt: str, options: GenerationOptions) -> Hardwa
         persist_project=False,
     )
     return orchestrator.generate_project(prompt)
+
+
+def _configured_circuit_document_runner(
+    prompt: str,
+    options: GenerationOptions,
+    project_id: str,
+    run_id: str,
+) -> ProjectGenerationResult:
+    from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
+    from forma_core.design_generation.circuit_document.factory import (
+        build_circuit_document_service,
+    )
+
+    orchestrator = HardwarePipelineOrchestrator(
+        provider_name=options.provider_name,
+        model_name=options.model_name,
+        persist_project=False,
+    )
+    orchestrator.validate_configured_model()
+    service = build_circuit_document_service(orchestrator._call_llm_structured)
+    return service.generate(
+        prompt=prompt,
+        project_id=project_id,
+        run_id=run_id,
+        options=options,
+    )
 
 
 class LegacyProjectGenerationRun:
@@ -74,6 +103,10 @@ class LegacyProjectGenerationRun:
         return self.result().project if self.is_terminal else None
 
 
+class CircuitDocumentProjectGenerationRun(LegacyProjectGenerationRun):
+    """Run handle for the explicitly selected experimental strategy."""
+
+
 class FormaProjects:
     """Project-scoped SDK operations."""
 
@@ -82,12 +115,16 @@ class FormaProjects:
         *,
         engine_factory: EngineFactory,
         legacy_runner: LegacyRunner,
+        circuit_document_runner: CircuitDocumentRunner | None = None,
         executor: ThreadPoolExecutor,
         provider_name: str | None = None,
         model_name: str | None = None,
     ) -> None:
         self._engine_factory = engine_factory
         self._legacy_runner = legacy_runner
+        self._circuit_document_runner = (
+            circuit_document_runner or _configured_circuit_document_runner
+        )
         self._executor = executor
         self._provider_name = provider_name
         self._model_name = model_name
@@ -98,8 +135,12 @@ class FormaProjects:
         prompt: str,
         strategy: str = "intent_first",
         options: GenerationOptions | None = None,
-    ) -> ProjectGenerationRun | LegacyProjectGenerationRun:
-        """Start generation using the intent-first or isolated legacy strategy."""
+    ) -> (
+        ProjectGenerationRun
+        | LegacyProjectGenerationRun
+        | CircuitDocumentProjectGenerationRun
+    ):
+        """Start generation using an explicit supported generation strategy."""
 
         resolved = options or GenerationOptions()
         resolved = resolved.model_copy(
@@ -128,7 +169,22 @@ class FormaProjects:
             return LegacyProjectGenerationRun(
                 project_id=project_id, run_id=run_id, future=future
             )
-        raise ValueError("strategy must be 'intent_first' or 'legacy'.")
+        if strategy == "circuit_document":
+            project_id = str(uuid4())
+            run_id = str(uuid4())
+            future = self._executor.submit(
+                self._circuit_document_runner,
+                prompt,
+                resolved,
+                project_id,
+                run_id,
+            )
+            return CircuitDocumentProjectGenerationRun(
+                project_id=project_id, run_id=run_id, future=future
+            )
+        raise ValueError(
+            "strategy must be 'intent_first', 'circuit_document', or 'legacy'."
+        )
 
 
 class FormaClient:
@@ -139,6 +195,7 @@ class FormaClient:
         *,
         engine_factory: EngineFactory | None = None,
         legacy_runner: LegacyRunner | None = None,
+        circuit_document_runner: CircuitDocumentRunner | None = None,
         provider_name: str | None = None,
         model_name: str | None = None,
         max_workers: int = 4,
@@ -150,6 +207,9 @@ class FormaClient:
         self.projects = FormaProjects(
             engine_factory=engine_factory or _configured_engine_factory,
             legacy_runner=legacy_runner or _configured_legacy_runner,
+            circuit_document_runner=(
+                circuit_document_runner or _configured_circuit_document_runner
+            ),
             executor=self._executor,
             provider_name=provider_name,
             model_name=model_name,
@@ -211,4 +271,9 @@ def _run_legacy_generation(
     )
 
 
-__all__ = ["FormaClient", "FormaProjects", "LegacyProjectGenerationRun"]
+__all__ = [
+    "CircuitDocumentProjectGenerationRun",
+    "FormaClient",
+    "FormaProjects",
+    "LegacyProjectGenerationRun",
+]

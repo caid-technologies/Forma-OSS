@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import sys
+import time
 from pathlib import Path
 
 # Permit ``python examples/forma_core/intent.py`` from a source checkout.
@@ -17,6 +18,8 @@ from forma_core import FormaClient
 
 def main() -> None:
     client = FormaClient.from_config()
+    started_at = time.perf_counter()
+
     try:
         run = client.projects.start_generation(
             prompt=(
@@ -26,7 +29,10 @@ def main() -> None:
         )
 
         result = run.wait()
+        elapsed_seconds = time.perf_counter() - started_at
 
+        print(f"Generation time: {elapsed_seconds:.2f} seconds")
+        print(f"Generation time: {elapsed_seconds / 60:.2f} minutes")
         print(result.status)
         print(result.completeness.valid_bom_line_count)
         print(result.completeness.resolved_obligation_count)

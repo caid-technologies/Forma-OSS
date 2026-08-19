@@ -49,6 +49,7 @@ class GenerationOptions(BaseModel):
     max_role_attempts: int = Field(default=3, ge=1)
     max_component_roles: int = Field(default=100, ge=1)
     max_bom_audit_passes: int = Field(default=3, ge=1)
+    max_circuit_patches: int = Field(default=50, ge=1)
     allow_partial: bool = True
     provider_name: str | None = None
     model_name: str | None = None

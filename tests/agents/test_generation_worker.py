@@ -252,6 +252,48 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(attach_image.call_args.kwargs["generate_image"])
         self.assertEqual("Vertex Image Project", draft.state.overview.title)
 
+    def test_hardware_engine_copies_uploaded_reference_onto_the_project(self) -> None:
+        brief = self.brief.model_copy(update={
+            "references": [
+                DesignBriefReference(
+                    reference_id="clipboard-image",
+                    kind="uploaded_image",
+                    label="hardware-reference.png",
+                    media_type="image/png",
+                    metadata={
+                        "data_url": "data:image/png;base64,aW1hZ2U=",
+                        "inline_data_supplied": True,
+                    },
+                )
+            ]
+        })
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Reference Image Project",
+                description="A project started from a hardware photo.",
+                difficulty="Beginner",
+                category="IoT",
+            ),
+            assembly_metadata={"project_id": str(self.project_id)},
+        )
+        with (
+            patch("forma_core.agents.orchestrator.HardwarePipelineOrchestrator") as orchestrator_type,
+            patch("forma_core.workers.generation.attach_product_image"),
+            patch("forma_core.workers.generation.attach_hardware_reference_image") as attach_reference,
+        ):
+            orchestrator_type.return_value.generate_project.return_value = state
+            HardwareIRGenerationEngine().generate(brief)
+
+        attach_reference.assert_called_once()
+        self.assertEqual(state, attach_reference.call_args.args[0])
+        self.assertEqual("data:image/png;base64,aW1hZ2U=", attach_reference.call_args.args[1])
+        generate_project = orchestrator_type.return_value.generate_project
+        prompt = generate_project.call_args.args[0]
+        self.assertNotIn("aW1hZ2U=", prompt)
+        self.assertIn("inline_data_supplied", prompt)
+        self.assertEqual(b"image", generate_project.call_args.kwargs["image_bytes"])
+        self.assertEqual("image/png", generate_project.call_args.kwargs["image_mime_type"])
+
     def test_hardware_engine_returns_contained_staged_root_failure(self) -> None:
         state = HardwareIR(assembly_metadata={
             "generation_status": "failed",

@@ -22,6 +22,7 @@ from forma_core.workspaces.design_briefs import (
     DesignBrief,
     DesignBriefCreate,
     DesignBriefReadiness,
+    prompt_safe_design_brief,
 )
 
 
@@ -95,6 +96,22 @@ class DesignBriefModelTests(unittest.TestCase):
         self.assertEqual(project_id, restored.project_id)
         self.assertEqual("clipboard", restored.references[0].metadata["source"])
         self.assertEqual(DesignBriefReadiness.NEEDS_CLARIFICATION, restored.readiness)
+
+    def test_prompt_safe_brief_strips_inline_image_payloads(self) -> None:
+        brief = DesignBrief(
+            **brief_payload(),
+            design_brief_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            brief_version=1,
+            created_at="2026-08-01T18:00:00Z",
+        )
+        brief.references[0].metadata["data_url"] = "data:image/png;base64,aW1hZ2U="
+
+        safe = prompt_safe_design_brief(brief)
+
+        self.assertNotIn("data_url", safe.references[0].metadata)
+        self.assertTrue(safe.references[0].metadata["inline_data_supplied"])
+        self.assertEqual("data:image/png;base64,aW1hZ2U=", brief.references[0].metadata["data_url"])
 
     def test_unsupported_schema_version_has_a_stable_structured_error(self) -> None:
         payload = brief_payload()

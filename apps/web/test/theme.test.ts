@@ -269,4 +269,8 @@ test("the 3D canvas appearance is distinct for every settings theme", () => {
   assert.ok(mechanicalSceneAppearance["solarized-dark"].ambientIntensity < mechanicalSceneAppearance.light.ambientIntensity);
   assert.ok(mechanicalSceneAppearance.light.selectedEdge !== mechanicalSceneAppearance["solarized-dark"].selectedEdge);
   assert.equal(sceneAppearanceForTheme("arctic").background, arcticLight.page);
+
+  assert.equal(mechanicalSceneAppearance["solarized-dark"].palette.envelope, solarizedDark.cyan);
+  assert.equal(mechanicalSceneAppearance.light.palette.envelope, solarizedLight.cyan);
+  assert.equal(mechanicalSceneAppearance.arctic.palette.envelope, arcticLight.cyan);
 });

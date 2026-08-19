@@ -27,6 +27,8 @@ from forma_core.persistence.repositories import SqlAlchemyRepository
 from forma_core.workers import WorkerPlanStatus
 from forma_core.workspaces.projects.models import GenerateProjectRequest
 from forma_core.workspaces.context import ContextBuildExecution, ContextTurnDecision
+from forma_core.workspaces.context.agent import ContextBriefUpdater
+from forma_core.workspaces.context.models import ContextAttachment, ContextGatheringRequest
 from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 from forma_core.vertex_auth import (
     bind_vertex_oidc_token,
@@ -61,6 +63,29 @@ def sqlite_repository() -> Iterator[None]:
             yield
         finally:
             database._DATABASE_REPOSITORY = original
+
+
+class ContextBriefImageReferenceTests(unittest.TestCase):
+    def test_uploaded_image_keeps_inline_data_on_the_design_brief(self) -> None:
+        brief, *_ = ContextBriefUpdater().update(ContextGatheringRequest(
+            conversation_id="chat-reference",
+            text="Build a lamp from this enclosure.",
+            attachments=[
+                ContextAttachment(
+                    attachment_id="clipboard-image",
+                    kind="image",
+                    name="hardware-reference.png",
+                    media_type="image/png",
+                    data_url="data:image/png;base64,aW1hZ2U=",
+                    source="clipboard",
+                )
+            ],
+        ))
+
+        self.assertEqual(1, len(brief.references))
+        self.assertEqual("uploaded_image", brief.references[0].kind)
+        self.assertEqual("data:image/png;base64,aW1hZ2U=", brief.references[0].metadata["data_url"])
+        self.assertTrue(brief.references[0].metadata["inline_data_supplied"])
 
 
 class ContextGatheringIntegrationTests(unittest.TestCase):
@@ -483,9 +508,16 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(2, second.json()["design_brief"]["brief_version"])
         self.assertEqual([1, 2], [brief.brief_version for brief in versions])
         self.assertEqual(2, len(versions[-1].references))
+        image_reference = next(item for item in versions[-1].references if item.kind == "uploaded_image")
+        self.assertEqual("data:image/png;base64,aW1hZ2U=", image_reference.metadata["data_url"])
         self.assertIn("product images", versions[-1].requested_outputs)
         self.assertIn("The display must remain readable outdoors.", versions[-1].requirements)
         self.assertEqual(4, len(chat.messages))
+        image_messages = [
+            message for message in chat.messages
+            if isinstance(message, dict) and message.get("imagePreview")
+        ]
+        self.assertEqual(["data:image/png;base64,aW1hZ2U="], [message["imagePreview"] for message in image_messages])
         create_job.assert_not_called()
 
     def test_agent_suggestions_are_returned_and_persisted_with_the_assistant_turn(self) -> None:

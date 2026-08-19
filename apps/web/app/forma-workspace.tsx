@@ -50,19 +50,23 @@ import {
   LogsPanel,
   formatBytes,
   isFinalVideoStatus,
-  statusTone,
 } from "./forma-workspace/admin-panels";
 import HomeChatView from "./forma-workspace/home-chat-view";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
 import {
+  hardwareReferenceSrcFromChatMessages,
+  isHardwareReferenceCandidate,
+  resolveProjectImageCandidates,
+  withHardwareReferenceMetadata,
+  type ProjectImageCandidate,
+} from "../lib/project-images";
+import {
   ProjectGallery,
   PROJECT_GALLERY_PAGE_SIZE,
   buildProjectGalleryItems,
   previewableImageSrc,
-  resolveProjectImageCandidates,
   type ProjectGalleryItem,
-  type ProjectImageCandidate,
 } from "./forma-workspace/project-gallery";
 import {
   AssemblyPanel,
@@ -87,15 +91,12 @@ import {
   ShieldCheck,
   AlertTriangle,
   CheckCircle,
-  ShoppingBag,
   History,
-  Box,
   RefreshCw,
   Eye,
   Film,
   ArrowRight,
   ArrowLeft,
-  Info,
   Layers,
   Paperclip,
   ExternalLink,
@@ -110,12 +111,18 @@ import {
   Handshake,
   Database,
   ChevronDown,
+  LayoutDashboard,
+  ClipboardList,
+  Cuboid,
+  CircuitBoard,
+  BookOpen,
+  Clapperboard,
 } from "lucide-react";
 
 const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), {
   ssr: false,
   loading: () => (
-    <div className="flex h-full min-h-[620px] items-center justify-center bg-[#0f1014] text-xs font-black uppercase tracking-[0.16em] text-slate-600">
+    <div className="flex h-full min-h-[620px] items-center justify-center bg-[var(--forma-page)] text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
       Loading wiring diagram...
     </div>
   ),
@@ -532,6 +539,7 @@ function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: 
       contextProjectId: remote.contextProjectId || local.contextProjectId || null,
       buildPlanId: remote.buildPlanId || local.buildPlanId || null,
       buildJobId: remote.buildJobId || local.buildJobId || null,
+      imagePreview: remote.imagePreview || local.imagePreview || null,
     });
   });
 
@@ -1491,12 +1499,12 @@ type ProviderSetupState = {
 };
 
 const workspaceTabs = [
-  { id: "overview", label: "INFO", icon: Info },
-  { id: "bom", label: "BOM", icon: ShoppingBag },
-  { id: "mechanical", label: "MECH", icon: Box },
-  { id: "schematic", label: "WIRE", icon: Cpu },
-  { id: "assembly", label: "DOCS", icon: Info },
-  { id: "video", label: "MEDIA", icon: Film },
+  { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "bom", label: "Billing Materials", icon: ClipboardList },
+  { id: "mechanical", label: "Mechanical", icon: Cuboid },
+  { id: "schematic", label: "Electrical", icon: CircuitBoard },
+  { id: "assembly", label: "Documentation", icon: BookOpen },
+  { id: "video", label: "Media", icon: Clapperboard },
 ];
 
 const workspaceTabNamespaces: Record<string, string> = {
@@ -1519,7 +1527,12 @@ function normalizeTab(tab: string | null) {
     image: "overview",
     mech: "mechanical",
     wire: "schematic",
+    electrical: "schematic",
     docs: "assembly",
+    documentation: "assembly",
+    billing: "bom",
+    materials: "bom",
+    media: "video",
   };
   const normalized = aliases[tab] || tab;
   return workspaceTabs.some((item) => item.id === normalized) ? normalized : null;
@@ -4779,10 +4792,28 @@ export function FormaWorkspace({
   ];
   const projectTitle = projectIR?.overview?.title || "Untitled Hardware Project";
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
-  const projectImageCandidates = useMemo(
-    () => resolveProjectImageCandidates(projectIR?.assembly_metadata || {}, formaDevMode),
-    [formaDevMode, projectIR]
+  const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
+  const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
+  const currentProjectCanDownloadAssets = currentUserOwnsProject;
+  const ownerProjectChatId = projectIR && currentUserOwnsProject
+    ? (chatIdFromIR(projectIR) || currentProjectId)
+    : null;
+  const currentProjectChatId = projectIR
+    ? routedProjectId ? null : (ownerProjectChatId || activeChatId)
+    : activeChatId;
+  const currentProjectChatMessages = useMemo(
+    () => currentProjectChatId ? chatThreads[currentProjectChatId] || [] : [],
+    [chatThreads, currentProjectChatId]
   );
+  const projectImageCandidates = useMemo(() => {
+    const chatReference =
+      hardwareReferenceSrcFromChatMessages(currentProjectChatMessages) ||
+      hardwareReferenceSrcFromChatMessages(chatMessages);
+    return resolveProjectImageCandidates(
+      withHardwareReferenceMetadata(projectIR?.assembly_metadata || {}, chatReference),
+      formaDevMode,
+    );
+  }, [chatMessages, currentProjectChatMessages, formaDevMode, projectIR]);
   const showProductImageSection = shouldShowProductImageSection({
     imageCandidates: projectImageCandidates,
     llms: generationLlms,
@@ -4796,13 +4827,10 @@ export function FormaWorkspace({
     metadata: projectIR?.assembly_metadata || {},
   });
   const videoImageOptions = useMemo(
-    () => projectImageCandidates.filter((candidate) => !candidate.label.toLowerCase().includes("uploaded")),
+    () => projectImageCandidates.filter((candidate) => !isHardwareReferenceCandidate(candidate)),
     [projectImageCandidates]
   );
-  const defaultVideoImage = projectImageCandidates[0]?.src || "";
-  const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
-  const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
-  const currentProjectCanDownloadAssets = currentUserOwnsProject;
+  const defaultVideoImage = videoImageOptions[0]?.src || "";
   const projectVideo = useProjectVideo({
     apiUrl: API_URL,
     enabled: Boolean(projectIR && activeTab === "video"),
@@ -4837,17 +4865,7 @@ export function FormaWorkspace({
       void fetchA2aJobs(jobStatusFilter, { silent: true });
     },
   });
-  const ownerProjectChatId = projectIR && currentUserOwnsProject
-    ? (chatIdFromIR(projectIR) || currentProjectId)
-    : null;
-  const currentProjectChatId = projectIR
-    ? routedProjectId ? null : (ownerProjectChatId || activeChatId)
-    : activeChatId;
   const currentProjectJobId = projectIR?.assembly_metadata?.frontend_job_id || null;
-  const currentProjectChatMessages = useMemo(
-    () => currentProjectChatId ? chatThreads[currentProjectChatId] || [] : [],
-    [chatThreads, currentProjectChatId]
-  );
   const activeSidebarChatId = routedProjectId ? null : (currentProjectChatId || activeChatId);
   const activeSidebarChatItem = chatListItems.find((item) => item.chatId === activeSidebarChatId);
   const activeSidebarChatStarted = Boolean(
@@ -5471,7 +5489,6 @@ export function FormaWorkspace({
                       onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                       namespaceTabs={visibleWorkspaceTabs}
                       activeNamespace={activeWorkspaceTab.id}
-                      activeNamespaceName={displayedWorkspaceNamespace}
                       onNamespaceChange={setActiveTab}
                       projectContent={projectNamespaceContent}
                     />
@@ -5606,6 +5623,7 @@ export function FormaWorkspace({
             {routedProjectId ? (
               <ProjectDetailWorkspace
                 onOpenSidebar={() => setMobileSidebarOpen(true)}
+                projectId={currentProjectId}
                 projectTitle={projectTitle}
                 owned={currentUserOwnsProject}
                 onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
@@ -6092,6 +6110,23 @@ function ChatRouteFallbackPanel({
 }
 
 
+function videoStatusTone(status: string) {
+  const normalized = status.toLowerCase();
+  if (normalized === "succeeded" || normalized === "success") {
+    return "border-[rgb(var(--forma-green-rgb)/0.35)] bg-[rgb(var(--forma-green-rgb)/0.1)] text-[rgb(var(--forma-green-rgb))]";
+  }
+  if (normalized === "failed" || normalized === "failure" || normalized === "error") {
+    return "border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.1)] text-[rgb(var(--forma-red-rgb))]";
+  }
+  if (normalized === "running" || normalized === "loading" || normalized === "reviewing") {
+    return "border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] text-[rgb(var(--forma-cyan-rgb))]";
+  }
+  if (normalized === "queued") {
+    return "border-[rgb(var(--forma-yellow-rgb)/0.35)] bg-[rgb(var(--forma-yellow-rgb)/0.1)] text-[rgb(var(--forma-yellow-rgb))]";
+  }
+  return "border-[var(--forma-border)] bg-[var(--forma-surface-muted)] text-[var(--forma-text-muted)]";
+}
+
 function VideoPanel({
   projectId,
   readOnly,
@@ -6231,22 +6266,25 @@ function VideoPanel({
 
   if (!generationAvailable) {
     return (
-      <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
-        <div className="mx-auto max-w-6xl">
-          <section className="border border-[#2a2c33] bg-[#17181d] p-4 sm:p-5">
-            <div className="flex flex-col gap-4 border-b border-[#2a2c33] pb-5 sm:flex-row sm:items-start sm:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <Film className="h-4 w-4 text-cyan-400" />
-                  <h2 className="text-base font-black uppercase tracking-[0.16em] text-white">Video</h2>
+      <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
+        <div className="mx-auto min-w-0 max-w-[890px]">
+          <section className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+            <div className="flex flex-col gap-4 border-b border-[var(--forma-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] text-[rgb(var(--forma-cyan-rgb))]">
+                  <Film className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Media</div>
+                  <h2 className="mt-1 text-sm font-semibold tracking-tight text-[var(--forma-text-strong)]">Video</h2>
+                  <div className="mt-1.5 truncate font-mono text-[10px] text-[var(--forma-text-muted)]">{projectId || "No project id"}</div>
                 </div>
-                <div className="mt-2 truncate font-mono text-[11px] text-slate-600">{projectId || "No project id"}</div>
               </div>
               <button
                 type="button"
                 onClick={onReview}
                 disabled={reviewDisabled}
-                className="inline-flex h-11 shrink-0 items-center justify-center gap-2 border border-cyan-300/40 px-4 text-xs font-black uppercase tracking-[0.12em] text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 shrink-0 items-center justify-center gap-2 rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] px-3 text-xs font-medium text-[rgb(var(--forma-cyan-rgb))] transition-colors hover:border-[rgb(var(--forma-cyan-rgb)/0.55)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isReviewing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 Review
@@ -6254,21 +6292,21 @@ function VideoPanel({
             </div>
 
             {readOnly && (
-              <div className="mt-5 border border-[#2a2c33] bg-black/25 p-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+              <div className="mt-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 text-xs leading-5 text-[var(--forma-text-secondary)]">
                 Read-only project. Video actions are available only to the owner.
               </div>
             )}
 
-            <div className="mt-5 border border-cyan-500/30 bg-cyan-950/20 p-4">
+            <div className="mt-5 rounded-lg border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] p-4">
               <div className="flex items-start gap-3">
-                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" />
+                <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-[rgb(var(--forma-cyan-rgb))]" />
                 <div className="min-w-0">
-                  <div className="text-xs font-black uppercase tracking-[0.14em] text-cyan-200">Alpha</div>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
+                  <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[rgb(var(--forma-cyan-rgb))]">Alpha</div>
+                  <p className="mt-2 text-sm leading-6 text-[var(--forma-text-body)]">
                     We are in alpha and video generation is coming soon.
                   </p>
                   {generationUnavailableReason && (
-                    <p className="mt-2 break-words text-xs leading-5 text-slate-500">{generationUnavailableReason}</p>
+                    <p className="mt-2 break-words text-xs leading-5 text-[var(--forma-text-secondary)]">{generationUnavailableReason}</p>
                   )}
                 </div>
               </div>
@@ -6304,23 +6342,26 @@ function VideoPanel({
   }
 
   return (
-    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[#141519] p-4 sm:p-6">
-      <div className="mx-auto grid max-w-6xl gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(360px,0.6fr)]">
-        <section className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-4 sm:p-5">
-          <div className="mb-5 flex flex-col gap-4 border-b border-[#2a2c33] pb-5 sm:flex-row sm:items-start sm:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <Film className="h-4 w-4 text-cyan-400" />
-                <h2 className="text-base font-black uppercase tracking-[0.16em] text-white">Video</h2>
+    <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
+      <div className="mx-auto flex min-w-0 max-w-[890px] flex-col gap-4">
+        <section className="min-w-0 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+          <div className="mb-5 flex flex-col gap-4 border-b border-[var(--forma-border)] pb-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] text-[rgb(var(--forma-cyan-rgb))]">
+                <Film className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Media</div>
+                <h2 className="mt-1 text-sm font-semibold tracking-tight text-[var(--forma-text-strong)]">Video</h2>
+                <div className="mt-1.5 truncate font-mono text-[10px] text-[var(--forma-text-muted)]">{projectId || "No project id"}</div>
               </div>
-              <div className="mt-2 truncate font-mono text-[11px] text-slate-600">{projectId || "No project id"}</div>
             </div>
             <div className="flex shrink-0 flex-wrap gap-2">
               <button
                 type="button"
                 onClick={onReview}
                 disabled={reviewDisabled}
-                className="inline-flex h-11 items-center justify-center gap-2 border border-cyan-300/40 px-4 text-xs font-black uppercase tracking-[0.12em] text-cyan-100 transition hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] px-3 text-xs font-medium text-[rgb(var(--forma-cyan-rgb))] transition-colors hover:border-[rgb(var(--forma-cyan-rgb)/0.55)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isReviewing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                 Review
@@ -6329,7 +6370,7 @@ function VideoPanel({
                 type="button"
                 onClick={onGenerate}
                 disabled={generateDisabled}
-                className="inline-flex h-11 items-center justify-center gap-2 bg-white px-4 text-xs font-black uppercase tracking-[0.12em] text-black transition hover:bg-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-[var(--forma-text-strong)] bg-[var(--forma-text-strong)] px-3 text-xs font-medium text-[var(--forma-page)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
                 Generate
@@ -6338,12 +6379,12 @@ function VideoPanel({
           </div>
 
           {readOnly && (
-            <div className="mb-5 border border-[#2a2c33] bg-black/25 p-3 text-xs font-bold uppercase tracking-[0.12em] text-slate-500">
+            <div className="mb-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 text-xs leading-5 text-[var(--forma-text-secondary)]">
               Read-only project. Video actions are available only to the owner.
             </div>
           )}
 
-          <div className="mb-4 grid grid-cols-2 border border-[#2a2c33]">
+          <div className="mb-4 grid grid-cols-2 overflow-hidden rounded-lg border border-[var(--forma-border)]">
             {([
               { value: "image-to-video" as VideoGenerationMode, label: "Image" },
               { value: "video-to-video" as VideoGenerationMode, label: "Video", disabled: !videoToVideoAvailable },
@@ -6355,9 +6396,11 @@ function VideoPanel({
                   if (!item.disabled) setMode(item.value);
                 }}
                 disabled={item.disabled}
-                className={`flex h-11 items-center justify-center gap-2 border-r border-[#2a2c33] text-xs font-black uppercase last:border-r-0 ${
-                  mode === item.value ? "bg-white text-black" : "bg-black text-slate-500 hover:text-white"
-                } disabled:cursor-not-allowed disabled:text-slate-800 disabled:hover:text-slate-800`}
+                className={`flex h-10 items-center justify-center gap-2 border-r border-[var(--forma-border)] text-xs font-medium last:border-r-0 ${
+                  mode === item.value
+                    ? "bg-[var(--forma-surface)] text-[var(--forma-text-strong)]"
+                    : "bg-[var(--forma-surface-muted)] text-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
+                } disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:text-[var(--forma-text-muted)]`}
               >
                 {item.value === "video-to-video" ? <Film className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 {item.label}
@@ -6366,13 +6409,13 @@ function VideoPanel({
           </div>
 
           <div className="grid gap-4 2xl:grid-cols-[minmax(0,1fr)_170px_180px]">
-            <label className="block text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+            <label className="block text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
               Model
               <select
                 value={selectedModel}
                 onChange={(event) => setSelectedModel(event.target.value)}
                 disabled={modelsLoading || !modeModels.length}
-                className="mt-2 h-11 w-full border border-[#2a2c33] bg-black px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-cyan-300 disabled:opacity-50"
+                className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))] disabled:opacity-50"
               >
                 {!modeModels.length && <option value="">No models</option>}
                 {modeModels.map((model) => (
@@ -6383,12 +6426,12 @@ function VideoPanel({
               </select>
             </label>
 
-            <label className="block text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-              Aspect Ratio
+            <label className="block text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
+              Aspect ratio
               <select
                 value={aspectRatio}
                 onChange={(event) => setAspectRatio(event.target.value)}
-                className="mt-2 h-11 w-full border border-[#2a2c33] bg-black px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-cyan-300"
+                className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))]"
               >
                 {aspectRatios.map((value) => (
                   <option key={value} value={value}>
@@ -6399,15 +6442,17 @@ function VideoPanel({
             </label>
 
             <div>
-              <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Duration</div>
-              <div className="mt-2 grid grid-cols-2 border border-[#2a2c33]">
+              <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Duration</div>
+              <div className="mt-2 grid grid-cols-2 overflow-hidden rounded-lg border border-[var(--forma-border)]">
                 {["5", "10"].map((value) => (
                   <button
                     key={value}
                     type="button"
                     onClick={() => setDuration(value)}
-                    className={`h-11 border-r border-[#2a2c33] text-xs font-black uppercase last:border-r-0 ${
-                      duration === value ? "bg-white text-black" : "bg-black text-slate-500 hover:text-white"
+                    className={`h-10 border-r border-[var(--forma-border)] text-xs font-medium last:border-r-0 ${
+                      duration === value
+                        ? "bg-[var(--forma-surface)] text-[var(--forma-text-strong)]"
+                        : "bg-[var(--forma-surface-muted)] text-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
                     }`}
                   >
                     {value}s
@@ -6419,14 +6464,14 @@ function VideoPanel({
 
           <div className="mt-5">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <label htmlFor="video-prompt" className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">
+              <label htmlFor="video-prompt" className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
                 Prompt
               </label>
               <button
                 type="button"
                 onClick={onGeneratePrompt}
                 disabled={!canGeneratePrompt}
-                className="inline-flex h-9 items-center gap-2 border border-cyan-300/40 px-3 text-[10px] font-black uppercase tracking-[0.12em] text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 items-center gap-2 rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] px-3 text-[11px] font-medium text-[rgb(var(--forma-cyan-rgb))] transition-colors hover:border-[rgb(var(--forma-cyan-rgb)/0.55)] disabled:cursor-not-allowed disabled:opacity-40"
                 title="Generate an image-to-video prompt from project namespaces"
               >
                 {promptGenerating ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -6439,29 +6484,29 @@ function VideoPanel({
               onChange={(event) => setPrompt(event.target.value)}
               maxLength={VIDEO_PROMPT_MAX_CHARS}
               placeholder="Slow orbit, reveal ports, show display glow."
-              className="mt-2 min-h-[132px] w-full resize-none border border-[#2a2c33] bg-black px-3 py-3 text-sm normal-case leading-6 tracking-normal text-white outline-none placeholder:text-slate-700 focus:border-cyan-300"
+              className="mt-2 min-h-[132px] w-full resize-none rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-3 text-sm font-normal leading-6 tracking-normal text-[var(--forma-text-body)] outline-none placeholder:text-[var(--forma-text-muted)] focus:border-[rgb(var(--forma-cyan-rgb))]"
             />
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               {promptMessage ? (
-                <p className="break-words text-[11px] leading-5 text-slate-500">{promptMessage}</p>
+                <p className="break-words text-[11px] leading-5 text-[var(--forma-text-secondary)]">{promptMessage}</p>
               ) : (
                 <span />
               )}
-              <span className={`font-mono text-[10px] ${prompt.length > VIDEO_PROMPT_MAX_CHARS - 120 ? "text-amber-300" : "text-slate-600"}`}>
+              <span className={`font-mono text-[10px] ${prompt.length > VIDEO_PROMPT_MAX_CHARS - 120 ? "text-[rgb(var(--forma-yellow-rgb))]" : "text-[var(--forma-text-muted)]"}`}>
                 {prompt.length}/{VIDEO_PROMPT_MAX_CHARS}
               </span>
             </div>
           </div>
 
           {mode === "image-to-video" ? (
-            <div className="mt-5 border border-[#2a2c33] bg-[#141519] p-3">
+            <div className="mt-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3">
               <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Image Source</div>
+                <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Image source</div>
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={onUploadImage}
-                    className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black"
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
                   >
                     <Paperclip className="h-4 w-4" />
                     Upload
@@ -6470,7 +6515,7 @@ function VideoPanel({
                     type="button"
                     onClick={() => setSelectedImageSources(allProjectImagesSelected ? [] : imageOptions.map((candidate) => candidate.src))}
                     disabled={!imageOptions.length}
-                    className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Layers className="h-4 w-4" />
                     {allProjectImagesSelected ? "Clear" : "All"}
@@ -6479,7 +6524,7 @@ function VideoPanel({
                     type="button"
                     onClick={onUseProjectImage}
                     disabled={!defaultImage}
-                    className="inline-flex h-9 items-center gap-2 border border-[#2a2c33] px-3 text-xs font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+                    className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Eye className="h-4 w-4" />
                     First
@@ -6496,20 +6541,24 @@ function VideoPanel({
                         key={candidate.src}
                         type="button"
                         onClick={() => toggleImageSource(candidate.src)}
-                        className={`min-w-0 border p-2 text-left transition ${
-                          selected ? "border-cyan-300 bg-cyan-300/10 text-cyan-100" : "border-[#2a2c33] bg-black text-slate-500 hover:border-slate-500 hover:text-white"
+                        className={`min-w-0 rounded-lg border p-2 text-left transition ${
+                          selected
+                            ? "border-[rgb(var(--forma-cyan-rgb)/0.55)] bg-[var(--forma-surface)] text-[rgb(var(--forma-cyan-rgb))]"
+                            : "border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] hover:border-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
                         }`}
                         aria-pressed={selected}
                       >
-                        <div className="relative h-20 overflow-hidden bg-black">
+                        <div className="relative h-20 overflow-hidden rounded-md bg-[var(--forma-surface-muted)]">
                           <img src={candidate.src} alt={candidate.label} className="h-full w-full object-cover" />
-                          <span className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center border text-[10px] font-black ${
-                            selected ? "border-cyan-200 bg-cyan-200 text-black" : "border-white/40 bg-black/60 text-white"
+                          <span className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-md border text-[10px] font-medium ${
+                            selected
+                              ? "border-[rgb(var(--forma-cyan-rgb))] bg-[rgb(var(--forma-cyan-rgb))] text-[var(--forma-page)]"
+                              : "border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.8)] text-[var(--forma-text-strong)]"
                           }`}>
                             {selected ? <CheckCircle className="h-3.5 w-3.5" /> : null}
                           </span>
                         </div>
-                        <div className="mt-2 truncate text-[10px] font-black uppercase tracking-[0.12em]">{candidate.label}</div>
+                        <div className="mt-2 truncate text-[10px] font-medium">{candidate.label}</div>
                       </button>
                     );
                   })}
@@ -6523,22 +6572,22 @@ function VideoPanel({
                   setSelectedImageSources([]);
                 }}
                 placeholder="https://... or data:image/..."
-                className="h-11 w-full border border-[#2a2c33] bg-black px-3 font-mono text-xs text-white outline-none placeholder:text-slate-700 focus:border-cyan-300"
+                className="h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 font-mono text-xs text-[var(--forma-text-body)] outline-none placeholder:text-[var(--forma-text-muted)] focus:border-[rgb(var(--forma-cyan-rgb))]"
               />
-              <div className="mt-2 text-[11px] leading-5 text-slate-600">
+              <div className="mt-2 text-[11px] leading-5 text-[var(--forma-text-secondary)]">
                 {selectedImageSources.length
                   ? `${selectedImageSources.length} project image${selectedImageSources.length === 1 ? "" : "s"} selected.`
                   : "No project images selected; the manual image field will be used."}
               </div>
             </div>
           ) : (
-            <label className="mt-5 block text-xs font-black uppercase tracking-[0.14em] text-slate-500">
-              Source Video
+            <label className="mt-5 block text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
+              Source video
               <select
                 value={sourceVideoUrl}
                 onChange={(event) => setSourceVideoUrl(event.target.value)}
                 disabled={!sourceVideos.length}
-                className="mt-2 h-11 w-full border border-[#2a2c33] bg-black px-3 text-sm normal-case tracking-normal text-white outline-none focus:border-cyan-300 disabled:opacity-50"
+                className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))] disabled:opacity-50"
               >
                 {!sourceVideos.length && <option value="">No saved videos</option>}
                 {sourceVideos.map((item) => (
@@ -6564,36 +6613,36 @@ function VideoPanel({
           />
         </section>
 
-        <aside className="min-w-0 border border-[#2a2c33] bg-[#17181d] p-4 sm:p-5">
-          <div className="aspect-video overflow-hidden border border-[#2a2c33] bg-black">
+        <aside className="min-w-0 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 sm:p-5">
+          <div className="aspect-video overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)]">
             {mode === "video-to-video" && sourceVideoPreview ? (
               <video src={sourceVideoPreview} controls preload="metadata" className="h-full w-full object-contain" />
             ) : imagePreview ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={imagePreview} alt="Video source preview" className="h-full w-full object-contain" />
             ) : (
-              <div className="flex h-full items-center justify-center text-xs font-black uppercase tracking-[0.18em] text-slate-700">
+              <div className="flex h-full items-center justify-center text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
                 No source
               </div>
             )}
           </div>
           {mode === "image-to-video" && selectedImageSources.length > 0 && (
-            <div className="mt-2 border border-[#2a2c33] bg-[#141519] px-3 py-2 text-[11px] leading-5 text-slate-500">
+            <div className="mt-2 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-2 text-[11px] leading-5 text-[var(--forma-text-secondary)]">
               Previewing the first selected image. Generate will queue {selectedImageSources.length} image source{selectedImageSources.length === 1 ? "" : "s"}.
             </div>
           )}
 
-          <div className="mt-4 border border-[#2a2c33] bg-[#141519] p-4">
+          <div className="mt-4 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-4">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Status</span>
-              <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[11px] font-black uppercase ${statusTone(status)}`}>
+              <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Status</span>
+              <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium uppercase tracking-[0.12em] ${videoStatusTone(status)}`}>
                 {status === "failed" ? <AlertTriangle className="h-3.5 w-3.5" /> : status === "succeeded" ? <CheckCircle className="h-3.5 w-3.5" /> : <RefreshCw className={`h-3.5 w-3.5 ${isGenerating ? "animate-spin" : ""}`} />}
                 {status}
               </span>
             </div>
-            {requestId && <div className="mt-3 truncate font-mono text-[11px] text-slate-600">{requestId}</div>}
-            {statusMessage && <p className="mt-3 break-words text-xs leading-5 text-slate-400">{statusMessage}</p>}
-            {modelsError && <p className="mt-3 break-words text-xs leading-5 text-amber-300">{modelsError}</p>}
+            {requestId && <div className="mt-3 truncate font-mono text-[10px] text-[var(--forma-text-muted)]">{requestId}</div>}
+            {statusMessage && <p className="mt-3 break-words text-xs leading-5 text-[var(--forma-text-secondary)]">{statusMessage}</p>}
+            {modelsError && <p className="mt-3 break-words text-xs leading-5 text-[rgb(var(--forma-yellow-rgb))]">{modelsError}</p>}
           </div>
 
           <VideoReviewStatus
@@ -6608,8 +6657,8 @@ function VideoPanel({
           />
 
           {storedVideo && (
-            <div className="mt-4 border border-emerald-500/30 bg-emerald-950/20 p-4">
-              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.14em] text-emerald-300">
+            <div className="mt-4 rounded-lg border border-[rgb(var(--forma-green-rgb)/0.35)] bg-[rgb(var(--forma-green-rgb)/0.1)] p-4">
+              <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.14em] text-[rgb(var(--forma-green-rgb))]">
                 <CheckCircle className="h-4 w-4" />
                 Saved
               </div>
@@ -6618,15 +6667,15 @@ function VideoPanel({
                   href={savedHref}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-3 inline-flex max-w-full items-center gap-2 border border-emerald-400/40 px-3 py-2 text-xs font-black uppercase text-emerald-100 hover:bg-emerald-300 hover:text-black"
+                  className="mt-3 inline-flex max-w-full items-center gap-2 rounded-md border border-[rgb(var(--forma-green-rgb)/0.4)] px-3 py-2 text-xs font-medium text-[rgb(var(--forma-green-rgb))] transition-colors hover:border-[rgb(var(--forma-green-rgb)/0.6)]"
                 >
                   <ExternalLink className="h-4 w-4 shrink-0" />
                   Open saved video
                 </a>
               ) : (
-                <div className="mt-3 break-all font-mono text-xs leading-5 text-emerald-100">{storedVideo.s3Uri || storedVideo.key}</div>
+                <div className="mt-3 break-all font-mono text-xs leading-5 text-[var(--forma-text-body)]">{storedVideo.s3Uri || storedVideo.key}</div>
               )}
-              {storedVideo.key && <div className="mt-3 break-all font-mono text-[11px] leading-5 text-emerald-300/70">{storedVideo.key}</div>}
+              {storedVideo.key && <div className="mt-3 break-all font-mono text-[10px] leading-5 text-[var(--forma-text-muted)]">{storedVideo.key}</div>}
             </div>
           )}
         </aside>
@@ -6655,10 +6704,10 @@ function VideoReviewStatus({
   canMakeNewVideo: boolean;
 }) {
   return (
-    <div className="mt-4 border border-[#2a2c33] bg-[#141519] p-4">
+    <div className="mt-4 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-4">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Review</span>
-        <span className={`inline-flex items-center gap-1.5 border px-2 py-1 text-[11px] font-black uppercase ${statusTone(status)}`}>
+        <span className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Review</span>
+        <span className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium uppercase tracking-[0.12em] ${videoStatusTone(status)}`}>
           {status === "failed" ? (
             <AlertTriangle className="h-3.5 w-3.5" />
           ) : status === "succeeded" ? (
@@ -6671,20 +6720,20 @@ function VideoReviewStatus({
           {status}
         </span>
       </div>
-      <label className={`mt-3 flex min-h-10 items-center gap-3 border border-[#2a2c33] bg-black px-3 py-2 text-xs font-black uppercase tracking-[0.12em] ${
-        canMakeNewVideo ? "text-cyan-100" : "text-slate-600"
+      <label className={`mt-3 flex min-h-10 items-center gap-3 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 text-xs font-medium ${
+        canMakeNewVideo ? "text-[var(--forma-text-body)]" : "text-[var(--forma-text-muted)]"
       }`}>
         <input
           type="checkbox"
           checked={makeNewVideo}
           onChange={(event) => setMakeNewVideo(event.target.checked)}
           disabled={!canMakeNewVideo || isReviewing}
-          className="h-4 w-4 accent-cyan-300 disabled:cursor-not-allowed"
+          className="h-4 w-4 accent-[rgb(var(--forma-cyan-rgb))] disabled:cursor-not-allowed"
         />
         <span>Make new video</span>
       </label>
-      {message && <p className="mt-3 break-words text-xs leading-5 text-slate-400">{message}</p>}
-      {!available && unavailableReason && <p className="mt-3 break-words text-xs leading-5 text-amber-300">{unavailableReason}</p>}
+      {message && <p className="mt-3 break-words text-xs leading-5 text-[var(--forma-text-secondary)]">{message}</p>}
+      {!available && unavailableReason && <p className="mt-3 break-words text-xs leading-5 text-[rgb(var(--forma-yellow-rgb))]">{unavailableReason}</p>}
     </div>
   );
 }
@@ -6713,17 +6762,17 @@ function VideoGallery({
   reviewing: boolean;
 }) {
   return (
-    <div className="mt-5 border border-[#2a2c33] bg-[#141519] p-3">
+    <div className="mt-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Film className="h-4 w-4 text-cyan-400" />
-          <div className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Gallery</div>
+          <Film className="h-4 w-4 text-[rgb(var(--forma-cyan-rgb))]" />
+          <div className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Gallery</div>
         </div>
         <button
           type="button"
           onClick={onRefresh}
           disabled={!canOpenAssets}
-          className="flex h-9 w-9 shrink-0 items-center justify-center border border-[#2a2c33] text-slate-400 hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--forma-surface)] disabled:hover:text-[var(--forma-text-muted)]"
           title={canOpenAssets ? "Refresh gallery" : "Videos are available only on projects you generated."}
           aria-label="Refresh gallery"
         >
@@ -6732,14 +6781,14 @@ function VideoGallery({
       </div>
 
       {error && (
-        <div className="mb-3 break-words border border-amber-500/30 bg-amber-950/20 p-3 text-xs leading-5 text-amber-300">
+        <div className="mb-3 break-words rounded-md border border-[rgb(var(--forma-yellow-rgb)/0.35)] bg-[rgb(var(--forma-yellow-rgb)/0.1)] p-3 text-xs leading-5 text-[rgb(var(--forma-yellow-rgb))]">
           {error}
         </div>
       )}
 
       {loading && !videos.length ? (
-        <div className="border border-[#2a2c33] bg-black p-4 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
-          Loading
+        <div className="rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 text-xs leading-5 text-[var(--forma-text-secondary)]">
+          Loading gallery…
         </div>
       ) : videos.length ? (
         <div className="grid gap-3 md:grid-cols-2">
@@ -6763,8 +6812,8 @@ function VideoGallery({
           })}
         </div>
       ) : (
-        <div className="border border-[#2a2c33] bg-black p-4 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
-          Empty
+        <div className="rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4 text-xs leading-5 text-[var(--forma-text-secondary)]">
+          No videos yet.
         </div>
       )}
     </div>
@@ -6798,45 +6847,49 @@ function VideoGalleryItem({
   const prompt = videoPromptText(video);
 
   return (
-    <article className={`min-w-0 overflow-hidden border bg-black transition ${
-      selected ? "border-cyan-300 shadow-[0_0_0_1px_rgba(103,232,249,0.35)]" : "border-[#2a2c33]"
+    <article className={`min-w-0 overflow-hidden rounded-lg border bg-[var(--forma-surface)] transition ${
+      selected
+        ? "border-[rgb(var(--forma-cyan-rgb)/0.55)]"
+        : "border-[var(--forma-border)]"
     }`}>
-      <div className="aspect-video bg-black">
+      <div className="aspect-video bg-[var(--forma-surface-muted)]">
         {playableUrl ? (
           <video src={playableUrl} controls preload="metadata" className="h-full w-full object-contain" />
         ) : (
-          <div className="flex h-full items-center justify-center px-3 text-center text-xs font-black uppercase tracking-[0.16em] text-slate-700">
+          <div className="flex h-full items-center justify-center px-3 text-center text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
             Video saved
           </div>
         )}
       </div>
-      <div className="border-t border-[#2a2c33] p-3">
+      <div className="border-t border-[var(--forma-border)] p-3">
         <div className="flex min-w-0 items-start justify-between gap-2">
           <div className="min-w-0">
-            <div className="truncate font-mono text-[11px] text-slate-400">{label}</div>
-            <div className="mt-1 truncate font-mono text-[10px] text-slate-700">{identity}</div>
+            <div className="truncate font-mono text-[11px] text-[var(--forma-text-secondary)]">{label}</div>
+            <div className="mt-1 truncate font-mono text-[10px] text-[var(--forma-text-muted)]">{identity}</div>
           </div>
-          <span className={`shrink-0 border px-2 py-1 text-[10px] font-black uppercase ${
-            selected ? "border-cyan-300/60 bg-cyan-950/30 text-cyan-200" : "border-[#2a2c33] text-slate-600"
+          <span className={`shrink-0 rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] ${
+            selected
+              ? "border-[rgb(var(--forma-cyan-rgb)/0.45)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] text-[rgb(var(--forma-cyan-rgb))]"
+              : "border-[var(--forma-border)] text-[var(--forma-text-muted)]"
           }`}>
             {selected ? "Selected" : reviewable ? "Reviewable" : "No URL"}
           </span>
         </div>
-        <div className="mt-3 border border-[#2a2c33] bg-[#141519] p-3">
-          <div className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-600">Prompt</div>
-          <p className="mt-2 max-h-28 overflow-y-auto break-words text-xs leading-5 text-slate-400">
+        <div className="mt-3 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3">
+          <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Prompt</div>
+          <p className="mt-2 max-h-28 overflow-y-auto break-words text-xs leading-5 text-[var(--forma-text-secondary)]">
             {prompt || "No prompt saved for this video."}
           </p>
         </div>
-        {video.key && <div className="mt-2 break-all font-mono text-[10px] leading-4 text-slate-600">{video.key}</div>}
+        {video.key && <div className="mt-2 break-all font-mono text-[10px] leading-4 text-[var(--forma-text-muted)]">{video.key}</div>}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-600">{formatBytes(video.sizeBytes || 0)}</span>
+          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">{formatBytes(video.sizeBytes || 0)}</span>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={onSelect}
               disabled={!reviewable || !canOpenAssets}
-              className="inline-flex h-8 items-center gap-1.5 border border-[#2a2c33] px-2 text-[10px] font-black uppercase text-white hover:bg-white hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--forma-border)] px-2 text-[10px] font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
               title={canOpenAssets ? (reviewable ? "Select video for review" : "This saved video needs an HTTP(S) URL before review") : "Videos are available only on projects you generated."}
             >
               {selected ? <CheckCircle className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -6849,7 +6902,7 @@ function VideoGalleryItem({
                 onReview();
               }}
               disabled={!canReview || reviewing}
-              className="inline-flex h-8 items-center gap-1.5 border border-cyan-300/40 px-2 text-[10px] font-black uppercase text-cyan-100 hover:bg-cyan-300 hover:text-black disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[rgb(var(--forma-cyan-rgb)/0.35)] bg-[rgb(var(--forma-cyan-rgb)/0.1)] px-2 text-[10px] font-medium text-[rgb(var(--forma-cyan-rgb))] transition-colors hover:border-[rgb(var(--forma-cyan-rgb)/0.55)] disabled:cursor-not-allowed disabled:opacity-40"
               title={reviewable ? "Review selected video" : "This saved video needs an HTTP(S) URL before review"}
             >
               {reviewing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
@@ -6860,13 +6913,13 @@ function VideoGalleryItem({
                 href={openUrl}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-8 items-center gap-1.5 border border-[#2a2c33] px-2 text-[10px] font-black uppercase text-white hover:bg-white hover:text-black"
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-[var(--forma-border)] px-2 text-[10px] font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)]"
               >
                 <ExternalLink className="h-3.5 w-3.5" />
                 Open
               </a>
             ) : (
-              <span className="truncate font-mono text-[10px] text-slate-600">{video.s3Uri || "-"}</span>
+              <span className="truncate font-mono text-[10px] text-[var(--forma-text-muted)]">{video.s3Uri || "-"}</span>
             )}
           </div>
         </div>
@@ -6877,6 +6930,7 @@ function VideoGalleryItem({
 
 function ProjectDetailWorkspace({
   onOpenSidebar,
+  projectId,
   projectTitle,
   owned,
   onRenameTitle,
@@ -6886,6 +6940,7 @@ function ProjectDetailWorkspace({
   projectContent,
 }: {
   onOpenSidebar: () => void;
+  projectId: string | null;
   projectTitle: string;
   owned: boolean;
   onRenameTitle?: (title: string) => void;
@@ -6895,12 +6950,12 @@ function ProjectDetailWorkspace({
   projectContent: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
+    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--forma-page)]">
       <header className="workspace-chrome-header flex min-h-14 min-w-0 items-center gap-3 overflow-hidden px-3 pb-5 pt-2 sm:px-4">
         <MobileSidebarButton onClick={onOpenSidebar} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[rgb(var(--forma-green-rgb)/0.12)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--forma-green-rgb))]">
               <Eye className="h-3 w-3" />
               {owned ? "Your project" : "Public project"}
             </span>
@@ -6914,8 +6969,9 @@ function ProjectDetailWorkspace({
         </div>
       </header>
 
-      <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[#0f1117]" aria-label="Project workspace">
+      <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--forma-page)]" aria-label="Project workspace">
         <ProjectWorkspacePanel
+          projectId={projectId}
           namespaceTabs={namespaceTabs}
           activeNamespace={activeNamespace}
           onNamespaceChange={onNamespaceChange}
@@ -6977,12 +7033,12 @@ function ChatWorkspace({
   };
 
   return (
-    <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-[#0f1117]">
+    <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-[var(--forma-page)]">
       <header className={`workspace-chrome-header absolute inset-x-0 top-0 z-20 flex min-h-14 min-w-0 items-center gap-3 px-3 pb-5 pt-2 sm:px-4 ${headerAway ? "is-away" : ""}`}>
         <MobileSidebarButton onClick={onOpenSidebar} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[rgb(var(--forma-green-rgb)/0.12)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--forma-green-rgb))]">
               {canChat ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
               {canChat ? "Project chat" : "Read-only project"}
             </span>
@@ -7057,7 +7113,6 @@ function ChatWorkspace({
                   onRenameTitle={onRenameTitle}
                   namespaceTabs={namespaceTabs}
                   activeNamespace={activeNamespace}
-                  activeNamespaceName={activeNamespaceName}
                   onNamespaceChange={onNamespaceChange}
                   projectContent={projectContent}
                 />
@@ -7080,16 +7135,23 @@ function ChatWorkspace({
                     placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
                     className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                   />
-                  <div className="mt-1 flex items-center justify-end">
+                  <div className="mt-1 flex items-center justify-end gap-1.5">
+                    {!canStop && !isLoading && Boolean(input.trim()) && (
+                      <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
+                        Enter
+                      </span>
+                    )}
                     <button
                       type={canStop ? "button" : "submit"}
                       onClick={canStop ? onStop : undefined}
                       disabled={!canStop && (isLoading || !projectId || !input.trim())}
-                      className="forma-action-fill inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-30"
-                      aria-label={canStop ? "Stop project update" : "Apply change to project"}
-                      title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName}`}
+                      className={`prompt-composer-send inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
+                        !canStop && !isLoading && input.trim() ? "is-ready" : ""
+                      }`}
+                      aria-label={canStop ? "Stop project update" : "Apply change to project, or press Enter"}
+                      title={canStop ? "Stop project update" : `Apply change to ${activeNamespaceName} · Enter`}
                     >
-                      {canStop ? <Square className="h-3.5 w-3.5 fill-current" /> : isLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                      {canStop ? <Square className="h-3.5 w-3.5 fill-current" /> : isLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                     </button>
                   </div>
                 </div>
@@ -7099,8 +7161,9 @@ function ChatWorkspace({
         )}
 
         {!canChat && (
-          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[#0f1117] pt-14" aria-label="Project workspace">
+          <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[var(--forma-page)] pt-14" aria-label="Project workspace">
             <ProjectWorkspacePanel
+              projectId={projectId}
               namespaceTabs={namespaceTabs}
               activeNamespace={activeNamespace}
               onNamespaceChange={onNamespaceChange}
@@ -7131,7 +7194,6 @@ function ChatProjectArtifact({
   onRenameTitle,
   namespaceTabs,
   activeNamespace,
-  activeNamespaceName,
   onNamespaceChange,
   projectContent,
 }: {
@@ -7141,7 +7203,6 @@ function ChatProjectArtifact({
   onRenameTitle?: (title: string) => void;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
-  activeNamespaceName: string;
   onNamespaceChange: (namespaceId: string) => void;
   projectContent: React.ReactNode;
 }) {
@@ -7212,18 +7273,18 @@ function ChatProjectArtifact({
   return (
     <section
       ref={artifactRef}
-      className={`min-w-0 overflow-hidden bg-[#0f1117] ${
+      className={`min-w-0 overflow-hidden bg-[var(--forma-page)] ${
         fullScreen
           ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
-          : "mx-auto mt-3 w-full max-w-6xl rounded-xl border border-white/5"
+          : "mx-auto mt-3 w-full max-w-6xl rounded-xl border border-[var(--forma-border)]"
       }`}
       aria-labelledby="chat-project-title"
     >
-      <header className="flex min-h-[56px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-white/5 bg-[#181b22] px-4 py-2.5">
+      <header className="flex min-h-[56px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-[var(--forma-border)] bg-[var(--forma-surface)] px-4 py-2.5">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
-            <h3 id="chat-project-title" className="truncate text-[10px] font-medium text-zinc-500">
+            <Layers className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--forma-green-rgb))]" />
+            <h3 id="chat-project-title" className="truncate text-[10px] font-medium text-[var(--forma-text-muted)]">
               Project
             </h3>
           </div>
@@ -7232,26 +7293,15 @@ function ChatProjectArtifact({
             canEdit={canEdit && Boolean(onRenameTitle)}
             label="Project title"
             element="div"
-            className="mt-0.5 truncate text-xs font-semibold text-zinc-100"
+            className="mt-0.5 truncate text-xs font-semibold text-[var(--forma-text-strong)]"
             onCommit={(title) => onRenameTitle?.(title)}
           />
         </div>
-        <div className="flex min-w-0 items-center justify-end gap-3">
-          <div className="hidden min-w-0 items-center gap-2 font-mono text-[9px] text-zinc-600 sm:flex">
-            {projectId && (
-              <span className="max-w-56 truncate" title={projectId}>
-                {projectId}
-              </span>
-            )}
-            {projectId && <span className="text-zinc-700">·</span>}
-            <span className="max-w-48 truncate">
-              {activeNamespaceName}
-            </span>
-          </div>
+        <div className="flex min-w-0 items-center justify-end">
           <button
             type="button"
             onClick={fullScreen ? exitFullScreen : enterFullScreen}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-white/10 px-2.5 text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800/40 hover:text-zinc-100 sm:px-3"
+            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--forma-border)] px-2.5 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] sm:px-3"
             aria-pressed={fullScreen}
             aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}
             title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
@@ -7264,6 +7314,7 @@ function ChatProjectArtifact({
 
       <div className={fullScreen ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden"}>
         <ProjectWorkspacePanel
+          projectId={projectId}
           namespaceTabs={namespaceTabs}
           activeNamespace={activeNamespace}
           onNamespaceChange={onNamespaceChange}
@@ -7276,20 +7327,23 @@ function ChatProjectArtifact({
 }
 
 function ProjectWorkspacePanel({
+  projectId,
   namespaceTabs,
   activeNamespace,
   onNamespaceChange,
   children,
 }: {
+  projectId?: string | null;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   onNamespaceChange: (value: string) => void;
   children: React.ReactNode;
 }) {
+  const namespaceName = workspaceNamespaceForTab(activeNamespace);
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       <nav
-        className="flex min-h-[44px] min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-white/5 bg-[#181b22] px-2"
+        className="flex min-h-[44px] min-w-0 shrink-0 items-center gap-1 overflow-x-auto border-b border-[var(--forma-border)] bg-[var(--forma-surface)] px-2"
         aria-label="Project workspace"
       >
         {namespaceTabs.map((tab) => {
@@ -7300,19 +7354,32 @@ function ProjectWorkspacePanel({
               key={tab.id}
               type="button"
               onClick={() => onNamespaceChange(tab.id)}
-              className={`inline-flex h-8 min-w-8 items-center justify-center gap-2 rounded-lg px-3 text-xs font-medium transition-colors ${
-                active ? "bg-emerald-500/10 text-emerald-400" : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200"
+              className={`inline-flex h-8 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 text-xs font-medium transition-colors ${
+                active
+                  ? "bg-[rgb(var(--forma-green-rgb)/0.12)] text-[rgb(var(--forma-green-rgb))]"
+                  : "text-[var(--forma-text-muted)] hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)]"
               }`}
               aria-pressed={active}
               title={`${tab.label} / ${workspaceNamespaceForTab(tab.id)}`}
             >
-              <Icon className="h-4 w-4 shrink-0" />
+              <Icon className="h-3.5 w-3.5 shrink-0" strokeWidth={1.75} />
               <span className={active ? "inline" : "hidden sm:inline"}>{tab.label}</span>
             </button>
           );
         })}
       </nav>
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden">{children}</div>
+      <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-1.5 font-mono text-[9px] text-[var(--forma-text-muted)]">
+        {projectId && (
+          <span className="max-w-[min(100%,14rem)] truncate" title={projectId}>
+            {projectId}
+          </span>
+        )}
+        {projectId && <span aria-hidden="true">·</span>}
+        <span className="max-w-48 truncate" title={namespaceName}>
+          {namespaceName}
+        </span>
+      </div>
     </div>
   );
 }

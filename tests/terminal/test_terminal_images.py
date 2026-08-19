@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from blueprint_core.terminal.images import TerminalImageRenderConfig, TerminalImageRenderer, extract_image_paths, is_image_path
+from forma_core.terminal.images import TerminalImageRenderConfig, TerminalImageRenderer, extract_image_paths, is_image_path
 
 
 class TerminalImageTests(unittest.TestCase):

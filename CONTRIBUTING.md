@@ -213,7 +213,7 @@ Important directories include:
 
 ```text
 apps/api/          FastAPI application and service integrations
-blueprint_core/   Reusable generation, validation, provider, and project logic
+forma_core/   Reusable generation, validation, provider, and project logic
 apps/web/         Next.js frontend
 tests/            Concern-grouped offline Python unit tests (see tests/README.md)
 evals/            Performance benchmarks, quality evaluations, datasets, and reports
@@ -223,9 +223,9 @@ supabase/         Supabase schema and migration resources
 examples/         Example inputs and generated outputs
 ```
 
-New reusable domain logic should generally be added to `blueprint_core`.
+New reusable domain logic should generally be added to `forma_core`.
 
-Avoid adding new business logic to legacy compatibility wrappers when an appropriate module exists under `blueprint_core`.
+Avoid adding new business logic to legacy compatibility wrappers when an appropriate module exists under `forma_core`.
 
 ## Code Standards
 
@@ -357,7 +357,7 @@ feat: add configurable provider timeout
 fix: preserve project history during iteration
 docs: document SQLite development mode
 test: add voltage mismatch validation cases
-refactor: move generation logic into blueprint_core
+refactor: move generation logic into forma_core
 chore: update frontend dependencies
 ```
 

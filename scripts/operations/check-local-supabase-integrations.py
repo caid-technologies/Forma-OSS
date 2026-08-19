@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from blueprint_core.config import config  # noqa: E402
+from forma_core.config import config  # noqa: E402
 
 load_dotenv(ROOT / ".env")
 load_dotenv(ROOT / ".env.local", override=False)
@@ -35,18 +35,18 @@ def main() -> int:
     args = parser.parse_args()
 
     config.set_default("DATABASE_BACKEND", "supabase")
-    config.set_default("BLUEPRINT_DEV_MODE", "true")
-    config.set_default("BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND", "supabase")
-    config.set_default("BLUEPRINT_WORKSPACE_CONFIG_CACHE_TTL_SECONDS", "0")
-    config.set_default("BLUEPRINT_WORKSPACE_CONFIG_FAILURE_TTL_SECONDS", "0")
+    config.set_default("FORMA_DEV_MODE", "true")
+    config.set_default("FORMA_WORKSPACE_INTEGRATIONS_BACKEND", "supabase")
+    config.set_default("FORMA_WORKSPACE_CONFIG_CACHE_TTL_SECONDS", "0")
+    config.set_default("FORMA_WORKSPACE_CONFIG_FAILURE_TTL_SECONDS", "0")
 
-    from blueprint_core.database import get_database_config
-    from blueprint_core.user_integrations import SupabaseWorkspaceIntegrationStore, UserIntegrationConfig
+    from forma_core.database import get_database_config
+    from forma_core.user_integrations import SupabaseWorkspaceIntegrationStore, UserIntegrationConfig
 
     db_config = get_database_config()
     print(f"database backend: {db_config['backend']} ({db_config['url']}) dev_mode={db_config['dev_mode']}")
     if db_config["backend"] != "supabase":
-        raise SystemExit("Expected local Supabase backend. Check DATABASE_BACKEND, BLUEPRINT_DEV_MODE, and SUPABASE_URL.")
+        raise SystemExit("Expected local Supabase backend. Check DATABASE_BACKEND, FORMA_DEV_MODE, and SUPABASE_URL.")
 
     store = SupabaseWorkspaceIntegrationStore(config_key=args.config_key)
     config = UserIntegrationConfig()

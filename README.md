@@ -1,20 +1,18 @@
 # Forma
 
-Forma is AI-native full-stack hardware. It turns a prompt (and optionally an image) into a structured, validated **Hardware IR** package plus generated product imagery, wiring diagrams, BOM, and build steps.
+Forma is AI for full-stack hardware design. It turns text and images into a real-world **hardware project**.
 
-This repository is an **MVP and research prototype** focused on **low-voltage maker electronics** (3.3V–5V) and safe, educational projects.
+This is in **alpha** and **research-based** stage focused on **low-voltage maker electronics** (3.3V–5V) and safe, educational projects.
 
-![Forma project workspace showing a generated 3D printer concept and validated parts list](docs/assets/blueprint-project-3d-printer.png)
+[![Forma main user flow demo creating a security camera](docs/assets/forma-security-camera-demo.gif)](https://www.youtube.com/watch?v=XaIIJT7OX4M)
 
 ## What you can do
-- Compile a hardware idea into typed **Hardware IR** (Pydantic)
+- Compile a hardware idea into structured **hardware plan**
 - Run **rule-based electrical validation** (shorts, voltage mismatch, unpowered ICs, pin conflicts, overcurrent risk)
-- Visualize wiring with:
-  - Interactive **React Flow** schematic
-  - Generated **SVG** schematic
-- View a lightweight **3D mechanical layout** (Three.js / React Three Fiber)
-- Generate an optional **product concept image** with an image model
-- Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `BLUEPRINT_DEV_MODE` for SQLite-only local work
+- Visualize Wiring in **interactive schematic**
+- View a lightweight **3D mechanical layout**
+- Generate an optional **concept image** with an image model
+- Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `FORMA_DEV_MODE` for SQLite-only local work
 - Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured
 - Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
 
@@ -50,16 +48,16 @@ From the repo root:
 This starts the FastAPI backend and Next.js frontend together. Use `BACKEND_PORT`, `FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
 
 ### Python Package (PyPI)
-The reusable core is published on PyPI as [`caid-blueprint-core`](https://pypi.org/project/caid-blueprint-core/). The distribution name is `caid-blueprint-core`; the Python import package is `blueprint_core`.
+The reusable core is published on PyPI as [`caid-forma-core`](https://pypi.org/project/caid-forma-core/). The distribution name is `caid-forma-core`; the Python import package is `forma_core`.
 
 ```bash
-pip install caid-blueprint-core
+pip install caid-forma-core
 ```
 
 ```python
-import blueprint_core
-from blueprint_core.generation import HardwarePipelineOrchestrator, list_workflows
-from blueprint_core.models import HardwareIR
+import forma_core
+from forma_core.generation import HardwarePipelineOrchestrator, list_workflows
+from forma_core.models import HardwareIR
 ```
 
 ### Docker
@@ -103,19 +101,20 @@ python3 apps/api/seed_db.py
 uvicorn apps.api.main:app --reload --port 8000
 ```
 
-**Blueprint Core CLI:**
+**Forma Core CLI:**
 
 The core CLI runs generation, validation, and project iteration directly. It does not require the FastAPI backend.
 Live CLI operations fail with a nonzero exit code when their requested provider, model, or pipeline fails; they never substitute another model or simulated project. Use `--simulation` only when deterministic simulated output is intentional.
 
 ```bash
-blueprint-core workflows
-blueprint-core namespaces
-blueprint-core generate "plant watering monitor" --simulation --output project.json
-blueprint-core generate "plant watering monitor" --llm openai/gpt-5.5 --output project.json
-blueprint-core validate project.json
-blueprint-core iterate project.json "Make the enclosure splash resistant" --namespace product.mech --output revised.json
-python -m blueprint_core --help
+forma-core workflows
+forma-core namespaces
+forma-core generate "plant watering monitor" --simulation --output project.json
+forma-core generate "plant watering monitor" --llm openai/gpt-5.5 --output project.json
+forma-core validate project.json
+forma-core iterate project.json "Make the enclosure splash resistant" --namespace product.mech --output revised.json
+forma-core iterate project.json "Keep the components but reshape the product as a curved handheld pod" --namespace product.mech --output reshaped.json
+python -m forma_core --help
 ```
 
 **Developer utilities:**
@@ -139,7 +138,7 @@ curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Typ
 
 `scripts/quality/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/models/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/models/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
 
-Generation and project iteration logic lives in the reusable `blueprint_core` package, published as the `caid-blueprint-core` PyPI distribution. New code should import from `blueprint_core.generation`, `blueprint_core.iteration`, `blueprint_core.project_objects`, `blueprint_core.models`, `blueprint_core.validation`, `blueprint_core.llm`, `blueprint_core.images`, `blueprint_core.runtime`, and `blueprint_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
+Generation and project iteration logic lives in the reusable `forma_core` package, published as the `caid-forma-core` PyPI distribution. New code should import from `forma_core.generation`, `forma_core.iteration`, `forma_core.project_objects`, `forma_core.models`, `forma_core.validation`, `forma_core.llm`, `forma_core.images`, `forma_core.runtime`, and `forma_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. A `product.mech` chat or CLI iteration can change shape, dimensions, placement, materials, and fabrication details while preserving the BOM and electrical connectivity. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
 
 Performance benchmarks live under `evals/performance/` and save JSON reports under `.logs/benchmarks/`. See [`evals/README.md`](evals/README.md) for the performance/quality distinction, shared datasets, reports, and extension guidance.
 ```bash
@@ -154,7 +153,7 @@ Benchmark, output, and eval artifacts can be uploaded to a Hugging Face dataset 
 
 ```bash
 export HF_TOKEN=...
-export HF_ARTIFACT_REPO_ID=username/blueprint-metrics
+export HF_ARTIFACT_REPO_ID=username/forma-metrics
 
 ./evals/performance/benchmark_models.py --live --iterations 3 --upload-huggingface
 ./evals/performance/benchmark_offline.py --upload-huggingface
@@ -171,7 +170,7 @@ both.
 To run with Google Vertex AI as the primary LLM provider:
 ```bash
 gcloud auth application-default login
-LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.5-flash uvicorn apps.api.main:app --reload --port 8000
+LLM_PROVIDER=vertex GOOGLE_CLOUD_PROJECT=your-project-id GOOGLE_CLOUD_LOCATION=global VERTEX_AI_MODEL=gemini-3.7-flash uvicorn apps.api.main:app --reload --port 8000
 ```
 
 Environment variables (recommended via a repo-root `.env`; see `.env.example`):
@@ -179,20 +178,20 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 #### Application, database, and authentication
 
 - `LOG_LEVEL`: Backend logging level, for example `INFO` or `DEBUG`.
-- `BACKEND_LOG_FILE`: Optional log file for backend and uvicorn logs, for example `./blueprint-backend.log`.
-- `BLUEPRINT_DEBUG`: When `true`, API errors and failed job metadata include redacted traceback/context debug payloads. Intended for trusted local/dev environments.
+- `BACKEND_LOG_FILE`: Optional log file for backend and uvicorn logs, for example `./forma-backend.log`.
+- `FORMA_DEBUG`: When `true`, API errors and failed job metadata include redacted traceback/context debug payloads. Intended for trusted local/dev environments.
 - `SUPABASE_URL`: Supabase project API URL, for example `https://your-project-ref.supabase.co`.
 - `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`: Backend-only Supabase key for writes. Do not use anon/publishable keys.
-- `BLUEPRINT_DEV_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
-- `NEXT_PUBLIC_BLUEPRINT_DEBUG` / `NEXT_PUBLIC_BLUEPRINT_DEV_MODE`: Frontend-visible local/dev flags. The `Keys` integrations UI, `Listening Jobs`, and `Backend Logs` are shown only in Next development mode or when a debug/dev-mode flag is truthy. Keep these unset or `false` in public production builds.
+- `FORMA_DEV_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
+- `NEXT_PUBLIC_FORMA_DEBUG` / `NEXT_PUBLIC_FORMA_DEV_MODE`: Frontend-visible local/dev flags. The `Keys` integrations UI, `Listening Jobs`, and `Backend Logs` are shown only in Next development mode or when a debug/dev-mode flag is truthy. Keep these unset or `false` in public production builds.
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
-- `BLUEPRINT_IMAGE_STORAGE_BACKEND`: Optional ancillary override (`supabase`, `s3-compatible`, or `local`). By default image storage follows `DATABASE_BACKEND`.
-- `BLUEPRINT_WORKSPACE_INTEGRATIONS_BACKEND` / `BLUEPRINT_USER_INTEGRATIONS_BACKEND`: Optional encrypted-settings storage overrides. By default they follow `DATABASE_BACKEND`, so SQLite mode does not contact Supabase just because credentials are present.
-- `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./blueprint.db`).
-- `BLUEPRINT_DEPLOYMENT`: When `true`, generation requires a deployment provider or the signed-in user's BYOK provider; users without an active provider are directed to Settings.
-- `BLUEPRINT_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
-- `BLUEPRINT_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
-- `BLUEPRINT_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. SQLite-primary runtimes use an encrypted file; Supabase-primary runtimes use encrypted `workspace_integration_configs` storage.
+- `FORMA_IMAGE_STORAGE_BACKEND`: Optional ancillary override (`supabase`, `s3-compatible`, or `local`). By default image storage follows `DATABASE_BACKEND`.
+- `FORMA_WORKSPACE_INTEGRATIONS_BACKEND` / `FORMA_USER_INTEGRATIONS_BACKEND`: Optional encrypted-settings storage overrides. By default they follow `DATABASE_BACKEND`, so SQLite mode does not contact Supabase just because credentials are present.
+- `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./forma.db`).
+- `FORMA_DEPLOYMENT`: When `true`, generation requires a deployment provider or the signed-in user's BYOK provider; users without an active provider are directed to Settings.
+- `FORMA_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
+- `FORMA_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
+- `FORMA_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. SQLite-primary runtimes use an encrypted file; Supabase-primary runtimes use encrypted `workspace_integration_configs` storage.
 
 #### Shared LLM configuration
 
@@ -202,10 +201,10 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 - `LLM_ALLOWED_PROVIDERS`: Optional comma-separated allowlist for per-request provider overrides.
 - `VERTEX_AI_ALLOWED_MODELS` / `OPENAI_ALLOWED_MODELS` / `ANTHROPIC_ALLOWED_MODELS` / `BASETEN_ALLOWED_MODELS` / `GEMINI_ALLOWED_MODELS` / `GMI_ALLOWED_MODELS` / `HUGGINGFACE_ALLOWED_MODELS` / `CLOUDFLARE_ALLOWED_MODELS` / `NVIDIA_ALLOWED_MODELS` / `OPENAI_COMPATIBLE_ALLOWED_MODELS` / `RUNPOD_ALLOWED_MODELS`: Optional comma-separated allowlists for per-request model overrides. Without an explicit allowlist, runtime overrides are limited to the configured default/fallback model for that provider.
 - `/api/generate` also accepts optional `provider` and `model` fields for runtime switching. Each generated project records the requested provider/model and actual provider/model in `assembly_metadata`.
-- In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-sonnet-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
+- In the Keys UI, users can set Runtime Defaults → Preferred model as `provider/model` (for example `anthropic/claude-opus-5` or `huggingface/Qwen/Qwen2.5-Coder-3B-Instruct:nscale`). Forma derives the runtime provider, model, provider allowlist, and model allowlist from saved keys/models automatically.
 - `STRICT_LLM`: Set to `true` (default) to fail fast when model validation is enabled and the model is unavailable. Set to `false` to attempt fallback.
 - `LLM_API_KEY`: Generic provider API key alias. For Gemini, `GEMINI_API_KEY` or `GOOGLE_API_KEY` still work.
-- `LLM_MODEL`: Model to use, for example `gemini-3.5-flash` or an OpenAI/OpenAI-compatible model ID.
+- `LLM_MODEL`: Model to use, for example `gemini-3.7-flash` or an OpenAI/OpenAI-compatible model ID.
 - `LLM_FALLBACK_MODEL`: Optional fallback model when `STRICT_LLM=false`.
 - `LLM_BASE_URL`: Optional base URL for OpenAI-compatible providers.
 - `LLM_TIMEOUT_SECONDS`: Generic read timeout. OpenAI-compatible endpoints default to `90`.
@@ -216,7 +215,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>Google Vertex AI (primary)</strong></summary>
 
 - Set `LLM_PROVIDER=vertex`, `GOOGLE_CLOUD_PROJECT` (or `VERTEX_AI_PROJECT`), and `GOOGLE_CLOUD_LOCATION` (or `VERTEX_AI_LOCATION`, default `global`).
-- `VERTEX_AI_MODEL` selects the Gemini model and `VERTEX_AI_FALLBACK_MODEL` configures the optional non-strict fallback.
+- `VERTEX_AI_MODEL` selects the Gemini model and defaults to `gemini-3.7-flash`. `VERTEX_AI_FALLBACK_MODEL` configures the optional non-strict fallback.
 - Authentication uses Google Cloud Application Default Credentials. Run `gcloud auth application-default login` locally; in production, attach a service account with Vertex AI access. `GOOGLE_APPLICATION_CREDENTIALS` may point to a mounted credential file.
 - Vercel deployments can use keyless workload identity federation. Configure Vercel OIDC in a Google Workload Identity Pool, then set `GCP_PROJECT_NUMBER`, `GCP_SERVICE_ACCOUNT_EMAIL`, `GCP_WORKLOAD_IDENTITY_POOL_ID`, and `GCP_WORKLOAD_IDENTITY_POOL_PROVIDER_ID`. Forma exchanges the request's short-lived Vercel OIDC token and does not store a service-account key.
 
@@ -239,7 +238,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>Anthropic</strong></summary>
 
 - `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY`: Anthropic Claude API key when `LLM_PROVIDER=anthropic` or a request uses `provider=anthropic`.
-- `ANTHROPIC_MODEL`: Claude model ID. The example default is `claude-sonnet-5`.
+- `ANTHROPIC_MODEL`: Claude model ID. The default is `claude-opus-5`.
 - `ANTHROPIC_BASE_URL`: Claude API base URL. Defaults to `https://api.anthropic.com/v1`.
 - `ANTHROPIC_JSON_SCHEMA_OUTPUT`: Defaults to `true` and sends Claude JSON schema output config; set `false` to fall back to prompt-only JSON instructions.
 
@@ -257,7 +256,7 @@ The backend publishes the resolved, credential-safe client contract at `GET /api
 <summary><strong>Gemini</strong></summary>
 
 - `GEMINI_API_KEY` / `GOOGLE_API_KEY`: Gemini credentials when `LLM_PROVIDER=gemini` or a request uses `provider=gemini`.
-- `GEMINI_MODEL`: Gemini model ID. The example default is `gemini-3.5-flash`.
+- `GEMINI_MODEL`: Gemini model ID. The default is `gemini-3.7-flash`.
 
 </details>
 
@@ -342,9 +341,9 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: Optional S3-compatible fallback credentials. The normal backend path uploads through the Supabase client with `SUPABASE_URL` plus the service-role/secret key.
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: Lifetime for refreshed Supabase Storage read URLs when projects are loaded (default: `86400`).
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
-- `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `blueprint`.
+- `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `forma`.
 - `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.
-- `BLUEPRINT_DEFAULT_GENERATION_WORKFLOW`: Initial frontend workflow, either `web_research` (default) or `default` (Catalog). Request-level workflow selections take precedence.
+- `FORMA_DEFAULT_GENERATION_WORKFLOW`: Initial frontend workflow, either `web_research` (default) or `default` (Catalog). Request-level workflow selections take precedence.
 - `FIRECRAWL_API_KEY` / `FIRECRAWL_MCP_COMMAND`: Enable Firecrawl MCP search and page extraction for the web research workflow.
 - `FIRECRAWL_SEARCH_LIMIT` / `FIRECRAWL_MCP_TIMEOUT_SECONDS`: Firecrawl search controls for the web research workflow.
 

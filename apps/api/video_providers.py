@@ -1,6 +1,6 @@
 import json
 import logging
-from blueprint_core.config import config
+from forma_core.config import config
 import urllib.error
 import urllib.request
 from dataclasses import dataclass

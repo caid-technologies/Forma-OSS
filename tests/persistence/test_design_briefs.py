@@ -15,13 +15,14 @@ from pydantic import ValidationError
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.design_briefs_api import router
-from blueprint_core import database
-from blueprint_core.persistence.providers import create_sqlite_provider
-from blueprint_core.persistence.repositories import SqlAlchemyRepository
-from blueprint_core.workspaces.design_briefs import (
+from forma_core import database
+from forma_core.persistence.providers import create_sqlite_provider
+from forma_core.persistence.repositories import SqlAlchemyRepository
+from forma_core.workspaces.design_briefs import (
     DesignBrief,
     DesignBriefCreate,
     DesignBriefReadiness,
+    prompt_safe_design_brief,
 )
 
 
@@ -39,7 +40,7 @@ def sqlite_repository() -> Iterator[None]:
     with tempfile.TemporaryDirectory() as directory:
         provider = create_sqlite_provider(
             source="design brief test",
-            url=f"sqlite:///{Path(directory) / 'blueprint.db'}",
+            url=f"sqlite:///{Path(directory) / 'forma.db'}",
             import_legacy_jobs=False,
         )
         assert provider.session_factory is not None
@@ -95,6 +96,22 @@ class DesignBriefModelTests(unittest.TestCase):
         self.assertEqual(project_id, restored.project_id)
         self.assertEqual("clipboard", restored.references[0].metadata["source"])
         self.assertEqual(DesignBriefReadiness.NEEDS_CLARIFICATION, restored.readiness)
+
+    def test_prompt_safe_brief_strips_inline_image_payloads(self) -> None:
+        brief = DesignBrief(
+            **brief_payload(),
+            design_brief_id=uuid.uuid4(),
+            project_id=uuid.uuid4(),
+            brief_version=1,
+            created_at="2026-08-01T18:00:00Z",
+        )
+        brief.references[0].metadata["data_url"] = "data:image/png;base64,aW1hZ2U="
+
+        safe = prompt_safe_design_brief(brief)
+
+        self.assertNotIn("data_url", safe.references[0].metadata)
+        self.assertTrue(safe.references[0].metadata["inline_data_supplied"])
+        self.assertEqual("data:image/png;base64,aW1hZ2U=", brief.references[0].metadata["data_url"])
 
     def test_unsupported_schema_version_has_a_stable_structured_error(self) -> None:
         payload = brief_payload()
@@ -157,7 +174,7 @@ class DesignBriefPersistenceTests(unittest.TestCase):
 
     def test_project_creation_respects_brief_owner_and_purge_removes_brief(self) -> None:
         project_id = str(uuid.uuid4())
-        with sqlite_repository(), patch("blueprint_core.database.invalidate_project_lists"):
+        with sqlite_repository(), patch("forma_core.database.invalidate_project_lists"):
             database.create_design_brief_version(
                 project_id,
                 "user_one",

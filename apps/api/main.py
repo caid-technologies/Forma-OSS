@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
 import logging
@@ -42,7 +43,7 @@ def _ensure_api_package_imports() -> None:
 
 _ensure_api_package_imports()
 
-from blueprint_core.debug import (
+from forma_core.debug import (
     api_error_detail,
     debug_mode_enabled,
     exception_debug_payload,
@@ -59,8 +60,8 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(REPO_ROOT / ".env")
 load_dotenv(Path(__file__).resolve().parent / ".env", override=False)
 
-from blueprint_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
-from blueprint_core.vertex_auth import VercelOidcContextMiddleware
+from forma_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, require_user_secrets_key
+from forma_core.vertex_auth import VercelOidcContextMiddleware
 
 apply_user_integrations_to_environment()
 
@@ -68,7 +69,7 @@ from apps.api.logging_config import configure_backend_logging
 
 configure_backend_logging()
 
-from blueprint_core.database import (
+from forma_core.database import (
     append_project_revision,
     DesignBriefNotFoundError,
     count_component_templates,
@@ -86,30 +87,37 @@ from blueprint_core.database import (
     list_project_chats,
     list_component_templates,
     list_generated_projects,
+    list_generated_projects_page,
+    list_latest_project_revisions,
     list_project_deletion_audits,
+    list_project_generation_jobs,
+    project_engagement_for_ids,
+    remix_generated_project,
     save_alpha_signup,
+    save_project_for_user,
+    unsave_project_for_user,
     update_generated_project_metadata,
     update_generated_project_hardware_ir,
     upsert_project_chat,
 )
-from blueprint_core.project_list_cache import (
+from forma_core.project_list_cache import (
     cache_project_list,
     get_cached_project_list,
     require_project_list_cache_config,
 )
 from apps.api.seed_db import seed_database
-from blueprint_core.agents.workflows import get_workflow_debug_config, list_workflows
-from blueprint_core.agents.clarification import ask_clarifying_questions
-from blueprint_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
-from blueprint_core.workspaces.projects.models import (
+from forma_core.agents.workflows import get_workflow_debug_config, list_workflows
+from forma_core.agents.clarification import ask_clarifying_questions
+from forma_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectChatUpsertRequest
+from forma_core.workspaces.projects.models import (
     ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
-from blueprint_core.workspaces.projects import ProjectStateError
-from blueprint_core.workspaces.workflow import WorkflowStateError
-from blueprint_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
-from blueprint_core.agents.orchestrator import HardwarePipelineOrchestrator
+from forma_core.workspaces.projects import ProjectStateError
+from forma_core.workspaces.workflow import WorkflowStateError
+from forma_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
+from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
 from apps.api.a2a import (
     A2A_HUB,
     A2AAgentRegistration,
@@ -122,16 +130,16 @@ from apps.api.a2a import (
     stop_a2a_tcp_server,
     submit_a2a_message,
 )
-from blueprint_core.images import get_image_output_debug_config
-from blueprint_core.config.contract import resolve_runtime_contract
-from blueprint_core.workspaces.projects.iteration import ProjectIterator
-from blueprint_core.llm import LLMProviderConfigError
-from blueprint_core.llm import LLMProviderOutputError
-from blueprint_core.workspaces.projects.objects import build_project_object, list_project_namespaces
-from blueprint_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
-from blueprint_core.video_prompts import generate_image_to_video_prompt_from_namespaces
-from blueprint_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
-from blueprint_core.video_review import FireworksVideoReviewClient
+from forma_core.images import get_image_output_debug_config
+from forma_core.config.contract import resolve_runtime_contract
+from forma_core.workspaces.projects.iteration import ProjectIterator
+from forma_core.llm import LLMProviderConfigError
+from forma_core.llm import LLMProviderOutputError
+from forma_core.workspaces.projects.objects import build_project_object, list_project_namespaces
+from forma_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
+from forma_core.video_prompts import generate_image_to_video_prompt_from_namespaces
+from forma_core.agents.video_correction import FireworksVideoSelfCorrectionAgent
+from forma_core.video_review import FireworksVideoReviewClient
 from apps.api.logs_api import router as logs_router
 from apps.api.streams_api import router as streams_router
 from apps.api.design_briefs_api import router as design_briefs_router
@@ -143,6 +151,7 @@ from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
 from apps.api.auth import (
     UserContext,
+    clerk_user_profile,
     deployed_auth_required,
     optional_user_context,
     require_admin_user_context,
@@ -159,19 +168,19 @@ from apps.api.project_deletion import (
     restore_project,
     withdraw_contribution,
 )
-from blueprint_core.jobs.store import JOB_STORE, JobCancelledError
-from blueprint_core.jobs.context import PAST_JOBS_DATA_SOURCE, PastJobContextSource, list_generation_data_sources
-from blueprint_core.observability import flush_langfuse, get_langfuse_debug_config
-from blueprint_core.runtime import (
+from forma_core.jobs.store import JOB_STORE, JobCancelledError
+from forma_core.jobs.context import PAST_JOBS_DATA_SOURCE, PastJobContextSource, list_generation_data_sources
+from forma_core.observability import flush_langfuse, get_langfuse_debug_config
+from forma_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
     generation_unavailable_detail,
 )
-from blueprint_core.config.runtime import blueprint_dev_mode_enabled
+from forma_core.config.runtime import forma_dev_mode_enabled
 from apps.api.storage import get_image_storage_config, hydrate_image_storage_metadata
-from blueprint_core.validation import validate_circuit
-from blueprint_core.utils import generate_mermaid_chart, generate_svg_schematic
+from forma_core.validation import validate_circuit
+from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
 from apps.api.video_providers import (
     GMICloudProvider,
     VIDEO_MODE_IMAGE_TO_VIDEO,
@@ -193,8 +202,8 @@ from apps.api.video_storage import (
 logger = logging.getLogger(__name__)
 ROOT_DIR = REPO_ROOT
 EXAMPLE_RESULTS_DIR = ROOT_DIR / "examples" / "results"
-_CACHE_OWNER_DIGEST_FIELD = "_blueprint_cache_owner_digest"
-_CACHE_OWNER_CHAT_FIELD = "_blueprint_cache_owner_chat_id"
+_CACHE_OWNER_DIGEST_FIELD = "_forma_cache_owner_digest"
+_CACHE_OWNER_CHAT_FIELD = "_forma_cache_owner_chat_id"
 
 
 def _parse_job_timestamp(value: Any) -> Optional[datetime]:
@@ -335,6 +344,41 @@ def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def _admin_job_records(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add admin-only owner labels without changing the persisted job shape."""
+    records = [dict(job) for job in jobs]
+    owner_user_ids: List[str] = []
+
+    for record in records:
+        owner_user_id = _job_owner_user_id(record)
+        record["owner_user_id"] = owner_user_id
+        if owner_user_id and owner_user_id not in owner_user_ids:
+            owner_user_ids.append(owner_user_id)
+
+    # Clerk lookups are optional display enrichment. Cap and parallelize cold
+    # lookups so a large job list cannot hold the admin request open.
+    profile_user_ids = owner_user_ids[:16]
+    if profile_user_ids:
+        with ThreadPoolExecutor(max_workers=min(8, len(profile_user_ids))) as executor:
+            resolved_profiles = executor.map(clerk_user_profile, profile_user_ids)
+            profiles = dict(zip(profile_user_ids, resolved_profiles))
+    else:
+        profiles = {}
+
+    for record in records:
+        owner_user_id = record.get("owner_user_id")
+        profile = profiles.get(owner_user_id) if isinstance(owner_user_id, str) else None
+        display_name = profile.get("display_name") if profile else None
+        email = profile.get("email") if profile else None
+        github_username = profile.get("github_username") if profile else None
+        record["owner_display_name"] = display_name
+        record["owner_email"] = email
+        record["owner_github_username"] = github_username
+        record["owner_username"] = github_username or email or display_name or owner_user_id
+
+    return records
+
+
 def _require_job_reader(job: Dict[str, Any], user: UserContext) -> None:
     if user.is_admin:
         return
@@ -456,7 +500,7 @@ def debug_config_endpoint(
         llm_config = orchestrator.get_debug_config()
         return {
             **llm_config,
-            "blueprint_dev_mode": blueprint_dev_mode_enabled(),
+            "forma_dev_mode": forma_dev_mode_enabled(),
             "deployment": _deployment_runtime_config(llm_config),
             "database": get_database_config(),
             "job_metadata": JOB_STORE.get_config(),
@@ -515,7 +559,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
             ensure_project_action_allowed(
                 request.project_id,
                 owner_user_id,
-                "blueprint.generate_project",
+                "forma.generate_project",
                 require_workflow=True,
             )
         except WorkflowStateError as exc:
@@ -588,6 +632,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     payload = {
         "prompt": request.prompt,
         "project_id": request.project_id,
+        "retry_stage": request.retry_stage,
         "workflow": request.workflow,
         "image_data": request.image_data,
         "generate_image": request.generate_image,
@@ -605,9 +650,9 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         job_id=job_id,
         message_id=message_id,
         correlation_id=None,
-        action="blueprint.generate_project",
+        action="forma.generate_project",
         sender="frontend",
-        recipient="blueprint",
+        recipient="forma",
         payload=payload,
         server_owned=True,
         status="queued",
@@ -643,10 +688,17 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 data_sources=request.data_sources,
                 past_job_context=past_job_context,
                 project_id=request.project_id,
+                retry_stage=request.retry_stage,
             )
         if JOB_STORE.is_cancelled(job_id):
             raise JobCancelledError(f"Job {job_id} was cancelled.")
-        JOB_STORE.mark_succeeded(job_id, response)
+        generation_status = str(response.get("generation_status") or "succeeded").lower()
+        if generation_status == "partial":
+            JOB_STORE.mark_partial(job_id, response)
+        elif generation_status == "failed":
+            JOB_STORE.mark_failed(job_id, "A required root generation stage failed; partial diagnostics were preserved.")
+        else:
+            JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
         if str((job or {}).get("status") or "").lower() in {"cancelled", "canceled"}:
             raise JobCancelledError(f"Job {job_id} was cancelled.")
@@ -1242,7 +1294,7 @@ async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
 async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_user_context)):
     """Submits an A2A message and queues an async result for the sender."""
     owner_user_id = user.owner_user_id
-    if owner_user_id and message.action.startswith("blueprint."):
+    if owner_user_id and message.action.startswith("forma."):
         message.payload = {**message.payload, "owner_user_id": owner_user_id}
     ack = await submit_a2a_message(message)
     return ack.model_dump()
@@ -1267,7 +1319,27 @@ def list_a2a_jobs(
     _user: UserContext = Depends(require_admin_user_context),
 ):
     """Lists persisted A2A job metadata."""
-    return JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
+    jobs = JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
+    if sender in {None, "conversation"}:
+        jobs.extend(list_project_generation_jobs(status=job_status, limit=limit))
+    jobs.sort(key=lambda item: str(item.get("created_at") or item.get("updated_at") or ""), reverse=True)
+    return _admin_job_records(jobs[:limit])
+
+
+@app.get("/a2a/jobs/metrics")
+def get_a2a_job_metrics(
+    days: int = Query(7, ge=1, le=31),
+    hours: int = Query(24, ge=1, le=168),
+    interval_hours: int | None = Query(None, ge=1, le=744),
+    _user: UserContext = Depends(require_admin_user_context),
+):
+    """Returns aggregate job volume and failure metrics for administrators."""
+    return JOB_STORE.get_metrics(
+        days=days,
+        hours=hours,
+        interval_hours=interval_hours,
+        additional_rows=list_project_generation_jobs(limit=1000),
+    )
 
 
 @app.get("/a2a/jobs/{job_id}")
@@ -1408,7 +1480,7 @@ def _example_project_object_jobs(limit: int, status: Optional[str]) -> List[Dict
                     "correlation_id": run_id,
                     "action": "examples.project_object_generation",
                     "sender": "examples",
-                    "recipient": "blueprint",
+                    "recipient": "forma",
                     "status": job_status,
                     "server_owned": False,
                     "created_at": _format_example_job_time(started_at),
@@ -1527,7 +1599,6 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         or hydrated_metadata.get("product_case_image_content_type")
         or hydrated_metadata.get("product_image_content_type")
     )
-    star_count = metadata.get("star_count", metadata.get("stars", 0))
     stored_creator_display = metadata.get("creator_display") or metadata.get("creator_username")
     creator_display = (
         stored_creator_display.strip()
@@ -1553,14 +1624,42 @@ def _project_summary_response(project: Any, current_user_id: Optional[str] = Non
         "creator_username": creator_display,
         "creator_image_url": creator_image_url,
         "parts_count": len(components) if isinstance(components, list) else 0,
-        "star_count": max(0, int(star_count) if isinstance(star_count, (int, float, str)) and str(star_count).isdigit() else 0),
+        "save_count": 0,
+        "remix_count": 0,
+        "saved": False,
         "has_product_image": bool(product_image_url or hydrated_metadata.get("product_image_data")),
         "product_image_url": product_image_url,
         "product_image_content_type": product_image_content_type,
         "product_image_model": hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
         "product_visual_sequence": sequence if isinstance(sequence, list) else [],
         "image_output_status": hydrated_metadata.get("image_output_status"),
+        "generation_status": metadata.get("generation_status", "succeeded"),
+        "project_readiness": metadata.get("project_readiness", "complete"),
     }
+
+
+def _canonical_project_summary_response(
+    revision: Any,
+    brief: Any,
+    *,
+    owner_user_id: str,
+) -> Dict[str, Any]:
+    """Adapt canonical project state to the established gallery response."""
+
+    state = revision.state
+    overview = getattr(state, "overview", None)
+    title = str(getattr(overview, "title", "") or getattr(brief, "summary", "") or "Untitled project")
+    project = types.SimpleNamespace(
+        project_id=str(revision.project_id),
+        chat_id=brief.conversation_id,
+        owner_user_id=owner_user_id,
+        visibility="private",
+        title=title,
+        prompt=brief.summary,
+        created_at=revision.created_at,
+        hardware_ir=state.model_dump(mode="json"),
+    )
+    return _project_summary_response(project, current_user_id=owner_user_id)
 
 
 def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
@@ -1598,6 +1697,30 @@ def _personalize_public_project_records(
         item["chat_id"] = record.get(_CACHE_OWNER_CHAT_FIELD) if can_chat else None
         response.append(item)
     return response
+
+
+def _with_project_engagement(
+    records: List[Dict[str, Any]],
+    current_user_id: Optional[str],
+) -> List[Dict[str, Any]]:
+    """Attach live save/remix counts and the current user's save state."""
+    if not records:
+        return records
+    project_ids = [str(record.get("project_id") or "") for record in records]
+    engagement = project_engagement_for_ids(project_ids, current_user_id)
+    enriched: List[Dict[str, Any]] = []
+    for record in records:
+        project_id = str(record.get("project_id") or "")
+        stats = engagement.get(project_id, {})
+        enriched.append(
+            {
+                **record,
+                "save_count": max(0, int(stats.get("save_count") or 0)),
+                "remix_count": max(0, int(stats.get("remix_count") or 0)),
+                "saved": bool(stats.get("saved")),
+            }
+        )
+    return enriched
 
 
 def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[str, Any]:
@@ -1639,36 +1762,114 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 
 
 @app.get("/projects")
-def list_projects_endpoint(user: UserContext = Depends(optional_user_context)):
+def list_projects_endpoint(
+    user: UserContext = Depends(optional_user_context),
+    limit: Optional[int] = None,
+    offset: int = 0,
+    q: Optional[str] = None,
+):
     """Lists public compiled hardware projects."""
     try:
+        if limit is not None:
+            projects, total = list_generated_projects_page(
+                visibility="public",
+                limit=limit,
+                offset=offset,
+                search=q,
+            )
+            items = [_public_project_cache_record(project) for project in projects]
+            return {
+                "items": _with_project_engagement(
+                    _personalize_public_project_records(items, user.owner_user_id),
+                    user.owner_user_id,
+                ),
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
         cached, generation = get_cached_project_list("public", None)
         if cached is not None:
-            return _personalize_public_project_records(cached, user.owner_user_id)
+            return _with_project_engagement(
+                _personalize_public_project_records(cached, user.owner_user_id),
+                user.owner_user_id,
+            )
         projects = [project for project in list_generated_projects() if _project_visibility(project) == "public"]
         cache_records = jsonable_encoder(
             [_public_project_cache_record(project) for project in projects]
         )
         cache_project_list("public", None, cache_records, generation)
-        return _personalize_public_project_records(cache_records, user.owner_user_id)
+        return _with_project_engagement(
+            _personalize_public_project_records(cache_records, user.owner_user_id),
+            user.owner_user_id,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/my/projects")
-def list_my_projects_endpoint(user: UserContext = Depends(require_user_context)):
+def list_my_projects_endpoint(
+    user: UserContext = Depends(require_user_context),
+    limit: Optional[int] = None,
+    offset: int = 0,
+):
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
+        if limit is not None:
+            projects, total = list_generated_projects_page(
+                owner_user_id=owner_user_id,
+                limit=limit,
+                offset=offset,
+            )
+            items = [
+                _project_summary_response(project, current_user_id=owner_user_id)
+                for project in projects
+            ]
+            return {
+                "items": _with_project_engagement(items, owner_user_id),
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
-            return cached
+            return _with_project_engagement(cached, owner_user_id)
         projects = list_generated_projects(owner_user_id=owner_user_id)
-        response = jsonable_encoder(
-            [_project_summary_response(p, current_user_id=owner_user_id) for p in projects]
-        )
+        response = [
+            _project_summary_response(project, current_user_id=owner_user_id)
+            for project in projects
+        ]
+        legacy_project_ids = {str(project.project_id) for project in projects}
+        for revision in list_latest_project_revisions(owner_user_id):
+            project_id = str(revision.project_id)
+            if project_id in legacy_project_ids:
+                continue
+            legacy_record = get_generated_project(project_id, include_deleted=True)
+            if legacy_record is not None:
+                # A soft-deleted legacy projection must not be resurrected by
+                # its retained canonical revisions during the recovery window.
+                continue
+            try:
+                brief = get_latest_design_brief(project_id, owner_user_id)
+            except DesignBriefNotFoundError:
+                logger.warning(
+                    "Skipping canonical project without a design brief in owner listing: project_id=%s",
+                    project_id,
+                )
+                continue
+            response.append(
+                _canonical_project_summary_response(
+                    revision,
+                    brief,
+                    owner_user_id=owner_user_id,
+                )
+            )
+        response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
+        response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
-        return response
+        return _with_project_engagement(response, owner_user_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1682,7 +1883,11 @@ def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depe
     _require_project_reader(project, user)
 
     try:
-        return _project_summary_response(project, current_user_id=user.owner_user_id)
+        summaries = _with_project_engagement(
+            [_project_summary_response(project, current_user_id=user.owner_user_id)],
+            user.owner_user_id,
+        )
+        return summaries[0]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error reading project image summary: {str(e)}")
 
@@ -1719,6 +1924,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_object": build_project_object(ir).model_dump(mode="json"),
             "mermaid_code": generate_mermaid_chart(ir),
             "svg_schematic": generate_svg_schematic(ir),
+            "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     _require_project_reader(project, user)
 
@@ -1752,6 +1960,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_object": None,
             "mermaid_code": None,
             "svg_schematic": None,
+            "generation_status": (response_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (response_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((response_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
 
     try:
@@ -1788,7 +1999,10 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_ir": response_ir.model_dump(),
             "project_object": build_project_object(response_ir).model_dump(mode="json"),
             "mermaid_code": mermaid_code,
-            "svg_schematic": svg_schematic
+            "svg_schematic": svg_schematic,
+            "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
+            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     except HTTPException:
         raise
@@ -1817,6 +2031,62 @@ def update_project_endpoint(
     if not saved:
         raise HTTPException(status_code=404, detail="Project not found.")
     return {"ok": True, "project_id": project.project_id}
+
+
+@app.post("/projects/{project_id}/save")
+def save_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Save a readable project for the signed-in user."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        return {"ok": True, "project_id": project.project_id, **save_project_for_user(project.project_id, owner_user_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.delete("/projects/{project_id}/save")
+def unsave_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Remove a previously saved project for the signed-in user."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        return {"ok": True, "project_id": project.project_id, **unsave_project_for_user(project.project_id, owner_user_id)}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.post("/projects/{project_id}/remix")
+def remix_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
+    """Copy a readable project into a new owned project the signed-in user can edit."""
+    project = get_generated_project(project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    _require_project_reader(project, user)
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        remixed = remix_generated_project(project.project_id, owner_user_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    if remixed is None:
+        raise HTTPException(status_code=404, detail="Project not found.")
+    engagement = project_engagement_for_ids([project.project_id], owner_user_id).get(project.project_id, {})
+    return {
+        "ok": True,
+        "project_id": remixed.project_id,
+        "chat_id": getattr(remixed, "chat_id", None),
+        "title": remixed.title,
+        "prompt": remixed.prompt,
+        "created_at": remixed.created_at,
+        "source_project_id": project.project_id,
+        "remix_count": max(0, int(engagement.get("remix_count") or 0)),
+        "can_chat": True,
+    }
 
 
 @app.delete("/projects/{project_id}", status_code=status.HTTP_202_ACCEPTED)
@@ -2058,7 +2328,7 @@ def iterate_project_endpoint(
     request: IterateProjectRequest,
     user: UserContext = Depends(require_user_context),
 ):
-    """Applies an iteration instruction to an existing project through blueprint_core."""
+    """Applies an iteration instruction to an existing project through forma_core."""
     _apply_user_integrations(user)
     project = get_generated_project(project_id)
     canonical_revision = None
@@ -2086,7 +2356,7 @@ def iterate_project_endpoint(
 
     if save_owner_user_id:
         try:
-            ensure_project_action_allowed(project_id, save_owner_user_id, "blueprint.iterate_project")
+            ensure_project_action_allowed(project_id, save_owner_user_id, "forma.iterate_project")
         except WorkflowStateError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
 

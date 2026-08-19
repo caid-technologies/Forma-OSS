@@ -3,8 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-from blueprint_core.jobs.store import JobCancelledError, JobMetadataStore
-from blueprint_core.workspaces.projects.models import GenerateProjectRequest
+from forma_core.jobs.store import JobCancelledError, JobMetadataStore
+from forma_core.workspaces.projects.models import GenerateProjectRequest
 
 
 class JobProgressTests(unittest.TestCase):
@@ -15,9 +15,9 @@ class JobProgressTests(unittest.TestCase):
                 job_id="job_frontend_progress",
                 message_id="msg_frontend_progress",
                 correlation_id=None,
-                action="blueprint.generate_project",
+                action="forma.generate_project",
                 sender="frontend",
-                recipient="blueprint",
+                recipient="forma",
                 payload={"prompt": "blink an LED", "workflow": "default"},
                 server_owned=True,
             )
@@ -46,6 +46,16 @@ class JobProgressTests(unittest.TestCase):
 
         self.assertEqual("job_frontend_abc-123", request.client_job_id)
 
+    def test_generate_request_accepts_named_stage_retry(self) -> None:
+        request = GenerateProjectRequest(
+            prompt="retry wiring",
+            project_id="11111111-1111-4111-8111-111111111111",
+            workflow="web_research",
+            retry_stage=" wiring_netlist ",
+        )
+
+        self.assertEqual("wiring_netlist", request.retry_stage)
+
     def test_cancelled_job_stays_cancelled_and_stops_progress(self) -> None:
         with tempfile.NamedTemporaryFile(suffix=".db") as file:
             store = JobMetadataStore(file.name, backend="sqlite")
@@ -53,9 +63,9 @@ class JobProgressTests(unittest.TestCase):
                 job_id="job_frontend_cancelled",
                 message_id="msg_frontend_cancelled",
                 correlation_id=None,
-                action="blueprint.generate_project",
+                action="forma.generate_project",
                 sender="frontend",
-                recipient="blueprint",
+                recipient="forma",
                 payload={"prompt": "blink an LED", "workflow": "default"},
                 server_owned=True,
             )
@@ -90,6 +100,11 @@ class JobProgressTests(unittest.TestCase):
         request = GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="auto")
 
         self.assertEqual("firecrawl", request.external_source_provider)
+
+    def test_generate_request_accepts_tavily_external_source_provider(self) -> None:
+        request = GenerateProjectRequest(prompt="blink", workflow="web_research", external_source_provider="Tavily")
+
+        self.assertEqual("tavily", request.external_source_provider)
 
     def test_generate_request_rejects_unknown_external_source_provider(self) -> None:
         with self.assertRaises(ValueError):

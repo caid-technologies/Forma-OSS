@@ -13,7 +13,7 @@ from starlette.requests import Request
 
 from apps.api import main
 from apps.api.auth import UserContext, optional_user_context
-from blueprint_core.workspaces.projects.models import (
+from forma_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
     HardwareIR,
@@ -81,7 +81,7 @@ def _project(
 
 class LocalProjectIdentityTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_user_context_owns_local_dev_user_projects(self) -> None:
-        with patch.dict(os.environ, {"BLUEPRINT_AUTH_MODE": "local"}, clear=False):
+        with patch.dict(os.environ, {"FORMA_AUTH_MODE": "local"}, clear=False):
             context = await optional_user_context(_request())
 
         self.assertEqual("local", context.provider)
@@ -104,6 +104,7 @@ class ProjectReadAccessTests(unittest.TestCase):
         stack.enter_context(patch.object(main, "creator_display_name", return_value="test-user"))
         stack.enter_context(patch.object(main, "get_cached_project_list", return_value=(None, None)))
         stack.enter_context(patch.object(main, "cache_project_list"))
+        stack.enter_context(patch.object(main, "project_engagement_for_ids", return_value={}))
         return stack
 
     def test_public_list_includes_public_and_excludes_another_users_private_project(self) -> None:
@@ -129,6 +130,54 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(response[0]["chat_id"])
         self.assertFalse(response[0]["can_chat"])
 
+    def test_public_list_paginates_before_building_gallery_summaries(self) -> None:
+        page_projects = [
+            _project("public-project-7", owner_user_id="user-b", visibility="public"),
+            _project("public-project-8", owner_user_id="user-a", visibility="public"),
+        ]
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects_page",
+            return_value=(page_projects, 14),
+        ) as list_page, patch.object(main, "list_generated_projects") as list_all:
+            response = main.list_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
+
+        list_page.assert_called_once_with(visibility="public", limit=2, offset=6, search=None)
+        list_all.assert_not_called()
+        self.assertEqual(14, response["total"])
+        self.assertEqual(2, response["limit"])
+        self.assertEqual(6, response["offset"])
+        self.assertTrue(response["has_more"])
+        self.assertEqual(
+            ["public-project-7", "public-project-8"],
+            [item["project_id"] for item in response["items"]],
+        )
+        self.assertFalse(response["items"][0]["can_chat"])
+        self.assertTrue(response["items"][1]["can_chat"])
+
+    def test_public_list_passes_search_to_the_paginated_query(self) -> None:
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects_page",
+            return_value=([], 0),
+        ) as list_page:
+            response = main.list_projects_endpoint(
+                _user_context("user-a"),
+                limit=6,
+                offset=0,
+                q="motor controller",
+            )
+
+        list_page.assert_called_once_with(
+            visibility="public",
+            limit=6,
+            offset=0,
+            search="motor controller",
+        )
+        self.assertEqual([], response["items"])
+        self.assertEqual(0, response["total"])
+
     def test_public_list_cache_is_shared_but_restores_owner_capabilities(self) -> None:
         owner_digest = main._project_owner_digest("user-a")
         cached_record = {
@@ -143,7 +192,9 @@ class ProjectReadAccessTests(unittest.TestCase):
             main,
             "get_cached_project_list",
             return_value=([cached_record], "3"),
-        ) as get_cached, patch.object(main, "list_generated_projects") as list_projects:
+        ) as get_cached, patch.object(main, "list_generated_projects") as list_projects, patch.object(
+            main, "project_engagement_for_ids", return_value={}
+        ):
             owner_response = main.list_projects_endpoint(_user_context("user-a"))
             other_response = main.list_projects_endpoint(_user_context("user-b"))
 
@@ -155,6 +206,128 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(other_response[0]["chat_id"])
         self.assertNotIn(main._CACHE_OWNER_DIGEST_FIELD, owner_response[0])
         self.assertNotIn(main._CACHE_OWNER_CHAT_FIELD, owner_response[0])
+
+    def test_owner_list_includes_canonical_project_without_legacy_row(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Canonical controller",
+                description="A canonical-only generated project.",
+                difficulty="Intermediate",
+                category="Automation",
+            ),
+            assembly_metadata={
+                "project_id": project_id,
+                "product_image_url": "https://images.example.test/controller.png",
+                "image_output_status": "succeeded",
+            },
+        )
+        revision = SimpleNamespace(
+            project_id=project_id,
+            owner_user_id="user-a",
+            revision=1,
+            created_at="2026-08-07T17:03:57Z",
+            state=state,
+        )
+        brief = SimpleNamespace(
+            conversation_id="chat-canonical-controller",
+            summary="Build a canonical controller.",
+        )
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects",
+            return_value=[],
+        ), patch.object(
+            main,
+            "list_latest_project_revisions",
+            return_value=[revision],
+        ), patch.object(
+            main,
+            "get_latest_design_brief",
+            return_value=brief,
+        ), patch.object(
+            main,
+            "get_generated_project",
+            return_value=None,
+        ):
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([project_id], [item["project_id"] for item in response])
+        self.assertEqual("Canonical controller", response[0]["title"])
+        self.assertEqual("chat-canonical-controller", response[0]["chat_id"])
+        self.assertTrue(response[0]["can_chat"])
+        self.assertTrue(response[0]["has_product_image"])
+
+    def test_owner_list_uses_bounded_projection_page(self) -> None:
+        page_projects = [
+            _project("private-project-7", owner_user_id="user-a", visibility="private"),
+            _project("private-project-8", owner_user_id="user-a", visibility="private"),
+        ]
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects_page",
+            return_value=(page_projects, 9),
+        ) as list_page, patch.object(main, "list_latest_project_revisions") as list_revisions:
+            response = main.list_my_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
+
+        list_page.assert_called_once_with(owner_user_id="user-a", limit=2, offset=6)
+        list_revisions.assert_not_called()
+        self.assertEqual(9, response["total"])
+        self.assertEqual(2, response["limit"])
+        self.assertEqual(6, response["offset"])
+        self.assertTrue(response["has_more"])
+        self.assertEqual(
+            ["private-project-7", "private-project-8"],
+            [item["project_id"] for item in response["items"]],
+        )
+
+    def test_owner_list_deduplicates_legacy_and_canonical_project_records(self) -> None:
+        project_id = "legacy-and-canonical"
+        legacy_project = _project(
+            project_id,
+            owner_user_id="user-a",
+            visibility="private",
+        )
+        revision = SimpleNamespace(project_id=project_id)
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects",
+            return_value=[legacy_project],
+        ), patch.object(
+            main,
+            "list_latest_project_revisions",
+            return_value=[revision],
+        ), patch.object(main, "get_latest_design_brief") as get_brief:
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([project_id], [item["project_id"] for item in response])
+        get_brief.assert_not_called()
+
+    def test_owner_list_does_not_resurrect_soft_deleted_legacy_project(self) -> None:
+        project_id = "deleted-legacy-project"
+        revision = SimpleNamespace(project_id=project_id)
+        deleted_project = SimpleNamespace(project_id=project_id, status="pending_purge")
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_generated_projects",
+            return_value=[],
+        ), patch.object(
+            main,
+            "list_latest_project_revisions",
+            return_value=[revision],
+        ), patch.object(
+            main,
+            "get_generated_project",
+            return_value=deleted_project,
+        ), patch.object(main, "get_latest_design_brief") as get_brief:
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([], response)
+        get_brief.assert_not_called()
 
     def test_owner_can_read_own_private_project(self) -> None:
         private_project = _project(
@@ -176,6 +349,63 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertEqual(private_project.project_id, response["project_id"])
         self.assertTrue(response["can_chat"])
         self.assertEqual("chat-private-project", response["chat_id"])
+
+    def test_owner_can_update_project_title(self) -> None:
+        project = _project("owned-project", owner_user_id="user-a", visibility="public")
+
+        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+            main,
+            "update_generated_project_metadata",
+            return_value=True,
+        ) as update_meta:
+            response = main.update_project_endpoint(
+                project.project_id,
+                main.ProjectUpdateRequest(title="Desk lamp"),
+                _user_context("user-a"),
+            )
+
+        self.assertEqual({"ok": True, "project_id": project.project_id}, response)
+        update_meta.assert_called_once_with(
+            project.project_id,
+            owner_user_id="user-a",
+            title="Desk lamp",
+            prompt=None,
+            visibility=None,
+        )
+
+    def test_community_member_cannot_update_project_title(self) -> None:
+        project = _project("public-project", owner_user_id="user-b", visibility="public")
+
+        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+            main,
+            "update_generated_project_metadata",
+        ) as update_meta:
+            with self.assertRaises(HTTPException) as raised:
+                main.update_project_endpoint(
+                    project.project_id,
+                    main.ProjectUpdateRequest(title="Hacked title"),
+                    _user_context("user-a"),
+                )
+
+        self.assertEqual(403, raised.exception.status_code)
+        update_meta.assert_not_called()
+
+    def test_anonymous_user_cannot_update_project_title(self) -> None:
+        project = _project("public-project", owner_user_id="user-b", visibility="public")
+
+        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+            main,
+            "update_generated_project_metadata",
+        ) as update_meta:
+            with self.assertRaises(HTTPException) as raised:
+                main.update_project_endpoint(
+                    project.project_id,
+                    main.ProjectUpdateRequest(title="Hacked title"),
+                    _anonymous_context(),
+                )
+
+        self.assertEqual(401, raised.exception.status_code)
+        update_meta.assert_not_called()
 
     def test_nonowner_private_project_read_returns_not_found(self) -> None:
         private_project = _project(

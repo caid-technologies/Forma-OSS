@@ -6,6 +6,9 @@ import { ChevronDown, Maximize2, Minimize2 } from "lucide-react";
 import * as THREE from "three";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { sceneAppearanceForTheme, type MechanicalSceneAppearance, type MechanicalScenePalette } from "../lib/theme";
+import { useTheme } from "../lib/theme-provider";
+
 type Dimensions = { x_mm: number; y_mm: number; z_mm: number };
 
 type ComponentInstance = {
@@ -95,19 +98,17 @@ type HierarchyRow = {
   depth: number;
 };
 
-const ENVELOPE_COLOR = "#2dd4bf";
-
-const categoryPalette: Record<string, { color: string; accent: string; layer: string }> = {
-  microcontroller: { color: "#22d3ee", accent: "#cffafe", layer: "electrical" },
-  sensor: { color: "#34d399", accent: "#d1fae5", layer: "electrical" },
-  actuator: { color: "#fb923c", accent: "#ffedd5", layer: "electrical" },
-  display: { color: "#ec4899", accent: "#fce7f3", layer: "electrical" },
-  power: { color: "#facc15", accent: "#fef9c3", layer: "electrical" },
-  passives: { color: "#a78bfa", accent: "#ede9fe", layer: "electrical" },
-  communication: { color: "#60a5fa", accent: "#dbeafe", layer: "electrical" },
-  mechanical: { color: "#fb7185", accent: "#ffe4e6", layer: "mechanism" },
-  "3d print": { color: "#818cf8", accent: "#e0e7ff", layer: "print" },
-  default: { color: "#94a3b8", accent: "#e2e8f0", layer: "electrical" },
+const categoryLayers: Record<string, string> = {
+  microcontroller: "electrical",
+  sensor: "electrical",
+  actuator: "electrical",
+  display: "electrical",
+  power: "electrical",
+  passives: "electrical",
+  communication: "electrical",
+  mechanical: "mechanism",
+  "3d print": "print",
+  default: "electrical",
 };
 
 const categoryLabels: Record<string, string> = {
@@ -150,14 +151,16 @@ const categorySizes: Record<string, [number, number, number]> = {
   default: [22, 18, 6],
 };
 
-const layerToggles: { key: string; label: string; color: string }[] = [
-  { key: "enclosure", label: "Enclosure", color: ENVELOPE_COLOR },
-  { key: "print", label: "3D Print", color: "#818cf8" },
-  { key: "mechanism", label: "Mechanism", color: "#fb7185" },
-  { key: "structural", label: "Structure", color: "#38bdf8" },
-  { key: "misc", label: "Misc", color: "#94a3b8" },
-  { key: "bodyRotation", label: "Auto Rotate", color: "#facc15" },
-];
+function layerToggles(palette: MechanicalScenePalette): { key: string; label: string; color: string }[] {
+  return [
+    { key: "enclosure", label: "Enclosure", color: palette.envelope },
+    { key: "print", label: "3D Print", color: palette.print },
+    { key: "mechanism", label: "Mechanism", color: palette.mechanism },
+    { key: "structural", label: "Structure", color: palette.structural },
+    { key: "misc", label: "Misc", color: palette.misc },
+    { key: "bodyRotation", label: "Auto Rotate", color: palette.rotate },
+  ];
+}
 
 function categoryKey(category?: string) {
   return String(category || "default").trim().toLowerCase();
@@ -232,8 +235,10 @@ function degreesToRadians(rotation: [number, number, number]): [number, number, 
   return rotation.map((value) => THREE.MathUtils.degToRad(value)) as [number, number, number];
 }
 
-function placementPalette(category: string) {
-  return categoryPalette[categoryKey(category)] || categoryPalette.default;
+function placementPalette(category: string, palette: MechanicalScenePalette) {
+  const key = categoryKey(category);
+  const color = palette.categories[key] || palette.categories.default;
+  return { color, accent: color, layer: categoryLayers[key] || "electrical" };
 }
 
 function placementSize(component: ComponentInstance): [number, number, number] {
@@ -309,7 +314,12 @@ function generatedPosition(component: ComponentInstance, index: number, componen
   ];
 }
 
-function normalizeProvidedPlacements(placements: PlacementInput[], components: ComponentInstance[], dimensions: Dimensions) {
+function normalizeProvidedPlacements(
+  placements: PlacementInput[],
+  components: ComponentInstance[],
+  dimensions: Dimensions,
+  palette: MechanicalScenePalette
+) {
   const componentByRef = new Map(components.map((component) => [component.ref_des, component]));
   const parsed = placements
     .map((placement) => {
@@ -319,7 +329,7 @@ function normalizeProvidedPlacements(placements: PlacementInput[], components: C
       const component = componentByRef.get(refDes);
       const label = placement.label || component?.name || refDes;
       const category = placement.category || component?.category || "default";
-      const palette = placementPalette(category);
+      const swatch = placementPalette(category, palette);
       const sizeMm = parseVector(placement.size_mm || placement.size, component ? placementSize(component) : categorySizes.default);
       const rotationRad = degreesToRadians(parseVector(placement.orientation_deg || placement.rotation_deg, [0, 0, 0]));
       const positionMm = parseVector(placement.position_mm || placement.position, [0, 0, 0]);
@@ -328,12 +338,12 @@ function normalizeProvidedPlacements(placements: PlacementInput[], components: C
         refDes,
         label,
         category,
-        layer: placement.layer || palette.layer,
+        layer: placement.layer || swatch.layer,
         positionMm,
         sizeMm,
         rotationRad,
-        color: palette.color,
-        accent: palette.accent,
+        color: swatch.color,
+        accent: swatch.accent,
         component,
         notes: placement.notes || placement.mounting_face,
       } satisfies ScenePlacement;
@@ -363,27 +373,32 @@ function normalizeProvidedPlacements(placements: PlacementInput[], components: C
   });
 }
 
-function buildScenePlacements(dimensions: Dimensions, components: ComponentInstance[], providedPlacements: PlacementInput[]): ScenePlacement[] {
-  const normalized = normalizeProvidedPlacements(providedPlacements, components, dimensions);
+function buildScenePlacements(
+  dimensions: Dimensions,
+  components: ComponentInstance[],
+  providedPlacements: PlacementInput[],
+  palette: MechanicalScenePalette
+): ScenePlacement[] {
+  const normalized = normalizeProvidedPlacements(providedPlacements, components, dimensions, palette);
   const placementByRef = new Map(normalized.map((placement) => [placement.refDes, placement]));
 
   components.forEach((component, index) => {
     const refDes = component.ref_des || `C${index + 1}`;
     if (placementByRef.has(refDes)) return;
 
-    const palette = placementPalette(component.category || "default");
+    const swatch = placementPalette(component.category || "default", palette);
     const label = component.name || component.part_number || refDes;
     const category = component.category || "default";
     placementByRef.set(refDes, {
       refDes,
       label,
       category,
-      layer: isEnclosureLabel(label) ? "enclosure" : palette.layer,
+      layer: isEnclosureLabel(label) ? "enclosure" : swatch.layer,
       positionMm: generatedPosition(component, index, components, dimensions),
       sizeMm: placementSize(component),
       rotationRad: [0, 0, 0],
-      color: palette.color,
-      accent: palette.accent,
+      color: swatch.color,
+      accent: swatch.accent,
       component,
       notes: component.rationale,
     });
@@ -528,7 +543,7 @@ function buildHierarchy(placements: ScenePlacement[], dimensions: Dimensions, en
   return rows;
 }
 
-function legendCounts(placements: ScenePlacement[], envelopeRef: string | null) {
+function legendCounts(placements: ScenePlacement[], envelopeRef: string | null, palette: MechanicalScenePalette) {
   const counts = new Map<string, number>();
   placements.forEach((placement) => {
     const key = placement.refDes === envelopeRef ? "enclosure" : categoryKey(placement.category);
@@ -541,7 +556,7 @@ function legendCounts(placements: ScenePlacement[], envelopeRef: string | null) 
       key,
       count,
       label: key === "enclosure" ? "Enclosure" : categoryLabels[key] || key.toUpperCase(),
-      color: key === "enclosure" ? ENVELOPE_COLOR : (categoryPalette[key] || categoryPalette.default).color,
+      color: key === "enclosure" ? palette.envelope : palette.categories[key] || palette.categories.default,
     }));
 }
 
@@ -559,10 +574,10 @@ function worldSize(sizeMm: [number, number, number], scale: number): [number, nu
   ];
 }
 
-function axisColor(axis: "X" | "Y" | "Z") {
-  if (axis === "X") return "#f87171";
-  if (axis === "Y") return "#22d3ee";
-  return "#facc15";
+function axisColor(axis: "X" | "Y" | "Z", palette: MechanicalScenePalette) {
+  if (axis === "X") return palette.axisX;
+  if (axis === "Y") return palette.axisY;
+  return palette.axisZ;
 }
 
 function useDisposableGeometry<T extends THREE.BufferGeometry>(factory: () => T, deps: unknown[]) {
@@ -604,7 +619,37 @@ function ResponsiveCamera({ sceneRadius }: { sceneRadius: number }) {
   return null;
 }
 
-function Envelope({ dimensions, scale, selected }: { dimensions: Dimensions; scale: number; selected: boolean }) {
+function SceneEnvironment({ appearance, sceneRadius }: { appearance: MechanicalSceneAppearance; sceneRadius: number }) {
+  return (
+    <>
+      <color attach="background" args={[appearance.background]} />
+      <fog attach="fog" args={[appearance.fog, Math.max(sceneRadius * 4.5, 18), Math.max(sceneRadius * 13, 48)]} />
+      <ambientLight intensity={appearance.ambientIntensity} />
+      <hemisphereLight
+        color={appearance.hemisphereSky}
+        groundColor={appearance.hemisphereGround}
+        intensity={appearance.hemisphereIntensity}
+      />
+      <directionalLight
+        position={[8.5, 11, 6]}
+        color={appearance.keyLight}
+        intensity={appearance.keyLightIntensity}
+      />
+    </>
+  );
+}
+
+function Envelope({
+  dimensions,
+  scale,
+  selected,
+  appearance,
+}: {
+  dimensions: Dimensions;
+  scale: number;
+  selected: boolean;
+  appearance: MechanicalSceneAppearance;
+}) {
   const size = useMemo<[number, number, number]>(
     () => [dimensions.x_mm / scale, dimensions.z_mm / scale, dimensions.y_mm / scale],
     [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm, scale]
@@ -615,47 +660,79 @@ function Envelope({ dimensions, scale, selected }: { dimensions: Dimensions; sca
     <group>
       <mesh>
         <boxGeometry args={size} />
-        <meshBasicMaterial color={ENVELOPE_COLOR} transparent opacity={selected ? 0.1 : 0.05} depthWrite={false} />
+        <meshBasicMaterial
+          color={appearance.palette.envelope}
+          transparent
+          opacity={selected ? appearance.selectedFillOpacity : appearance.fillOpacity}
+          depthWrite={false}
+        />
       </mesh>
       <lineSegments geometry={edges}>
-        <lineBasicMaterial color={selected ? "#ffffff" : ENVELOPE_COLOR} transparent opacity={selected ? 0.95 : 0.6} />
+        <lineBasicMaterial
+          color={selected ? appearance.selectedEdge : appearance.palette.envelope}
+          transparent
+          opacity={selected ? 0.95 : 0.6}
+        />
       </lineSegments>
     </group>
   );
 }
 
-function AxisTriad({ dimensions, scale }: { dimensions: Dimensions; scale: number }) {
+function AxisTriad({ dimensions, scale, palette }: { dimensions: Dimensions; scale: number; palette: MechanicalScenePalette }) {
+  const width = dimensions.x_mm / scale;
+  const height = dimensions.z_mm / scale;
+  const depth = dimensions.y_mm / scale;
+  const originX = -width / 2;
+  const originY = -height / 2;
+  const originZ = depth / 2;
+  const overshoot = 1.16;
+  const tick = Math.max(Math.min(width, height, depth) * 0.06, 0.08);
+  const labelOffset = Math.max(Math.min(width, height, depth) * 0.08, 0.12);
   const geometry = useDisposableGeometry(() => {
-    const width = dimensions.x_mm / scale;
-    const height = dimensions.z_mm / scale;
-    const depth = dimensions.y_mm / scale;
-    const originX = -width / 2;
-    const originY = -height / 2;
-    const originZ = depth / 2;
-    const overshoot = 1.16;
-    const tick = Math.max(Math.min(width, height, depth) * 0.06, 0.08);
     const points: number[] = [];
-    const segment = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+    const colors: number[] = [];
+    const segment = (axis: "X" | "Y" | "Z", ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+      const color = new THREE.Color(axisColor(axis, palette));
       points.push(ax, ay, az, bx, by, bz);
+      colors.push(color.r, color.g, color.b, color.r, color.g, color.b);
     };
 
-    segment(originX, originY, originZ, originX + width * overshoot, originY, originZ);
-    segment(originX, originY, originZ, originX, originY, originZ - depth * overshoot);
-    segment(originX, originY, originZ, originX, originY + height * overshoot, originZ);
+    segment("X", originX, originY, originZ, originX + width * overshoot, originY, originZ);
+    segment("Y", originX, originY, originZ, originX, originY, originZ - depth * overshoot);
+    segment("Z", originX, originY, originZ, originX, originY + height * overshoot, originZ);
 
-    segment(originX + width / 2, originY - tick, originZ, originX + width / 2, originY + tick, originZ);
-    segment(originX, originY - tick, originZ - depth / 2, originX, originY + tick, originZ - depth / 2);
-    segment(originX - tick, originY + height / 2, originZ, originX + tick, originY + height / 2, originZ);
+    segment("X", originX + width / 2, originY - tick, originZ, originX + width / 2, originY + tick, originZ);
+    segment("Y", originX, originY - tick, originZ - depth / 2, originX, originY + tick, originZ - depth / 2);
+    segment("Z", originX - tick, originY + height / 2, originZ, originX + tick, originY + height / 2, originZ);
 
     const buffer = new THREE.BufferGeometry();
     buffer.setAttribute("position", new THREE.Float32BufferAttribute(points, 3));
+    buffer.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
     return buffer;
-  }, [dimensions.x_mm, dimensions.y_mm, dimensions.z_mm, scale]);
+  }, [depth, height, originX, originY, originZ, palette.axisX, palette.axisY, palette.axisZ, tick, width]);
+  const labels: { axis: "X" | "Y" | "Z"; position: [number, number, number] }[] = [
+    { axis: "X", position: [originX + width * overshoot + labelOffset, originY, originZ] },
+    { axis: "Y", position: [originX, originY, originZ - depth * overshoot - labelOffset] },
+    { axis: "Z", position: [originX, originY + height * overshoot + labelOffset, originZ] },
+  ];
 
   return (
-    <lineSegments geometry={geometry}>
-      <lineBasicMaterial color="#e2e8f0" transparent opacity={0.42} />
-    </lineSegments>
+    <group>
+      <lineSegments geometry={geometry}>
+        <lineBasicMaterial vertexColors transparent opacity={0.72} />
+      </lineSegments>
+      {labels.map(({ axis, position }) => (
+        <Html key={axis} center position={position} zIndexRange={[12, 0]}>
+          <span
+            aria-hidden="true"
+            className="pointer-events-none flex h-5 w-5 items-center justify-center rounded-md border bg-[var(--forma-surface)] font-mono text-[10px] font-medium shadow-sm"
+            style={{ borderColor: `${axisColor(axis, palette)}99`, color: axisColor(axis, palette) }}
+          >
+            {axis}
+          </span>
+        </Html>
+      ))}
+    </group>
   );
 }
 
@@ -664,6 +741,7 @@ function PartWireframe({
   scale,
   selected,
   faded,
+  appearance,
   onSelect,
   onHover,
 }: {
@@ -671,6 +749,7 @@ function PartWireframe({
   scale: number;
   selected: boolean;
   faded: boolean;
+  appearance: MechanicalSceneAppearance;
   onSelect: (placement: ScenePlacement) => void;
   onHover: (placement: ScenePlacement | null) => void;
 }) {
@@ -696,10 +775,19 @@ function PartWireframe({
         }}
       >
         <boxGeometry args={size} />
-        <meshBasicMaterial color={spec.color} transparent opacity={selected ? 0.2 : 0.06} depthWrite={false} />
+        <meshBasicMaterial
+          color={spec.color}
+          transparent
+          opacity={selected ? appearance.selectedFillOpacity : appearance.fillOpacity}
+          depthWrite={false}
+        />
       </mesh>
       <lineSegments geometry={edges}>
-        <lineBasicMaterial color={selected ? "#ffffff" : spec.color} transparent opacity={selected ? 1 : faded ? 0.3 : 0.85} />
+        <lineBasicMaterial
+          color={selected ? appearance.selectedEdge : spec.color}
+          transparent
+          opacity={selected ? 1 : faded ? 0.3 : 0.85}
+        />
       </lineSegments>
     </group>
   );
@@ -711,10 +799,10 @@ function PartTag({ placement, scale }: { placement: ScenePlacement; scale: numbe
 
   return (
     <Html center zIndexRange={[20, 0]} position={[position[0], position[1] + size[1] / 2, position[2]]}>
-      <div className="pointer-events-none -translate-y-5 whitespace-nowrap border border-white/20 bg-black/85 px-2 py-1 text-[9px] font-black uppercase tracking-[0.14em] text-white shadow-lg">
+      <div className="pointer-events-none -translate-y-5 whitespace-nowrap rounded-md border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] px-2 py-1 text-[10px] font-medium text-[var(--forma-text-strong)] shadow-sm">
         <span style={{ color: placement.color }}>{placement.refDes}</span>
-        <span className="mx-1.5 text-white/25">/</span>
-        <span className="text-white/80">{placement.label}</span>
+        <span className="mx-1.5 text-[var(--forma-text-muted)]">/</span>
+        <span className="text-[var(--forma-text)]">{placement.label}</span>
       </div>
     </Html>
   );
@@ -724,10 +812,12 @@ function RelationshipLink({
   relationship,
   placements,
   scale,
+  palette,
 }: {
   relationship: SceneRelationship;
   placements: Map<string, ScenePlacement>;
   scale: number;
+  palette: MechanicalScenePalette;
 }) {
   const source = placements.get(relationship.sourceRef);
   const target = placements.get(relationship.targetRef);
@@ -745,7 +835,7 @@ function RelationshipLink({
 
   if (!source || !target || !geometry || geometry.length < 0.1) return null;
 
-  const color = axisColor(relationship.axis);
+  const color = axisColor(relationship.axis, palette);
 
   return (
     <group>
@@ -756,9 +846,9 @@ function RelationshipLink({
         </mesh>
       </group>
       <Html center zIndexRange={[18, 0]} position={geometry.midpoint.toArray() as [number, number, number]}>
-        <div className="pointer-events-none whitespace-nowrap border border-white/10 bg-black/80 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-[0.12em] text-white/70 shadow-lg">
+        <div className="pointer-events-none whitespace-nowrap rounded-md border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--forma-text-body)] shadow-sm">
           <span style={{ color }}>{relationship.axis}</span>
-          <span className="mx-1 text-white/30">/</span>
+          <span className="mx-1 text-[var(--forma-text-muted)]">/</span>
           {relationship.offsetMm !== undefined ? `${relationship.offsetMm}mm` : relationship.relation}
         </div>
       </Html>
@@ -783,6 +873,35 @@ function visiblePlacement(
   return electricalActive;
 }
 
+function LayerChip({
+  label,
+  active,
+  color,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  active: boolean;
+  color: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      disabled={disabled}
+      className={`rounded-md border px-2 py-1 text-[10px] font-medium uppercase tracking-[0.12em] transition disabled:cursor-not-allowed ${
+        active ? "bg-[var(--forma-surface-muted)]" : "border-[var(--forma-border)] text-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
+      }`}
+      style={active ? { borderColor: `${color}99`, color } : undefined}
+    >
+      {label}
+    </button>
+  );
+}
+
 export default function MechanicalScene({
   dimensions,
   components,
@@ -794,6 +913,9 @@ export default function MechanicalScene({
   setToggles,
   setElectricalActive,
 }: MechanicalSceneProps) {
+  const { theme } = useTheme();
+  const appearance = sceneAppearanceForTheme(theme);
+  const palette = appearance.palette;
   const containerRef = useRef<HTMLDivElement>(null);
   const [selectedRef, setSelectedRef] = useState<string | null>(null);
   const [hoveredRef, setHoveredRef] = useState<string | null>(null);
@@ -803,7 +925,10 @@ export default function MechanicalScene({
   const isFullscreen = nativeFullscreen || fallbackFullscreen;
 
   const scale = Math.max(Math.max(dimensions.x_mm, dimensions.y_mm, dimensions.z_mm) / 9.6, 8);
-  const scenePlacements = useMemo(() => buildScenePlacements(dimensions, components, placements), [components, dimensions, placements]);
+  const scenePlacements = useMemo(
+    () => buildScenePlacements(dimensions, components, placements, palette),
+    [components, dimensions, palette, placements]
+  );
   const envelopeRef = useMemo(() => pickEnvelopeRef(scenePlacements, dimensions), [dimensions, scenePlacements]);
   const visiblePlacements = useMemo(
     () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive, envelopeRef)),
@@ -813,7 +938,8 @@ export default function MechanicalScene({
   const visiblePlacementMap = useMemo(() => new Map(visiblePlacements.map((placement) => [placement.refDes, placement])), [visiblePlacements]);
   const sceneRelationships = useMemo(() => normalizeRelationships(relationships, visiblePlacements), [relationships, visiblePlacements]);
   const hierarchy = useMemo(() => buildHierarchy(visiblePlacements, dimensions, envelopeRef), [dimensions, envelopeRef, visiblePlacements]);
-  const legend = useMemo(() => legendCounts(visiblePlacements, envelopeRef), [envelopeRef, visiblePlacements]);
+  const legend = useMemo(() => legendCounts(visiblePlacements, envelopeRef, palette), [envelopeRef, palette, visiblePlacements]);
+  const layers = useMemo(() => layerToggles(palette), [palette]);
   const sceneRadius = useMemo(() => {
     const envelopeRadius = Math.hypot(dimensions.x_mm, dimensions.y_mm, dimensions.z_mm) / 2;
     const partRadius = partPlacements.reduce((widest, placement) => {
@@ -898,17 +1024,16 @@ export default function MechanicalScene({
   return (
     <div
       ref={containerRef}
-      className={`overflow-hidden bg-[#0a0b0e] ${
+      className={`overflow-hidden bg-[var(--forma-page)] ${
         fallbackFullscreen ? "fixed inset-0 z-[100] h-[100dvh] w-screen" : isFullscreen ? "relative h-[100dvh] w-screen" : "relative h-full w-full"
       }`}
     >
       <Canvas camera={{ position: [10.5, 7.6, 11.5], fov: 38 }} dpr={[1, 2]} onPointerMissed={() => setSelectedRef(null)}>
-        <color attach="background" args={["#0a0b0e"]} />
-        <ambientLight intensity={1} />
+        <SceneEnvironment appearance={appearance} sceneRadius={sceneRadius} />
         <ResponsiveCamera sceneRadius={sceneRadius} />
 
         <group position={[0, 0.1, 0]}>
-          {toggles.enclosure && <Envelope dimensions={dimensions} scale={scale} selected={envelopeSelected} />}
+          {toggles.enclosure && <Envelope dimensions={dimensions} scale={scale} selected={envelopeSelected} appearance={appearance} />}
 
           {partPlacements.map((placement) => (
             <PartWireframe
@@ -917,6 +1042,7 @@ export default function MechanicalScene({
               scale={scale}
               selected={placement.refDes === selectedRef}
               faded={Boolean(selectedRef) && placement.refDes !== selectedRef}
+              appearance={appearance}
               onSelect={(next) => setSelectedRef(next.refDes)}
               onHover={(next) => setHoveredRef(next?.refDes || null)}
             />
@@ -927,10 +1053,10 @@ export default function MechanicalScene({
 
           {toggles.structural &&
             focusedRelationships.map((relationship) => (
-              <RelationshipLink key={relationship.id} relationship={relationship} placements={visiblePlacementMap} scale={scale} />
+              <RelationshipLink key={relationship.id} relationship={relationship} placements={visiblePlacementMap} scale={scale} palette={palette} />
             ))}
 
-          <AxisTriad dimensions={dimensions} scale={scale} />
+          <AxisTriad dimensions={dimensions} scale={scale} palette={palette} />
         </group>
 
         <OrbitControls
@@ -946,11 +1072,11 @@ export default function MechanicalScene({
       </Canvas>
 
       <div className="pointer-events-none absolute inset-0 z-30">
-        <div className="pointer-events-auto absolute left-3 top-3 flex max-h-[calc(100%-4.5rem)] w-[min(19rem,calc(100%-1.5rem))] flex-col overflow-hidden border border-[#2a2c33] bg-[#0d0e12]/95 shadow-2xl backdrop-blur-sm sm:left-4 sm:top-4">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#22242b] px-3 py-2">
+        <div className="pointer-events-auto absolute left-3 top-3 flex max-h-[calc(100%-4.5rem)] w-[min(19rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] shadow-[var(--forma-card-shadow)] backdrop-blur-sm sm:left-4 sm:top-4">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--forma-border)] px-3 py-2">
             <div className="min-w-0">
-              <div className="truncate text-[10px] font-black uppercase tracking-[0.18em] text-white">3D CAD</div>
-              <div className="truncate text-[9px] font-black uppercase tracking-[0.14em] text-slate-600">{dimensionLabel}</div>
+              <div className="truncate text-[11px] font-semibold tracking-tight text-[var(--forma-text-strong)]">3D CAD</div>
+              <div className="truncate text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">{dimensionLabel}</div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
               <button
@@ -959,7 +1085,7 @@ export default function MechanicalScene({
                 aria-pressed={isFullscreen}
                 aria-label={isFullscreen ? "Exit full screen 3D view" : "View 3D model full screen"}
                 title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
-                className="flex h-7 w-7 items-center justify-center border border-[#2a2c33] text-slate-400 transition hover:border-white hover:bg-white hover:text-black"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-strong)] hover:bg-[var(--forma-text-strong)] hover:text-[var(--forma-page)]"
               >
                 {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               </button>
@@ -969,7 +1095,7 @@ export default function MechanicalScene({
                 aria-expanded={treeOpen}
                 aria-label={treeOpen ? "Collapse assembly tree" : "Expand assembly tree"}
                 title={treeOpen ? "Collapse" : "Expand"}
-                className="flex h-7 w-7 items-center justify-center border border-[#2a2c33] text-slate-400 transition hover:border-white hover:bg-white hover:text-black"
+                className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-strong)] hover:bg-[var(--forma-text-strong)] hover:text-[var(--forma-page)]"
               >
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${treeOpen ? "" : "-rotate-90"}`} />
               </button>
@@ -991,31 +1117,31 @@ export default function MechanicalScene({
                         onPointerLeave={() => setHoveredRef((current) => (current === placement.refDes ? null : current))}
                         aria-pressed={selected}
                         title={`${placement.refDes} / ${placement.label}`}
-                        className={`flex w-full items-center gap-1.5 px-1 py-[3px] text-left transition ${
-                          selected ? "bg-white/10" : "hover:bg-white/5"
+                        className={`flex w-full items-center gap-1.5 rounded-md px-1 py-[3px] text-left transition ${
+                          selected ? "bg-[var(--forma-surface-muted)]" : "hover:bg-[var(--forma-surface-muted)]"
                         }`}
                         style={{ paddingLeft: 4 + Math.min(depth, 6) * 12 }}
                       >
-                        {depth > 0 && <span className="shrink-0 font-mono text-[10px] leading-none text-slate-700">└</span>}
+                        {depth > 0 && <span className="shrink-0 font-mono text-[10px] leading-none text-[var(--forma-text-muted)]">└</span>}
                         <span
-                          className="h-2.5 w-2.5 shrink-0 border border-black/40"
-                          style={{ backgroundColor: placement.refDes === envelopeRef ? ENVELOPE_COLOR : placement.color }}
+                          className="h-2.5 w-2.5 shrink-0 rounded-sm border border-[var(--forma-border)]"
+                          style={{ backgroundColor: placement.refDes === envelopeRef ? palette.envelope : placement.color }}
                         />
-                        <span className={`truncate text-[11px] ${selected ? "font-bold text-white" : "text-slate-300"}`}>{placement.label}</span>
+                        <span className={`truncate text-[11px] ${selected ? "font-semibold text-[var(--forma-text-strong)]" : "text-[var(--forma-text)]"}`}>{placement.label}</span>
                       </button>
                     );
                   })
                 ) : (
-                  <div className="px-2 py-3 text-[10px] font-black uppercase tracking-[0.14em] text-slate-600">No visible parts</div>
+                  <div className="px-2 py-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">No visible parts</div>
                 )}
               </div>
 
               {legend.length > 0 && (
-                <div className="shrink-0 border-t border-[#22242b] px-3 py-2">
+                <div className="shrink-0 border-t border-[var(--forma-border)] px-3 py-2">
                   <div className="flex flex-wrap gap-x-3 gap-y-1">
                     {legend.map((entry) => (
-                      <span key={entry.key} className="flex items-center gap-1.5 text-[9px] font-black uppercase tracking-[0.12em] text-slate-400">
-                        <span className="h-2 w-2 shrink-0" style={{ backgroundColor: entry.color }} />
+                      <span key={entry.key} className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
+                        <span className="h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: entry.color }} />
                         {entry.label} ({entry.count})
                       </span>
                     ))}
@@ -1023,49 +1149,37 @@ export default function MechanicalScene({
                 </div>
               )}
 
-              <div className="shrink-0 border-t border-[#22242b] px-3 py-2">
-                <div className="text-[9px] font-black uppercase tracking-[0.16em] text-slate-600">Layers</div>
+              <div className="shrink-0 border-t border-[var(--forma-border)] px-3 py-2">
+                <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Layers</div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
+                  <LayerChip
+                    label="Electrical"
+                    active={electricalActive}
+                    color={palette.electrical}
                     onClick={() => setElectricalActive?.(!electricalActive)}
-                    aria-pressed={electricalActive}
                     disabled={!setElectricalActive}
-                    className={`border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition disabled:cursor-not-allowed ${
-                      electricalActive ? "border-cyan-400/60 bg-cyan-400/10 text-cyan-300" : "border-[#2a2c33] text-slate-600 hover:text-slate-300"
-                    }`}
-                  >
-                    Electrical
-                  </button>
-                  {layerToggles.map((layer) => {
-                    const active = Boolean(toggles[layer.key]);
-                    return (
-                      <button
-                        key={layer.key}
-                        type="button"
-                        onClick={() => applyToggle(layer.key)}
-                        aria-pressed={active}
-                        disabled={!setToggles}
-                        className={`border px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] transition disabled:cursor-not-allowed ${
-                          active ? "bg-white/5" : "border-[#2a2c33] text-slate-600 hover:text-slate-300"
-                        }`}
-                        style={active ? { borderColor: `${layer.color}99`, color: layer.color } : undefined}
-                      >
-                        {layer.label}
-                      </button>
-                    );
-                  })}
+                  />
+                  {layers.map((layer) => (
+                    <LayerChip
+                      key={layer.key}
+                      label={layer.label}
+                      active={Boolean(toggles[layer.key])}
+                      color={layer.color}
+                      onClick={() => applyToggle(layer.key)}
+                      disabled={!setToggles}
+                    />
+                  ))}
                 </div>
               </div>
 
               {features.length > 0 && (
-                <details className="shrink-0 border-t border-[#22242b] px-3 py-2">
-                  <summary className="cursor-pointer list-none text-[9px] font-black uppercase tracking-[0.16em] text-slate-600 hover:text-slate-300">
+                <details className="shrink-0 border-t border-[var(--forma-border)] px-3 py-2">
+                  <summary className="cursor-pointer list-none text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]">
                     Design notes ({features.length})
                   </summary>
                   <ul className="mt-2 max-h-32 space-y-1.5 overflow-y-auto pr-1">
                     {features.map((feature, index) => (
-                      <li key={`${index}-${feature.slice(0, 24)}`} className="text-[10px] leading-snug text-slate-500">
+                      <li key={`${index}-${feature.slice(0, 24)}`} className="text-[10px] leading-snug text-[var(--forma-text-secondary)]">
                         {feature}
                       </li>
                     ))}
@@ -1077,37 +1191,37 @@ export default function MechanicalScene({
         </div>
 
         <div
-          className="absolute right-3 top-3 max-w-[min(16rem,45%)] truncate border border-[#2a2c33] bg-[#0d0e12]/90 px-3 py-2 text-[9px] font-black uppercase tracking-[0.16em] text-slate-500 sm:right-4 sm:top-4"
+          className="absolute right-3 top-3 max-w-[min(16rem,45%)] truncate rounded-md border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)] sm:right-4 sm:top-4"
           title={selectedPlacement ? envelopeLabel : undefined}
         >
           {selectedPlacement ? envelopeLabel : "Tap a part for more info"}
         </div>
 
         {selectedPlacement && (
-          <div className="absolute bottom-9 right-3 w-[min(21rem,calc(100%-1.5rem))] border border-[#2a2c33] bg-[#0d0e12]/95 p-3 shadow-2xl sm:bottom-10 sm:right-4">
-            <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.18em]" style={{ color: selectedPlacement.color }}>
+          <div className="absolute bottom-9 right-3 w-[min(21rem,calc(100%-1.5rem))] rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)] sm:bottom-10 sm:right-4">
+            <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em]" style={{ color: selectedPlacement.color }}>
               <span>{selectedPlacement.refDes}</span>
-              <span className="text-slate-700">/</span>
+              <span className="text-[var(--forma-text-muted)]">/</span>
               <span>{categoryLabel(selectedPlacement.category)}</span>
             </div>
-            <div className="mt-2 truncate text-sm font-black uppercase tracking-[0.12em] text-white">{selectedPlacement.label}</div>
+            <div className="mt-1.5 truncate text-sm font-semibold tracking-tight text-[var(--forma-text-strong)]">{selectedPlacement.label}</div>
             {selectedPlacement.component?.part_number && (
-              <div className="mt-1 truncate font-mono text-[10px] text-slate-500">{selectedPlacement.component.part_number}</div>
+              <div className="mt-1 truncate font-mono text-[10px] text-[var(--forma-text-muted)]">{selectedPlacement.component.part_number}</div>
             )}
-            <div className="mt-3 grid grid-cols-3 gap-1.5 text-[10px] font-black uppercase tracking-[0.12em]">
+            <div className="mt-3 grid grid-cols-3 gap-1.5 text-[10px] font-medium uppercase tracking-[0.12em]">
               {(["X", "Y", "Z"] as const).map((axis, index) => (
-                <div key={axis} className="border border-[#22242b] px-2 py-1.5">
-                  <div className="text-slate-600">{axis}</div>
-                  <div className="mt-0.5 truncate text-slate-200">{Math.round(selectedPlacement.positionMm[index])}mm</div>
+                <div key={axis} className="rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-2 py-1.5">
+                  <div className="text-[var(--forma-text-muted)]">{axis}</div>
+                  <div className="mt-0.5 truncate text-[var(--forma-text-body)]">{Math.round(selectedPlacement.positionMm[index])}mm</div>
                 </div>
               ))}
             </div>
-            {selectedPlacement.notes && <div className="mt-3 line-clamp-3 text-[10px] leading-snug text-slate-500">{selectedPlacement.notes}</div>}
+            {selectedPlacement.notes && <div className="mt-3 line-clamp-3 text-[10px] leading-snug text-[var(--forma-text-secondary)]">{selectedPlacement.notes}</div>}
           </div>
         )}
 
-        <div className="absolute bottom-3 right-3 text-[9px] font-black uppercase tracking-[0.18em] text-slate-700 sm:bottom-4 sm:right-4">
-          Live 3D <span className="mx-1 text-slate-800">/</span> Three.js + R3F
+        <div className="absolute bottom-3 right-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)] sm:bottom-4 sm:right-4">
+          Live 3D
         </div>
       </div>
     </div>

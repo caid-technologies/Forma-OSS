@@ -11,17 +11,17 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-from blueprint_core.config import config
-from blueprint_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
-from blueprint_core.jobs.continuous import ContinuousOpenAIJobReport, ContinuousOpenAIJobRunner, ContinuousOpenAIJobSpec
-from blueprint_core.openai_streams import (
+from forma_core.config import config
+from forma_core.agents.continuous import ContinuousAgentState, JsonlStreamStore
+from forma_core.jobs.continuous import ContinuousOpenAIJobReport, ContinuousOpenAIJobRunner, ContinuousOpenAIJobSpec
+from forma_core.openai_streams import (
     DEFAULT_OPENAI_STREAM_MODEL,
     DEFAULT_OPENAI_STREAM_PROMPT,
     OpenAIStreamConfig,
     OpenAIStreamConfigError,
     load_env_file,
 )
-from blueprint_core.providers import normalize_provider_name
+from forma_core.providers import normalize_provider_name
 
 
 LOG_PREFIX = "[continuous-llm]"

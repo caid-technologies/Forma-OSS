@@ -14,7 +14,8 @@ This is in **alpha** and **research-based** stage focused on **low-voltage maker
 - Generate an optional **concept image** with an image model
 - Persist generated projects to **Supabase** through the Supabase client when configured, with an automatic **SQLite fallback** and `FORMA_DEV_MODE` for SQLite-only local work
 - Trace generation runs and structured LLM calls with **Langfuse** when project keys are configured
-- Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP-style JSON-RPC tools**
+- Let external agents integrate over **REST long-polling, WebSocket, optional TCP JSONL sockets, or MCP Streamable HTTP tools**
+- Use the same project-local **Agent Skill** from OpenClaw, NemoClaw, OpenCode, Claude Code, and Codex
 
 ## How it works
 
@@ -380,6 +381,7 @@ Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_pla
 - [Conversational context gathering](docs/context-gathering.md)
 - [Project readiness and build initiation](docs/project-readiness.md)
 - [Agents](docs/agents.md)
+- [OpenClaw, NemoClaw, and OpenCode](docs/agent-clients.md)
 - [Hardware IR](docs/hardware-ir.md)
 - [Validation](docs/validation.md)
 - [Database](docs/database.md)

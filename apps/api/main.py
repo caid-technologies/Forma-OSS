@@ -53,6 +53,7 @@ from forma_core.debug import (
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, WebSocket, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
 
@@ -155,6 +156,7 @@ from apps.api.auth import (
     deployed_auth_required,
     optional_user_context,
     require_admin_user_context,
+    require_mcp_user_context,
     require_destructive_user_context,
     require_user_context,
 )
@@ -1567,15 +1569,21 @@ async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
 
 
 @app.post("/mcp")
-async def mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_admin_user_context)):
-    """MCP-style JSON-RPC endpoint exposing Forma tools."""
-    return await handle_mcp_json_rpc(payload)
+async def mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_mcp_user_context)):
+    """MCP Streamable HTTP endpoint exposing Forma tools."""
+    response = await handle_mcp_json_rpc(payload)
+    if response is None:
+        return Response(status_code=202)
+    return response
 
 
 @app.post("/a2a/mcp")
-async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_admin_user_context)):
+async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_mcp_user_context)):
     """Alias for agents that discover MCP under the A2A route prefix."""
-    return await handle_mcp_json_rpc(payload)
+    response = await handle_mcp_json_rpc(payload)
+    if response is None:
+        return Response(status_code=202)
+    return response
 
 
 def _project_summary_response(project: Any, current_user_id: Optional[str] = None) -> Dict[str, Any]:

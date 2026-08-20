@@ -6,7 +6,7 @@ Forma exposes the same hardware generation capability through several agent-frie
 - **REST:** `GET /api/a2a/capabilities`, `PUT /api/a2a/agents/{agent_id}`, `POST /api/a2a/messages`, long-poll `GET /api/a2a/agents/{agent_id}/events`, and job metadata lookup under `GET /api/a2a/jobs`
 - **WebSocket:** `/api/a2a/socket/{agent_id}`
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
-- **MCP-style JSON-RPC:** `POST /api/mcp` or `POST /api/a2a/mcp`
+- **MCP Streamable HTTP (JSON responses):** `POST /api/mcp` or `POST /api/a2a/mcp`
 
 Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `forma_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, past-job context, or a combination.
 
@@ -81,6 +81,7 @@ Each line sent to the socket is an `A2AMessage` JSON object. Each line returned 
 - `tools/call`
 
 Available tools:
+- `forma.compile_project`
 - `forma.generate_project`
 
 For a default or web-research project with a failed stage, call `forma.generate_project` again with the same `project_id`, workflow, and `retry_stage` (for example `wiring_netlist`). Forma reloads the persisted generation run, reuses successful upstream and independent artifacts, and reruns only the named stage and invalidated dependents. Reusing the same client job ID returns the completed retry idempotently.
@@ -90,3 +91,5 @@ For a default or web-research project with a failed stage, call `forma.generate_
 - `forma.a2a.poll_events`
 - `forma.a2a.get_job`
 - `forma.a2a.list_jobs`
+
+OpenClaw, NemoClaw, and OpenCode setup examples are documented in [agent-clients.md](agent-clients.md).

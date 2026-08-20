@@ -37,7 +37,11 @@ from forma_core.jobs.context import (
 )
 from forma_core.jobs.source_usage import normalize_source_usage
 from forma_core.llm import get_llm_runtime_debug_config
-from forma_core.workspaces.projects.models import ComponentInstance, ConnectionNet
+from forma_core.workspaces.projects.models import (
+    ComponentInstance,
+    ConnectionNet,
+    HardwareIR,
+)
 from forma_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
@@ -54,13 +58,15 @@ from forma_core.runtime import (
 from forma_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
 from apps.api.storage import get_image_storage_config, upload_image_to_supabase_s3
 from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
-from forma_core.validation import validate_circuit
+from forma_core.validation import build_validation_summary, validate_circuit
 
 
 logger = logging.getLogger(__name__)
 
 FORMA_AGENT_ID = "forma"
 SERVER_RECIPIENTS = {FORMA_AGENT_ID, "server", "hardware_pipeline", "hardware-compiler"}
+MCP_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
+MCP_DEFAULT_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0]
 
 
 def _utc_now() -> str:
@@ -215,6 +221,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
                 "alias": "/api/a2a/mcp",
                 "tools": [
                     "forma.generate_project",
+                    "forma.compile_project",
                     "forma.debug_config",
                     "forma.validate_circuit",
                     "forma.a2a.send_message",
@@ -235,6 +242,7 @@ def get_a2a_capabilities() -> Dict[str, Any]:
         "data_sources": list_generation_data_sources(),
         "actions": [
             "forma.generate_project",
+            "forma.compile_project",
             "forma.debug_config",
             "forma.validate_circuit",
             "forma.a2a.capabilities",
@@ -1185,7 +1193,9 @@ async def handle_a2a_websocket(websocket: WebSocket, agent_id: str) -> None:
         while True:
             raw_message = await websocket.receive_json()
             if isinstance(raw_message, dict) and raw_message.get("jsonrpc") == "2.0":
-                await websocket.send_json(await handle_mcp_json_rpc(raw_message))
+                response = await handle_mcp_json_rpc(raw_message)
+                if response is not None:
+                    await websocket.send_json(response)
                 continue
 
             raw_message = {**raw_message, "sender": raw_message.get("sender") or agent_id}
@@ -1293,6 +1303,28 @@ def _mcp_tool_result(result: Dict[str, Any]) -> Dict[str, Any]:
 
 def _mcp_tools() -> List[Dict[str, Any]]:
     return [
+        {
+            "name": "forma.compile_project",
+            "description": (
+                "Normalize, electrically validate, and render host-agent-authored Forma Hardware IR "
+                "without invoking a server-side LLM."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "project_ir": {
+                        "type": "object",
+                        "description": "Forma Hardware IR authored by the calling agent.",
+                    },
+                    "authoring_agent": {
+                        "type": "string",
+                        "enum": ["openclaw", "opencode", "nemoclaw", "claude", "codex", "other"],
+                        "default": "other",
+                    },
+                },
+                "required": ["project_ir"],
+            },
+        },
         {
             "name": "forma.generate_project",
             "description": "Generate a Forma Hardware IR package, Mermaid diagram, and SVG schematic.",
@@ -1418,31 +1450,56 @@ def _mcp_tools() -> List[Dict[str, Any]]:
 
 async def handle_mcp_json_rpc(payload: Any) -> Any:
     if isinstance(payload, list):
-        return [await _handle_mcp_request(item) for item in payload]
+        if not payload:
+            return _jsonrpc_error(None, -32600, "Invalid empty JSON-RPC batch.")
+        responses = [await _handle_mcp_request(item) for item in payload]
+        filtered = [response for response in responses if response is not None]
+        return filtered or None
     return await _handle_mcp_request(payload)
 
 
-async def _handle_mcp_request(request: Dict[str, Any]) -> Dict[str, Any]:
-    if not isinstance(request, dict):
+async def _handle_mcp_request(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    if (
+        not isinstance(request, dict)
+        or request.get("jsonrpc") != "2.0"
+        or not isinstance(request.get("method"), str)
+    ):
         return _jsonrpc_error(None, -32600, "Invalid JSON-RPC request.")
 
+    is_notification = "id" not in request
     request_id = request.get("id")
     method = request.get("method")
     params = request.get("params") or {}
 
+    # JSON-RPC notifications never receive a response. Forma currently has no
+    # notification methods with server-side work beyond initialization.
+    if is_notification:
+        return None
+
     try:
         if method == "initialize":
-            requested_version = params.get("protocolVersion") or config.get("MCP_PROTOCOL_VERSION", "2024-11-05")
+            requested_version = params.get("protocolVersion")
+            configured_version = config.get("MCP_PROTOCOL_VERSION", MCP_DEFAULT_PROTOCOL_VERSION)
+            protocol_version = (
+                requested_version
+                if requested_version in MCP_PROTOCOL_VERSIONS
+                else configured_version
+                if configured_version in MCP_PROTOCOL_VERSIONS
+                else MCP_DEFAULT_PROTOCOL_VERSION
+            )
             return _jsonrpc_result(
                 request_id,
                 {
-                    "protocolVersion": requested_version,
+                    "protocolVersion": protocol_version,
                     "serverInfo": {"name": "forma-oss", "version": "1.0.0"},
                     "capabilities": {"tools": {}},
                 },
             )
 
-        if method in {"notifications/initialized", "ping"}:
+        if method == "notifications/initialized":
+            return None
+
+        if method == "ping":
             return _jsonrpc_result(request_id, {})
 
         if method == "tools/list":
@@ -1460,6 +1517,24 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Dict[str, Any]:
 
 
 async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    if tool_name == "forma.compile_project":
+        project = HardwareIR.model_validate(arguments.get("project_ir"))
+        issues = validate_circuit(project.components, project.nets, project.requirements)
+        project.validation = build_validation_summary(issues)
+        project.is_valid = not project.validation.critical
+        project.assembly_metadata = {
+            **(project.assembly_metadata or {}),
+            "authoring_agent": arguments.get("authoring_agent", "other"),
+            "compiled_by": "forma.compile_project",
+        }
+        return {
+            "project_ir": project.model_dump(mode="json"),
+            "is_valid": project.is_valid,
+            "validation": project.validation.model_dump(mode="json"),
+            "mermaid_code": generate_mermaid_chart(project),
+            "svg_schematic": generate_svg_schematic(project),
+        }
+
     if tool_name == "forma.a2a.send_message":
         ack = await submit_a2a_message(A2AMessage.model_validate(arguments))
         return ack.model_dump()

@@ -1,7 +1,7 @@
 import base64
 from collections import defaultdict, deque
 import json
-from forma_core.config import config
+import secrets
 import threading
 import time
 from dataclasses import dataclass, field
@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
 
 from apps.api.auth_mode import clerk_auth_required
+from forma_core.config import config
 
 
 LOCAL_USER_ID = "local-dev-user"
@@ -376,6 +377,25 @@ async def require_admin_user_context(request: Request) -> UserContext:
     if context.is_admin:
         return context
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required.")
+
+
+async def require_mcp_user_context(request: Request) -> UserContext:
+    """Authorize MCP with a dedicated API key or the normal admin identity."""
+    configured_key = (config.get("FORMA_MCP_API_KEY") or "").strip()
+    supplied_token = _request_bearer_token(request)
+    if (
+        len(configured_key) >= 32
+        and supplied_token is not None
+        and secrets.compare_digest(supplied_token, configured_key)
+    ):
+        return UserContext(
+            provider="mcp-api-key",
+            subject="mcp-service",
+            owner_user_id=None,
+            is_authenticated=True,
+            is_admin=True,
+        )
+    return await require_admin_user_context(request)
 
 
 async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:

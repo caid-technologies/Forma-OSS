@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forma Hardware"
+  short_description: "Compile and validate hardware with Forma"
+  default_prompt: "Use $forma-hardware to compile and validate a safe low-voltage hardware prototype."

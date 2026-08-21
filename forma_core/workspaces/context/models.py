@@ -78,6 +78,7 @@ class ContextBuildExecution(BaseModel):
     plan_id: NonEmptyString
     job_id: NonEmptyString
     status: NonEmptyString
+    request_bound_execution: bool = False
 
 
 class ContextGatheringResponse(BaseModel):

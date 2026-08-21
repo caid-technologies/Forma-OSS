@@ -5,7 +5,7 @@ import {
   imageOutputIsEnabled,
   parsePreferredLlmProvider,
   settingsNavBadge,
-} from "../lib/settings-nav-status.ts";
+} from "../lib/settings-nav-status";
 
 test("parsePreferredLlmProvider reads anthropic from a Claude selector", () => {
   assert.equal(parsePreferredLlmProvider("anthropic/claude-opus-5"), "anthropic");

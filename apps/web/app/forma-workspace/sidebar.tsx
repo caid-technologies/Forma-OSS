@@ -114,9 +114,7 @@ function formatSidebarDate(value: string | null) {
 function ApiConnectionStatus({ status }: { status: WorkspaceStatusPresentation }) {
   return (
     <span
-      className={`status-badge ${status.tone === "error" ? "status-badge-error" : "status-badge-ok"} ${
-        status.pulse ? "status-badge-pulse" : "status-badge-idle"
-      }`}
+      className={`status-badge ${status.tone === "error" ? "status-badge-error" : "status-badge-ok"}`}
       role="status"
       aria-live="polite"
       aria-label={status.label}
@@ -440,7 +438,7 @@ function ChatSidebarRow({
               event.stopPropagation();
               onToggleMenu();
             }}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 opacity-0 transition-opacity hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--forma-text-muted)] opacity-0 transition-opacity hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
             aria-label={`More options for ${chat.title}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -450,7 +448,7 @@ function ChatSidebarRow({
           {menuOpen && (
             <div
               role="menu"
-              className="fixed z-50 w-36 overflow-hidden rounded-lg border border-white/10 bg-[#1f232c] py-1 shadow-xl shadow-black/50"
+              className="fixed z-50 w-36 overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-[var(--forma-card-shadow)]"
               style={menuPos ? { top: menuPos.top, right: menuPos.right } : { visibility: "hidden" }}
             >
               {onPin && (
@@ -462,7 +460,7 @@ function ChatSidebarRow({
                     onCloseMenu();
                     onPin();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)]"
                 >
                   <Pin className="h-3.5 w-3.5" />
                   {chat.pinned ? "Unpin" : "Pin"}
@@ -477,7 +475,7 @@ function ChatSidebarRow({
                     onCloseMenu();
                     onDelete();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[rgb(var(--forma-red-rgb))] transition-colors hover:bg-[rgb(var(--forma-red-rgb)/0.1)] hover:text-[rgb(var(--forma-red-rgb))]"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete

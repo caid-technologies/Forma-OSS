@@ -12,6 +12,7 @@ from forma_core.database import (
     initiate_project_build,
 )
 from forma_core.config import config
+from forma_core.workers.orchestration import TERMINAL_PLAN_STATUSES
 from forma_core.workspaces.context import ContextBuildExecution
 from forma_core.workspaces.readiness import BuildMode, ReadinessStatus
 from forma_core.workspaces.workflow import ProjectWorkflow
@@ -57,7 +58,8 @@ class ContextBuildDispatcher:
         )
         plan = create_project_generation_plan(outcome.build, owner_user_id)
         job_id = next(iter(plan.jobs))
-        if plan.status.value == "planned" and not self.requires_request_bound_execution():
+        request_bound_execution = self.requires_request_bound_execution()
+        if plan.status.value == "planned" and not request_bound_execution:
             self._launch(plan.plan_id, owner_user_id)
         return (
             ContextBuildExecution(
@@ -65,6 +67,7 @@ class ContextBuildDispatcher:
                 plan_id=plan.plan_id,
                 job_id=job_id,
                 status=plan.status.value,
+                request_bound_execution=request_bound_execution,
             ),
             outcome.workflow,
         )
@@ -74,6 +77,44 @@ class ContextBuildDispatcher:
         """Return whether the runtime can discard work after an HTTP response."""
 
         return str(config.get("VERCEL") or "").strip() == "1"
+
+    @classmethod
+    def owns_plan(cls, plan_id: str) -> bool:
+        with cls._cancellation_lock:
+            return plan_id in cls._cancellation_events
+
+    @classmethod
+    def launch_once(cls, plan_id: str, owner_user_id: str) -> bool:
+        """Start detached execution if this process does not already own the plan."""
+
+        if cls.requires_request_bound_execution():
+            return False
+
+        oidc_token = current_vertex_oidc_token()
+        with cls._cancellation_lock:
+            if plan_id in cls._cancellation_events:
+                return False
+            cancellation_event = Event()
+            cls._cancellation_events[plan_id] = cancellation_event
+
+        def run() -> None:
+            context_token = bind_vertex_oidc_token(oidc_token)
+            try:
+                asyncio.run(execute_project_generation_plan(
+                    plan_id,
+                    owner_user_id,
+                    cancellation_check=cancellation_event.is_set,
+                ))
+            except Exception:
+                logger.exception("Detached generation plan failed: plan_id=%s", plan_id)
+            finally:
+                reset_vertex_oidc_token(context_token)
+                with cls._cancellation_lock:
+                    if cls._cancellation_events.get(plan_id) is cancellation_event:
+                        cls._cancellation_events.pop(plan_id, None)
+
+        Thread(target=run, name=f"forma-build-{plan_id}", daemon=True).start()
+        return True
 
     @classmethod
     async def execute(cls, plan_id: str, owner_user_id: str):
@@ -97,31 +138,20 @@ class ContextBuildDispatcher:
                     cls._cancellation_events.pop(plan_id, None)
 
     @classmethod
-    def _launch(cls, plan_id: str, owner_user_id: str) -> None:
+    def _launch(cls, plan_id: str, owner_user_id: str) -> bool:
         """Run independently of the HTTP response lifecycle so the UI can begin polling immediately."""
 
-        cancellation_event = Event()
-        oidc_token = current_vertex_oidc_token()
-        with cls._cancellation_lock:
-            cls._cancellation_events[plan_id] = cancellation_event
+        return cls.launch_once(plan_id, owner_user_id)
 
-        def run() -> None:
-            context_token = bind_vertex_oidc_token(oidc_token)
-            try:
-                asyncio.run(execute_project_generation_plan(
-                    plan_id,
-                    owner_user_id,
-                    cancellation_check=cancellation_event.is_set,
-                ))
-            except Exception:
-                logger.exception("Detached generation plan failed: plan_id=%s", plan_id)
-            finally:
-                reset_vertex_oidc_token(context_token)
-                with cls._cancellation_lock:
-                    if cls._cancellation_events.get(plan_id) is cancellation_event:
-                        cls._cancellation_events.pop(plan_id, None)
+    @classmethod
+    def resume(cls, plan_id: str, owner_user_id: str):
+        """Relaunch a nonterminal detached plan if this process no longer owns it."""
 
-        Thread(target=run, name=f"forma-build-{plan_id}", daemon=True).start()
+        plan = get_project_generation_plan(plan_id, owner_user_id)
+        if plan.status in TERMINAL_PLAN_STATUSES or cls.requires_request_bound_execution():
+            return plan
+        cls.launch_once(plan_id, owner_user_id)
+        return get_project_generation_plan(plan_id, owner_user_id)
 
     @classmethod
     def signal_cancel(cls, plan_id: str) -> bool:

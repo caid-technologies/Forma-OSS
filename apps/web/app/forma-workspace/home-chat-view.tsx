@@ -125,8 +125,16 @@ export default function HomeChatView({
     : retryMode
       ? "Try failed build again"
       : inputValid
-        ? "Send context"
+        ? started
+          ? "Send context"
+          : "Check hardware idea"
         : "Check hardware idea";
+  const promptLabel = selectedImage
+    ? "Describe constraints or goals for the attached hardware reference image"
+    : started
+      ? "Send project context or describe the next hardware change"
+      : "Describe the hardware idea to build";
+  const promptHasValidationError = Boolean(notice && hasGenerationInput && !inputValid);
 
   useEffect(() => {
     if (selectedImage) promptRef.current?.focus();
@@ -371,6 +379,7 @@ export default function HomeChatView({
               onChange={(event) => onPromptChange(event.target.value)}
               onPaste={onImagePaste}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   if (isLoading) return;
@@ -386,7 +395,8 @@ export default function HomeChatView({
                   ? "Add constraints, references, or what you want from this image…"
                   : "Describe the product, constraints, references, and outputs you need…"
               }
-              aria-invalid={Boolean(notice)}
+              aria-label={promptLabel}
+              aria-invalid={promptHasValidationError}
               aria-describedby={notice ? "generation-input-notice" : undefined}
               className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
             />

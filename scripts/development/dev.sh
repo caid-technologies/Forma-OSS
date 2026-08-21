@@ -23,7 +23,7 @@ log() {
 
 is_port_open() {
   local port="$1"
-  ss -ltn 2>/dev/null | awk '{print $4}' | grep -Eq "[:.]${port}$"
+  dev_is_port_open "$BACKEND_HOST" "$port" || dev_is_port_open "$FRONTEND_HOST" "$port"
 }
 
 wait_for_url() {
@@ -33,7 +33,7 @@ wait_for_url() {
   local process_pid="${4:-}"
 
   for _ in $(seq 1 "$attempts"); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    if curl -fsS --max-time 2 "$url" >/dev/null 2>&1; then
       log "$label is ready at $url"
       return 0
     fi
@@ -86,6 +86,7 @@ trap cleanup EXIT INT TERM HUP
 
 cd "$ROOT_DIR"
 
+dev_ensure_local_simulation_env
 dev_cleanup_previous_session
 
 if [ ! -x "$VENV_DIR/bin/python" ]; then
@@ -104,7 +105,7 @@ if [ ! -d "$ROOT_DIR/apps/web/node_modules" ]; then
 fi
 
 if is_port_open "$BACKEND_PORT"; then
-  if curl -fsS "http://$BACKEND_HOST:$BACKEND_PORT/api" >/dev/null 2>&1; then
+  if curl -fsS --max-time 2 "http://$BACKEND_HOST:$BACKEND_PORT/api" >/dev/null 2>&1; then
     log "Backend already appears to be running at http://$BACKEND_HOST:$BACKEND_PORT"
     log "Backend logs are controlled by the existing backend process."
   else
@@ -127,7 +128,7 @@ dev_start_process_group frontend_pid "$DEV_FRONTEND_PID_FILE" "" \
   bash -c 'cd "$1" && shift && exec "$@"' bash "$ROOT_DIR/apps/web" \
   npm run dev -- --hostname "$FRONTEND_HOST" --port "$FRONTEND_PORT"
 
-wait_for_url "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Frontend"
+wait_for_url "http://$FRONTEND_HOST:$FRONTEND_PORT/" "Frontend" 120
 
 cat <<EOF
 

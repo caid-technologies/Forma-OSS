@@ -89,6 +89,10 @@ export function OverviewPanel({
   const llmModel = metadata.runtime_model || metadata.actual_model || metadata.model_name || metadata.requested_model;
   const showProductImage = showImageSection || Boolean(activeImage);
   const showHardwareReference = productImages.length > 0 && referenceImages.length > 0;
+  const imageOutputRequested = metadata.image_output_requested !== false && metadata.image_output_enabled !== false;
+  const imageOutputFailed = imageOutputRequested && (
+    metadata.image_output_failed === true || metadata.image_output_status === "failed"
+  );
 
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
@@ -103,7 +107,7 @@ export function OverviewPanel({
                 className="h-[280px] w-full object-cover object-center sm:h-[380px]"
               />
             ) : (
-              <ImageUnavailableState failed={metadata.image_output_failed === true || metadata.image_output_status === "failed"} />
+              <ImageUnavailableState failed={imageOutputFailed} requested={imageOutputRequested} />
             )}
             {activeImage && (
               <div className="absolute left-3 top-3 max-w-[calc(100%-1.5rem)] rounded-md border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] px-2.5 py-1.5 text-[11px] font-medium text-[var(--forma-text-strong)] shadow-sm backdrop-blur-sm">
@@ -744,19 +748,21 @@ export function PartsSidebar({ components, issues, isValid }: { components: any[
   );
 }
 
-export function ImageUnavailableState({ failed = false }: { failed?: boolean }) {
+export function ImageUnavailableState({ failed = false, requested = true }: { failed?: boolean; requested?: boolean }) {
   return (
     <div className="flex h-[280px] flex-col items-center justify-center bg-[var(--forma-surface-muted)] px-8 text-center sm:h-[380px]">
       <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)]">
         {failed ? <AlertTriangle className="h-7 w-7" /> : <Box className="h-7 w-7" />}
       </div>
       <div className="mt-5 text-xs font-medium uppercase tracking-[0.16em] text-[var(--forma-text-strong)]">
-        {failed ? "Product image unavailable" : "Product image not generated"}
+        {failed ? "Product image unavailable" : requested ? "Product image not generated" : "Product image disabled"}
       </div>
       <p className="mt-2 max-w-md text-xs leading-5 text-[var(--forma-text-muted)]">
         {failed
           ? "Image generation failed for this revision. The project data and build artifacts are still available."
-          : "No generated product image is available for this revision."}
+          : requested
+            ? "No generated product image is available for this revision."
+            : "Image generation was not requested for this run. The project data and build artifacts are still available."}
       </p>
     </div>
   );

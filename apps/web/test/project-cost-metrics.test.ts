@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   calculateProjectCostMetrics,
   resolveProjectComponentInstances,
-} from "../lib/project-cost-metrics.ts";
+} from "../lib/project-cost-metrics";
 
 const project = {
   part_definitions: [{

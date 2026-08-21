@@ -4,7 +4,7 @@ import { test } from "node:test";
 import {
   adminJobLastOccurredAt,
   sortAdminJobs,
-} from "../lib/admin-job-sort.ts";
+} from "../lib/admin-job-sort";
 
 const jobs = [
   {

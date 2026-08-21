@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { normalizeContextSuggestions } from "../lib/context-suggestions.ts";
+import { normalizeContextSuggestions } from "../lib/context-suggestions";
 
 test("context suggestions are trimmed, deduplicated, and bounded", () => {
   assert.deepEqual(

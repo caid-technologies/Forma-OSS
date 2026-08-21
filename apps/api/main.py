@@ -710,6 +710,29 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 update_generated_project_hardware_ir(project_id, response["project_ir"])
             except Exception:
                 logger.warning("Failed to persist generation timing metadata for project_id=%s", project_id, exc_info=debug_mode_enabled())
+        if generation_status == "failed":
+            generation_error = metadata.get("generation_error") if isinstance(metadata, dict) else None
+            error_message = (
+                generation_error.get("message")
+                if isinstance(generation_error, dict) and isinstance(generation_error.get("message"), str)
+                else "A required generation stage failed before a usable project could be produced."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_424_FAILED_DEPENDENCY,
+                detail=api_error_detail(
+                    code="generation_stage_failed",
+                    message=error_message,
+                    job_id=job_id,
+                    provider=request.provider,
+                    model=request.model,
+                    context={
+                        "generation_status": generation_status,
+                        "project_id": project_id,
+                        "chat_id": metadata.get("chat_id"),
+                        "generation_stages": response.get("generation_stages"),
+                    },
+                ),
+            )
         return {
             **response,
             "project_id": project_id,
@@ -732,6 +755,8 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 model=request.model,
             ),
         ) from e
+    except HTTPException:
+        raise
     except ValueError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
         JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)

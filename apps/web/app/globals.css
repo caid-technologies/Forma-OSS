@@ -553,6 +553,7 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
  * in either light theme. Keep the text on the theme's strong foreground.
  */
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-[#17181d]']:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800']:hover,
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800/40']:hover,
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800/50']:hover {
   background-color: var(--forma-surface-muted);
@@ -1119,19 +1120,31 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
   width: 8px;
   height: 8px;
   border-radius: 9999px;
-  background: currentColor;
+  background: radial-gradient(
+    circle at 32% 28%,
+    color-mix(in srgb, white 78%, currentColor) 0 16%,
+    currentColor 48%,
+    color-mix(in srgb, currentColor 68%, black) 100%
+  );
   box-shadow:
-    0 0 0 3px color-mix(in srgb, currentColor 28%, transparent),
-    0 0 12px currentColor;
+    0 0 0 1.5px color-mix(in srgb, currentColor 58%, transparent),
+    0 0 7px 1px color-mix(in srgb, currentColor 36%, transparent),
+    0 1px 2px color-mix(in srgb, currentColor 38%, transparent);
 }
 
 .status-badge-ping {
   position: absolute;
-  inset: 0;
+  inset: -8px;
   border-radius: 9999px;
-  background: currentColor;
-  opacity: 0.55;
-  transform-origin: center;
+  background:
+    radial-gradient(
+      circle,
+      color-mix(in srgb, currentColor 46%, transparent) 0 16%,
+      color-mix(in srgb, currentColor 18%, transparent) 34%,
+      color-mix(in srgb, currentColor 7%, transparent) 54%,
+      transparent 72%
+    );
+  pointer-events: none;
 }
 
 .status-badge-ok {
@@ -1140,50 +1153,4 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
 
 .status-badge-error {
   color: #f87171;
-}
-
-.status-badge-pulse .status-badge-ping,
-.status-badge-idle .status-badge-ping {
-  animation: status-badge-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-.status-badge-pulse .status-badge-ping {
-  animation-duration: 1.6s;
-}
-
-.status-badge-idle .status-badge-dot {
-  animation: status-badge-glow 2.8s ease-in-out infinite;
-}
-
-.status-badge-pulse .status-badge-dot {
-  animation: status-badge-glow 1.6s ease-in-out infinite;
-}
-
-@keyframes status-badge-ping {
-  0% {
-    transform: scale(1);
-    opacity: 0.55;
-  }
-  75%,
-  100% {
-    transform: scale(2.6);
-    opacity: 0;
-  }
-}
-
-@keyframes status-badge-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 0 8px currentColor;
-  }
-  50% {
-    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 16px currentColor;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status-badge-ping,
-  .status-badge-dot {
-    animation: none !important;
-  }
 }

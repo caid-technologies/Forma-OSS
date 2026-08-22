@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Pin,
   Plus,
   RefreshCw,
@@ -64,30 +65,33 @@ export function EditableWorkspaceTitle({
 
   if (editing) {
     return (
-      <input
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const next = draft.trim() || value.trim() || "Untitled Hardware Project";
-          setEditing(false);
-          if (next !== value) onCommit(next);
-          else setDraft(value);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            event.currentTarget.blur();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            setDraft(value);
+      <div className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            const next = draft.trim() || value.trim() || "Untitled Hardware Project";
             setEditing(false);
-          }
-        }}
-        autoFocus
-        aria-label={label}
-        className={`min-w-0 flex-1 bg-transparent ${className} outline-none`}
-      />
+            if (next !== value) onCommit(next);
+            else setDraft(value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setDraft(value);
+              setEditing(false);
+            }
+          }}
+          autoFocus
+          aria-label={label}
+          className={`min-w-0 bg-transparent ${className} outline-none`}
+        />
+        <Pencil className="h-3 w-3 shrink-0 text-[var(--forma-text-muted)]" aria-hidden="true" />
+      </div>
     );
   }
 
@@ -97,9 +101,13 @@ export function EditableWorkspaceTitle({
       onClick={() => setEditing(true)}
       title={`Rename ${label.toLowerCase()}`}
       aria-label={`Rename ${label.toLowerCase()}`}
-      className={`min-w-0 flex-1 truncate text-left ${className} hover:text-white`}
+      className="group inline-flex min-w-0 max-w-full items-center gap-1.5 text-left"
     >
-      {value}
+      <span className={`min-w-0 truncate ${className}`}>{value}</span>
+      <Pencil
+        className="h-3 w-3 shrink-0 text-[var(--forma-text-muted)] opacity-70 transition-opacity group-hover:opacity-100 group-hover:text-[var(--forma-text-strong)]"
+        aria-hidden="true"
+      />
     </button>
   );
 }
@@ -120,7 +128,6 @@ function ApiConnectionStatus({ status }: { status: WorkspaceStatusPresentation }
       aria-label={status.label}
       title={status.label}
     >
-      <span className="status-badge-ping" aria-hidden="true" />
       <span className="status-badge-dot" aria-hidden="true" />
     </span>
   );
@@ -245,7 +252,7 @@ export function MobileSidebarDrawer({
     <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Sidebar">
       <button
         type="button"
-        className="absolute inset-0 h-full w-full bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 h-full w-full bg-[rgb(var(--forma-scrim-rgb)/0.48)] backdrop-blur-md"
         onClick={onClose}
         aria-label="Close sidebar"
       />
@@ -497,7 +504,7 @@ function SidebarSectionLabel({ compact, children }: { compact: boolean; children
 function SidebarAccountDock({ compact }: { compact: boolean }) {
   const { isSignedIn } = useFormaAuth();
   return (
-    <div className={`mt-3 flex items-center gap-2.5 border-t border-white/5 pt-3 ${compact ? "justify-center" : "px-3"}`}>
+    <div className={`mt-3 flex items-center gap-2.5 pt-3 ${compact ? "justify-center" : "px-3"}`}>
       <AuthStatusControl authRequired compact={compact || isSignedIn} />
       {!compact && isSignedIn && <span className="truncate text-xs font-medium text-zinc-500">Account</span>}
     </div>
@@ -591,8 +598,8 @@ export function ChatSidebar({
     <aside
       className={
         isDrawer
-          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col overflow-hidden rounded-r-2xl border-r border-white/5 bg-[#181b22] text-zinc-100 shadow-2xl shadow-black/50"
-          : "hidden h-full min-h-0 flex-col border-r border-white/5 bg-[#181b22] text-zinc-100 md:flex"
+          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col overflow-hidden rounded-r-2xl bg-[var(--forma-surface)] text-zinc-100 shadow-[var(--forma-card-shadow)]"
+          : "hidden h-full min-h-0 flex-col bg-[var(--forma-surface)] text-zinc-100 md:flex"
       }
     >
       <div className="flex min-h-0 flex-1 flex-col">
@@ -706,7 +713,7 @@ export function ChatSidebar({
         </div>
       </div>
 
-      <div className="border-t border-white/5 px-3 py-3">
+      <div className="px-3 py-3">
         <SidebarSectionLabel compact={compact}>Workspace</SidebarSectionLabel>
         <div className="space-y-0.5">
           <SidebarNavLink href="/my-projects" icon={Database} label="My projects" compact={compact} onNavigate={onNavigate} />

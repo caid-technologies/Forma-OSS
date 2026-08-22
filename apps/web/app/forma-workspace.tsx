@@ -2526,16 +2526,31 @@ export function FormaWorkspace({
         ...(projectId ? { projectId } : {}),
       });
     }
-    if (!projectId || (authRequired && !isSignedIn)) return;
-    const existingProject = myProjectHistory.find((project: any) => project?.project_id === projectId)
-      || projectHistory.find((project: any) => project?.project_id === projectId);
+    if (authRequired && !isSignedIn) return;
+    const existingProject = projectId
+      ? myProjectHistory.find((project: any) => project?.project_id === projectId)
+        || projectHistory.find((project: any) => project?.project_id === projectId)
+      : null;
     if (existingProject) rememberProjectRecord({ ...existingProject, title });
+    const persistChatTitle = () => {
+      if (!chatId) return;
+      const threadMessages = chatThreads[chatId] || (chatId === activeChatId ? chatMessages : []);
+      persistChatThread(chatId, threadMessages, title);
+    };
+    if (!projectId) {
+      persistChatTitle();
+      return;
+    }
     try {
       const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
         method: "PATCH",
         headers: await generationRequestHeaders(),
         body: JSON.stringify({ title }),
       });
+      if (res.status === 404 && chatId) {
+        persistChatTitle();
+        return;
+      }
       if (!res.ok) throw new Error(await readApiErrorMessage(res));
     } catch (error) {
       console.error("Error renaming project", error);
@@ -3082,12 +3097,16 @@ export function FormaWorkspace({
                 onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 messages={currentProjectChatMessages}
                 input={projectChatInput}
-                setInput={setProjectChatInput}
+                setInput={(value) => {
+                  setGenerationInputNotice(null);
+                  setProjectChatInput(value);
+                }}
                 onSubmit={handleProjectChatGenerate}
                 isLoading={isLoading}
                 canStop={activeGeneration?.kind === "project-chat"}
                 onStop={stopActiveGeneration}
                 canChat={currentUserOwnsProject}
+                notice={visibleContextInputNotice}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
                 activeNamespaceLabel={activeWorkspaceTab.label}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Eye, Layers, Maximize2, Minimize2, MessageSquare, RefreshCw, Square } from "lucide-react";
+import { ArrowRight, AlertTriangle, Eye, Layers, Maximize2, Minimize2, MessageSquare, RefreshCw, Square } from "lucide-react";
 
 import CopyButton from "../../components/copy-button";
 import { formatChatTimestamp } from "./lib/chat-ids";
@@ -81,6 +81,7 @@ export function ChatWorkspace({
   canStop,
   onStop,
   canChat,
+  notice = null,
   namespaceTabs,
   activeNamespace,
   activeNamespaceLabel,
@@ -101,6 +102,7 @@ export function ChatWorkspace({
   canStop: boolean;
   onStop: () => void;
   canChat: boolean;
+  notice?: string | null;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceLabel: string;
@@ -138,11 +140,11 @@ export function ChatWorkspace({
 
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
         {canChat && (
-          <div className="flex h-full min-h-0 min-w-0 flex-col">
+          <div className="relative flex h-full min-h-0 min-w-0 flex-col">
             <div
               ref={containerRef}
               onScroll={onChatScroll}
-              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-5 sm:pb-6 sm:pt-16"
+              className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-24 pt-16 sm:px-5 sm:pb-28 sm:pt-16"
             >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
                 {messages.length ? (
@@ -152,16 +154,16 @@ export function ChatWorkspace({
                     return (
                       <div key={message.id} className={`mx-auto flex w-full min-w-0 max-w-3xl ${isUser ? "justify-end" : "justify-start"}`}>
                         <div
-                          className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl border px-4 py-3 ${
+                          className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl px-4 py-3 ${
                             isUser
-                              ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
+                              ? "bg-[var(--forma-surface-muted)] text-zinc-100"
                               : message.status === "error"
-                                ? "border-rose-400/30 bg-rose-950/25 text-rose-100"
+                                ? "border border-rose-400/30 bg-rose-950/25 text-rose-100"
                                 : message.status === "cancelled"
-                                  ? "border-amber-300/30 bg-amber-950/20 text-amber-50"
+                                  ? "border border-amber-300/30 bg-amber-950/20 text-amber-50"
                                 : isSystem
-                                  ? "border-white/5 bg-black/25 text-zinc-400"
-                                  : "border-white/5 bg-[#181b22] text-zinc-200"
+                                  ? "bg-[var(--forma-surface-muted)] text-zinc-400"
+                                  : "bg-[var(--forma-surface)] text-zinc-200"
                           }`}
                         >
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-[10px] font-medium text-zinc-500">
@@ -203,33 +205,57 @@ export function ChatWorkspace({
               </div>
             </div>
 
-            <form onSubmit={onSubmit} className="shrink-0 border-t border-white/5 bg-[#0f1117]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
-              <div className="mx-auto max-w-3xl">
-                <div className="w-full rounded-2xl border border-white/5 bg-[#181b22] p-3 shadow-lg transition-all focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20">
-                  <textarea
-                    value={input}
-                    onChange={(event) => setInput(event.target.value)}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" && !event.shiftKey) {
-                        event.preventDefault();
-                        if (isLoading) return;
-                        event.currentTarget.form?.requestSubmit();
-                      }
-                    }}
-                    placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
-                    className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
-                  />
-                  <div className="mt-1 flex items-center justify-end gap-1.5">
+            <form
+              onSubmit={onSubmit}
+              className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-3 pb-[max(1.75rem,calc(env(safe-area-inset-bottom)+1rem))] pt-2 sm:px-5 sm:pb-8"
+            >
+              <div className="pointer-events-auto mx-auto max-w-3xl">
+                <div
+                  className={`prompt-composer w-full rounded-full bg-[var(--forma-surface)] px-2 py-1 ${
+                    canStop || isLoading ? "prompt-composer-illuminate" : "prompt-composer-idle"
+                  }`}
+                >
+                  {notice ? (
+                    <div id="project-chat-notice" role="status" className="px-2.5 pb-1 pt-1 text-[11px] leading-4 text-amber-200">
+                      <span className="inline-flex items-start gap-1.5">
+                        <AlertTriangle className="mt-px h-3 w-3 shrink-0 text-amber-300" />
+                        <span className="break-anywhere line-clamp-2 min-w-0">{notice}</span>
+                      </span>
+                    </div>
+                  ) : null}
+                  <div className="flex items-center gap-1">
+                    <textarea
+                      value={input}
+                      onChange={(event) => setInput(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" && !event.shiftKey) {
+                          event.preventDefault();
+                          if (isLoading) return;
+                          event.currentTarget.form?.requestSubmit();
+                        }
+                      }}
+                      rows={1}
+                      placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
+                      aria-label={`Describe a change to ${activeNamespaceLabel.toLowerCase()}`}
+                      aria-invalid={Boolean(notice)}
+                      aria-describedby={notice ? "project-chat-notice" : undefined}
+                      className="h-8 min-h-8 max-h-8 min-w-0 flex-1 resize-none overflow-y-auto border-none bg-transparent px-2.5 py-1.5 text-sm leading-5 text-zinc-100 outline-none placeholder:text-zinc-500"
+                    />
                     {!canStop && !isLoading && Boolean(input.trim()) && (
                       <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
                         Enter
+                      </span>
+                    )}
+                    {(canStop || isLoading) && (
+                      <span className="hidden text-[10px] font-medium text-[var(--forma-text-muted)] sm:inline">
+                        {canStop ? "Updating…" : "Waiting…"}
                       </span>
                     )}
                     <button
                       type={canStop ? "button" : "submit"}
                       onClick={canStop ? onStop : undefined}
                       disabled={!canStop && (isLoading || !projectId || !input.trim())}
-                      className={`prompt-composer-send inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
+                      className={`prompt-composer-send inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed ${
                         !canStop && !isLoading && input.trim() ? "is-ready" : ""
                       }`}
                       aria-label={canStop ? "Stop project update" : "Apply change to project, or press Enter"}

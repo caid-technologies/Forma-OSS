@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -159,6 +160,8 @@ export function ProjectGallery({
   const pageMarkers = buildProjectGalleryPageMarkers(safePage, pageCount);
   const searchable = typeof searchValue === "string" && Boolean(onSearchValueChange);
   const hasSearch = Boolean(searchValue?.trim());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!serverPaginated) setLocalPage(0);
@@ -175,6 +178,20 @@ export function ProjectGallery({
     onVisibleProjectIdsChange?.(visibleProjectIds);
   }, [onVisibleProjectIdsChange, visibleProjectIds]);
 
+  useEffect(() => {
+    if (!searchOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSearchOpen(false);
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [searchOpen]);
+
   const goToPage = (page: number) => {
     const nextPage = Math.min(Math.max(page, 0), pageCount - 1);
     if (serverPaginated) onPageChange?.(nextPage);
@@ -182,40 +199,127 @@ export function ProjectGallery({
   };
 
   return (
-    <section ref={sectionRef} id="all-projects" className={standalone ? "" : "mt-16 border-t border-white/5 pt-12"}>
-      <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div>
+    <section ref={sectionRef} id="all-projects" className={standalone ? "" : "mt-16 pt-12"}>
+      <div className="mb-6 flex items-center gap-3">
+        {searchable && (
+          <button
+            type="button"
+            onClick={() => setSearchOpen(true)}
+            className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md transition-colors hover:text-[var(--forma-text-strong)] ${
+              hasSearch ? "text-[var(--forma-text-strong)]" : "text-[var(--forma-text-muted)]"
+            }`}
+            aria-label={hasSearch ? `Search projects: ${searchValue}` : "Search projects"}
+            title={hasSearch ? searchValue : "Search projects"}
+          >
+            <Search className="h-4 w-4" />
+            {hasSearch && (
+              <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-[rgb(var(--forma-cyan-rgb))]" aria-hidden="true" />
+            )}
+          </button>
+        )}
+        <div className="min-w-0 flex-1">
           <h2 className="sr-only">{title}</h2>
-          <p className="text-sm leading-6 text-zinc-500">
+          <p className="truncate text-sm leading-6 text-[var(--forma-text-muted)]">
             {loading
               ? hasSearch ? "Searching projects..." : "Loading projects..."
               : hasSearch ? `${total} matching projects.` : `${total} saved projects.`}
           </p>
         </div>
-        {searchable && (
-          <label className="relative block w-full sm:max-w-sm">
-            <span className="sr-only">Search community projects</span>
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
-            <input
-              type="search"
-              value={searchValue}
-              onChange={(event) => onSearchValueChange?.(event.target.value)}
-              placeholder="Search projects"
-              className="h-9 w-full rounded-lg border border-white/5 bg-[#181b22] pl-10 pr-10 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-500 focus:border-emerald-500"
-            />
-            {hasSearch && (
-              <button
-                type="button"
-                onClick={() => onSearchValueChange?.("")}
-                className="absolute right-0.5 top-1/2 inline-flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-lg text-zinc-500 transition-colors hover:text-zinc-100"
-                aria-label="Clear project search"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </label>
-        )}
       </div>
+
+      {searchOpen && searchable && createPortal(
+        <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 pt-[18vh] font-sans sm:pt-[22vh]">
+          <button
+            type="button"
+            className="absolute inset-0 bg-[rgb(var(--forma-scrim-rgb)/0.48)] backdrop-blur-md"
+            onClick={() => setSearchOpen(false)}
+            aria-label="Close search"
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="project-gallery-search-title"
+            className="relative z-10 w-full max-w-lg"
+          >
+            <h3 id="project-gallery-search-title" className="sr-only">Search projects</h3>
+            <div className="overflow-hidden rounded-xl bg-[var(--forma-surface)] shadow-[var(--forma-card-shadow)]">
+              <label className="flex items-center gap-3 px-4 py-3">
+                <Search className="h-4 w-4 shrink-0 text-[var(--forma-text-muted)]" aria-hidden="true" />
+                <input
+                  ref={searchInputRef}
+                  type="text"
+                  role="searchbox"
+                  value={searchValue}
+                  onChange={(event) => onSearchValueChange?.(event.target.value)}
+                  placeholder="Search projects"
+                  autoFocus
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="min-w-0 flex-1 appearance-none bg-transparent text-sm leading-6 text-[var(--forma-text-strong)] outline-none placeholder:text-[var(--forma-text-muted)]"
+                />
+                {hasSearch && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSearchValueChange?.("");
+                      searchInputRef.current?.focus();
+                    }}
+                    className="inline-flex h-7 w-7 shrink-0 items-center justify-center text-[var(--forma-text-muted)] transition-colors hover:text-[var(--forma-text-strong)]"
+                    aria-label="Clear project search"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
+              </label>
+              {!hasSearch && (
+                <p className="px-4 pb-3 text-xs leading-5 text-[var(--forma-text-muted)]">
+                  {loading ? "Loading…" : "Type to match projects"}
+                </p>
+              )}
+              {hasSearch && (
+                <div className="border-t border-[var(--forma-border)]">
+                  <p className="px-4 py-2 text-xs leading-5 text-[var(--forma-text-muted)]">
+                    {loading
+                      ? "Searching…"
+                      : `${total} matching ${total === 1 ? "project" : "projects"}`}
+                  </p>
+                  {!loading && visibleItems.length > 0 && (
+                    <ul className="max-h-[min(48vh,22rem)] overflow-y-auto pb-1">
+                      {visibleItems.map((item) => (
+                        <li key={item.key}>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSearchOpen(false);
+                              onOpenProjectPage(item.projectId);
+                            }}
+                            className="flex w-full items-center gap-3 px-4 py-2 text-left transition-colors hover:bg-[var(--forma-surface-muted)]"
+                          >
+                            <span className="min-w-0 flex-1 truncate text-sm text-[var(--forma-text-strong)]">
+                              {item.title}
+                            </span>
+                            {item.creatorDisplay && (
+                              <span className="shrink-0 text-xs text-[var(--forma-text-muted)]">
+                                {item.creatorDisplay}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {!loading && total === 0 && (
+                    <p className="px-4 pb-4 text-sm text-[var(--forma-text-muted)]">
+                      No projects match “{searchValue.trim()}”.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
 
       {loading ? (
         <ProjectGallerySkeleton count={pageSize} />
@@ -234,7 +338,7 @@ export function ProjectGallery({
           </div>
 
           {pageCount > 1 && (
-            <div className="mt-5 flex flex-col gap-3 rounded-xl border border-white/5 bg-[#181b22] p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="mt-5 flex flex-col gap-3 rounded-xl bg-[var(--forma-surface)] p-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-xs font-medium text-zinc-500">
                 Showing {showingStart}-{showingEnd} of {total}
               </div>
@@ -295,7 +399,7 @@ export function ProjectGallery({
           )}
         </>
       ) : (
-        <div className="rounded-xl border border-white/5 bg-[#181b22] p-8 text-sm leading-6 text-zinc-500">
+        <div className="rounded-xl bg-[var(--forma-surface)] p-8 text-sm leading-6 text-zinc-500">
           {hasSearch ? `No projects match “${searchValue?.trim()}”.` : "No saved projects yet."}
         </div>
       )}
@@ -332,9 +436,9 @@ function ProjectGallerySkeleton({ count }: { count: number }) {
       {skeletonItems.map((item) => (
         <div
           key={item}
-          className="overflow-hidden rounded-xl border border-white/5 bg-[#181b22]"
+          className="overflow-hidden rounded-xl bg-[var(--forma-surface)]"
         >
-          <div className="aspect-square overflow-hidden border-b border-white/5 bg-[#0f1117] sm:aspect-[4/3]">
+          <div className="aspect-square overflow-hidden bg-[#0f1117] sm:aspect-[4/3]">
             <ProjectImageLoadingPanel />
           </div>
           <div className="flex min-h-[150px] flex-col justify-between gap-3 p-4">
@@ -496,10 +600,10 @@ function ProjectGalleryCard({
           onOpen();
         }
       }}
-      className="group cursor-pointer overflow-hidden rounded-xl border border-white/5 bg-[#181b22] outline-none transition-all hover:border-zinc-700/60 focus-visible:border-emerald-500"
+      className="group cursor-pointer overflow-hidden rounded-xl bg-[var(--forma-surface)] outline-none transition-shadow hover:shadow-[var(--forma-card-shadow)] focus-visible:ring-2 focus-visible:ring-emerald-500/50"
       aria-label={`View project ${item.title}`}
     >
-      <div className="aspect-square overflow-hidden border-b border-white/5 bg-[#0f1117] sm:aspect-[4/3]">
+      <div className="aspect-square overflow-hidden bg-[#0f1117] sm:aspect-[4/3]">
         {item.image ? (
           <img
             src={item.image.src}

@@ -7,6 +7,8 @@
     "build": "rm -rf .next && next build",
     "start": "next start",
     "lint": "eslint .",
+    "test:unit": "tsx --test test/*.test.ts",
+    "test:e2e": "../../scripts/development/e2e-web.sh",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
@@ -18,7 +20,6 @@
     "@opennextjs/cloudflare": "1.20.2",
     "@react-three/drei": "10.7.7",
     "@react-three/fiber": "9.7.0",
-    "framer-motion": "^11.2.6",
     "lucide-react": "1.28.0",
     "next": "15.5.21",
     "react": "19.2.8",
@@ -28,6 +29,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "3.3.6",
+    "@playwright/test": "^1.62.1",
     "@types/node": "25.9.1",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
@@ -37,6 +39,7 @@
     "postcss": "^8",
     "tailwindcss": "^3.4",
     "typescript": "^5",
+    "tsx": "^4.20.5",
     "wrangler": "4.118.0"
   },
   "overrides": {

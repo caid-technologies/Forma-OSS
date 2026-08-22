@@ -553,6 +553,7 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
  * in either light theme. Keep the text on the theme's strong foreground.
  */
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-[#17181d]']:hover,
+html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800']:hover,
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800/40']:hover,
 html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) [class~='hover:bg-zinc-800/50']:hover {
   background-color: var(--forma-surface-muted);
@@ -927,14 +928,6 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
   border-color: var(--forma-page);
 }
 
-html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .status-badge-ok {
-  color: rgb(var(--forma-green-rgb));
-}
-
-html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark"]) .status-badge-error {
-  color: rgb(var(--forma-red-rgb));
-}
-
 .workspace-chrome-header {
   border-bottom: 0;
   background: linear-gradient(
@@ -1016,13 +1009,11 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
 }
 
 .prompt-composer {
-  border: 1px solid var(--forma-border);
   box-shadow: var(--forma-composer-shadow);
-  transition: box-shadow 220ms ease, border-color 220ms ease;
+  transition: box-shadow 220ms ease;
 }
 
 .prompt-composer-idle:focus-within {
-  border-color: rgb(var(--forma-cyan-rgb) / 0.45);
   box-shadow:
     var(--forma-composer-shadow),
     0 0 0 1px rgb(var(--forma-cyan-rgb) / 0.28),
@@ -1104,86 +1095,33 @@ html:is([data-theme="light"], [data-theme="arctic"], [data-theme="solarized-dark
 }
 
 .status-badge {
-  position: relative;
   display: inline-flex;
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
   flex-shrink: 0;
   align-items: center;
   justify-content: center;
 }
 
 .status-badge-dot {
-  position: relative;
-  z-index: 1;
   width: 8px;
   height: 8px;
   border-radius: 9999px;
   background: currentColor;
-  box-shadow:
-    0 0 0 3px color-mix(in srgb, currentColor 28%, transparent),
-    0 0 12px currentColor;
-}
-
-.status-badge-ping {
-  position: absolute;
-  inset: 0;
-  border-radius: 9999px;
-  background: currentColor;
-  opacity: 0.55;
-  transform-origin: center;
 }
 
 .status-badge-ok {
-  color: #34d399;
+  color: rgb(var(--forma-green-rgb));
+}
+
+.status-badge-ok .status-badge-dot {
+  box-shadow: 0 0 0 4px rgb(var(--forma-green-rgb) / 0.18);
 }
 
 .status-badge-error {
-  color: #f87171;
+  color: rgb(var(--forma-red-rgb));
 }
 
-.status-badge-pulse .status-badge-ping,
-.status-badge-idle .status-badge-ping {
-  animation: status-badge-ping 2.4s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-.status-badge-pulse .status-badge-ping {
-  animation-duration: 1.6s;
-}
-
-.status-badge-idle .status-badge-dot {
-  animation: status-badge-glow 2.8s ease-in-out infinite;
-}
-
-.status-badge-pulse .status-badge-dot {
-  animation: status-badge-glow 1.6s ease-in-out infinite;
-}
-
-@keyframes status-badge-ping {
-  0% {
-    transform: scale(1);
-    opacity: 0.55;
-  }
-  75%,
-  100% {
-    transform: scale(2.6);
-    opacity: 0;
-  }
-}
-
-@keyframes status-badge-glow {
-  0%,
-  100% {
-    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 0 8px currentColor;
-  }
-  50% {
-    box-shadow: 0 0 0 1px rgb(255 255 255 / 0.14), 0 0 16px currentColor;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .status-badge-ping,
-  .status-badge-dot {
-    animation: none !important;
-  }
+.status-badge-error .status-badge-dot {
+  box-shadow: 0 0 0 4px rgb(var(--forma-red-rgb) / 0.18);
 }

@@ -125,8 +125,16 @@ export default function HomeChatView({
     : retryMode
       ? "Try failed build again"
       : inputValid
-        ? "Send context"
+        ? started
+          ? "Send context"
+          : "Check hardware idea"
         : "Check hardware idea";
+  const promptLabel = selectedImage
+    ? "Describe constraints or goals for the attached hardware reference image"
+    : started
+      ? "Send project context or describe the next hardware change"
+      : "Describe the hardware idea to build";
+  const promptHasValidationError = Boolean(notice && hasGenerationInput && !inputValid);
 
   useEffect(() => {
     if (selectedImage) promptRef.current?.focus();
@@ -173,17 +181,17 @@ export default function HomeChatView({
               const isUser = message.role === "user";
               const statusTone =
                 message.status === "error"
-                  ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
+                  ? "border border-rose-400/40 bg-rose-950/30 text-rose-100"
                   : message.status === "success"
-                    ? "border-emerald-400/35 bg-emerald-950/25 text-emerald-50"
+                    ? "bg-[var(--forma-surface)] text-zinc-100"
                     : message.status === "cancelled"
-                      ? "border-amber-300/35 bg-amber-950/20 text-amber-50"
+                      ? "border border-amber-300/35 bg-amber-950/20 text-amber-50"
                       : isUser
-                        ? "border-emerald-500/20 bg-emerald-500/10 text-zinc-100"
-                        : "border-white/5 bg-[#181b22] text-zinc-100";
+                        ? "bg-[var(--forma-surface-muted)] text-zinc-100"
+                        : "bg-[var(--forma-surface)] text-zinc-100";
               return (
                 <div key={message.id} className={`flex min-w-0 ${isUser ? "justify-end" : "justify-start"}`}>
-                  <div className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl border px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
+                  <div className={`min-w-0 max-w-[92%] overflow-hidden rounded-xl px-3 py-2.5 sm:max-w-[86%] sm:px-4 sm:py-3 ${statusTone}`}>
                     <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2 text-[10px] font-medium text-zinc-500">
                       {message.status === "loading" ? (
                         <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
@@ -280,9 +288,9 @@ export default function HomeChatView({
           onSubmit={onSubmit}
           className={`${
             started
-              ? "md:sticky md:bottom-0 md:bg-transparent md:pb-3"
-              : "md:static md:order-1 md:bg-transparent md:p-0"
-          } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
+              ? "fixed bottom-3 left-3 right-3 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-0 pb-[max(0.25rem,env(safe-area-inset-bottom))] pt-1 sm:left-4 sm:right-4 md:sticky md:bottom-3 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:bg-transparent md:px-0 md:pb-3"
+              : "fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:static md:order-1 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:bg-transparent md:p-0"
+          }`}
         >
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 rounded-xl border border-white/5 bg-[#181b22] p-3 text-left sm:p-4" aria-label="Bring your own key setup">
@@ -329,88 +337,131 @@ export default function HomeChatView({
             </section>
           )}
 
-          {notice && (
-            <div id="generation-input-notice" role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-              <span className="break-anywhere min-w-0 flex-1">{notice}</span>
-            </div>
-          )}
-
           <div
-            className={`prompt-composer w-full rounded-2xl bg-[#181b22] px-3 pb-2.5 pt-2.5 ${
-              promptRunning ? "prompt-composer-illuminate" : "prompt-composer-idle"
-            }`}
+            className={`prompt-composer w-full bg-[var(--forma-surface)] ${
+              started ? "rounded-full px-2 py-1" : "rounded-2xl px-3 pb-2.5 pt-2.5"
+            } ${promptRunning ? "prompt-composer-illuminate" : "prompt-composer-idle"}`}
           >
+            {notice ? (
+              <div
+                id="generation-input-notice"
+                role="status"
+                className={
+                  started
+                    ? "px-2.5 pb-1 pt-1 text-[11px] leading-4 text-amber-200"
+                    : "mb-2 flex items-start gap-2 text-xs leading-5 text-amber-200"
+                }
+              >
+                <span className="inline-flex items-start gap-1.5">
+                  <AlertTriangle className={`shrink-0 text-amber-300 ${started ? "mt-px h-3 w-3" : "mt-0.5 h-3.5 w-3.5"}`} />
+                  <span className={`break-anywhere min-w-0 ${started ? "line-clamp-2" : "flex-1"}`}>{notice}</span>
+                </span>
+              </div>
+            ) : !started && promptRunning ? (
+              <div role="status" className="mb-2 flex items-center gap-2 text-[11px] font-medium text-[var(--forma-text-muted)]">
+                <RefreshCw className="h-3 w-3 animate-spin text-emerald-400" />
+                {generationActive ? "Generating…" : "Waiting…"}
+              </div>
+            ) : null}
             <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
             {selectedImage && (
-              <div className="mb-2 flex items-start gap-2 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-1.5 pr-2">
-                <img
-                  src={selectedImage}
-                  alt="Attached prompt image"
-                  className="h-16 w-16 shrink-0 rounded-lg object-cover"
-                />
-                <div className="min-w-0 flex-1 py-0.5">
-                  <div className="text-xs font-medium text-[var(--forma-text-strong)]">Image prompt</div>
-                  <div className="mt-0.5 text-[11px] leading-4 text-[var(--forma-text-muted)]">
-                    Add details below, then press Enter.
+              started ? (
+                <div className="mb-1 flex items-center gap-2 rounded-full bg-[var(--forma-surface-muted)] p-1 pr-2">
+                  <img
+                    src={selectedImage}
+                    alt="Attached prompt image"
+                    className="h-8 w-8 shrink-0 rounded-full object-cover"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[11px] font-medium text-[var(--forma-text-strong)]">Image attached</div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={onRemoveImage}
+                    className="rounded-full p-1 text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
+                    aria-label="Remove image"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
                 </div>
+              ) : (
+                <div className="mb-2 flex items-start gap-2 rounded-xl bg-[var(--forma-surface-muted)] p-1.5 pr-2">
+                  <img
+                    src={selectedImage}
+                    alt="Attached prompt image"
+                    className="h-16 w-16 shrink-0 rounded-lg object-cover"
+                  />
+                  <div className="min-w-0 flex-1 py-0.5">
+                    <div className="text-xs font-medium text-[var(--forma-text-strong)]">Image prompt</div>
+                    <div className="mt-0.5 text-[11px] leading-4 text-[var(--forma-text-muted)]">
+                      Add details below, then press Enter.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onRemoveImage}
+                    className="rounded-md p-1.5 text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
+                    aria-label="Remove image"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+              )
+            )}
+            {started ? (
+              <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={onRemoveImage}
-                  className="rounded-md p-1.5 text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
-                  aria-label="Remove image"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+                  aria-label="Attach image"
+                  title="Attach an image or paste one from your clipboard"
                 >
-                  <X className="h-4 w-4" />
+                  <Paperclip className="h-4 w-4" />
                 </button>
-              </div>
-            )}
-            <textarea
-              ref={promptRef}
-              value={prompt}
-              onChange={(event) => onPromptChange(event.target.value)}
-              onPaste={onImagePaste}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  if (isLoading) return;
-                  if (retryMode) {
-                    onRetryFailedBuild();
-                    return;
+                <textarea
+                  ref={promptRef}
+                  value={prompt}
+                  onChange={(event) => onPromptChange(event.target.value)}
+                  onPaste={onImagePaste}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return;
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (isLoading) return;
+                      if (retryMode) {
+                        onRetryFailedBuild();
+                        return;
+                      }
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  rows={1}
+                  placeholder={
+                    selectedImage
+                      ? "Add constraints, references, or what you want from this image…"
+                      : "Describe the next hardware change…"
                   }
-                  event.currentTarget.form?.requestSubmit();
-                }
-              }}
-              placeholder={
-                selectedImage
-                  ? "Add constraints, references, or what you want from this image…"
-                  : "Describe the product, constraints, references, and outputs you need…"
-              }
-              aria-invalid={Boolean(notice)}
-              aria-describedby={notice ? "generation-input-notice" : undefined}
-              className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
-            />
-            <div className="mt-1 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
-                aria-label="Attach image"
-                title="Attach an image or paste one from your clipboard"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
-              <div className="flex items-center gap-1.5">
+                  aria-label={promptLabel}
+                  aria-invalid={promptHasValidationError}
+                  aria-describedby={notice ? "generation-input-notice" : undefined}
+                  className="h-8 min-h-8 max-h-8 min-w-0 flex-1 resize-none overflow-y-auto border-none bg-transparent py-1.5 text-sm leading-5 text-zinc-100 outline-none placeholder:text-zinc-500"
+                />
                 {canFinishPrompt && (
                   <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
                     Enter
+                  </span>
+                )}
+                {promptRunning && (
+                  <span className="hidden text-[10px] font-medium text-[var(--forma-text-muted)] sm:inline">
+                    {generationActive ? "Generating…" : "Waiting…"}
                   </span>
                 )}
                 <button
                   type={generationActive || retryMode ? "button" : "submit"}
                   onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
                   disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
-                  className={`prompt-composer-send flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
+                  className={`prompt-composer-send flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors disabled:cursor-not-allowed ${
                     canFinishPrompt || retryMode ? "is-ready" : ""
                   }`}
                   aria-label={canFinishPrompt ? `${primaryActionLabel}, or press Enter` : primaryActionLabel}
@@ -427,11 +478,79 @@ export default function HomeChatView({
                   )}
                 </button>
               </div>
-            </div>
+            ) : (
+              <>
+                <textarea
+                  ref={promptRef}
+                  value={prompt}
+                  onChange={(event) => onPromptChange(event.target.value)}
+                  onPaste={onImagePaste}
+                  onKeyDown={(event) => {
+                    if (event.nativeEvent.isComposing) return;
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      if (isLoading) return;
+                      if (retryMode) {
+                        onRetryFailedBuild();
+                        return;
+                      }
+                      event.currentTarget.form?.requestSubmit();
+                    }
+                  }}
+                  placeholder={
+                    selectedImage
+                      ? "Add constraints, references, or what you want from this image…"
+                      : "Describe the product, constraints, references, and outputs you need…"
+                  }
+                  aria-label={promptLabel}
+                  aria-invalid={promptHasValidationError}
+                  aria-describedby={notice ? "generation-input-notice" : undefined}
+                  className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
+                />
+                <div className="mt-1 flex items-center justify-between gap-2">
+                  <button
+                    type="button"
+                    onClick={() => imageInputRef.current?.click()}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+                    aria-label="Attach image"
+                    title="Attach an image or paste one from your clipboard"
+                  >
+                    <Paperclip className="h-4 w-4" />
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {canFinishPrompt && (
+                      <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">
+                        Enter
+                      </span>
+                    )}
+                    <button
+                      type={generationActive || retryMode ? "button" : "submit"}
+                      onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
+                      disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
+                      className={`prompt-composer-send flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
+                        canFinishPrompt || retryMode ? "is-ready" : ""
+                      }`}
+                      aria-label={canFinishPrompt ? `${primaryActionLabel}, or press Enter` : primaryActionLabel}
+                      title={canFinishPrompt ? `${primaryActionLabel} · Enter` : primaryActionLabel}
+                    >
+                      {generationActive ? (
+                        <Square className="h-3.5 w-3.5 fill-current" />
+                      ) : retryMode ? (
+                        <RefreshCw className={`h-3.5 w-3.5 ${retryingFailedBuild ? "animate-spin" : ""}`} />
+                      ) : isLoading ? (
+                        <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <ArrowRight className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
         </form>
-        {started && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
+        {started && <div className="h-16 shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
   );

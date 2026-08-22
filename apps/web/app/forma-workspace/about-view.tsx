@@ -18,7 +18,8 @@ import {
 } from "../../lib/legal-docs";
 import { aboutMarqueePartners } from "../../lib/partners";
 
-const CARD_SURFACE_CLASS = "rounded-xl border border-[#2c2f37] bg-[#181b22]";
+const CARD_SURFACE_CLASS = "rounded-xl bg-[var(--forma-surface)]";
+const NESTED_SURFACE_CLASS = "rounded-xl bg-[var(--forma-surface-muted)]";
 const BUTTON_OUTLINE_CLASS =
   "inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium text-slate-300 transition hover:bg-white/5 hover:text-white";
 const SOCIAL_ICON_CLASS =
@@ -129,7 +130,7 @@ export default function AboutView() {
           />
 
           <div className="grid gap-3 p-5 sm:grid-cols-2">
-            <div className="flex items-start gap-3 rounded-xl border border-[#2c2f37] bg-[#101115] p-3.5">
+            <div className={`flex items-start gap-3 p-3.5 ${NESTED_SURFACE_CLASS}`}>
               <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
                 <Cpu className="h-4 w-4" />
               </div>
@@ -140,7 +141,7 @@ export default function AboutView() {
                 </p>
               </div>
             </div>
-            <div className="flex items-start gap-3 rounded-xl border border-[#2c2f37] bg-[#101115] p-3.5">
+            <div className={`flex items-start gap-3 p-3.5 ${NESTED_SURFACE_CLASS}`}>
               <div className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-400">
                 <ShieldCheck className="h-4 w-4" />
               </div>
@@ -166,7 +167,7 @@ export default function AboutView() {
               return (
                 <div
                   key={partner.slug}
-                  className={`flex h-20 items-center justify-center rounded-xl border border-[#2c2f37] px-6 ${
+                  className={`flex h-20 items-center justify-center rounded-xl px-6 ${
                     lightSurface ? "bg-white" : "bg-[#002b36]"
                   }`}
                   title={partner.name}
@@ -196,7 +197,7 @@ export default function AboutView() {
                 </p>
               </div>
             </summary>
-            <nav className="grid gap-1 border-t border-[#2c2f37] p-3 sm:grid-cols-2" aria-label="Legal">
+            <nav className="grid gap-1 px-3 pb-3 sm:grid-cols-2" aria-label="Legal">
               {legalDocuments.map((document) => (
                 <Link
                   key={document.slug}

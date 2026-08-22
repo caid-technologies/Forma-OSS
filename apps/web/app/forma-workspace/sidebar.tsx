@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Pin,
   Plus,
   RefreshCw,
@@ -64,30 +65,33 @@ export function EditableWorkspaceTitle({
 
   if (editing) {
     return (
-      <input
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
-        onBlur={() => {
-          const next = draft.trim() || value.trim() || "Untitled Hardware Project";
-          setEditing(false);
-          if (next !== value) onCommit(next);
-          else setDraft(value);
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            event.currentTarget.blur();
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            setDraft(value);
+      <div className="inline-flex min-w-0 max-w-full items-center gap-1.5">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={() => {
+            const next = draft.trim() || value.trim() || "Untitled Hardware Project";
             setEditing(false);
-          }
-        }}
-        autoFocus
-        aria-label={label}
-        className={`min-w-0 flex-1 bg-transparent ${className} outline-none`}
-      />
+            if (next !== value) onCommit(next);
+            else setDraft(value);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setDraft(value);
+              setEditing(false);
+            }
+          }}
+          autoFocus
+          aria-label={label}
+          className={`min-w-0 bg-transparent ${className} outline-none`}
+        />
+        <Pencil className="h-3 w-3 shrink-0 text-[var(--forma-text-muted)]" aria-hidden="true" />
+      </div>
     );
   }
 
@@ -97,9 +101,13 @@ export function EditableWorkspaceTitle({
       onClick={() => setEditing(true)}
       title={`Rename ${label.toLowerCase()}`}
       aria-label={`Rename ${label.toLowerCase()}`}
-      className={`min-w-0 flex-1 truncate text-left ${className} hover:text-white`}
+      className="group inline-flex min-w-0 max-w-full items-center gap-1.5 text-left"
     >
-      {value}
+      <span className={`min-w-0 truncate ${className}`}>{value}</span>
+      <Pencil
+        className="h-3 w-3 shrink-0 text-[var(--forma-text-muted)] opacity-70 transition-opacity group-hover:opacity-100 group-hover:text-[var(--forma-text-strong)]"
+        aria-hidden="true"
+      />
     </button>
   );
 }
@@ -114,15 +122,12 @@ function formatSidebarDate(value: string | null) {
 function ApiConnectionStatus({ status }: { status: WorkspaceStatusPresentation }) {
   return (
     <span
-      className={`status-badge ${status.tone === "error" ? "status-badge-error" : "status-badge-ok"} ${
-        status.pulse ? "status-badge-pulse" : "status-badge-idle"
-      }`}
+      className={`status-badge ${status.tone === "error" ? "status-badge-error" : "status-badge-ok"}`}
       role="status"
       aria-live="polite"
       aria-label={status.label}
       title={status.label}
     >
-      <span className="status-badge-ping" aria-hidden="true" />
       <span className="status-badge-dot" aria-hidden="true" />
     </span>
   );
@@ -247,7 +252,7 @@ export function MobileSidebarDrawer({
     <div className="fixed inset-0 z-50 md:hidden" role="dialog" aria-modal="true" aria-label="Sidebar">
       <button
         type="button"
-        className="absolute inset-0 h-full w-full bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 h-full w-full bg-[rgb(var(--forma-scrim-rgb)/0.48)] backdrop-blur-md"
         onClick={onClose}
         aria-label="Close sidebar"
       />
@@ -440,7 +445,7 @@ function ChatSidebarRow({
               event.stopPropagation();
               onToggleMenu();
             }}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-500 opacity-0 transition-opacity hover:bg-zinc-800 hover:text-zinc-200 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
+            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--forma-text-muted)] opacity-0 transition-opacity hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 aria-expanded:opacity-100"
             aria-label={`More options for ${chat.title}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
@@ -450,7 +455,7 @@ function ChatSidebarRow({
           {menuOpen && (
             <div
               role="menu"
-              className="fixed z-50 w-36 overflow-hidden rounded-lg border border-white/10 bg-[#1f232c] py-1 shadow-xl shadow-black/50"
+              className="fixed z-50 w-36 overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-[var(--forma-card-shadow)]"
               style={menuPos ? { top: menuPos.top, right: menuPos.right } : { visibility: "hidden" }}
             >
               {onPin && (
@@ -462,7 +467,7 @@ function ChatSidebarRow({
                     onCloseMenu();
                     onPin();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)]"
                 >
                   <Pin className="h-3.5 w-3.5" />
                   {chat.pinned ? "Unpin" : "Pin"}
@@ -477,7 +482,7 @@ function ChatSidebarRow({
                     onCloseMenu();
                     onDelete();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-red-300 transition-colors hover:bg-red-500/10 hover:text-red-200"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs font-medium text-[rgb(var(--forma-red-rgb))] transition-colors hover:bg-[rgb(var(--forma-red-rgb)/0.1)] hover:text-[rgb(var(--forma-red-rgb))]"
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Delete
@@ -499,7 +504,7 @@ function SidebarSectionLabel({ compact, children }: { compact: boolean; children
 function SidebarAccountDock({ compact }: { compact: boolean }) {
   const { isSignedIn } = useFormaAuth();
   return (
-    <div className={`mt-3 flex items-center gap-2.5 border-t border-white/5 pt-3 ${compact ? "justify-center" : "px-3"}`}>
+    <div className={`mt-3 flex items-center gap-2.5 pt-3 ${compact ? "justify-center" : "px-3"}`}>
       <AuthStatusControl authRequired compact={compact || isSignedIn} />
       {!compact && isSignedIn && <span className="truncate text-xs font-medium text-zinc-500">Account</span>}
     </div>
@@ -593,8 +598,8 @@ export function ChatSidebar({
     <aside
       className={
         isDrawer
-          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col overflow-hidden rounded-r-2xl border-r border-white/5 bg-[#181b22] text-zinc-100 shadow-2xl shadow-black/50"
-          : "hidden h-full min-h-0 flex-col border-r border-white/5 bg-[#181b22] text-zinc-100 md:flex"
+          ? "flex h-full min-h-0 w-[min(320px,calc(100vw-2rem))] flex-col overflow-hidden rounded-r-2xl bg-[var(--forma-surface)] text-zinc-100 shadow-[var(--forma-card-shadow)]"
+          : "hidden h-full min-h-0 flex-col bg-[var(--forma-surface)] text-zinc-100 md:flex"
       }
     >
       <div className="flex min-h-0 flex-1 flex-col">
@@ -708,7 +713,7 @@ export function ChatSidebar({
         </div>
       </div>
 
-      <div className="border-t border-white/5 px-3 py-3">
+      <div className="px-3 py-3">
         <SidebarSectionLabel compact={compact}>Workspace</SidebarSectionLabel>
         <div className="space-y-0.5">
           <SidebarNavLink href="/my-projects" icon={Database} label="My projects" compact={compact} onNavigate={onNavigate} />

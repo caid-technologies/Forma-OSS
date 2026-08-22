@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import os
 import tempfile
+import time
 import unittest
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
 from threading import Event
 from typing import Iterator
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
@@ -300,6 +301,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(201, started.status_code, started.text)
         self.assertEqual("building", started.json()["workflow"]["state"])
         self.assertEqual("build-plan-test", started.json()["build_execution"]["plan_id"])
+        self.assertFalse(started.json()["build_execution"]["request_bound_execution"])
         self.assertIn("started the design", started.json()["assistant_message"])
         self.assertEqual(1, dispatcher.calls)
 
@@ -331,6 +333,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual("building", started.json()["workflow"]["state"])
         self.assertNotIn("critical choice", started.json()["assistant_message"])
         self.assertEqual("planned", execution["status"])
+        self.assertFalse(execution["request_bound_execution"])
         self.assertEqual(str(frozen.build_id), execution["build_id"])
         self.assertEqual([execution["job_id"]], list(plan.jobs))
         launch_plan.assert_called_once_with(execution["plan_id"], OWNER)
@@ -353,6 +356,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
 
         self.assertEqual(201, started.status_code, started.text)
         self.assertEqual("planned", started.json()["build_execution"]["status"])
+        self.assertTrue(started.json()["build_execution"]["request_bound_execution"])
         launch_plan.assert_not_called()
 
     def test_detached_build_worker_inherits_request_vertex_oidc_token(self) -> None:
@@ -459,6 +463,111 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual("planned", response.json()["status"])
         self.assertEqual(2, response.json()["attempt"])
         reset.assert_awaited_once_with(execution["plan_id"], OWNER)
+
+    def test_launch_once_does_not_start_a_second_owner_for_the_same_plan(self) -> None:
+        started = Event()
+        hold = Event()
+        launches: list[tuple[str, str]] = []
+
+        async def execute_plan(plan_id, owner, **_kwargs):
+            launches.append((plan_id, owner))
+            started.set()
+            hold.wait(timeout=2)
+
+        with patch("apps.api.context_builds.execute_project_generation_plan", side_effect=execute_plan):
+            first = ContextBuildDispatcher.launch_once("plan-owned", OWNER)
+            second = ContextBuildDispatcher.launch_once("plan-owned", OWNER)
+            self.assertTrue(started.wait(timeout=2), "Detached worker did not start.")
+            self.assertTrue(first)
+            self.assertFalse(second)
+            self.assertTrue(ContextBuildDispatcher.owns_plan("plan-owned"))
+            hold.set()
+            deadline = time.time() + 2
+            while ContextBuildDispatcher.owns_plan("plan-owned") and time.time() < deadline:
+                time.sleep(0.05)
+
+        self.assertEqual([("plan-owned", OWNER)], launches)
+        self.assertFalse(ContextBuildDispatcher.owns_plan("plan-owned"))
+
+    def test_resume_skips_terminal_and_request_bound_plans(self) -> None:
+        plan = MagicMock()
+        plan.status = WorkerPlanStatus.SUCCEEDED
+        with (
+            patch("apps.api.context_builds.get_project_generation_plan", return_value=plan),
+            patch.object(ContextBuildDispatcher, "launch_once") as launch,
+        ):
+            result = ContextBuildDispatcher.resume("plan-terminal", OWNER)
+
+        self.assertIs(plan, result)
+        launch.assert_not_called()
+
+        plan.status = WorkerPlanStatus.PLANNED
+        with (
+            patch("apps.api.context_builds.get_project_generation_plan", return_value=plan),
+            patch.object(ContextBuildDispatcher, "requires_request_bound_execution", return_value=True),
+            patch.object(ContextBuildDispatcher, "launch_once") as launch,
+        ):
+            ContextBuildDispatcher.resume("plan-vercel", OWNER)
+
+        launch.assert_not_called()
+
+    def test_resume_endpoint_relaunches_unowned_nonterminal_plan(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-resume-build"
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a relay controller."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            execution = started.json()["build_execution"]
+            with patch.object(ContextBuildDispatcher, "launch_once", return_value=True) as launch:
+                response = self.client.post(
+                    f"/projects/{project_id}/build/plans/{execution['plan_id']}/resume",
+                )
+
+        self.assertEqual(200, response.status_code, response.text)
+        self.assertEqual(execution["plan_id"], response.json()["plan_id"])
+        launch.assert_called_once_with(execution["plan_id"], OWNER)
+
+    def test_resume_endpoint_rejects_another_users_plan(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "conversation-resume-owner"
+        other = UserContext(
+            provider="test",
+            subject="other-user",
+            owner_user_id="other-user",
+            is_authenticated=True,
+            is_admin=False,
+        )
+        self.app.dependency_overrides.pop(context_build_dispatcher)
+        with sqlite_repository(), patch(
+            "apps.api.context_builds.ContextBuildDispatcher._launch",
+        ):
+            self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "Build a relay controller."},
+            )
+            started = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={"conversation_id": conversation_id, "text": "start"},
+            )
+            execution = started.json()["build_execution"]
+            self.app.dependency_overrides[require_user_context] = lambda: other
+            try:
+                response = self.client.post(
+                    f"/projects/{project_id}/build/plans/{execution['plan_id']}/resume",
+                )
+            finally:
+                self.app.dependency_overrides[require_user_context] = lambda: USER
+
+        self.assertEqual(404, response.status_code, response.text)
 
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())

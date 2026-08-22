@@ -47,7 +47,8 @@ const BUTTON_OUTLINE_CLASS =
   "inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#2c2f37] px-3 text-xs font-medium text-slate-300 transition hover:bg-white/5 hover:text-white disabled:cursor-wait disabled:opacity-50";
 const BUTTON_DANGER_CLASS =
   "inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-400/30 px-3 text-xs font-medium text-rose-200 transition hover:bg-rose-500/15 disabled:cursor-wait disabled:opacity-50";
-const CARD_SURFACE_CLASS = "rounded-xl border border-[#2c2f37] bg-[#181b22]";
+const CARD_SURFACE_CLASS = "rounded-xl bg-[var(--forma-surface)]";
+const NESTED_SURFACE_CLASS = "rounded-xl bg-[var(--forma-surface-muted)]";
 const STATUS_PILL_CLASS = "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium";
 
 type IntegrationFieldStatus = {
@@ -615,12 +616,12 @@ function SettingsCollapsible({
   children: React.ReactNode;
 }) {
   return (
-    <details className="group rounded-xl border border-[#2c2f37] bg-[#101115]/70">
+    <details className={`group ${NESTED_SURFACE_CLASS}`}>
       <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-3 marker:content-none [&::-webkit-details-marker]:hidden">
         <ChevronDown className="h-4 w-4 shrink-0 -rotate-90 text-slate-500 transition-transform group-open:rotate-0" />
         <span className="text-sm font-medium text-white">{title}</span>
       </summary>
-      <div className="space-y-2 border-t border-[#2c2f37] px-4 py-3 text-xs leading-5 text-slate-500">{children}</div>
+      <div className="space-y-2 px-4 py-3 text-xs leading-5 text-slate-500">{children}</div>
     </details>
   );
 }
@@ -639,7 +640,7 @@ function SettingsAdvancedDisclosure({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-[#2c2f37] bg-[#101115]/70">
+    <section className={NESTED_SURFACE_CLASS}>
       <button type="button" onClick={onToggle} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
         <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${open ? "" : "-rotate-90"}`} />
         <div className="min-w-0 flex-1">
@@ -652,7 +653,7 @@ function SettingsAdvancedDisclosure({
           <p className="mt-0.5 text-xs leading-5 text-slate-500">{description}</p>
         </div>
       </button>
-      {open ? <div className="space-y-8 border-t border-[#2c2f37] px-4 py-4">{children}</div> : null}
+      {open ? <div className="space-y-8 px-4 py-4">{children}</div> : null}
     </section>
   );
 }
@@ -988,12 +989,12 @@ function ModelCombobox({
       </div>
 
       {open && !disabled && (
-        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-[#2c2f37] bg-[#181b22] shadow-2xl">
+        <div id={listId} role="listbox" className="absolute z-30 mt-1 max-h-72 w-full overflow-y-auto rounded-lg bg-[var(--forma-surface)] shadow-[var(--forma-card-shadow)]">
           {filteredOptions.length ? (
             filteredOptions.map((option, index) => (
               <React.Fragment key={option.value}>
                 {option.group && option.group !== filteredOptions[index - 1]?.group && (
-                  <div className="sticky top-0 border-b border-[#2c2f37] bg-[#181b22] px-3 py-2 text-xs font-medium text-slate-400">
+                  <div className="sticky top-0 bg-[var(--forma-surface)] px-3 py-2 text-xs font-medium text-slate-400">
                     {option.group}
                   </div>
                 )}
@@ -1018,7 +1019,7 @@ function ModelCombobox({
           ) : (
             <div className="px-3 py-3 text-xs leading-5 text-slate-400">No matching suggestion. Keep your custom model ID and save it.</div>
           )}
-          <div className="sticky bottom-0 border-t border-[#2c2f37] bg-[#181b22] px-3 py-2 text-[11px] text-slate-500">
+          <div className="sticky bottom-0 bg-[var(--forma-surface)] px-3 py-2 text-[11px] text-slate-500">
             {suggestionType === "model"
               ? `${options.length} suggestions · any model ID is allowed`
               : "Suggestions only · custom values are allowed"}
@@ -1560,7 +1561,7 @@ function ImageModelTestPanel({
 
         {result && (
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_280px]">
-            <div className="flex min-h-72 items-center justify-center rounded-lg border border-[#2c2f37] bg-[#101115] p-3">
+            <div className="flex min-h-72 items-center justify-center rounded-lg bg-[var(--forma-surface-muted)] p-3">
               {/* Provider results can be data URLs or short-lived remote URLs, so Next image optimization is not appropriate here. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={result.image_data_url} alt="Direct image model test result" className="max-h-[640px] w-full object-contain" />
@@ -1570,7 +1571,7 @@ function ImageModelTestPanel({
                 <div className="text-xs font-medium">Request succeeded</div>
                 <div className="mt-2 font-mono text-sm">{result.elapsed_ms.toLocaleString()} ms</div>
               </div>
-              <div className="rounded-lg border border-[#2c2f37] p-3 font-mono text-xs leading-5 text-slate-400">
+              <div className="rounded-lg bg-[var(--forma-surface-muted)] p-3 font-mono text-xs leading-5 text-slate-400">
                 <div><span className="text-slate-600">Provider:</span> {result.provider}</div>
                 <div><span className="text-slate-600">Model:</span> {result.model}</div>
                 <div><span className="text-slate-600">Size:</span> {result.size || "Provider default"}</div>
@@ -1581,11 +1582,11 @@ function ImageModelTestPanel({
         )}
 
         {diagnostics != null && (
-          <details className="rounded-lg border border-[#2c2f37] bg-[#101115]">
+          <details className="rounded-lg bg-[var(--forma-surface-muted)]">
             <summary className="cursor-pointer px-3 py-2.5 text-xs font-medium text-slate-400">
               Raw diagnostics
             </summary>
-            <pre className="max-h-96 overflow-auto border-t border-[#2c2f37] p-3 text-[11px] leading-5 text-slate-400">
+            <pre className="max-h-96 overflow-auto p-3 text-[11px] leading-5 text-slate-400">
               {JSON.stringify(diagnostics, null, 2)}
             </pre>
           </details>
@@ -1609,16 +1610,14 @@ function ThemeSettingsPanel() {
   const themeCards: Array<{
     id: FormaTheme;
     label: string;
-    badge?: string;
     description: string;
     icon: typeof Sun;
     previewStyle: React.CSSProperties;
   }> = [
     {
       id: "light",
-      label: "Solarized Light+",
-      badge: "Day default",
-      description: "Warm low-glare #fdf6e3 surfaces with classic Solarized palette.",
+      label: "Solarized Light",
+      description: "Warm cream surfaces.",
       icon: Sun,
       previewStyle: {
         backgroundColor: solarizedLight.base3,
@@ -1628,9 +1627,8 @@ function ThemeSettingsPanel() {
     },
     {
       id: "solarized-dark",
-      label: "Solarized Dark+",
-      badge: "Night default",
-      description: "Deep cyan #002b36 base & #001f26 panels with rich syntax colors.",
+      label: "Solarized Dark",
+      description: "Deep cyan night theme.",
       icon: Moon,
       previewStyle: {
         backgroundColor: solarizedDark.base03,
@@ -1641,8 +1639,7 @@ function ThemeSettingsPanel() {
     {
       id: "arctic",
       label: "Arctic",
-      badge: "Slate Light",
-      description: "Cool white panels on a slate #eef2f7 page for higher contrast.",
+      description: "Cool white, higher contrast.",
       icon: Snowflake,
       previewStyle: {
         backgroundColor: arcticLight.surface,
@@ -1671,7 +1668,7 @@ function ThemeSettingsPanel() {
 
       <div className="space-y-6 p-5">
         {/* Compact Auto Day/Night Banner & Switch */}
-        <div className="flex flex-col gap-3 rounded-xl border border-[#2c2f37] bg-[#101115] p-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className={`flex flex-col gap-3 p-3.5 sm:flex-row sm:items-center sm:justify-between ${NESTED_SURFACE_CLASS}`}>
           <div className="flex items-center gap-3">
             <Sparkles
               className={`h-4 w-4 shrink-0 ${
@@ -1689,8 +1686,8 @@ function ThemeSettingsPanel() {
               </div>
               <p className="mt-0.5 text-xs text-slate-400">
                 {themeMode === "auto" && solarInfo
-                  ? `Switches to ${solarInfo.nextEvent === "sunset" ? "Solarized Dark+" : "Solarized Light+"} automatically at ${formatTime(solarInfo.nextTime)}.`
-                  : "Automatically switches between Solarized Light+ by day and Solarized Dark+ at night based on your local sunrise & sunset."}
+                  ? `Switches to ${solarInfo.nextEvent === "sunset" ? "Solarized Dark" : "Solarized Light"} automatically at ${formatTime(solarInfo.nextTime)}.`
+                  : "Automatically switches between Solarized Light by day and Solarized Dark at night based on your local sunrise & sunset."}
               </p>
             </div>
           </div>
@@ -1729,14 +1726,14 @@ function ThemeSettingsPanel() {
                   role="radio"
                   aria-checked={selected}
                   onClick={() => setTheme(card.id)}
-                  className={`min-w-0 rounded-xl border p-3 text-left transition ${
+                  className={`min-w-0 rounded-xl p-3 text-left transition ${
                     selected
-                      ? "border-emerald-500/50 bg-emerald-500/10 shadow-md ring-1 ring-emerald-500/30"
-                      : "border-zinc-700/40 bg-[#0f1117] hover:border-zinc-600"
+                      ? "bg-emerald-500/10 shadow-md"
+                      : "bg-[var(--forma-surface-muted)] hover:bg-[var(--forma-surface-muted)]"
                   }`}
                 >
                   <span
-                    className="relative flex h-16 items-center justify-center overflow-hidden rounded-lg border border-zinc-700/40 shadow-inner"
+                    className="relative flex h-16 items-center justify-center overflow-hidden rounded-lg shadow-inner"
                     style={card.previewStyle}
                     aria-hidden="true"
                   >
@@ -1749,13 +1746,8 @@ function ThemeSettingsPanel() {
                       {selected ? <Check className="h-3 w-3" /> : null}
                     </span>
                   </span>
-                  <div className="mt-3 flex items-center justify-between">
+                  <div className="mt-3">
                     <span className="block text-sm font-medium text-white">{card.label}</span>
-                    {card.badge && (
-                      <span className="rounded bg-white/5 px-1.5 py-0.5 text-[10px] text-slate-400">
-                        {card.badge}
-                      </span>
-                    )}
                   </div>
                   <span className="mt-1 block text-xs leading-5 text-slate-400">{card.description}</span>
                 </button>
@@ -1857,7 +1849,7 @@ function SettingsNavBrandGroup({
         <span className="min-w-0 flex-1 truncate text-[13px] font-medium">{label}</span>
         {badge}
       </div>
-      <div className="ml-3 space-y-0.5 border-l border-[#2c2f37] pl-1.5">{children}</div>
+      <div className="ml-3 space-y-0.5 pl-1.5">{children}</div>
     </div>
   );
 }
@@ -2441,7 +2433,7 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
         </section>
       ) : (
         <section className={signedInGrid}>
-        <aside className={`h-fit min-h-0 max-h-[calc(100vh-180px)] overflow-y-auto ${CARD_SURFACE_CLASS} md:sticky md:top-4`}>
+        <aside className="h-fit min-h-0 max-h-[calc(100vh-180px)] overflow-y-auto rounded-xl bg-[var(--forma-surface)] md:sticky md:top-4">
           <div className="px-3 py-3">
             <div className="text-sm font-semibold text-white">Settings</div>
             <p className="mt-1 text-[11px] leading-4 text-slate-400">Account, models, and workspace defaults.</p>
@@ -2474,7 +2466,7 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
               {loading && !payload ? (
                 <div className="px-2 py-2 text-[11px] leading-5 text-slate-500">Loading integrations...</div>
               ) : !navigationGroups.length ? (
-                <div className="rounded-lg border border-[#2c2f37] p-3">
+                <div className="rounded-lg bg-[var(--forma-surface-muted)] p-3">
                   <p className="text-[11px] leading-5 text-slate-400">
                     {error ? "Could not load integrations." : "No integrations are available for this workspace."}
                   </p>

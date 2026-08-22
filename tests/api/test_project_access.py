@@ -634,6 +634,46 @@ class ProjectGenerationAccessTests(unittest.TestCase):
         self.assertEqual("generated-project", response["project_id"])
         self.assertEqual("generated-chat", response["chat_id"])
 
+    def test_failed_generation_status_returns_api_error(self) -> None:
+        job_store = MagicMock()
+        job_store.is_cancelled.return_value = False
+        job_store.get_job.return_value = {"status": "failed"}
+        generated_response = {
+            "generation_status": "failed",
+            "generation_stages": {"system_architecture": {"status": "failed"}},
+            "project_ir": {
+                "assembly_metadata": {
+                    "project_id": "failed-project",
+                    "chat_id": "failed-chat",
+                    "generation_status": "failed",
+                    "generation_error": {"message": "architecture timed out"},
+                }
+            },
+        }
+
+        with (
+            patch.object(main, "_apply_user_integrations"),
+            patch.object(main, "get_workflow_debug_config", return_value={}),
+            patch.object(main, "_deployment_runtime_config", return_value={"alpha_generation_gate_active": False}),
+            patch.object(main, "JOB_STORE", job_store),
+            patch.object(main, "observe_agent_pipeline", return_value=nullcontext()),
+            patch.object(main, "build_generation_response", return_value=generated_response),
+            patch.object(main, "_attach_generation_timing_metadata", side_effect=lambda response, _job: response),
+            patch.object(main, "update_generated_project_hardware_ir"),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                asyncio.run(
+                    main.generate_project_endpoint(
+                        GenerateProjectRequest(prompt="Build a sensor", chat_id="failed-chat"),
+                        _user_context("user-a"),
+                    )
+                )
+
+        self.assertEqual(424, raised.exception.status_code)
+        self.assertEqual("generation_stage_failed", raised.exception.detail["code"])
+        self.assertEqual("architecture timed out", raised.exception.detail["message"])
+        job_store.mark_failed.assert_called_once()
+
 
 if __name__ == "__main__":
     unittest.main()

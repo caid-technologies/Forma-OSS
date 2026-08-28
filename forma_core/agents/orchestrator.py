@@ -62,6 +62,14 @@ from forma_core.workspaces.projects.models import (
     expand_component_instances,
 )
 from forma_core.validation import validate_circuit, check_safety_violations, build_validation_summary
+from forma_core.wiring import (
+    WiringIntent,
+    build_endpoint_catalog,
+    compile_wiring_intent,
+    derive_pin_mappings,
+    endpoint_catalog_prompt,
+    wiring_failure_category,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -74,6 +82,7 @@ class DefaultComponentSelection(BaseModel):
 class DefaultWiringOutput(BaseModel):
     nets: List[ConnectionNet]
     pin_mappings: List[PinMappingEntry]
+    intent_issues: List[ValidationIssue] = Field(default_factory=list)
 
 
 class DefaultValidationOutput(BaseModel):
@@ -949,44 +958,62 @@ class HardwarePipelineOrchestrator:
             # 5. Wiring/Netlist Agent (With Auto-Correction Loop)
             logger.info("Invoking Wiring/Netlist Agent...")
             with agent_pipeline_step("default", "wiring_netlist"):
+                endpoint_catalog_json = json.dumps(
+                    endpoint_catalog_prompt(build_endpoint_catalog(components)),
+                    indent=2,
+                )
                 wiring_prompt = f"""
-            You are a Wiring/Netlist Agent. Your task is to connect the physical pins of the selected components to create a working circuit.
+            You are a Wiring Intent Agent. Describe the connections needed for the selected components.
+            Do not generate canonical net IDs or nested ref_des/pin_id objects.
             
-            Selected Components:
-            {components_json}
+            Endpoint catalog. Use only these exact endpoint IDs:
+            {endpoint_catalog_json}
             
             Requirements: {requirements.model_dump_json()}
             
             Rules for connecting:
-            1. Establish a Ground rail (GND) net and connect all Ground/GND pins to it (e.g., ESP32 'GND', SSD1306 'GND', sensor 'GND', battery 'NEG').
-            2. Establish a Power rail (VCC/3.3V/5V) net and connect VCC power pins to it. Make sure operating voltages match! Don't short 5V to 3.3V!
-            3. Wire signal pins: Connect communication pins together:
+            1. Establish a Ground rail (GND) net and connect all compatible ground endpoints to it.
+            2. Establish a Power rail (VCC/3.3V/5V) net only when the catalog identifies a source or regulated output.
+               Make sure operating voltages match. Do not short 5V to 3.3V or power to ground.
+            3. Wire signal endpoints: Connect communication pins together:
                - I2C SCL connects to the MCU's SCL (e.g., ESP32 pin 'D22' or Arduino pin 'A5')
                - I2C SDA connects to the MCU's SDA (e.g., ESP32 pin 'D21' or Arduino pin 'A4')
                - Digital sensor data pins connect to any Digital/GPIO pin on the MCU.
                - PWM actuators connect to a PWM-capable pin on the MCU.
-            4. Every physical pin should appear in only one net. Do not place the same signal pin in multiple nets.
-            5. Passive parts bridge nets by using one passive pin per net. For a pull-up resistor, put one resistor pin on the signal net and the other resistor pin on the power rail; do not create a separate pull-up signal net containing the sensor data pin.
+            4. Every non-power/non-ground endpoint should appear in only one net.
+            5. Passive parts bridge nets by using one passive endpoint per net.
             6. Do NOT leave critical pins unconnected.
             
-            Generate:
-            - nets: List of ConnectionNet. Each net has net_id, name, net_type (Power, Ground, I2C, SPI, Digital, PWM, Analog), voltage, and pins (list of PinReference: ref_des + pin_id).
-            - pin_mappings: List of PinMappingEntry mapping the MCU's pins to functional connections.
-            
-            Output a JSON representation of:
+            Return WiringIntent with nets containing name, net_type, voltage, and endpoint_ids.
             """
-                class WiringWrapper(BaseModel):
-                    nets: List[ConnectionNet]
-                    pin_mappings: List[PinMappingEntry]
-
-                wiring_data: WiringWrapper = self._call_llm_structured(wiring_prompt, WiringWrapper, image_bytes, image_mime_type)
-                nets = wiring_data.nets
-                pin_mappings = wiring_data.pin_mappings
+                wiring_intent: WiringIntent = self._call_llm_structured(
+                    wiring_prompt,
+                    WiringIntent,
+                    image_bytes,
+                    image_mime_type,
+                )
+                wiring_compilation = compile_wiring_intent(components, wiring_intent)
+                nets = list(wiring_compilation.nets)
+                pin_mappings = derive_pin_mappings(components, nets)
 
             # Self-healing loop: Run validation checks on wiring
             logger.info("Running circuit validation checks on generated netlist...")
             with agent_pipeline_step("default", "validation_repair"):
-                validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+                validation_issues = [
+                    *wiring_compilation.issues,
+                    *validate_circuit(components, nets, requirements, prompt=user_prompt),
+                ]
+                if validation_issues:
+                    emit_agent_pipeline_event(
+                        "default",
+                        "validation_repair",
+                        "diagnostics",
+                        details={
+                            "failure_categories": sorted({
+                                wiring_failure_category(issue) for issue in validation_issues
+                            }),
+                        },
+                    )
                 is_valid = not any(issue.severity == "CRITICAL" for issue in validation_issues)
 
                 if not is_valid:
@@ -994,10 +1021,11 @@ class HardwarePipelineOrchestrator:
                     issues_json = json.dumps([issue.model_dump() for issue in validation_issues], indent=2)
                     
                     healing_prompt = f"""
-                You are a Wiring/Netlist Auto-Correction Agent. The previous wiring configuration contained critical electrical or logical errors.
+                You are a Wiring Intent Auto-Correction Agent. Correct only the rejected or invalid nets.
+                Return replacement intents for existing canonical nets using replace_net_id. Omit valid nets.
                 
-                Selected Components:
-                {components_json}
+                Endpoint catalog:
+                {endpoint_catalog_json}
                 
                 Previous Wiring Nets:
                 {json.dumps([n.model_dump() for n in nets], indent=2)}
@@ -1012,14 +1040,27 @@ class HardwarePipelineOrchestrator:
                 - If a pin is reused in multiple signal nets, fix the mapping to separate GPIO pins.
                 - A physical pin must appear in only one net. For pull-up or pull-down resistors, put one resistor pin on the signal net and the other resistor pin on the power/ground rail; never put the sensor/MCU signal pin in a separate resistor-only signal net.
                 
-                Generate a corrected list of ConnectionNet and PinMappingEntry.
+                Return WiringIntent. Use endpoint_ids from the catalog only. Keep valid existing nets unchanged.
                 """
-                    corrected_wiring: WiringWrapper = self._call_llm_structured(healing_prompt, WiringWrapper, image_bytes, image_mime_type)
-                    nets = corrected_wiring.nets
-                    pin_mappings = corrected_wiring.pin_mappings
+                    corrected_intent: WiringIntent = self._call_llm_structured(
+                        healing_prompt,
+                        WiringIntent,
+                        image_bytes,
+                        image_mime_type,
+                    )
+                    repaired = compile_wiring_intent(
+                        components,
+                        corrected_intent,
+                        existing_nets=nets,
+                    )
+                    nets = repaired.all_nets
+                    pin_mappings = derive_pin_mappings(components, nets)
                     
                     # Re-validate
-                    validation_issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+                    validation_issues = [
+                        *repaired.issues,
+                        *validate_circuit(components, nets, requirements, prompt=user_prompt),
+                    ]
                     is_valid = not any(issue.severity == "CRITICAL" for issue in validation_issues)
                     logger.info(f"Self-healing completed. Is valid: {is_valid}")
 
@@ -1838,19 +1879,28 @@ class HardwarePipelineOrchestrator:
         image_bytes: Optional[bytes],
         image_mime_type: Optional[str],
     ) -> DefaultWiringOutput:
-        return self._call_llm_structured(
+        endpoint_catalog = endpoint_catalog_prompt(build_endpoint_catalog(components))
+        wiring_intent: WiringIntent = self._call_llm_structured(
             f"""
-            You are a Wiring/Netlist Agent. Connect the selected component pins into a safe low-voltage circuit.
-            Components: {json.dumps([component_detail_payload(item) for item in components], indent=2)}
+            You are a Wiring Intent Agent. Describe the connections needed for the selected components.
+            Use only exact endpoint IDs from this catalog; do not generate nested ref_des/pin_id objects
+            or canonical net IDs.
+            Endpoint catalog: {json.dumps(endpoint_catalog, indent=2)}
             Requirements: {requirements.model_dump_json()}
             Establish compatible ground and power rails, connect required communication and control signals,
-            and do not mix incompatible logic voltages. Every physical pin may appear in only one net. Passive
-            parts bridge nets using one passive pin per net. Do not leave critical power or ground pins
-            unconnected. Return DefaultWiringOutput with complete nets and controller pin mappings.
+            and do not mix incompatible logic voltages. Every non-power/non-ground endpoint may appear in only
+            one net. Passive parts bridge nets using one passive endpoint per net. Do not leave critical power
+            or ground endpoints unconnected. Return WiringIntent.
             """,
-            DefaultWiringOutput,
+            WiringIntent,
             image_bytes,
             image_mime_type,
+        )
+        compilation = compile_wiring_intent(components, wiring_intent)
+        return DefaultWiringOutput(
+            nets=compilation.nets,
+            pin_mappings=derive_pin_mappings(components, compilation.nets),
+            intent_issues=compilation.issues,
         )
 
     def _generate_default_validation(
@@ -1864,24 +1914,43 @@ class HardwarePipelineOrchestrator:
     ) -> DefaultValidationOutput:
         nets = list(wiring.nets)
         pin_mappings = list(wiring.pin_mappings)
-        issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+        issues = [
+            *wiring.intent_issues,
+            *validate_circuit(components, nets, requirements, prompt=user_prompt),
+        ]
+        if issues:
+            emit_agent_pipeline_event(
+                "default",
+                "validation_repair",
+                "diagnostics",
+                details={
+                    "failure_categories": sorted({
+                        wiring_failure_category(issue) for issue in issues
+                    }),
+                },
+            )
         is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
         if not is_valid:
             corrected = self._call_llm_structured(
                 f"""
-                You are a Wiring/Netlist Auto-Correction Agent. Correct this netlist using the validation report.
-                Components: {json.dumps([component_detail_payload(item) for item in components], indent=2)}
+                You are a Wiring Intent Auto-Correction Agent. Correct only the rejected or invalid nets.
+                Return replacement intents for existing canonical nets using replace_net_id. Omit valid nets.
+                Endpoint catalog: {json.dumps(endpoint_catalog_prompt(build_endpoint_catalog(components)), indent=2)}
                 Previous nets: {json.dumps([item.model_dump(mode='json') for item in nets], indent=2)}
                 Validation issues: {json.dumps([item.model_dump(mode='json') for item in issues], indent=2)}
-                Return DefaultWiringOutput.
+                Use endpoint_ids from the catalog only. Keep valid existing nets unchanged. Return WiringIntent.
                 """,
-                DefaultWiringOutput,
+                WiringIntent,
                 image_bytes,
                 image_mime_type,
             )
-            nets = corrected.nets
-            pin_mappings = corrected.pin_mappings
-            issues = validate_circuit(components, nets, requirements, prompt=user_prompt)
+            repaired = compile_wiring_intent(components, corrected, existing_nets=nets)
+            nets = repaired.all_nets
+            pin_mappings = derive_pin_mappings(components, nets)
+            issues = [
+                *repaired.issues,
+                *validate_circuit(components, nets, requirements, prompt=user_prompt),
+            ]
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
         return DefaultValidationOutput(
             nets=nets,
@@ -1960,11 +2029,7 @@ class HardwarePipelineOrchestrator:
         assembly_output = stage_run.output("assembly", DefaultAssemblyOutput)
         components = list(selection.components) if selection is not None else []
         nets = list(validation.nets if validation is not None else (wiring.nets if wiring is not None else []))
-        pin_mappings = list(
-            validation.pin_mappings
-            if validation is not None
-            else (wiring.pin_mappings if wiring is not None else [])
-        )
+        pin_mappings = derive_pin_mappings(components, nets)
         if overview is not None and bom is not None:
             overview.estimated_cost = bom.estimated_cost
         constraints = []

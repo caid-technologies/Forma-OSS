@@ -53,6 +53,15 @@ The IR is produced in a loop:
 
 This makes the IR more than a snapshot—it’s a record of what was checked and why the design is considered safe within MVP scope.
 
+## Deterministic wiring compilation
+
+Wiring agents do not author canonical `ConnectionNet` objects or duplicate `pin_mappings`. They receive a compact
+endpoint catalog keyed by stable IDs such as `U1.GPIO21` and return `WiringIntent` objects containing endpoint IDs.
+Application code resolves those IDs, rejects unknown or conflicting endpoints, assigns canonical net IDs, and derives
+MCU `pin_mappings` from the compiled nets. A repair response may replace a named rejected net with `replace_net_id`;
+unrelated valid nets remain unchanged. Power rails with explicit source/input semantics are checked separately from
+signal connectivity, so equal nominal voltage alone does not establish a valid power source.
+
 ## Hardware IR 0.2 migration
 
 Hardware IR 0.2 separates physical design state from procurement aggregation. Repeated parts are represented as independently addressable instances (`M1`, `M2`, `M3`, `M4`), while the BOM can still contain one row with quantity four. Nets and mechanical placements always target a physical instance, and validation rejects duplicate or unknown references, unknown pins when a pinout is defined, mismatched BOM quantities, and non-deterministic extended prices.

@@ -65,6 +65,14 @@ from forma_core.validation import (
     check_safety_violations,
     validate_circuit,
 )
+from forma_core.wiring import (
+    WiringIntent,
+    build_endpoint_catalog,
+    compile_wiring_intent,
+    derive_pin_mappings,
+    endpoint_catalog_prompt,
+    wiring_failure_category,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -88,6 +96,7 @@ class WebComponentSelection(BaseModel):
 class WiringWrapper(BaseModel):
     nets: List[ConnectionNet]
     pin_mappings: List[PinMappingEntry]
+    intent_issues: List[ValidationIssue] = Field(default_factory=list)
 
 
 class AssemblyWrapper(BaseModel):
@@ -352,14 +361,31 @@ class WebResearchHardwarePipeline:
 
         logger.info("Running circuit validation checks on web-researched netlist...")
         with agent_pipeline_step(self.workflow_id, "validation_repair"):
-            validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
+            validation_issues = [
+                *wiring.intent_issues,
+                *validate_circuit(components, nets, plan.requirements, prompt=user_prompt),
+            ]
+            if validation_issues:
+                emit_agent_pipeline_event(
+                    self.workflow_id,
+                    "validation_repair",
+                    "diagnostics",
+                    details={
+                        "failure_categories": sorted({
+                            wiring_failure_category(issue) for issue in validation_issues
+                        }),
+                    },
+                )
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
             if not is_valid:
                 logger.info("Invoking Validation + Auto-Correction Agent...")
                 corrected = self._repair_wiring(plan, components_json, nets, validation_issues)
                 nets = corrected.nets
                 pin_mappings = corrected.pin_mappings
-                validation_issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
+                validation_issues = [
+                    *corrected.intent_issues,
+                    *validate_circuit(components, nets, plan.requirements, prompt=user_prompt),
+                ]
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues)
 
         total_cost = sum(
@@ -520,13 +546,30 @@ class WebResearchHardwarePipeline:
         def validate_and_repair() -> ValidationStageOutput:
             nets = list(wiring.nets)
             pin_mappings = list(wiring.pin_mappings)
-            issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
+            issues = [
+                *wiring.intent_issues,
+                *validate_circuit(components, nets, plan.requirements, prompt=user_prompt),
+            ]
+            if issues:
+                emit_agent_pipeline_event(
+                    self.workflow_id,
+                    "validation_repair",
+                    "diagnostics",
+                    details={
+                        "failure_categories": sorted({
+                            wiring_failure_category(issue) for issue in issues
+                        }),
+                    },
+                )
             is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
             if not is_valid:
                 corrected = self._repair_wiring(plan, components_json, nets, issues)
                 nets = corrected.nets
                 pin_mappings = corrected.pin_mappings
-                issues = validate_circuit(components, nets, plan.requirements, prompt=user_prompt)
+                issues = [
+                    *corrected.intent_issues,
+                    *validate_circuit(components, nets, plan.requirements, prompt=user_prompt),
+                ]
                 is_valid = not any(issue.severity.upper() == "CRITICAL" for issue in issues)
             return ValidationStageOutput(
                 nets=nets,
@@ -600,11 +643,7 @@ class WebResearchHardwarePipeline:
         research = stage_run.output("external_research", ExternalSourceLibrary)
 
         nets = list(validation.nets if validation is not None else (wiring.nets if wiring is not None else []))
-        pin_mappings = list(
-            validation.pin_mappings
-            if validation is not None
-            else (wiring.pin_mappings if wiring is not None else [])
-        )
+        pin_mappings = derive_pin_mappings(components, nets)
         validation_issues = list(validation.issues if validation is not None else [])
         all_issues = [*validation_issues, *(self._audit_to_validation_issues(audit) if audit is not None else [])]
         assembly = list(assembly_wrapper.steps if assembly_wrapper is not None else [])
@@ -817,9 +856,12 @@ class WebResearchHardwarePipeline:
         plan: WebProjectPlan,
         components_json: str,
     ) -> WiringWrapper:
+        components = [ComponentInstance.model_validate(item) for item in json.loads(components_json)]
+        endpoint_catalog = endpoint_catalog_prompt(build_endpoint_catalog(components))
         prompt = f"""
-        You are a Wiring/Netlist Agent for sourced web components.
-        Create safe low-voltage nets and MCU pin mappings.
+        You are a Wiring Intent Agent for sourced web components.
+        Describe safe low-voltage connections using only exact endpoint IDs from the catalog.
+        Do not create canonical net IDs, nested ref_des/pin_id objects, or pin mappings.
 
         User request:
         {user_prompt}
@@ -827,21 +869,30 @@ class WebResearchHardwarePipeline:
         Requirements:
         {plan.requirements.model_dump_json()}
 
-        Components:
-        {components_json}
+        Endpoint catalog:
+        {json.dumps(endpoint_catalog, indent=2)}
 
         Rules:
-        - Every power pin must connect to a compatible power rail.
-        - Every ground pin must connect to a ground net.
+        - Every power endpoint must connect to a compatible source or regulated-output rail.
+        - Every ground endpoint must connect to a ground net.
         - Do not short power to ground or mix incompatible logic voltages.
         - Use level shifting or voltage-compatible parts when needed.
-        - A physical pin must appear in only one net.
-        - Passive components bridge nets with one passive pin per net.
-        - Keep pin_mappings focused on controller pins and human-readable functions.
+        - A non-power/non-ground endpoint must appear in only one net.
+        - Passive components bridge nets with one passive endpoint per net.
 
-        Return WiringWrapper.
+        Return WiringIntent with name, net_type, voltage, and endpoint_ids for each net.
         """
-        return self._call_llm_structured(prompt, WiringWrapper, pipeline_step_id="wiring_netlist")
+        wiring_intent: WiringIntent = self._call_llm_structured(
+            prompt,
+            WiringIntent,
+            pipeline_step_id="wiring_netlist",
+        )
+        compilation = compile_wiring_intent(components, wiring_intent)
+        return WiringWrapper(
+            nets=compilation.nets,
+            pin_mappings=derive_pin_mappings(components, compilation.nets),
+            intent_issues=compilation.issues,
+        )
 
     def _repair_wiring(
         self,
@@ -850,15 +901,17 @@ class WebResearchHardwarePipeline:
         nets: List[ConnectionNet],
         issues: List[ValidationIssue],
     ) -> WiringWrapper:
+        components = [ComponentInstance.model_validate(item) for item in json.loads(components_json)]
         prompt = f"""
-        You are a Wiring/Netlist Auto-Correction Agent.
-        Correct the netlist using the validation report.
+        You are a Wiring Intent Auto-Correction Agent.
+        Correct only the rejected or invalid nets using the validation report.
+        Return replacement intents for existing canonical nets using replace_net_id. Omit valid nets.
 
         Requirements:
         {plan.requirements.model_dump_json()}
 
-        Components:
-        {components_json}
+        Endpoint catalog:
+        {json.dumps(endpoint_catalog_prompt(build_endpoint_catalog(components)), indent=2)}
 
         Previous nets:
         {json.dumps([net.model_dump() for net in nets], indent=2)}
@@ -866,9 +919,20 @@ class WebResearchHardwarePipeline:
         Validation issues:
         {json.dumps([issue.model_dump() for issue in issues], indent=2)}
 
-        Return corrected WiringWrapper.
+        Use endpoint_ids from the catalog only. Keep valid existing nets unchanged. Return WiringIntent.
         """
-        return self._call_llm_structured(prompt, WiringWrapper, pipeline_step_id="validation_repair")
+        repair_intent: WiringIntent = self._call_llm_structured(
+            prompt,
+            WiringIntent,
+            pipeline_step_id="validation_repair",
+        )
+        compilation = compile_wiring_intent(components, repair_intent, existing_nets=nets)
+        merged_nets = compilation.all_nets
+        return WiringWrapper(
+            nets=merged_nets,
+            pin_mappings=derive_pin_mappings(components, merged_nets),
+            intent_issues=compilation.issues,
+        )
 
     def _generate_mechanical(
         self,

@@ -3,6 +3,8 @@ from __future__ import annotations
 import importlib.util
 import unittest
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from uuid import UUID
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +41,20 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
 
         self.assertEqual("nemoclaw", args.authoring_agent)
         self.assertEqual("compiled.json", args.output)
+
+    def test_project_allocator_uses_a_generated_uuid_under_the_workspace(self) -> None:
+        script = SKILL_ROOT / "scripts" / "create_project.py"
+        spec = importlib.util.spec_from_file_location("forma_skill_project", script)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+
+        with TemporaryDirectory() as temporary_directory:
+            workspace = Path(temporary_directory) / "forma-workspace"
+            project_path = module.create_project_directory(workspace)
+            self.assertEqual(workspace, project_path.parent)
+            UUID(project_path.name)
+            self.assertTrue(project_path.is_dir())
 
 
 if __name__ == "__main__":

@@ -9,6 +9,10 @@ FRONTEND_PORT="${FRONTEND_PORT:-3000}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/backend-dev.log}"
+FORMA_AUTH_MODE="${FORMA_AUTH_MODE:-local}"
+FORMA_DEV_MODE="${FORMA_DEV_MODE:-true}"
+LLM_PROVIDER="${LLM_PROVIDER:-simulation}"
+LOCAL_SECRETS_FILE="${FORMA_LOCAL_SECRETS_FILE:-$ROOT_DIR/.forma/local-secrets.env}"
 
 # shellcheck source=scripts/development/dev-processes.sh
 source "$ROOT_DIR/scripts/development/dev-processes.sh"
@@ -85,6 +89,25 @@ cleanup() {
 trap cleanup EXIT INT TERM HUP
 
 cd "$ROOT_DIR"
+
+if [ -z "${FORMA_USER_SECRETS_KEY:-}" ] && [ -f "$LOCAL_SECRETS_FILE" ]; then
+  while IFS='=' read -r secret_name secret_value; do
+    if [ "$secret_name" = "FORMA_USER_SECRETS_KEY" ]; then
+      FORMA_USER_SECRETS_KEY="$secret_value"
+      break
+    fi
+  done < "$LOCAL_SECRETS_FILE"
+fi
+
+if [ -z "${FORMA_USER_SECRETS_KEY:-}" ]; then
+  mkdir -p "$(dirname "$LOCAL_SECRETS_FILE")"
+  FORMA_USER_SECRETS_KEY="$($PYTHON_BIN -c 'import secrets; print(secrets.token_urlsafe(48))')"
+  printf 'FORMA_USER_SECRETS_KEY=%s\n' "$FORMA_USER_SECRETS_KEY" > "$LOCAL_SECRETS_FILE"
+  chmod 600 "$LOCAL_SECRETS_FILE" 2>/dev/null || true
+  log "Generated a local encryption key at $LOCAL_SECRETS_FILE"
+fi
+
+export FORMA_AUTH_MODE FORMA_DEV_MODE LLM_PROVIDER FORMA_USER_SECRETS_KEY
 
 dev_cleanup_previous_session
 

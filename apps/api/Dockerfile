@@ -31,4 +31,4 @@ USER appuser
 
 EXPOSE 8000 8766
 
-CMD ["sh", "-c", "uvicorn apps.api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "./apps/api/entrypoint.sh"]

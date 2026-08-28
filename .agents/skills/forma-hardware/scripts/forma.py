@@ -44,6 +44,7 @@ def _timeout(value: float | None) -> float:
 
 
 def request(method: str, params: dict[str, Any] | None = None, *, url: str | None = None, timeout: float | None = None) -> Any:
+    target_url = _url(url)
     payload = {
         "jsonrpc": "2.0",
         "id": f"forma-skill-{uuid.uuid4().hex}",
@@ -58,7 +59,7 @@ def request(method: str, params: dict[str, Any] | None = None, *, url: str | Non
     token = os.environ.get("FORMA_AUTH_TOKEN", "").strip()
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    http_request = Request(_url(url), data=json.dumps(payload).encode(), headers=headers, method="POST")
+    http_request = Request(target_url, data=json.dumps(payload).encode(), headers=headers, method="POST")
     try:
         with urlopen(http_request, timeout=_timeout(timeout)) as response:
             result = json.loads(response.read().decode())
@@ -66,7 +67,11 @@ def request(method: str, params: dict[str, Any] | None = None, *, url: str | Non
         detail = exc.read().decode(errors="replace").strip()
         raise FormaClientError(f"Forma returned HTTP {exc.code}: {detail}") from exc
     except URLError as exc:
-        raise FormaClientError(f"Could not reach Forma at {_url(url)}: {exc.reason}") from exc
+        raise FormaClientError(
+            f"Could not reach Forma at {target_url}: {exc.reason}. "
+            "Run ./scripts/development/dev.sh from a Forma checkout, "
+            "or set FORMA_MCP_URL to a hosted /api/mcp endpoint."
+        ) from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise FormaClientError("Forma returned invalid JSON.") from exc
     if not isinstance(result, dict):

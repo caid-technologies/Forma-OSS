@@ -43,6 +43,22 @@ nemoclaw my-sandbox upload .agents/skills/forma-hardware /sandbox/.openclaw/work
 
 Repeat the upload for each agent workspace. For a stable private RFC1918 endpoint, add `--trusted-private-host forma.internal.example` when registering it and use a certificate valid for that exact hostname. NemoClaw intentionally rejects `http://127.0.0.1`, `localhost`, and `host.docker.internal` MCP URLs.
 
+## CAD skill dependency
+
+The shared skill manages the OpenCAD dependency for CAD-capable workflows;
+the base Forma SDK and MCP client do not install it. Run setup once after
+installing the skill, before asking an agent to create or export CAD:
+
+```bash
+python .agents/skills/forma-hardware/scripts/cad.py setup
+```
+
+The adapter pins OpenCAD `0.2.3` with the `occt` extra, reuses a compatible
+native installation, and verifies OCCT before a model runs. See the skill's
+[CAD reference](../.agents/skills/forma-hardware/references/cad.md) for build
+commands, exact recovery diagnostics, and `FORMA_OPENCAD_REQUIREMENT` source
+overrides.
+
 ## OpenCode
 
 OpenCode also discovers `.agents/skills/forma-hardware/SKILL.md`. Add Forma to `opencode.json`:

@@ -56,6 +56,20 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
             UUID(project_path.name)
             self.assertTrue(project_path.is_dir())
 
+    def test_cad_adapter_declares_managed_native_dependency(self) -> None:
+        script = SKILL_ROOT / "scripts" / "cad.py"
+        content = script.read_text(encoding="utf-8")
+        self.assertIn('SUPPORTED_OPENCAD_VERSION = "0.2.3"', content)
+        self.assertIn('DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt]=={SUPPORTED_OPENCAD_VERSION}"', content)
+        self.assertIn('create_backend("occt", require_native=True)', content)
+        self.assertIn("FORMA_OPENCAD_REQUIREMENT", content)
+
+    def test_base_core_dependencies_do_not_include_opencad(self) -> None:
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
+        self.assertNotIn("opencad", pyproject.lower())
+        self.assertNotIn("opencad", requirements.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

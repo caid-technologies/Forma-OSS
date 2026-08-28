@@ -5,7 +5,21 @@ description: Compile, validate, inspect, or generate safe low-voltage maker-elec
 
 # Forma Hardware
 
-Use the host agent to author the design and Forma to normalize Hardware IR, apply deterministic electrical checks, and render diagrams. Never replace a failed live generation with simulated output unless the user explicitly requests simulation.
+Use the host agent to author the design and Forma to normalize Hardware IR, apply deterministic electrical checks, and render diagrams. For CAD-capable workflows, use the Forma-owned OpenCAD adapter described in [references/cad.md](references/cad.md). Never replace a failed live generation with simulated output unless the user explicitly requests simulation.
+
+## CAD dependency
+
+When the user asks for a CAD model or STEP/STL export, prepare the managed
+runtime before writing or running the model:
+
+```bash
+python <skill-directory>/scripts/cad.py setup
+```
+
+The setup command reuses compatible OpenCAD `0.2.3` installations and installs
+`opencad[occt]==0.2.3` when needed. It verifies native OCCT before a generation
+job begins. Do not import OpenCAD from Forma's core package; use the adapter's
+`build` command for model execution and export.
 
 ## Workspace
 

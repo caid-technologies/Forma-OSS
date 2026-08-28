@@ -1571,7 +1571,7 @@ async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
 @app.post("/mcp")
 async def mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_mcp_user_context)):
     """MCP Streamable HTTP endpoint exposing Forma tools."""
-    response = await handle_mcp_json_rpc(payload)
+    response = await handle_mcp_json_rpc(payload, _user)
     if response is None:
         return Response(status_code=202)
     return response
@@ -1580,7 +1580,7 @@ async def mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(re
 @app.post("/a2a/mcp")
 async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depends(require_mcp_user_context)):
     """Alias for agents that discover MCP under the A2A route prefix."""
-    response = await handle_mcp_json_rpc(payload)
+    response = await handle_mcp_json_rpc(payload, _user)
     if response is None:
         return Response(status_code=202)
     return response

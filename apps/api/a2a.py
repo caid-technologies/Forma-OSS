@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
+from apps.api.auth import UserContext
 from forma_core.agents.workflows import (
     generate_project_with_workflow,
     get_workflow_debug_config,
@@ -22,6 +23,7 @@ from forma_core.database import (
     ensure_project_action_allowed,
     get_generated_project,
     save_generated_project,
+    update_generated_project_metadata,
     update_generated_project_hardware_ir,
 )
 from forma_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
@@ -1307,7 +1309,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
             "name": "forma.compile_project",
             "description": (
                 "Normalize, electrically validate, and render host-agent-authored Forma Hardware IR "
-                "without invoking a server-side LLM."
+                "without invoking a server-side LLM, then persist the result for gallery/workspace use."
             ),
             "inputSchema": {
                 "type": "object",
@@ -1316,10 +1318,24 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                         "type": "object",
                         "description": "Forma Hardware IR authored by the calling agent.",
                     },
+                    "project_id": {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Optional existing project UUID to update when owned by the caller.",
+                    },
                     "authoring_agent": {
                         "type": "string",
                         "enum": ["openclaw", "opencode", "nemoclaw", "claude", "codex", "other"],
                         "default": "other",
+                    },
+                    "prompt": {
+                        "type": "string",
+                        "description": "Optional source prompt stored with the project.",
+                    },
+                    "visibility": {
+                        "type": "string",
+                        "enum": ["public", "private"],
+                        "default": "public",
                     },
                 },
                 "required": ["project_ir"],
@@ -1448,17 +1464,20 @@ def _mcp_tools() -> List[Dict[str, Any]]:
     ]
 
 
-async def handle_mcp_json_rpc(payload: Any) -> Any:
+async def handle_mcp_json_rpc(payload: Any, user_context: Optional[UserContext] = None) -> Any:
     if isinstance(payload, list):
         if not payload:
             return _jsonrpc_error(None, -32600, "Invalid empty JSON-RPC batch.")
-        responses = [await _handle_mcp_request(item) for item in payload]
+        responses = [await _handle_mcp_request(item, user_context) for item in payload]
         filtered = [response for response in responses if response is not None]
         return filtered or None
-    return await _handle_mcp_request(payload)
+    return await _handle_mcp_request(payload, user_context)
 
 
-async def _handle_mcp_request(request: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+async def _handle_mcp_request(
+    request: Dict[str, Any],
+    user_context: Optional[UserContext] = None,
+) -> Optional[Dict[str, Any]]:
     if (
         not isinstance(request, dict)
         or request.get("jsonrpc") != "2.0"
@@ -1508,7 +1527,7 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Optional[Dict[str, Any
         if method == "tools/call":
             tool_name = params.get("name")
             arguments = params.get("arguments") or {}
-            result = await _call_mcp_tool(tool_name, arguments)
+            result = await _call_mcp_tool(tool_name, arguments, user_context)
             return _jsonrpc_result(request_id, _mcp_tool_result(result))
 
         return _jsonrpc_error(request_id, -32601, f"Unknown MCP method: {method}")
@@ -1516,18 +1535,115 @@ async def _handle_mcp_request(request: Dict[str, Any]) -> Optional[Dict[str, Any
         return _jsonrpc_error(request_id, -32000, str(exc))
 
 
-async def _call_mcp_tool(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+def _persist_mcp_compile(
+    project: HardwareIR,
+    arguments: Dict[str, Any],
+    user_context: Optional[UserContext],
+) -> Dict[str, Any]:
+    """Persist a host-authored compilation without trusting caller ownership."""
+    metadata = dict(project.assembly_metadata or {})
+    requested_project_id = arguments.get("project_id") or metadata.get("project_id")
+    try:
+        project_id = (
+            str(uuid.UUID(str(requested_project_id).strip()))
+            if requested_project_id
+            else str(uuid.uuid4())
+        )
+    except (TypeError, ValueError, AttributeError) as exc:
+        raise ValueError("project_id must be a UUID when supplied.") from exc
+
+    owner_user_id = (
+        str(user_context.owner_user_id).strip()
+        if user_context is not None and user_context.owner_user_id
+        else None
+    )
+    existing = get_generated_project(project_id, include_deleted=True)
+    if existing is not None:
+        if getattr(existing, "status", "active") != "active":
+            raise ValueError("A deleted compiled project cannot be restored by recompiling.")
+        existing_owner = str(getattr(existing, "owner_user_id", "") or "").strip()
+        if not owner_user_id or existing_owner != owner_user_id:
+            raise ValueError("An existing compiled project can only be updated by its owner.")
+        chat_id = str(getattr(existing, "chat_id", "") or "").strip() or None
+        existing_ir = getattr(existing, "hardware_ir", {})
+        existing_metadata = existing_ir.get("assembly_metadata", {}) if isinstance(existing_ir, dict) else {}
+        revision = int(existing_metadata.get("compile_revision") or 1) + 1
+        created_at = str(getattr(existing, "created_at", "") or _utc_now())
+    else:
+        chat_id = str(uuid.uuid4()) if owner_user_id else None
+        revision = 1
+        created_at = _utc_now()
+
+    title = str((project.overview.title if project.overview else "") or "").strip() or "Untitled Forma Project"
+    prompt = str(arguments.get("prompt") or metadata.get("source_prompt") or title).strip()
+    visibility = str(
+        arguments.get("visibility")
+        or (getattr(existing, "visibility", None) if existing is not None else None)
+        or "public"
+    ).strip().lower()
+    if visibility not in {"public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    if not owner_user_id:
+        visibility = "public"
+
+    project.assembly_metadata = {
+        **metadata,
+        "project_id": project_id,
+        "chat_id": chat_id,
+        "authoring_agent": arguments.get("authoring_agent", "other"),
+        "compiled_by": "forma.compile_project",
+        "compile_revision": revision,
+        "created_at": created_at,
+        "source_prompt": prompt,
+    }
+    hardware_ir = project.model_dump(mode="json")
+    if existing is not None:
+        if not update_generated_project_hardware_ir(
+            project_id,
+            hardware_ir,
+            owner_user_id=owner_user_id,
+        ):
+            raise RuntimeError("Could not update the persisted compiled project.")
+        if not update_generated_project_metadata(
+            project_id,
+            owner_user_id=owner_user_id,
+            title=title,
+            prompt=prompt,
+            visibility=visibility,
+        ):
+            raise RuntimeError("Could not update the compiled project metadata.")
+    else:
+        save_generated_project(
+            project_id=project_id,
+            title=title,
+            prompt=prompt,
+            hardware_ir=hardware_ir,
+            created_at=created_at,
+            chat_id=chat_id,
+            owner_user_id=owner_user_id,
+            visibility=visibility,
+        )
+    return {
+        "project_id": project_id,
+        "chat_id": chat_id,
+        "persisted": True,
+        "visibility": visibility,
+    }
+
+
+async def _call_mcp_tool(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    user_context: Optional[UserContext] = None,
+) -> Dict[str, Any]:
     if tool_name == "forma.compile_project":
         project = HardwareIR.model_validate(arguments.get("project_ir"))
         issues = validate_circuit(project.components, project.nets, project.requirements)
         project.validation = build_validation_summary(issues)
         project.is_valid = not project.validation.critical
-        project.assembly_metadata = {
-            **(project.assembly_metadata or {}),
-            "authoring_agent": arguments.get("authoring_agent", "other"),
-            "compiled_by": "forma.compile_project",
-        }
+        persistence = _persist_mcp_compile(project, arguments, user_context)
         return {
+            **persistence,
             "project_ir": project.model_dump(mode="json"),
             "is_valid": project.is_valid,
             "validation": project.validation.model_dump(mode="json"),

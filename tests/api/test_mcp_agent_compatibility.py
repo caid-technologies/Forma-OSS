@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
 from apps.api.a2a import MCP_DEFAULT_PROTOCOL_VERSION, handle_mcp_json_rpc
+from apps.api.auth import UserContext
 from apps.api.main import app
 
 
@@ -82,27 +84,131 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         authoring_agents = compiler["inputSchema"]["properties"]["authoring_agent"]["enum"]
         self.assertIn("nemoclaw", authoring_agents)
 
-    async def test_compile_project_validates_without_generation(self) -> None:
-        response = await handle_mcp_json_rpc(
-            {
-                "jsonrpc": "2.0",
-                "id": 4,
-                "method": "tools/call",
-                "params": {
-                    "name": "forma.compile_project",
-                    "arguments": {
-                        "project_ir": {"components": [], "nets": []},
-                        "authoring_agent": "nemoclaw",
+    async def test_compile_project_persists_public_project_and_returns_identity(self) -> None:
+        with patch("apps.api.a2a.get_generated_project", return_value=None), patch(
+            "apps.api.a2a.save_generated_project"
+        ) as save_project:
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "forma.compile_project",
+                        "arguments": {
+                            "project_ir": {"components": [], "nets": []},
+                            "authoring_agent": "nemoclaw",
+                        },
+                    },
+                }
+            )
+
+        compiled = response["result"]["structuredContent"]
+        self.assertTrue(compiled["persisted"])
+        self.assertIsNone(compiled["chat_id"])
+        self.assertEqual("public", compiled["visibility"])
+        self.assertRegex(compiled["project_id"], r"^[0-9a-f-]{36}$")
+        save_project.assert_called_once()
+        self.assertEqual(compiled["project_id"], save_project.call_args.kwargs["project_id"])
+        self.assertEqual("public", save_project.call_args.kwargs["visibility"])
+
+    async def test_compile_project_persists_authenticated_private_project(self) -> None:
+        user = UserContext(
+            provider="test",
+            subject="agent-user",
+            owner_user_id="agent-user",
+            is_authenticated=True,
+            is_admin=False,
+        )
+        with patch("apps.api.a2a.get_generated_project", return_value=None), patch(
+            "apps.api.a2a.save_generated_project"
+        ) as save_project:
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 5,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "forma.compile_project",
+                        "arguments": {
+                            "project_ir": {"components": [], "nets": []},
+                            "prompt": "Build a private sensor enclosure",
+                            "visibility": "private",
+                        },
                     },
                 },
-            }
-        )
+                user,
+            )
+
+        compiled = response["result"]["structuredContent"]
+        self.assertEqual("private", compiled["visibility"])
+        self.assertIsNotNone(compiled["chat_id"])
+        self.assertEqual("agent-user", save_project.call_args.kwargs["owner_user_id"])
+        self.assertEqual("Build a private sensor enclosure", save_project.call_args.kwargs["prompt"])
+
+    async def test_compile_project_persists_and_validates(self) -> None:
+        with patch("apps.api.a2a.get_generated_project", return_value=None), patch(
+            "apps.api.a2a.save_generated_project"
+        ):
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 6,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "forma.compile_project",
+                        "arguments": {
+                            "project_ir": {"components": [], "nets": []},
+                            "authoring_agent": "nemoclaw",
+                        },
+                    },
+                }
+            )
 
         compiled = response["result"]["structuredContent"]
         self.assertTrue(compiled["is_valid"])
         self.assertEqual("nemoclaw", compiled["project_ir"]["assembly_metadata"]["authoring_agent"])
         self.assertIn("mermaid_code", compiled)
         self.assertIn("svg_schematic", compiled)
+
+    async def test_compile_project_cannot_update_another_owner(self) -> None:
+        project_id = "12345678-1234-4234-8234-123456789012"
+        with patch(
+            "apps.api.a2a.get_generated_project",
+            return_value=SimpleNamespace(
+                owner_user_id="different-user",
+                status="active",
+                hardware_ir={},
+                chat_id=None,
+                created_at="2026-01-01T00:00:00Z",
+                visibility="private",
+            ),
+        ), patch("apps.api.a2a.update_generated_project_hardware_ir") as update_project:
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 7,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "forma.compile_project",
+                        "arguments": {
+                            "project_id": project_id,
+                            "project_ir": {"components": [], "nets": []},
+                        },
+                    },
+                },
+                UserContext(
+                    provider="test",
+                    subject="agent-user",
+                    owner_user_id="agent-user",
+                    is_authenticated=True,
+                    is_admin=False,
+                ),
+            )
+
+        self.assertEqual(-32000, response["error"]["code"])
+        self.assertIn("only be updated by its owner", response["error"]["message"])
+        update_project.assert_not_called()
 
 
 if __name__ == "__main__":

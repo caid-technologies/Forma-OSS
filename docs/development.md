@@ -21,6 +21,12 @@ The combined dev launcher starts the backend and frontend together and writes ba
 ./scripts/development/dev.sh
 ```
 
+On first run it installs missing dependencies, defaults to local auth with
+SQLite without selecting an LLM, and stores a generated encryption key in
+`.forma/local-secrets.env`. The connected host agent authors the Hardware IR;
+Forma validates and compiles it deterministically. Set `FORMA_USER_SECRETS_KEY`
+explicitly when the workspace must use an existing encrypted settings store.
+
 If you run uvicorn directly and want the frontend LOGS tab to show backend output, set `BACKEND_LOG_FILE=.logs/backend-dev.log`.
 
 Tests:

@@ -12,11 +12,29 @@ Keep tokens in the environment, never in committed configuration or generated pr
 
 ## Start Forma locally
 
-From the repository root:
+From a Forma checkout, the one-command launcher installs missing backend and
+frontend dependencies, enables local auth/SQLite defaults without selecting an
+LLM, creates an encrypted local key under `.forma/`, and starts both services:
 
 ```bash
-FORMA_AUTH_MODE=local uvicorn apps.api.main:app --port 8000
+./scripts/development/dev.sh
 ```
+
+The launcher honors explicit environment overrides. OpenCode (or another host
+agent) supplies the model that authors Hardware IR; `forma.compile_project`
+then performs deterministic validation, rendering, and persistence. The
+launcher does not set `LLM_PROVIDER` or `LLM_MODEL`. To run only the backend
+manually, set a server-only key:
+
+```bash
+FORMA_AUTH_MODE=local FORMA_DEV_MODE=true \
+FORMA_USER_SECRETS_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
+uvicorn apps.api.main:app --port 8000
+```
+
+The separate `forma.generate_project` path is server-side generation. Use it
+only when the backend has an explicitly configured provider and model; it does
+not inherit OpenCode's active model through MCP.
 
 ## OpenClaw
 
@@ -68,7 +86,7 @@ Then run `opencode mcp list`. For a protected server, add `"Authorization": "Bea
 
 ## Troubleshooting
 
-- Connection refused: start Forma or correct `FORMA_MCP_URL`.
+- Connection refused: run `./scripts/development/dev.sh` from a Forma checkout, or set `FORMA_MCP_URL` to a hosted `/api/mcp` endpoint.
 - HTTP 401/403: supply either a Clerk admin bearer token or the dedicated `FORMA_MCP_API_KEY`.
 - NemoClaw rejects the URL: use a stable HTTPS endpoint, not host loopback; declare an exact private hostname when needed.
 - Method not found: update the Forma server and inspect `python scripts/forma.py tools`.

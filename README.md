@@ -46,7 +46,11 @@ From the repo root:
 ./scripts/development/dev.sh
 ```
 
-This starts the FastAPI backend and Next.js frontend together. Use `BACKEND_PORT`, `FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
+This starts the FastAPI backend and Next.js frontend together. It installs
+missing local dependencies, defaults to local auth/SQLite without overriding
+the host agent's model, and persists a generated encryption key under
+`.forma/`. Use `BACKEND_PORT`,
+`FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
 
 ### Python Package (PyPI)
 The reusable core is published on PyPI as [`caid-forma-core`](https://pypi.org/project/caid-forma-core/). The distribution name is `caid-forma-core`; the Python import package is `forma_core`.
@@ -74,6 +78,10 @@ Compose deliberately defaults to SQLite even if the repo `.env` configures a
 host-side database. Set `COMPOSE_DATABASE_BACKEND=supabase` only with a
 container-reachable `SUPABASE_URL`. Live model-provider variables still pass
 through normally.
+
+The Docker backend generates and persists a local encryption key in the
+`forma-data` volume when `FORMA_USER_SECRETS_KEY` is not supplied. Production
+deployments should provide their own stable server-only key.
 
 If you change the published backend URL, rebuild the frontend with a matching public API URL:
 

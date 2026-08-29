@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import UUID
+from urllib.error import URLError
+from unittest.mock import patch
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -69,6 +72,36 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
         requirements = (REPO_ROOT / "requirements.txt").read_text(encoding="utf-8")
         self.assertNotIn("opencad", pyproject.lower())
         self.assertNotIn("opencad", requirements.lower())
+
+    def test_client_connection_error_has_bootstrap_and_hosted_endpoint_hints(self) -> None:
+        script = SKILL_ROOT / "scripts" / "forma.py"
+        spec = importlib.util.spec_from_file_location("forma_skill_client", script)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+
+        with patch.dict(os.environ, {}, clear=True), patch.object(
+            module, "urlopen", side_effect=URLError("connection refused")
+        ):
+            with self.assertRaises(module.FormaClientError) as raised:
+                module.request("tools/list")
+
+        message = str(raised.exception)
+        self.assertIn("./scripts/development/dev.sh", message)
+        self.assertIn("FORMA_MCP_URL", message)
+
+    def test_local_launcher_bootstraps_required_runtime_defaults(self) -> None:
+        launcher = (REPO_ROOT / "scripts" / "development" / "dev.sh").read_text(encoding="utf-8")
+        self.assertIn('FORMA_AUTH_MODE="${FORMA_AUTH_MODE:-local}"', launcher)
+        self.assertIn('FORMA_DEV_MODE="${FORMA_DEV_MODE:-true}"', launcher)
+        self.assertNotIn('LLM_PROVIDER="${LLM_PROVIDER:-simulation}"', launcher)
+        self.assertNotIn("export FORMA_AUTH_MODE FORMA_DEV_MODE LLM_PROVIDER", launcher)
+        self.assertIn("authors the IR, while Forma compiles it deterministically", launcher)
+        self.assertIn("secrets.token_urlsafe(48)", launcher)
+
+        entrypoint = (REPO_ROOT / "apps" / "api" / "entrypoint.sh").read_text(encoding="utf-8")
+        self.assertIn("/data/.forma_user_secrets_key", entrypoint)
+        self.assertIn("exec uvicorn apps.api.main:app", entrypoint)
 
 
 if __name__ == "__main__":

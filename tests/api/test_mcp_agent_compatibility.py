@@ -1,18 +1,30 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import unittest
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
 
-from apps.api.a2a import MCP_DEFAULT_PROTOCOL_VERSION, handle_mcp_json_rpc
+from apps.api import a2a
+from apps.api.a2a import A2AMessage, MCP_DEFAULT_PROTOCOL_VERSION, handle_mcp_json_rpc
 from apps.api.auth import UserContext
 from apps.api.main import app
 
 
 class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
+    @staticmethod
+    def _user(owner_user_id: str = "agent-user") -> UserContext:
+        return UserContext(
+            provider="test",
+            subject=owner_user_id,
+            owner_user_id=owner_user_id,
+            is_authenticated=True,
+            is_admin=False,
+        )
+
     def test_mcp_route_accepts_a_dedicated_agent_api_key(self) -> None:
         api_key = "n" * 32
         with patch.dict(
@@ -209,6 +221,73 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(-32000, response["error"]["code"])
         self.assertIn("only be updated by its owner", response["error"]["message"])
         update_project.assert_not_called()
+
+    async def test_mcp_action_forwards_authenticated_context(self) -> None:
+        user = self._user()
+        with patch.object(a2a, "call_forma_action", new=AsyncMock(return_value={"ok": True})) as action:
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "context",
+                    "method": "tools/call",
+                    "params": {"name": "forma.debug_config", "arguments": {}},
+                },
+                user,
+            )
+
+        self.assertEqual({"ok": True}, response["result"]["structuredContent"])
+        action.assert_awaited_once()
+        self.assertIs(user, action.await_args.args[2])
+
+    async def test_queued_a2a_action_keeps_context_and_replaces_payload_owner(self) -> None:
+        user = self._user()
+        message = A2AMessage(
+            sender="test-agent",
+            action="forma.generate_project",
+            payload={"prompt": "Build it", "owner_user_id": "attacker-user"},
+        )
+        with patch.object(a2a.A2A_HUB, "register", new=AsyncMock()), patch.object(
+            a2a.A2A_HUB, "publish", new=AsyncMock()
+        ), patch.object(a2a.JOB_STORE, "create_job", return_value={"job_id": message.job_id}) as create_job, patch.object(
+            a2a, "_process_server_message", new=AsyncMock()
+        ) as process:
+            await a2a.submit_a2a_message(message, user)
+            await asyncio.sleep(0)
+
+        self.assertEqual("agent-user", create_job.call_args.kwargs["payload"]["owner_user_id"])
+        process.assert_awaited_once()
+        self.assertIs(user, process.await_args.args[1])
+
+    async def test_mcp_a2a_send_forwards_authenticated_context(self) -> None:
+        user = self._user()
+        ack = SimpleNamespace(model_dump=lambda: {"accepted": True})
+        with patch.object(a2a, "submit_a2a_message", new=AsyncMock(return_value=ack)) as submit:
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "send",
+                    "method": "tools/call",
+                    "params": {
+                        "name": "forma.a2a.send_message",
+                        "arguments": {"action": "forma.generate_project", "payload": {"prompt": "Build it"}},
+                    },
+                },
+                user,
+            )
+
+        self.assertEqual({"accepted": True}, response["result"]["structuredContent"])
+        submit.assert_awaited_once()
+        self.assertIs(user, submit.await_args.args[1])
+
+    async def test_project_action_cannot_use_payload_owner_without_context(self) -> None:
+        with self.assertRaisesRegex(ValueError, "authenticated user context"):
+            await a2a.call_forma_action(
+                "forma.generate_project",
+                {
+                    "project_id": "12345678-1234-4234-8234-123456789012",
+                    "owner_user_id": "victim-user",
+                },
+            )
 
 
 if __name__ == "__main__":

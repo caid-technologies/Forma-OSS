@@ -50,10 +50,12 @@ from forma_core.debug import (
     get_debug_mode_config,
     runtime_safe_error_message,
 )
-from fastapi import Body, Depends, FastAPI, HTTPException, Query, WebSocket, status
+from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ValidationError
 from dotenv import load_dotenv
 
@@ -136,6 +138,7 @@ from forma_core.config.contract import resolve_runtime_contract
 from forma_core.workspaces.projects.iteration import ProjectIterator
 from forma_core.llm import LLMProviderConfigError
 from forma_core.llm import LLMProviderOutputError
+from forma_core.debug import api_error_detail, log_exception, new_error_correlation_id
 from forma_core.workspaces.projects.objects import build_project_object, list_project_namespaces
 from forma_core.agents.pipeline import PipelineCancelledError, list_agent_pipeline_steps, observe_agent_pipeline, pipeline_workflow_id
 from forma_core.video_prompts import generate_image_to_video_prompt_from_namespaces
@@ -260,6 +263,36 @@ app = FastAPI(
     openapi_url="/openapi.json",
     swagger_ui_oauth2_redirect_url="/docs/oauth2-redirect",
 )
+
+
+@app.exception_handler(RequestValidationError)
+async def transport_validation_exception_handler(request: Request, exc: RequestValidationError):
+    if request.url.path not in {
+        "/a2a/messages",
+        "/mcp",
+        "/a2a/mcp",
+        "/api/a2a/messages",
+        "/api/mcp",
+        "/api/a2a/mcp",
+    }:
+        return await request_validation_exception_handler(request, exc)
+    correlation_id = new_error_correlation_id()
+    logger.warning(
+        "Transport request validation failed: path=%s correlation_id=%s",
+        request.url.path,
+        correlation_id,
+    )
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": api_error_detail(
+                code="request_validation_failed",
+                message="The request failed validation.",
+                correlation_id=correlation_id,
+                public=True,
+            )
+        },
+    )
 
 _project_purge_stop_event: Optional[asyncio.Event] = None
 _project_purge_task: Optional[asyncio.Task[Any]] = None
@@ -518,15 +551,30 @@ def debug_config_endpoint(
             "project_namespaces": [namespace.model_dump(mode="json") for namespace in list_project_namespaces()],
         }
     except LLMProviderConfigError as e:
+        correlation_id = new_error_correlation_id()
+        log_exception(logger, "Debug config rejected", e, correlation_id=correlation_id, level=logging.WARNING)
         raise HTTPException(
             status_code=400,
-            detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e, provider=provider, model=model),
+            detail=api_error_detail(
+                code="llm_config_invalid",
+                message=str(e),
+                exc=e,
+                provider=provider,
+                model=model,
+                correlation_id=correlation_id,
+            ),
         ) from e
     except Exception as e:
-        logger.exception("Debug config failed.")
+        correlation_id = new_error_correlation_id()
+        log_exception(logger, "Debug config failed", e, correlation_id=correlation_id)
         raise HTTPException(
             status_code=500,
-            detail=api_error_detail(code="debug_config_failed", message=f"Debug config failed: {str(e)}", exc=e),
+            detail=api_error_detail(
+                code="debug_config_failed",
+                message="Debug config failed.",
+                exc=e,
+                correlation_id=correlation_id,
+            ),
         ) from e
 
 
@@ -538,15 +586,23 @@ def runtime_config_endpoint(user: UserContext = Depends(optional_user_context)):
         _, contract = _resolved_client_runtime_config()
         return contract
     except LLMProviderConfigError as e:
+        correlation_id = new_error_correlation_id()
+        log_exception(logger, "Runtime config rejected", e, correlation_id=correlation_id, level=logging.WARNING)
         raise HTTPException(
             status_code=400,
-            detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e),
+            detail=api_error_detail(code="llm_config_invalid", message=str(e), exc=e, correlation_id=correlation_id),
         ) from e
     except Exception as e:
-        logger.exception("Runtime config resolution failed.")
+        correlation_id = new_error_correlation_id()
+        log_exception(logger, "Runtime config resolution failed", e, correlation_id=correlation_id)
         raise HTTPException(
             status_code=500,
-            detail=api_error_detail(code="runtime_config_failed", message=f"Runtime config failed: {str(e)}", exc=e),
+            detail=api_error_detail(
+                code="runtime_config_failed",
+                message="Runtime config failed.",
+                exc=e,
+                correlation_id=correlation_id,
+            ),
         ) from e
 
 @app.post("/generate", response_model=Dict[str, Any])
@@ -626,6 +682,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
 
     job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
+    correlation_id = new_error_correlation_id()
     if request.source_project_id:
         source_project = get_generated_project(request.source_project_id)
         if not source_project:
@@ -651,7 +708,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     JOB_STORE.create_job(
         job_id=job_id,
         message_id=message_id,
-        correlation_id=None,
+        correlation_id=correlation_id,
         action="forma.generate_project",
         sender="frontend",
         recipient="forma",
@@ -698,7 +755,12 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         if generation_status == "partial":
             JOB_STORE.mark_partial(job_id, response)
         elif generation_status == "failed":
-            JOB_STORE.mark_failed(job_id, "A required root generation stage failed; partial diagnostics were preserved.")
+            JOB_STORE.mark_failed(
+                job_id,
+                "A required root generation stage failed.",
+                error_code="generation_root_failed",
+                correlation_id=correlation_id,
+            )
         else:
             JOB_STORE.mark_succeeded(job_id, response)
         job = JOB_STORE.get_job(job_id)
@@ -736,8 +798,21 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         ) from e
     except ValueError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
-        logger.warning("Generation request rejected for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
+        JOB_STORE.mark_failed(
+            job_id,
+            "The generation request is invalid.",
+            error_debug,
+            error_code="generation_request_invalid",
+            correlation_id=correlation_id,
+        )
+        log_exception(
+            logger,
+            "Generation request rejected",
+            e,
+            correlation_id=correlation_id,
+            context={"job_id": job_id, "workflow": request.workflow},
+            level=logging.WARNING,
+        )
         raise HTTPException(
             status_code=400,
             detail=api_error_detail(
@@ -752,8 +827,21 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         ) from e
     except LLMProviderConfigError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
-        logger.warning("Generation LLM config failed for job_id=%s: %s", job_id, e, exc_info=debug_mode_enabled())
+        JOB_STORE.mark_failed(
+            job_id,
+            "The requested model configuration is invalid.",
+            error_debug,
+            error_code="llm_config_invalid",
+            correlation_id=correlation_id,
+        )
+        log_exception(
+            logger,
+            "Generation LLM config failed",
+            e,
+            correlation_id=correlation_id,
+            context={"job_id": job_id, "workflow": request.workflow},
+            level=logging.WARNING,
+        )
         raise HTTPException(
             status_code=400,
             detail=api_error_detail(
@@ -768,14 +856,20 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         ) from e
     except LLMProviderOutputError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
-        logger.warning(
-            "LLM output rejected for job_id=%s provider=%s model=%s: %s",
+        JOB_STORE.mark_failed(
             job_id,
-            request.provider,
-            request.model,
+            "The model provider returned an invalid response.",
+            error_debug,
+            error_code="llm_output_invalid",
+            correlation_id=correlation_id,
+        )
+        log_exception(
+            logger,
+            "LLM output rejected",
             e,
-            exc_info=debug_mode_enabled(),
+            correlation_id=correlation_id,
+            context={"job_id": job_id, "workflow": request.workflow},
+            level=logging.WARNING,
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -791,8 +885,14 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         ) from e
     except AlphaGenerationUnavailableError as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
         code = "alpha_generation_unavailable" if str(e) == ALPHA_GENERATION_UNAVAILABLE_MESSAGE else "llm_generation_unavailable"
+        JOB_STORE.mark_failed(
+            job_id,
+            "Generation is currently unavailable.",
+            error_debug,
+            error_code=code,
+            correlation_id=correlation_id,
+        )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail=api_error_detail(
@@ -807,8 +907,20 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         ) from e
     except Exception as e:
         error_debug = exception_debug_payload(e, context=payload) if debug_mode_enabled() else None
-        JOB_STORE.mark_failed(job_id, runtime_safe_error_message(str(e), provider=request.provider, model=request.model), error_debug)
-        logger.exception("Generation failed for job_id=%s provider=%s model=%s", job_id, request.provider, request.model)
+        JOB_STORE.mark_failed(
+            job_id,
+            "Generation could not be completed.",
+            error_debug,
+            error_code="generation_failed",
+            correlation_id=correlation_id,
+        )
+        log_exception(
+            logger,
+            "Generation failed",
+            e,
+            correlation_id=correlation_id,
+            context={"job_id": job_id, "workflow": request.workflow},
+        )
         raise HTTPException(
             status_code=500,
             detail=api_error_detail(
@@ -1295,8 +1407,40 @@ async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
 @app.post("/a2a/messages")
 async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_user_context)):
     """Submits an A2A message and queues an async result for the sender."""
-    ack = await submit_a2a_message(message, user)
-    return ack.model_dump()
+    request_correlation_id = message.correlation_id or new_error_correlation_id()
+    try:
+        ack = await submit_a2a_message(message.model_copy(update={"correlation_id": request_correlation_id}), user)
+        return ack.model_dump()
+    except PermissionError as exc:
+        correlation_id = new_error_correlation_id()
+        detail = api_error_detail(
+            code="authorization_required",
+            message="You are not authorized to perform this action.",
+            correlation_id=correlation_id,
+            public=True,
+        )
+        log_exception(logger, "A2A request unauthorized", exc, correlation_id=correlation_id, level=logging.WARNING)
+        raise HTTPException(status_code=403, detail=detail) from exc
+    except ValueError as exc:
+        correlation_id = new_error_correlation_id()
+        detail = api_error_detail(
+            code="a2a_invalid_request",
+            message="The A2A request is invalid.",
+            correlation_id=correlation_id,
+            public=True,
+        )
+        log_exception(logger, "A2A request rejected", exc, correlation_id=correlation_id)
+        raise HTTPException(status_code=400, detail=detail) from exc
+    except Exception as exc:
+        correlation_id = new_error_correlation_id()
+        detail = api_error_detail(
+            code="a2a_submit_failed",
+            message="The A2A request could not be submitted.",
+            correlation_id=correlation_id,
+            public=True,
+        )
+        log_exception(logger, "A2A request failed", exc, correlation_id=correlation_id)
+        raise HTTPException(status_code=500, detail=detail) from exc
 
 
 @app.get("/a2a/agents/{agent_id}/events")

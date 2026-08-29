@@ -31,6 +31,11 @@ Job metadata is stored in the primary application database selected by `DATABASE
 
 Server-owned actions queue an `ack` event followed by a `result` or `error` event for the sender. Messages addressed to another agent are brokered into that agent's queue. Every submitted message is persisted with a `job_id` and lifecycle status.
 
+## Error Contract
+Transport errors never return raw exception text, provider responses, database details, prompts, or filesystem paths. A2A error events and REST errors use a stable `code`, public `message`, and generated `correlation_id` in the form `err_<uuid-hex>`. MCP keeps the JSON-RPC numeric error code and places the Forma `code` and `correlation_id` under `error.data`. Use the correlation ID to locate redacted operator diagnostics in server logs.
+
+Persisted job failures use the same public message contract and retain only the error code, error type, and correlation ID in `error_debug`; exception text and tracebacks are not persisted.
+
 `data_sources: ["past_jobs"]` adds lightweight, owner-scoped retrieval over completed generation jobs. Forma ranks recent stored project outputs by lexical overlap with the new prompt and supplies a compact context window to the generator. Retrieval and generation run asynchronously; no embeddings or external retrieval infrastructure are used.
 
 ## REST Listen Flow

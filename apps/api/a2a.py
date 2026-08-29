@@ -52,6 +52,14 @@ from forma_core.observability import (
     update_observation,
 )
 from forma_core.agents.pipeline import emit_agent_pipeline_event, ensure_agent_pipeline_active, observe_agent_pipeline
+from forma_core.debug import (
+    api_error_detail,
+    exception_debug_payload,
+    log_exception,
+    new_error_correlation_id,
+    public_error_message,
+    redact_error_value,
+)
 from forma_core.runtime import (
     AlphaGenerationUnavailableError,
     deployment_runtime_config,
@@ -200,7 +208,21 @@ def get_a2a_capabilities() -> Dict[str, Any]:
     try:
         llm_runtime = get_llm_runtime_debug_config()
     except Exception as exc:
-        llm_runtime = {"error": str(exc)}
+        correlation_id = new_error_correlation_id()
+        log_exception(
+            logger,
+            "A2A capability runtime lookup failed",
+            exc,
+            correlation_id=correlation_id,
+        )
+        llm_runtime = {
+            "error": api_error_detail(
+                code="runtime_config_failed",
+                message="Runtime configuration could not be resolved.",
+                correlation_id=correlation_id,
+                public=True,
+            )
+        }
 
     return {
         "agent_id": FORMA_AGENT_ID,
@@ -294,9 +316,18 @@ def _attach_stored_image_metadata(
             allow_remote_url=allow_remote_url,
         )
     except Exception as exc:
-        logger.warning("Image upload to Supabase Storage failed for %s: %s", metadata_prefix, exc)
+        correlation_id = new_error_correlation_id()
+        log_exception(
+            logger,
+            "Image upload to Supabase Storage failed",
+            exc,
+            correlation_id=correlation_id,
+            context={"metadata_prefix": metadata_prefix, "project_id": project_id},
+        )
         return {
-            f"{metadata_prefix}_storage_error": str(exc)[:500],
+            f"{metadata_prefix}_storage_error": public_error_message("storage_failed"),
+            f"{metadata_prefix}_storage_error_code": "storage_failed",
+            f"{metadata_prefix}_storage_error_correlation_id": correlation_id,
             f"{metadata_prefix}_storage_bucket": get_image_storage_config().get("bucket"),
         }
 
@@ -435,22 +466,28 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         return
 
     if not image_config.get("configured", False):
-        error_message = image_config.get("reason") or "Image output was requested, but the image provider is not configured."
+        error_detail = api_error_detail(
+            code="image_generation_failed",
+            message="Image output is not configured.",
+            correlation_id=new_error_correlation_id(),
+            public=True,
+        )
         logger.warning(
-            "Image generation operation failed before request: provider=%s model=%s reason=%s debug=%s",
+            "Image generation operation failed before request: provider=%s model=%s code=%s",
             image_config.get("provider"),
             image_config.get("model_name"),
-            error_message,
-            json.dumps(image_config, default=str, sort_keys=True),
+            error_detail["code"],
         )
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
             "image_output_status": "failed",
             "image_output_failed": True,
-            "image_output_error": str(error_message)[:500],
+            "image_output_error": error_detail["message"],
+            "image_output_error_code": error_detail["code"],
+            "image_output_error_correlation_id": error_detail["correlation_id"],
             "image_output_error_type": "configuration",
             "image_output_debug": image_config,
-            "product_image_error": str(error_message)[:500],
+            "product_image_error": error_detail["message"],
         }
         _set_operation_status(
             ir,
@@ -463,7 +500,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             enabled=image_config.get("enabled", False),
             configured=False,
             reason=image_config.get("reason"),
-            error=str(error_message)[:500],
+            error=error_detail["message"],
             error_type="configuration",
             details={"image_output_debug": image_config},
         )
@@ -480,20 +517,32 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
     try:
         generated_images = image_provider.generate_project_image_sequence(prompt_text, ir)
     except Exception as exc:
-        logger.exception(
-            "Image generation operation failed: provider=%s model=%s error_type=%s error=%s",
-            image_config.get("provider"),
-            image_config.get("model_name"),
-            exc.__class__.__name__,
+        correlation_id = new_error_correlation_id()
+        log_exception(
+            logger,
+            "Image generation operation failed",
             exc,
+            correlation_id=correlation_id,
+            context={
+                "provider": image_config.get("provider"),
+                "model": image_config.get("model_name"),
+            },
         )
-        error_message = str(exc)[:500]
+        error_detail = api_error_detail(
+            code="image_generation_failed",
+            message="Image generation could not be completed.",
+            correlation_id=correlation_id,
+            public=True,
+        )
+        error_message = error_detail["message"]
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
             "image_output_status": "failed",
             "image_output_failed": True,
             "image_output_error": error_message,
-            "image_output_error_type": exc.__class__.__name__,
+            "image_output_error_code": error_detail["code"],
+            "image_output_error_correlation_id": correlation_id,
+            "image_output_error_type": "provider",
             "image_output_debug": image_config,
             "product_image_error": error_message,
         }
@@ -508,7 +557,7 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             enabled=image_config.get("enabled", False),
             configured=image_config.get("configured", False),
             error=error_message,
-            error_type=exc.__class__.__name__,
+            error_type="provider",
             details={"image_output_debug": image_config},
         )
         return
@@ -520,7 +569,13 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
         len(generated_images),
     )
     if not generated_images:
-        error_message = "Image output was requested, but the image provider returned no images."
+        error_detail = api_error_detail(
+            code="image_generation_failed",
+            message="Image output was requested, but no images were returned.",
+            correlation_id=new_error_correlation_id(),
+            public=True,
+        )
+        error_message = error_detail["message"]
         logger.warning(
             "Image generation operation failed: provider=%s model=%s error_type=empty_response error=%s",
             image_config.get("provider"),
@@ -532,6 +587,8 @@ def _attach_product_image(prompt_text: str, ir: Any, generate_image: bool = Fals
             "image_output_status": "failed",
             "image_output_failed": True,
             "image_output_error": error_message,
+            "image_output_error_code": error_detail["code"],
+            "image_output_error_correlation_id": error_detail["correlation_id"],
             "image_output_error_type": "empty_response",
             "image_output_debug": image_config,
             "product_image_error": error_message,
@@ -1112,6 +1169,7 @@ async def submit_a2a_message(
     user_context: Optional[UserContext] = None,
 ) -> A2AEvent:
     message = _message_for_user_context(message, user_context)
+    message = message.model_copy(update={"correlation_id": message.correlation_id or new_error_correlation_id()})
     await A2A_HUB.register(message.sender)
     server_owned = _is_server_message(message)
     project_id = message.payload.get("project_id")
@@ -1184,33 +1242,71 @@ async def _process_server_message(
         if generation_status == "partial":
             JOB_STORE.mark_partial(message.job_id, result)
         elif generation_status == "failed":
+            correlation_id = new_error_correlation_id()
+            error_detail = api_error_detail(
+                code="generation_root_failed",
+                message="A required root generation stage failed.",
+                job_id=message.job_id,
+                correlation_id=correlation_id,
+                public=True,
+            )
             JOB_STORE.mark_failed(
                 message.job_id,
-                "A required root generation stage failed; partial diagnostics were preserved.",
+                error_detail["message"],
+                error_code=error_detail["code"],
+                correlation_id=correlation_id,
             )
         else:
             JOB_STORE.mark_succeeded(message.job_id, result)
+        transport_result = redact_error_value(result) if generation_status in {"partial", "failed"} else result
+        event_type = "error" if generation_status == "failed" else "result"
+        event_payload = (
+            {"error": error_detail, "result": transport_result}
+            if generation_status == "failed"
+            else transport_result
+        )
         event = A2AEvent(
             job_id=message.job_id,
             message_id=message.message_id,
-            correlation_id=message.correlation_id,
-            type="result",
+            correlation_id=error_detail["correlation_id"] if generation_status == "failed" else message.correlation_id,
+            type=event_type,
             action=message.action,
             sender=FORMA_AGENT_ID,
             recipient=message.sender,
-            payload=result,
+            payload=event_payload,
         )
     except Exception as exc:
-        JOB_STORE.mark_failed(message.job_id, str(exc))
+        correlation_id = new_error_correlation_id()
+        error_detail = api_error_detail(
+            code="a2a_action_failed",
+            message="A2A action failed.",
+            job_id=message.job_id,
+            correlation_id=correlation_id,
+            public=True,
+        )
+        log_exception(
+            logger,
+            "A2A action failed",
+            exc,
+            correlation_id=correlation_id,
+            context={"action": message.action, "job_id": message.job_id, "payload": message.payload},
+        )
+        JOB_STORE.mark_failed(
+            message.job_id,
+            error_detail["message"],
+            exception_debug_payload(exc, correlation_id=correlation_id),
+            error_code=error_detail["code"],
+            correlation_id=correlation_id,
+        )
         event = A2AEvent(
             job_id=message.job_id,
             message_id=message.message_id,
-            correlation_id=message.correlation_id,
+            correlation_id=correlation_id,
             type="error",
             action=message.action,
             sender=FORMA_AGENT_ID,
             recipient=message.sender,
-            payload={"error": str(exc)},
+            payload={"error": error_detail},
         )
 
     await A2A_HUB.publish(event)
@@ -1247,6 +1343,22 @@ async def handle_a2a_websocket(
             await submit_a2a_message(A2AMessage.model_validate(raw_message), user_context)
     except WebSocketDisconnect:
         logger.info("A2A websocket disconnected: %s", agent_id)
+    except Exception as exc:
+        correlation_id = new_error_correlation_id()
+        error_detail = api_error_detail(
+            code="a2a_protocol_error",
+            message="The A2A message could not be processed.",
+            correlation_id=correlation_id,
+            public=True,
+        )
+        log_exception(
+            logger,
+            "A2A WebSocket message failed",
+            exc,
+            correlation_id=correlation_id,
+            context={"agent_id": agent_id},
+        )
+        await websocket.send_json({"type": "error", "error": error_detail})
     finally:
         sender_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
@@ -1310,7 +1422,21 @@ async def _handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 raw_message = {**raw_message, "sender": raw_message.get("sender") or agent_id}
                 await submit_a2a_message(A2AMessage.model_validate(raw_message))
             except Exception as exc:
-                writer.write(json.dumps({"type": "error", "error": str(exc)}).encode("utf-8") + b"\n")
+                correlation_id = new_error_correlation_id()
+                error_detail = api_error_detail(
+                    code="a2a_protocol_error",
+                    message="The A2A message could not be processed.",
+                    correlation_id=correlation_id,
+                    public=True,
+                )
+                log_exception(
+                    logger,
+                    "A2A TCP message failed",
+                    exc,
+                    correlation_id=correlation_id,
+                    context={"agent_id": agent_id},
+                )
+                writer.write(json.dumps({"type": "error", "error": error_detail}).encode("utf-8") + b"\n")
                 await writer.drain()
     finally:
         sender_task.cancel()
@@ -1332,10 +1458,29 @@ def _jsonrpc_result(request_id: Any, result: Any) -> Dict[str, Any]:
     return {"jsonrpc": "2.0", "id": request_id, "result": result}
 
 
-def _jsonrpc_error(request_id: Any, code: int, message: str, data: Optional[Any] = None) -> Dict[str, Any]:
-    error: Dict[str, Any] = {"code": code, "message": message}
+def _jsonrpc_error(
+    request_id: Any,
+    code: int,
+    message: str,
+    data: Optional[Any] = None,
+    *,
+    error_code: str = "mcp_request_failed",
+    correlation_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    detail = api_error_detail(
+        code=error_code,
+        message=message,
+        correlation_id=correlation_id or new_error_correlation_id(),
+        public=True,
+    )
+    error: Dict[str, Any] = {"code": code, "message": detail["message"]}
+    error_data: Dict[str, Any] = {
+        "code": detail["code"],
+        "correlation_id": detail["correlation_id"],
+    }
     if data is not None:
-        error["data"] = data
+        error_data["details"] = redact_error_value(data)
+    error["data"] = error_data
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
 
@@ -1510,7 +1655,12 @@ def _mcp_tools() -> List[Dict[str, Any]]:
 async def handle_mcp_json_rpc(payload: Any, user_context: Optional[UserContext] = None) -> Any:
     if isinstance(payload, list):
         if not payload:
-            return _jsonrpc_error(None, -32600, "Invalid empty JSON-RPC batch.")
+            return _jsonrpc_error(
+                None,
+                -32600,
+                "Invalid empty JSON-RPC batch.",
+                error_code="mcp_invalid_request",
+            )
         responses = [await _handle_mcp_request(item, user_context) for item in payload]
         filtered = [response for response in responses if response is not None]
         return filtered or None
@@ -1526,17 +1676,29 @@ async def _handle_mcp_request(
         or request.get("jsonrpc") != "2.0"
         or not isinstance(request.get("method"), str)
     ):
-        return _jsonrpc_error(None, -32600, "Invalid JSON-RPC request.")
+        return _jsonrpc_error(None, -32600, "Invalid JSON-RPC request.", error_code="mcp_invalid_request")
 
     is_notification = "id" not in request
     request_id = request.get("id")
     method = request.get("method")
-    params = request.get("params") or {}
+    params = request.get("params")
+    if params is None:
+        params = {}
+    correlation_id = new_error_correlation_id()
 
     # JSON-RPC notifications never receive a response. Forma currently has no
     # notification methods with server-side work beyond initialization.
     if is_notification:
         return None
+
+    if not isinstance(params, dict):
+        return _jsonrpc_error(
+            request_id,
+            -32602,
+            "Request parameters are invalid.",
+            error_code="mcp_invalid_params",
+            correlation_id=correlation_id,
+        )
 
     try:
         if method == "initialize":
@@ -1569,13 +1731,50 @@ async def _handle_mcp_request(
 
         if method == "tools/call":
             tool_name = params.get("name")
-            arguments = params.get("arguments") or {}
+            if not isinstance(tool_name, str) or not tool_name.strip():
+                raise TypeError("tools/call requires a tool name.")
+            arguments = params.get("arguments")
+            if arguments is None:
+                arguments = {}
+            if not isinstance(arguments, dict):
+                raise TypeError("tools/call arguments must be an object.")
             result = await _call_mcp_tool(tool_name, arguments, user_context)
             return _jsonrpc_result(request_id, _mcp_tool_result(result))
 
-        return _jsonrpc_error(request_id, -32601, f"Unknown MCP method: {method}")
+        return _jsonrpc_error(
+            request_id,
+            -32601,
+            "The requested MCP method was not found.",
+            error_code="mcp_method_not_found",
+            correlation_id=correlation_id,
+        )
     except Exception as exc:
-        return _jsonrpc_error(request_id, -32000, str(exc))
+        log_exception(
+            logger,
+            "MCP request failed",
+            exc,
+            correlation_id=correlation_id,
+            context={"method": method, "params": params},
+        )
+        if isinstance(exc, PermissionError):
+            error_code = "authorization_required"
+            rpc_code = -32003
+            public_message = "You are not authorized to use this MCP tool."
+        elif isinstance(exc, (TypeError, KeyError)):
+            error_code = "mcp_invalid_params"
+            rpc_code = -32602
+            public_message = "Request parameters are invalid."
+        else:
+            error_code = "mcp_tool_failed"
+            rpc_code = -32000
+            public_message = "The MCP request could not be completed."
+        return _jsonrpc_error(
+            request_id,
+            rpc_code,
+            public_message,
+            error_code=error_code,
+            correlation_id=correlation_id,
+        )
 
 
 def _persist_mcp_compile(

@@ -1,11 +1,11 @@
-# `@caid-technologies/forma-gui`
+# `@isayahc/forma-gui`
 
 Reusable React components for browsing and viewing Forma hardware projects. The package is intentionally a browser-safe viewer surface: it does not import Clerk, provider SDKs, backend credentials, or application routing.
 
 ## Install
 
 ```bash
-npm install @caid-technologies/forma-gui
+npm install @isayahc/forma-gui
 ```
 
 React 18 or 19 and React DOM 18 or 19 are peer dependencies.
@@ -19,8 +19,8 @@ import {
   FormaApiClient,
   FormaProjectBrowser,
   FormaProjectDetail,
-} from "@caid-technologies/forma-gui";
-import "@caid-technologies/forma-gui/styles.css";
+} from "@isayahc/forma-gui";
+import "@isayahc/forma-gui/styles.css";
 
 const forma = new FormaApiClient({
   baseUrl: process.env.NEXT_PUBLIC_FORMA_API_URL,

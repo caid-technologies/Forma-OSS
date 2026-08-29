@@ -75,7 +75,7 @@ import {
   previewableImageSrc,
   type ProjectGalleryItem,
 } from "./forma-workspace/project-gallery";
-import { FormaProjectBrowser, type FormaProjectSummary } from "@caid-technologies/forma-gui";
+import { FormaProjectBrowser, type FormaProjectSummary } from "@isayahc/forma-gui";
 import {
   AssemblyPanel,
   BomPanel,

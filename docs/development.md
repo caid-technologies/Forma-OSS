@@ -21,6 +21,12 @@ The combined dev launcher starts the backend and frontend together and writes ba
 ./scripts/development/dev.sh
 ```
 
+On Windows PowerShell, use the native launcher instead:
+
+```powershell
+.\scripts\development\dev.ps1
+```
+
 On first run it installs missing dependencies, defaults to local auth with
 SQLite without selecting an LLM, and stores a generated encryption key in
 `.forma/local-secrets.env`. The connected host agent authors the Hardware IR;
@@ -32,6 +38,13 @@ If you run uvicorn directly and want the frontend LOGS tab to show backend outpu
 Tests:
 ```bash
 ./scripts/quality/test.sh
+```
+
+Windows PowerShell equivalent:
+
+```powershell
+.\.venv\Scripts\python.exe -m compileall -q apps/api forma_core evals scripts tests
+.\.venv\Scripts\python.exe -m unittest discover -s tests -t . -v
 ```
 
 Frontend:

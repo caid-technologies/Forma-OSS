@@ -195,6 +195,12 @@ From the repository root:
 ./scripts/development/dev.sh
 ```
 
+On Windows PowerShell:
+
+```powershell
+.\scripts\development\dev.ps1
+```
+
 This starts the FastAPI backend and Next.js frontend together.
 
 ### Docker

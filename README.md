@@ -40,10 +40,16 @@ It blocks or warns on high-risk domains (mains AC, medical, automotive control, 
 Detailed instructions live in [docs/setup.md](docs/setup.md). The short version:
 
 ### Run Everything
-From the repo root:
+From the repo root, use the launcher for your platform:
 
 ```bash
 ./scripts/development/dev.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+.\scripts\development\dev.ps1
 ```
 
 This starts the FastAPI backend and Next.js frontend together. It installs

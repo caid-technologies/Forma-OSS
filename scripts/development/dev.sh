@@ -11,7 +11,6 @@ VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/backend-dev.log}"
 FORMA_AUTH_MODE="${FORMA_AUTH_MODE:-local}"
 FORMA_DEV_MODE="${FORMA_DEV_MODE:-true}"
-LLM_PROVIDER="${LLM_PROVIDER:-simulation}"
 LOCAL_SECRETS_FILE="${FORMA_LOCAL_SECRETS_FILE:-$ROOT_DIR/.forma/local-secrets.env}"
 
 # shellcheck source=scripts/development/dev-processes.sh
@@ -107,7 +106,10 @@ if [ -z "${FORMA_USER_SECRETS_KEY:-}" ]; then
   log "Generated a local encryption key at $LOCAL_SECRETS_FILE"
 fi
 
-export FORMA_AUTH_MODE FORMA_DEV_MODE LLM_PROVIDER FORMA_USER_SECRETS_KEY
+# Do not select an LLM here. The connected host agent (for example, OpenCode)
+# authors the IR, while Forma compiles it deterministically. Server-side
+# generation uses any explicit provider/model configuration already in the environment.
+export FORMA_AUTH_MODE FORMA_DEV_MODE FORMA_USER_SECRETS_KEY
 
 dev_cleanup_previous_session
 

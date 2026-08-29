@@ -94,7 +94,9 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
         launcher = (REPO_ROOT / "scripts" / "development" / "dev.sh").read_text(encoding="utf-8")
         self.assertIn('FORMA_AUTH_MODE="${FORMA_AUTH_MODE:-local}"', launcher)
         self.assertIn('FORMA_DEV_MODE="${FORMA_DEV_MODE:-true}"', launcher)
-        self.assertIn('LLM_PROVIDER="${LLM_PROVIDER:-simulation}"', launcher)
+        self.assertNotIn('LLM_PROVIDER="${LLM_PROVIDER:-simulation}"', launcher)
+        self.assertNotIn("export FORMA_AUTH_MODE FORMA_DEV_MODE LLM_PROVIDER", launcher)
+        self.assertIn("authors the IR, while Forma compiles it deterministically", launcher)
         self.assertIn("secrets.token_urlsafe(48)", launcher)
 
         entrypoint = (REPO_ROOT / "apps" / "api" / "entrypoint.sh").read_text(encoding="utf-8")

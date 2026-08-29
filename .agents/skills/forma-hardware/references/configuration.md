@@ -13,21 +13,28 @@ Keep tokens in the environment, never in committed configuration or generated pr
 ## Start Forma locally
 
 From a Forma checkout, the one-command launcher installs missing backend and
-frontend dependencies, enables local auth/SQLite/simulation defaults, creates
-an encrypted local key under `.forma/`, and starts both services:
+frontend dependencies, enables local auth/SQLite defaults without selecting an
+LLM, creates an encrypted local key under `.forma/`, and starts both services:
 
 ```bash
 ./scripts/development/dev.sh
 ```
 
-The launcher honors explicit environment overrides. To run only the backend
-manually, use the same local defaults and set a server-only key:
+The launcher honors explicit environment overrides. OpenCode (or another host
+agent) supplies the model that authors Hardware IR; `forma.compile_project`
+then performs deterministic validation, rendering, and persistence. The
+launcher does not set `LLM_PROVIDER` or `LLM_MODEL`. To run only the backend
+manually, set a server-only key:
 
 ```bash
-FORMA_AUTH_MODE=local FORMA_DEV_MODE=true LLM_PROVIDER=simulation \
+FORMA_AUTH_MODE=local FORMA_DEV_MODE=true \
 FORMA_USER_SECRETS_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
 uvicorn apps.api.main:app --port 8000
 ```
+
+The separate `forma.generate_project` path is server-side generation. Use it
+only when the backend has an explicitly configured provider and model; it does
+not inherit OpenCode's active model through MCP.
 
 ## OpenClaw
 

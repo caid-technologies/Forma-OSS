@@ -47,8 +47,9 @@ From the repo root:
 ```
 
 This starts the FastAPI backend and Next.js frontend together. It installs
-missing local dependencies, defaults to local auth/SQLite/simulation, and
-persists a generated encryption key under `.forma/`. Use `BACKEND_PORT`,
+missing local dependencies, defaults to local auth/SQLite without overriding
+the host agent's model, and persists a generated encryption key under
+`.forma/`. Use `BACKEND_PORT`,
 `FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
 
 ### Python Package (PyPI)

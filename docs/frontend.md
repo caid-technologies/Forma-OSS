@@ -37,13 +37,13 @@ The UI communicates with the backend API:
 
 ## Installable viewer package
 
-The reusable project browser and project detail viewer are packaged for publication as `@caid-technologies/forma-gui`:
+The reusable project browser and project detail viewer are packaged for publication as `@isayahc/forma-gui`:
 
 ```bash
-npm install @caid-technologies/forma-gui
+npm install @isayahc/forma-gui
 ```
 
-Import `@caid-technologies/forma-gui/styles.css` once, then configure `FormaApiClient` with a `baseUrl` and optional `getHeaders` callback. The callback is the authentication boundary for hosted deployments; local single-user APIs can omit it. The package exposes typed `FormaProjectBrowser`, `FormaProjectDetail`, and canonical project contracts without importing Clerk, provider credentials, routing, Tailwind, React Flow, or Three.js.
+Import `@isayahc/forma-gui/styles.css` once, then configure `FormaApiClient` with a `baseUrl` and optional `getHeaders` callback. The callback is the authentication boundary for hosted deployments; local single-user APIs can omit it. The package exposes typed `FormaProjectBrowser`, `FormaProjectDetail`, and canonical project contracts without importing Clerk, provider credentials, routing, Tailwind, React Flow, or Three.js.
 
 The first-party project and my-projects pages consume the package browser through the local `file:../../packages/forma-gui` dependency while the package is developed in this repository. Run `npm run build` and `npm test` from `packages/forma-gui` before publishing a semver release.
 

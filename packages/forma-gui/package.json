@@ -1,6 +1,6 @@
 {
-  "name": "@caid-technologies/forma-gui",
-  "version": "0.1.0",
+  "name": "@isayahc/forma-gui",
+  "version": "0.1.1",
   "description": "Reusable React project browser and hardware project viewer for Forma APIs.",
   "type": "module",
   "sideEffects": ["./dist/styles.css"],

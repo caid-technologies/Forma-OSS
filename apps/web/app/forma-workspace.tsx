@@ -70,12 +70,12 @@ import {
   type ProjectImageCandidate,
 } from "../lib/project-images";
 import {
-  ProjectGallery,
   PROJECT_GALLERY_PAGE_SIZE,
   buildProjectGalleryItems,
   previewableImageSrc,
   type ProjectGalleryItem,
 } from "./forma-workspace/project-gallery";
+import { FormaProjectBrowser, type FormaProjectSummary } from "@caid-technologies/forma-gui";
 import {
   AssemblyPanel,
   BomPanel,
@@ -385,6 +385,22 @@ function normalizeApiUrl(value: string) {
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) return "/api";
   return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+}
+
+function formaBrowserProjectFromGalleryItem(item: ProjectGalleryItem): FormaProjectSummary {
+  return {
+    project_id: item.projectId,
+    title: item.title,
+    created_at: item.createdAt,
+    creator_display: item.creatorDisplay,
+    creator_image_url: item.creatorImageUrl,
+    parts_count: item.partsCount,
+    save_count: item.saveCount,
+    remix_count: item.remixCount,
+    saved: item.saved,
+    can_chat: item.canChat,
+    image_url: item.image ? previewableImageSrc(item.image) : null,
+  };
 }
 
 function downloadBrowserFile(contents: string, filename: string, mimeType: string) {
@@ -1809,6 +1825,10 @@ export function FormaWorkspace({
     })),
     [authRequired, formaDevMode, isSignedIn, projectHistory, projectGalleryImages]
   );
+  const projectBrowserItems = useMemo(
+    () => projectGalleryItems.map(formaBrowserProjectFromGalleryItem),
+    [projectGalleryItems]
+  );
   const myProjectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
       myProjectHistory,
@@ -1819,6 +1839,10 @@ export function FormaWorkspace({
       canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
     })),
     [authRequired, formaDevMode, isSignedIn, myProjectHistory, projectGalleryImages]
+  );
+  const myProjectBrowserItems = useMemo(
+    () => myProjectGalleryItems.map(formaBrowserProjectFromGalleryItem),
+    [myProjectGalleryItems]
   );
   const chatHistoryLoaded = myProjectHistoryLoaded && privateChatsLoaded;
   const projectsPageLoading = !projectHistoryLoaded;
@@ -5362,36 +5386,46 @@ export function FormaWorkspace({
             : "min-h-0 flex-1 overflow-y-auto px-4 pb-6 pt-16 sm:px-5 md:py-8"
         }`}>
           {homeView === "projects" ? (
-              <ProjectGallery
+              <FormaProjectBrowser
                 sectionRef={projectsSectionRef}
-                items={projectGalleryItems}
+                projects={projectBrowserItems}
                 title="Community"
                 loading={projectsPageLoading}
-                onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
-                onToggleSave={canInteractWithGallery ? handleToggleProjectSave : undefined}
-                onRemixProject={canInteractWithGallery ? handleRemixProject : undefined}
+                onOpenProject={(projectId) => router.push(projectRoute(projectId))}
+                onToggleSave={canInteractWithGallery ? (project) => {
+                  const item = projectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
+                  return item ? handleToggleProjectSave(item) : undefined;
+                } : undefined}
+                onRemixProject={canInteractWithGallery ? (project) => {
+                  const item = projectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
+                  return item ? handleRemixProject(item) : undefined;
+                } : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 totalItems={projectHistoryTotal}
                 currentPage={projectHistoryPage}
                 onPageChange={handleProjectHistoryPageChange}
                 searchValue={projectSearchInput}
                 onSearchValueChange={setProjectSearchInput}
-                standalone
               />
 	          ) : homeView === "my-projects" ? (
-              <ProjectGallery
+              <FormaProjectBrowser
                 sectionRef={projectsSectionRef}
-                items={myProjectGalleryItems}
+                projects={myProjectBrowserItems}
                 title="My projects"
                 loading={myProjectsPageLoading}
-                onOpenProjectPage={(projectId) => router.push(projectRoute(projectId))}
-                onToggleSave={canInteractWithGallery ? handleToggleProjectSave : undefined}
-                onRemixProject={canInteractWithGallery ? handleRemixProject : undefined}
+                onOpenProject={(projectId) => router.push(projectRoute(projectId))}
+                onToggleSave={canInteractWithGallery ? (project) => {
+                  const item = myProjectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
+                  return item ? handleToggleProjectSave(item) : undefined;
+                } : undefined}
+                onRemixProject={canInteractWithGallery ? (project) => {
+                  const item = myProjectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
+                  return item ? handleRemixProject(item) : undefined;
+                } : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
                 totalItems={myProjectHistoryTotal}
                 currentPage={myProjectHistoryPage}
                 onPageChange={handleMyProjectHistoryPageChange}
-                standalone
               />
           ) : homeView === "jobs" ? (
             <>

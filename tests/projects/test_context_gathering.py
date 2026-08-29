@@ -657,7 +657,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         ) as create_job:
             database.initialize_project_workflow(project_id, OWNER)
             with self.assertRaises(WorkflowStateError):
-                asyncio.run(a2a.submit_a2a_message(message))
+                asyncio.run(a2a.submit_a2a_message(message, USER))
 
         create_job.assert_not_called()
 

@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from apps.api import a2a
+from apps.api.auth import UserContext
 from forma_core import user_integrations
 from forma_core.image_providers import build_image_provider
 from forma_core.user_integrations import UserIntegrationStore
@@ -44,6 +45,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
 
         update_project.assert_called_once()
         self.assertEqual(project_id, update_project.call_args.args[0])
+        self.assertEqual("user_123", update_project.call_args.kwargs["owner_user_id"])
         save_project.assert_called_once()
         save_kwargs = save_project.call_args.kwargs
         self.assertEqual(project_id, save_kwargs["project_id"])
@@ -229,7 +231,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     "OPENAI_IMAGE_MODEL": "gpt-image-2",
                 },
                 clear=True,
-            ), patch.object(UserIntegrationStore, "for_user", return_value=store), patch.object(
+            ), patch.object(UserIntegrationStore, "for_user", return_value=store) as for_user, patch.object(
                 a2a, "build_generation_response", side_effect=fake_build_generation_response
             ), patch.object(
                 a2a.asyncio, "to_thread", side_effect=run_to_thread_inline
@@ -241,8 +243,15 @@ class A2AUserIntegrationTests(unittest.TestCase):
                             {
                                 "prompt": "test",
                                 "generate_image": True,
-                                "owner_user_id": "user_123",
+                                "owner_user_id": "attacker-user",
                             },
+                            UserContext(
+                                provider="test",
+                                subject="user_123",
+                                owner_user_id="user_123",
+                                is_authenticated=True,
+                                is_admin=False,
+                            ),
                         )
                     )
                 finally:
@@ -251,6 +260,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     user_integrations._APPLIED_ENV_VALUES.clear()
                     user_integrations._ORIGINAL_ENV_VALUES.clear()
 
+        for_user.assert_called_once_with("user_123")
         self.assertEqual("huggingface", observed["provider"])
         self.assertEqual("black-forest-labs/FLUX.1-schnell", observed["model_name"])
         self.assertEqual("fal-ai", observed["inference_provider"])

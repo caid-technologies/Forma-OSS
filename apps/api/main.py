@@ -1295,10 +1295,7 @@ async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
 @app.post("/a2a/messages")
 async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_user_context)):
     """Submits an A2A message and queues an async result for the sender."""
-    owner_user_id = user.owner_user_id
-    if owner_user_id and message.action.startswith("forma."):
-        message.payload = {**message.payload, "owner_user_id": owner_user_id}
-    ack = await submit_a2a_message(message)
+    ack = await submit_a2a_message(message, user)
     return ack.model_dump()
 
 

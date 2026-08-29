@@ -723,7 +723,11 @@ def _persist_updated_project_ir(
 
     try:
         hardware_ir = ir.model_dump()
-        updated = update_generated_project_hardware_ir(project_id, hardware_ir)
+        updated = update_generated_project_hardware_ir(
+            project_id,
+            hardware_ir,
+            owner_user_id=owner_user_id,
+        )
         if updated:
             return
 
@@ -753,6 +757,26 @@ def _apply_owner_user_integrations(owner_user_id: Optional[str]) -> None:
         return
     if isinstance(owner_user_id, str) and owner_user_id.strip():
         apply_user_integrations_to_environment(UserIntegrationStore.for_user(owner_user_id.strip()))
+
+
+def _context_owner_user_id(user_context: Optional[UserContext]) -> Optional[str]:
+    if user_context is None or not user_context.is_authenticated:
+        return None
+    owner_user_id = str(user_context.owner_user_id or "").strip()
+    return owner_user_id or None
+
+
+def _message_for_user_context(message: A2AMessage, user_context: Optional[UserContext]) -> A2AMessage:
+    """Replace caller-supplied ownership metadata with authenticated identity."""
+    if not message.action.startswith("forma."):
+        return message
+
+    payload = dict(message.payload)
+    payload.pop("owner_user_id", None)
+    owner_user_id = _context_owner_user_id(user_context)
+    if owner_user_id:
+        payload["owner_user_id"] = owner_user_id
+    return message.model_copy(update={"payload": payload})
 
 
 def build_generation_response(
@@ -997,15 +1021,21 @@ def build_generation_response(
             return response
 
 
-async def call_forma_action(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+async def call_forma_action(
+    action: str,
+    payload: Dict[str, Any],
+    user_context: Optional[UserContext] = None,
+) -> Dict[str, Any]:
     normalized = action.removeprefix("forma.")
-    owner_user_id = payload.get("owner_user_id")
+    owner_user_id = _context_owner_user_id(user_context)
     project_id = payload.get("project_id")
 
-    if project_id and owner_user_id:
+    if project_id and not owner_user_id:
+        raise ValueError("An authenticated user context is required for project actions.")
+    if project_id:
         ensure_project_action_allowed(
             str(project_id),
-            str(owner_user_id),
+            owner_user_id,
             action,
             require_workflow=normalized == "generate_project",
         )
@@ -1034,7 +1064,7 @@ async def call_forma_action(action: str, payload: Dict[str, Any]) -> Dict[str, A
             payload.get("chat_id"),
             payload.get("source_project_id"),
             payload.get("client_job_id") or payload.get("frontend_job_id"),
-            payload.get("owner_user_id"),
+            owner_user_id,
             data_sources,
             past_job_context,
             payload.get("project_id"),
@@ -1077,15 +1107,21 @@ def _is_server_message(message: A2AMessage) -> bool:
     return message.recipient in SERVER_RECIPIENTS or message.action.startswith("forma.")
 
 
-async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
+async def submit_a2a_message(
+    message: A2AMessage,
+    user_context: Optional[UserContext] = None,
+) -> A2AEvent:
+    message = _message_for_user_context(message, user_context)
     await A2A_HUB.register(message.sender)
     server_owned = _is_server_message(message)
     project_id = message.payload.get("project_id")
-    owner_user_id = message.payload.get("owner_user_id")
-    if server_owned and project_id and owner_user_id:
+    owner_user_id = _context_owner_user_id(user_context)
+    if server_owned and project_id and not owner_user_id:
+        raise ValueError("An authenticated user context is required for project actions.")
+    if server_owned and project_id:
         ensure_project_action_allowed(
             str(project_id),
-            str(owner_user_id),
+            owner_user_id,
             message.action,
             require_workflow=message.action.removeprefix("forma.") == "generate_project",
         )
@@ -1114,7 +1150,7 @@ async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
     await A2A_HUB.publish(ack)
 
     if server_owned:
-        asyncio.create_task(_process_server_message(message))
+        asyncio.create_task(_process_server_message(message, user_context))
     else:
         JOB_STORE.mark_routed(message.job_id)
         await A2A_HUB.publish(
@@ -1133,14 +1169,17 @@ async def submit_a2a_message(message: A2AMessage) -> A2AEvent:
     return ack
 
 
-async def _process_server_message(message: A2AMessage) -> None:
+async def _process_server_message(
+    message: A2AMessage,
+    user_context: Optional[UserContext] = None,
+) -> None:
     JOB_STORE.mark_running(message.job_id)
     try:
         with observe_agent_pipeline(
             lambda event: JOB_STORE.append_progress_event(message.job_id, event.as_dict()),
             cancellation_check=lambda: JOB_STORE.is_cancelled(message.job_id),
         ):
-            result = await call_forma_action(message.action, message.payload)
+            result = await call_forma_action(message.action, message.payload, user_context)
         generation_status = str(result.get("generation_status") or "succeeded").lower()
         if generation_status == "partial":
             JOB_STORE.mark_partial(message.job_id, result)
@@ -1177,7 +1216,11 @@ async def _process_server_message(message: A2AMessage) -> None:
     await A2A_HUB.publish(event)
 
 
-async def handle_a2a_websocket(websocket: WebSocket, agent_id: str) -> None:
+async def handle_a2a_websocket(
+    websocket: WebSocket,
+    agent_id: str,
+    user_context: Optional[UserContext] = None,
+) -> None:
     await websocket.accept()
     await A2A_HUB.register(agent_id, {"transports": ["websocket"]})
 
@@ -1195,13 +1238,13 @@ async def handle_a2a_websocket(websocket: WebSocket, agent_id: str) -> None:
         while True:
             raw_message = await websocket.receive_json()
             if isinstance(raw_message, dict) and raw_message.get("jsonrpc") == "2.0":
-                response = await handle_mcp_json_rpc(raw_message)
+                response = await handle_mcp_json_rpc(raw_message, user_context)
                 if response is not None:
                     await websocket.send_json(response)
                 continue
 
             raw_message = {**raw_message, "sender": raw_message.get("sender") or agent_id}
-            await submit_a2a_message(A2AMessage.model_validate(raw_message))
+            await submit_a2a_message(A2AMessage.model_validate(raw_message), user_context)
     except WebSocketDisconnect:
         logger.info("A2A websocket disconnected: %s", agent_id)
     finally:
@@ -1552,11 +1595,7 @@ def _persist_mcp_compile(
     except (TypeError, ValueError, AttributeError) as exc:
         raise ValueError("project_id must be a UUID when supplied.") from exc
 
-    owner_user_id = (
-        str(user_context.owner_user_id).strip()
-        if user_context is not None and user_context.owner_user_id
-        else None
-    )
+    owner_user_id = _context_owner_user_id(user_context)
     existing = get_generated_project(project_id, include_deleted=True)
     if existing is not None:
         if getattr(existing, "status", "active") != "active":
@@ -1652,7 +1691,7 @@ async def _call_mcp_tool(
         }
 
     if tool_name == "forma.a2a.send_message":
-        ack = await submit_a2a_message(A2AMessage.model_validate(arguments))
+        ack = await submit_a2a_message(A2AMessage.model_validate(arguments), user_context)
         return ack.model_dump()
 
     if tool_name == "forma.a2a.poll_events":
@@ -1695,4 +1734,4 @@ async def _call_mcp_tool(
         registry = _lattice_registry()
         return {"agent": registry.get(arguments.get("agent_id", "fabricator")).model_dump(mode="json")}
 
-    return await call_forma_action(tool_name, arguments)
+    return await call_forma_action(tool_name, arguments, user_context)

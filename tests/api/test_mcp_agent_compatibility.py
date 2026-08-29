@@ -74,6 +74,16 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsNone(response)
 
+    async def test_invalid_mcp_params_use_sanitized_error_contract(self) -> None:
+        response = await handle_mcp_json_rpc(
+            {"jsonrpc": "2.0", "id": "invalid", "method": "tools/call", "params": []}
+        )
+
+        self.assertEqual(-32602, response["error"]["code"])
+        self.assertEqual("The MCP request parameters are invalid.", response["error"]["message"])
+        self.assertEqual("mcp_invalid_params", response["error"]["data"]["code"])
+        self.assertRegex(response["error"]["data"]["correlation_id"], r"^err_[0-9a-f]{32}$")
+
     async def test_batch_omits_notification_responses(self) -> None:
         response = await handle_mcp_json_rpc(
             [
@@ -219,8 +229,57 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(-32000, response["error"]["code"])
-        self.assertIn("only be updated by its owner", response["error"]["message"])
+        self.assertEqual("The MCP tool could not complete the request.", response["error"]["message"])
+        self.assertEqual("mcp_tool_failed", response["error"]["data"]["code"])
+        self.assertRegex(response["error"]["data"]["correlation_id"], r"^err_[0-9a-f]{32}$")
         update_project.assert_not_called()
+
+    async def test_mcp_tool_error_does_not_echo_exception_details(self) -> None:
+        with patch.object(
+            a2a,
+            "call_forma_action",
+            new=AsyncMock(
+                side_effect=RuntimeError(
+                    "provider response: api_key=sk-testsecret123456 at C:\\secret\\forma.db"
+                )
+            ),
+        ):
+            response = await handle_mcp_json_rpc(
+                {
+                    "jsonrpc": "2.0",
+                    "id": "safe-error",
+                    "method": "tools/call",
+                    "params": {"name": "forma.debug_config", "arguments": {}},
+                },
+                self._user(),
+            )
+
+        serialized = str(response)
+        self.assertEqual("The MCP tool could not complete the request.", response["error"]["message"])
+        self.assertNotIn("sk-testsecret123456", serialized)
+        self.assertNotIn("forma.db", serialized)
+        self.assertNotIn("provider response", serialized.lower())
+
+    async def test_queued_a2a_error_event_is_sanitized(self) -> None:
+        message = A2AMessage(sender="test-agent", action="forma.generate_project")
+        with patch.object(
+            a2a,
+            "call_forma_action",
+            new=AsyncMock(side_effect=RuntimeError("provider response: sk-testsecret123456 at C:\\secret\\db")),
+        ), patch.object(a2a.JOB_STORE, "mark_running"), patch.object(
+            a2a.JOB_STORE, "mark_failed"
+        ) as mark_failed, patch.object(a2a.A2A_HUB, "publish", new=AsyncMock()) as publish:
+            await a2a._process_server_message(message)
+
+        event = publish.await_args.args[0]
+        serialized = str(event.model_dump())
+        self.assertEqual("error", event.type)
+        self.assertEqual("a2a_action_failed", event.payload["error"]["code"])
+        self.assertRegex(event.payload["error"]["correlation_id"], r"^err_[0-9a-f]{32}$")
+        self.assertNotIn("sk-testsecret123456", serialized)
+        self.assertNotIn("provider response", serialized.lower())
+        mark_failed.assert_called_once()
+        self.assertEqual("a2a_action_failed", mark_failed.call_args.kwargs["error_code"])
 
     async def test_mcp_action_forwards_authenticated_context(self) -> None:
         user = self._user()

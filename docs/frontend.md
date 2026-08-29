@@ -45,7 +45,7 @@ npm install @isayahc/forma-gui
 
 Import `@isayahc/forma-gui/styles.css` once, then configure `FormaApiClient` with a `baseUrl` and optional `getHeaders` callback. The callback is the authentication boundary for hosted deployments; local single-user APIs can omit it. The package exposes typed `FormaProjectBrowser`, `FormaProjectDetail`, and canonical project contracts without importing Clerk, provider credentials, routing, Tailwind, React Flow, or Three.js.
 
-The first-party project and my-projects pages consume the package browser through the local `file:../../packages/forma-gui` dependency while the package is developed in this repository. Run `npm run build` and `npm test` from `packages/forma-gui` before publishing a semver release.
+The first-party project and my-projects pages consume the published package. Run `npm run build` and `npm test` from `packages/forma-gui` before publishing a semver release.
 
 If the backend is offline, the UI can still load example JSONs from `apps/web/public/examples/`.
 

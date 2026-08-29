@@ -69,8 +69,8 @@ def request(method: str, params: dict[str, Any] | None = None, *, url: str | Non
     except URLError as exc:
         raise FormaClientError(
             f"Could not reach Forma at {target_url}: {exc.reason}. "
-            "Run ./scripts/development/dev.sh from a Forma checkout, "
-            "or set FORMA_MCP_URL to a hosted /api/mcp endpoint."
+            "Run ./scripts/development/dev.sh (or .\\scripts\\development\\dev.ps1 on Windows) "
+            "from a Forma checkout, or set FORMA_MCP_URL to a hosted /api/mcp endpoint."
         ) from exc
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise FormaClientError("Forma returned invalid JSON.") from exc

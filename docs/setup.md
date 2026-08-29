@@ -62,6 +62,20 @@ source .venv/bin/activate
 pip install -r apps/api/requirements.txt
 ```
 
+To start the backend and frontend together on Windows PowerShell, run the
+native development launcher from the repository root:
+
+```powershell
+.\scripts\development\dev.ps1
+```
+
+If local PowerShell execution policy blocks scripts, invoke it with a
+process-scoped bypass:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\development\dev.ps1
+```
+
 Both `requirements.txt` and `apps/api/requirements.txt` list only third-party
 runtime dependencies. Do not add local package paths such as `.[backend]` or
 `../..`; Vercel may resolve dependency files from a service subdirectory and

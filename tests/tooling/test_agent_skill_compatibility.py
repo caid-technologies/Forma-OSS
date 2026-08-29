@@ -88,6 +88,7 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
 
         message = str(raised.exception)
         self.assertIn("./scripts/development/dev.sh", message)
+        self.assertIn(".\\scripts\\development\\dev.ps1", message)
         self.assertIn("FORMA_MCP_URL", message)
 
     def test_local_launcher_bootstraps_required_runtime_defaults(self) -> None:
@@ -102,6 +103,22 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
         entrypoint = (REPO_ROOT / "apps" / "api" / "entrypoint.sh").read_text(encoding="utf-8")
         self.assertIn("/data/.forma_user_secrets_key", entrypoint)
         self.assertIn("exec uvicorn apps.api.main:app", entrypoint)
+
+    def test_windows_launcher_uses_native_process_and_path_handling(self) -> None:
+        launcher = REPO_ROOT / "scripts" / "development" / "dev.ps1"
+        content = launcher.read_text(encoding="utf-8")
+
+        self.assertTrue(launcher.is_file())
+        self.assertIn("Get-NetTCPConnection", content)
+        self.assertIn("Start-Process", content)
+        self.assertIn("Get-CimInstance Win32_Process", content)
+        self.assertIn("Scripts\\python.exe", content)
+        self.assertIn("taskkill.exe /PID", content)
+        self.assertIn("FORMA_USER_SECRETS_KEY", content)
+        self.assertIn("$env:BACKEND_LOG_FILE = $BackendLogFile", content)
+        self.assertNotIn(".venv/bin/", content)
+        self.assertNotIn("/proc", content)
+        self.assertNotRegex(content, r"(?m)^\s*(bash|setsid|chmod|ss)\b")
 
 
 if __name__ == "__main__":

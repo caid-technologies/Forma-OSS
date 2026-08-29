@@ -52,7 +52,7 @@ LLM configuration behavior:
 
 - Runtime precedence is fixed in one backend resolver: explicit request override, saved integration, environment, then provider default. `/api/runtime/config` is the client authority; clients must not reconstruct readiness or defaults from environment variables or integration form fields.
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
-- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./forma-backend.log`. `./scripts/development/dev.sh` defaults this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
+- `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./forma-backend.log`. The development launchers default this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `FORMA_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
 - `FORMA_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
 - `FORMA_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings

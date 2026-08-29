@@ -1,6 +1,6 @@
 # Frontend
 
-The frontend is a **Next.js 14** app that visualizes Hardware IR and provides the interactive CAD-style experience.
+The frontend is a **Next.js 15** app that visualizes Hardware IR and provides the interactive CAD-style experience.
 
 ## Core UI features
 - **Prompt input** with optional image upload.
@@ -34,6 +34,18 @@ The UI communicates with the backend API:
 - `GET /api/components` – component catalog
 - `GET /api/projects` – history of generated projects
 - `POST /api/generate` – run the agent pipeline
+
+## Installable viewer package
+
+The reusable project browser and project detail viewer are packaged for publication as `@caid-technologies/forma-gui`:
+
+```bash
+npm install @caid-technologies/forma-gui
+```
+
+Import `@caid-technologies/forma-gui/styles.css` once, then configure `FormaApiClient` with a `baseUrl` and optional `getHeaders` callback. The callback is the authentication boundary for hosted deployments; local single-user APIs can omit it. The package exposes typed `FormaProjectBrowser`, `FormaProjectDetail`, and canonical project contracts without importing Clerk, provider credentials, routing, Tailwind, React Flow, or Three.js.
+
+The first-party project and my-projects pages consume the package browser through the local `file:../../packages/forma-gui` dependency while the package is developed in this repository. Run `npm run build` and `npm test` from `packages/forma-gui` before publishing a semver release.
 
 If the backend is offline, the UI can still load example JSONs from `apps/web/public/examples/`.
 

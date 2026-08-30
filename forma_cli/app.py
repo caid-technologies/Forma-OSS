@@ -18,6 +18,7 @@ from forma_cli.local import (
     LOCAL_PROVIDER_ENVIRONMENT,
     LocalProjectError,
     build_project,
+    import_project,
     init_project,
     project_root,
     read_project,
@@ -98,6 +99,24 @@ def cmd_build(args: argparse.Namespace) -> int:
     print(
         f"Built {manifest.title or manifest.project_id}, persisted {manifest.project_id} to Forma DB, "
         f"at {project_root(args.path) / 'forma-project.json'}"
+    )
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    source_path = Path(args.source).expanduser()
+    destination = Path(args.path).expanduser() if args.path else (
+        source_path if source_path.is_dir() else source_path.parent
+    )
+    manifest = import_project(
+        args.source,
+        destination=destination,
+        assembly_step=args.assembly_step,
+        preview_stl=args.preview_stl,
+    )
+    print(
+        f"Imported {manifest.title or manifest.project_id}, persisted {manifest.project_id} to Forma DB, "
+        f"at {destination / 'forma-project.json'}"
     )
     return 0
 
@@ -326,6 +345,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional native STEP file; otherwise assembly.step is generated from the project layout.",
     )
     build.set_defaults(func=cmd_build)
+    imported = subparsers.add_parser(
+        "import",
+        help="Import an existing generated HardwareIR project and its native CAD artifacts.",
+    )
+    imported.add_argument("source", help="Existing forma-project.json or its containing directory.")
+    imported.add_argument("--path", default=None, help="Destination project directory; defaults to the source directory.")
+    imported.add_argument("--assembly-step", help="Override the STEP artifact discovered from the source project.")
+    imported.add_argument("--preview-stl", help="Override the STL preview discovered from the source project.")
+    imported.set_defaults(func=cmd_import)
     status = subparsers.add_parser("status", help="Validate and show local/remote project state.")
     status.add_argument("--path", default=".")
     status.add_argument("--json", action="store_true")

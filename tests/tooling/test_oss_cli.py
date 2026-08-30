@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from forma_cli.app import build_parser, cmd_projects_pull, cmd_render
 from forma_cli.credentials import CredentialStore
-from forma_cli.local import build_project, init_project
+from forma_cli.local import build_project, import_project, init_project
 from forma_cli.sdk import CloudProjectRevision, FormaAPIClient
 from forma_core.database import get_generated_project, init_db, save_generated_project
 from forma_core.workspaces.projects.manifest import ProjectManifest, write_project_manifest
@@ -47,7 +47,7 @@ class OssCliTests(unittest.TestCase):
         parser = build_parser()
         self.assertEqual("forma-oss", parser.prog)
         self.assertEqual(
-            {"login", "logout", "whoami", "init", "build", "status", "render", "projects", "keys"},
+            {"login", "logout", "whoami", "init", "build", "import", "status", "render", "projects", "keys"},
             set(parser._subparsers._group_actions[0].choices),
         )
 
@@ -170,6 +170,44 @@ class OssCliTests(unittest.TestCase):
             self.assertEqual("assembly.step", manifest.artifacts[-1].path)
             self.assertTrue(manifest.project_ir["cad_model"]["generated"])
             self.assertEqual(str(assembly.resolve()), manifest.project_ir["cad_model"]["path"])
+
+    def test_import_preserves_native_cad_and_adds_renderable_stl_mesh(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            target = Path(temp_dir) / "target"
+            init_project(source, title="Imported controller")
+            source_manifest = ProjectManifest(
+                project_id="03940f0b-0223-4fa3-921e-9ef3026e670f",
+                title="Imported controller",
+                prompt="mechanical game controller",
+                project_ir=json.loads(
+                    (Path(__file__).resolve().parents[2] / "apps" / "web" / "public" / "examples" / "plant_watering.json")
+                    .read_text(encoding="utf-8")
+                ),
+            )
+            write_project_manifest(source / "forma-project.json", source_manifest)
+            (source / "native.step").write_text(
+                "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+                encoding="ascii",
+            )
+            (source / "preview.stl").write_text(
+                "solid preview\n"
+                "facet normal 0 0 1\nouter loop\n"
+                "vertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\n"
+                "endloop\nendfacet\nendsolid preview\n",
+                encoding="ascii",
+            )
+            raw = json.loads((source / "forma-project.json").read_text(encoding="utf-8"))
+            raw["project_ir"]["cad_model"] = {"path": "native.step", "preview_path": "preview.stl"}
+            write_project_manifest(source / "forma-project.json", ProjectManifest.from_document(raw))
+
+            imported = import_project(source, destination=target)
+
+            self.assertEqual("03940f0b-0223-4fa3-921e-9ef3026e670f", imported.project_id)
+            self.assertTrue((target / "assembly.step").is_file())
+            self.assertTrue((target / "cad-preview.stl").is_file())
+            self.assertEqual(1, len(imported.project_ir["cad_model"]["meshes"]))
+            self.assertEqual("local-dev-user", get_generated_project(imported.project_id).owner_user_id)
 
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()

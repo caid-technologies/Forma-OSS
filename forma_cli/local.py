@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import math
 from pathlib import Path
 import shutil
+import struct
 from typing import Any
 from uuid import uuid4
 
@@ -151,6 +154,176 @@ def _prepare_assembly_step(root: Path, source: Path | None, project: Any) -> Pat
     return destination
 
 
+def _resolve_source_file(root: Path, value: str | Path | None) -> Path | None:
+    if not value:
+        return None
+    source = Path(value).expanduser()
+    if not source.is_absolute():
+        source = root / source
+    source = source.resolve()
+    if not source.is_file():
+        raise LocalProjectError(f"Project artifact does not exist: {source}")
+    return source
+
+
+def _read_stl_mesh(path: Path) -> dict[str, Any]:
+    """Read a binary or ASCII STL into the mesh payload consumed by the web viewport."""
+    data = path.read_bytes()
+    vertices: list[float] = []
+    faces: list[int] = []
+    vertex_ids: dict[tuple[float, float, float], int] = {}
+
+    def add_triangle(points: list[tuple[float, float, float]]) -> None:
+        if len(points) != 3:
+            return
+        face: list[int] = []
+        for point in points:
+            if not all(math.isfinite(value) for value in point):
+                raise LocalProjectError(f"STL contains a non-finite vertex: {path}")
+            vertex_id = vertex_ids.get(point)
+            if vertex_id is None:
+                vertex_id = len(vertices) // 3
+                vertex_ids[point] = vertex_id
+                vertices.extend(point)
+            face.append(vertex_id)
+        faces.extend(face)
+
+    binary_count = int.from_bytes(data[80:84], "little") if len(data) >= 84 else -1
+    binary_size = 84 + max(binary_count, 0) * 50
+    if binary_count >= 0 and binary_size == len(data):
+        for index in range(binary_count):
+            offset = 84 + index * 50 + 12
+            points = [struct.unpack_from("<3f", data, offset + point * 12) for point in range(3)]
+            add_triangle(points)
+    else:
+        try:
+            text = data.decode("ascii")
+        except UnicodeDecodeError as exc:
+            raise LocalProjectError(f"Unsupported STL encoding: {path}") from exc
+        points: list[tuple[float, float, float]] = []
+        for line in text.splitlines():
+            fields = line.strip().split()
+            if len(fields) == 4 and fields[0].lower() == "vertex":
+                try:
+                    points.append(tuple(float(value) for value in fields[1:4]))
+                except ValueError as exc:
+                    raise LocalProjectError(f"Invalid STL vertex in {path}") from exc
+                if len(points) == 3:
+                    add_triangle(points)
+                    points = []
+
+    if not faces:
+        raise LocalProjectError(f"STL contains no triangles: {path}")
+    return {
+        "shapeId": f"imported-{path.stem}",
+        "name": path.stem,
+        "vertices": vertices,
+        "faces": faces,
+    }
+
+
+def import_project(
+    source: str | Path,
+    *,
+    destination: str | Path | None = None,
+    assembly_step: str | Path | None = None,
+    preview_stl: str | Path | None = None,
+) -> ProjectManifest:
+    """Import a generated HardwareIR project and make its CAD renderable locally."""
+    source_path = Path(source).expanduser().resolve()
+    if source_path.is_dir():
+        source_path = source_path / PROJECT_FILENAME
+    if not source_path.is_file():
+        raise LocalProjectError(f"Project manifest does not exist: {source_path}")
+
+    source_root = source_path.parent.resolve()
+    imported = load_project_manifest(source_path)
+    from forma_core.workspaces.projects.models import HardwareIR
+
+    try:
+        ir = HardwareIR.model_validate(imported.project_ir)
+    except Exception as exc:
+        raise LocalProjectError(f"Project manifest contains invalid HardwareIR: {source_path}") from exc
+
+    target_root = Path(destination).expanduser().resolve() if destination else source_root
+    target_root.mkdir(parents=True, exist_ok=True)
+    cad_model = ir.cad_model if isinstance(ir.cad_model, dict) else {}
+    step_source = _resolve_source_file(source_root, assembly_step)
+    if step_source is None:
+        step_source = _resolve_source_file(source_root, cad_model.get("path"))
+    if step_source is None:
+        step_source = next(
+            (candidate for name in ASSEMBLY_STEP_FILENAMES if (candidate := source_root / name).is_file()),
+            None,
+        )
+    if step_source is None:
+        raise LocalProjectError("Imported project has no native STEP artifact.")
+
+    preview_source = _resolve_source_file(source_root, preview_stl)
+    if preview_source is None:
+        preview_source = _resolve_source_file(source_root, cad_model.get("preview_path"))
+    if preview_source is None:
+        raise LocalProjectError("Imported project has no STL preview artifact.")
+
+    from forma_core.workspaces.projects.output import attach_assembly_step, persist_project_output
+
+    assembly_path = _prepare_assembly_step(target_root, step_source, ir)
+    preview_path = (target_root / "cad-preview.stl").resolve()
+    if preview_source != preview_path:
+        shutil.copy2(preview_source, preview_path)
+    ir.cad_model = {
+        **cad_model,
+        "preview_path": str(preview_path),
+        "preview_filename": preview_path.name,
+        "meshes": [_read_stl_mesh(preview_path)],
+        "source": "Imported native OpenCAD STEP/STL project",
+    }
+    metadata = dict(ir.assembly_metadata or {})
+    metadata["project_id"] = imported.project_id
+    metadata["import_source"] = str(source_path)
+    metadata["cad_preview_imported"] = True
+    ir.assembly_metadata = metadata
+    assembly_artifact = attach_assembly_step(ir, assembly_path)
+    persist_project_output(
+        ir,
+        prompt_text=imported.prompt or imported.title,
+        owner_user_id=LOCAL_OWNER_USER_ID,
+    )
+
+    artifacts = [
+        artifact
+        for artifact in imported.artifacts
+        if artifact.path not in {"assembly.step", "assembled.step", "cad-preview.stl"}
+    ]
+    artifacts.extend(
+        (
+            ProjectArtifactReference(
+                path="assembly.step",
+                sha256=assembly_artifact["sha256"],
+                media_type="model/step",
+            ),
+            ProjectArtifactReference(
+                path="cad-preview.stl",
+                sha256=hashlib.sha256(preview_path.read_bytes()).hexdigest(),
+                media_type="model/stl",
+            ),
+        )
+    )
+    updated = ProjectManifest(
+        format=PROJECT_MANIFEST_FORMAT,
+        version=1,
+        project_id=imported.project_id,
+        workspace_id=imported.workspace_id,
+        title=imported.title or (ir.overview.title if ir.overview else "Imported Forma Project"),
+        prompt=imported.prompt or imported.title,
+        project_ir=ir.model_dump(mode="json"),
+        artifacts=artifacts,
+    )
+    write_project_manifest(target_root / PROJECT_FILENAME, updated)
+    save_linkage(target_root, {"version": 1, "project_id": updated.project_id})
+    return updated
+
+
 def build_project(
     path: str | Path | None = None,
     *,
@@ -260,6 +433,7 @@ __all__ = [
     "LocalProjectError",
     "PROJECT_FILENAME",
     "build_project",
+    "import_project",
     "init_project",
     "project_path",
     "project_root",

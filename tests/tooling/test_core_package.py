@@ -86,6 +86,7 @@ class CorePackageTests(unittest.TestCase):
         backend_deps = set(pyproject["project"]["optional-dependencies"]["backend"])
 
         self.assertIn("fastapi>=0.124.1", backend_deps)
+        self.assertIn("Pillow>=10.0.0", backend_deps)
         self.assertIn("uvicorn", backend_deps)
         self.assertIn("websockets>=12.0", backend_deps)
         self.assertIn("supabase==2.31.0", backend_deps)

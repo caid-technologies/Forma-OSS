@@ -9,6 +9,7 @@ from unittest.mock import patch
 from forma_cli.app import build_parser, cmd_projects_pull, cmd_render
 from forma_cli.credentials import CredentialStore
 from forma_cli.local import build_project, import_project, init_project
+from forma_cli.metadata_api import project_metadata
 from forma_cli.sdk import CloudProjectRevision, FormaAPIClient
 from forma_core.database import get_generated_project, init_db, save_generated_project
 from forma_core.workspaces.projects.manifest import ProjectManifest, write_project_manifest
@@ -47,7 +48,10 @@ class OssCliTests(unittest.TestCase):
         parser = build_parser()
         self.assertEqual("forma-oss", parser.prog)
         self.assertEqual(
-            {"login", "logout", "whoami", "init", "build", "import", "status", "render", "projects", "keys"},
+            {
+                "login", "logout", "whoami", "init", "build", "import", "metadata", "metadata-api",
+                "status", "render", "projects", "keys",
+            },
             set(parser._subparsers._group_actions[0].choices),
         )
 
@@ -208,6 +212,21 @@ class OssCliTests(unittest.TestCase):
             self.assertTrue((target / "cad-preview.stl").is_file())
             self.assertEqual(1, len(imported.project_ir["cad_model"]["meshes"]))
             self.assertEqual("local-dev-user", get_generated_project(imported.project_id).owner_user_id)
+
+    def test_metadata_reports_project_and_artifact_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_project(temp_dir, title="Metadata project")
+            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+
+            payload = project_metadata(temp_dir)
+
+            self.assertEqual(manifest.project_id, payload["project_id"])
+            self.assertTrue(payload["database"]["present"])
+            self.assertEqual("local-dev-user", payload["database"]["owner_user_id"])
+            self.assertEqual(4, payload["hardware"]["components"])
+            self.assertEqual(1, payload["cad"]["meshes"])
+            self.assertTrue(payload["cad"]["step"]["exists"])
+            self.assertTrue(payload["artifacts"][0]["exists"])
 
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()

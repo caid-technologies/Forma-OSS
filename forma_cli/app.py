@@ -25,6 +25,7 @@ from forma_cli.local import (
     status_project,
     update_linkage,
 )
+from forma_cli.metadata_api import project_metadata, serve_metadata_api
 from forma_cli.sdk import FormaAPIClient, FormaAPIError
 
 
@@ -118,6 +119,27 @@ def cmd_import(args: argparse.Namespace) -> int:
         f"Imported {manifest.title or manifest.project_id}, persisted {manifest.project_id} to Forma DB, "
         f"at {destination / 'forma-project.json'}"
     )
+    return 0
+
+
+def cmd_metadata(args: argparse.Namespace) -> int:
+    payload = project_metadata(args.path)
+    if args.json:
+        _print_json(payload)
+    else:
+        print(f"Project: {payload['title'] or payload['project_id']}")
+        print(f"Project ID: {payload['project_id']}")
+        print(f"Database: {'present' if payload['database']['present'] else 'missing'}")
+        print(f"CAD: {payload['cad']['meshes']} mesh(es), {payload['cad']['mesh_vertices']} vertices")
+        print(f"Components: {payload['hardware']['components']}")
+        print(f"Placements: {payload['hardware']['placements']}")
+        print(f"Valid: {'yes' if payload['valid'] else 'no'}")
+    return 0
+
+
+def cmd_metadata_api(args: argparse.Namespace) -> int:
+    print(f"Serving project metadata at http://{args.host}:{args.port}/metadata")
+    serve_metadata_api(args.path, args.host, args.port)
     return 0
 
 
@@ -354,6 +376,15 @@ def build_parser() -> argparse.ArgumentParser:
     imported.add_argument("--assembly-step", help="Override the STEP artifact discovered from the source project.")
     imported.add_argument("--preview-stl", help="Override the STL preview discovered from the source project.")
     imported.set_defaults(func=cmd_import)
+    metadata = subparsers.add_parser("metadata", help="Read local project and artifact metadata without the Forma API.")
+    metadata.add_argument("--path", default=".")
+    metadata.add_argument("--json", action="store_true")
+    metadata.set_defaults(func=cmd_metadata)
+    metadata_api = subparsers.add_parser("metadata-api", help="Serve local project metadata over a read-only HTTP API.")
+    metadata_api.add_argument("--path", default=".")
+    metadata_api.add_argument("--host", default="127.0.0.1")
+    metadata_api.add_argument("--port", type=int, default=8765)
+    metadata_api.set_defaults(func=cmd_metadata_api)
     status = subparsers.add_parser("status", help="Validate and show local/remote project state.")
     status.add_argument("--path", default=".")
     status.add_argument("--json", action="store_true")

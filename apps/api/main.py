@@ -153,6 +153,9 @@ from apps.api.readiness_api import router as readiness_router
 from apps.api.worker_plans_api import router as worker_plans_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
+from apps.api.cli_auth_api import router as cli_auth_router
+from apps.api.cli_projects_api import router as cli_projects_router
+from apps.api.cli_credentials_api import router as cli_credentials_router
 from apps.api.auth import (
     UserContext,
     clerk_user_profile,
@@ -341,6 +344,9 @@ app.include_router(readiness_router)
 app.include_router(worker_plans_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
+app.include_router(cli_auth_router)
+app.include_router(cli_projects_router)
+app.include_router(cli_credentials_router)
 
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:

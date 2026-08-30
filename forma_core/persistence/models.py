@@ -148,6 +148,72 @@ class DBProjectRevision(Base):
     created_at = Column(String, index=True, nullable=False)
 
 
+class DBCliProject(Base):
+    """Private cloud project identity owned by a CLI user."""
+
+    __tablename__ = "cli_projects"
+
+    project_id = Column(String, primary_key=True)
+    workspace_id = Column(String, nullable=True)
+    owner_user_id = Column(String, index=True, nullable=False)
+    title = Column(String, nullable=False, default="")
+    current_revision = Column(Integer, nullable=False, default=0)
+    current_revision_id = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, index=True, nullable=False)
+
+
+class DBCliProjectRevision(Base):
+    """Immutable canonical manifest revision uploaded through the CLI."""
+
+    __tablename__ = "cli_project_revisions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "revision", name="uq_cli_project_revisions_project_revision"),
+    )
+
+    revision_id = Column(String, primary_key=True)
+    project_id = Column(String, index=True, nullable=False)
+    owner_user_id = Column(String, index=True, nullable=False)
+    revision = Column(Integer, nullable=False)
+    parent_revision_id = Column(String, nullable=True)
+    manifest_json = Column(JSON, nullable=False)
+    created_at = Column(String, index=True, nullable=False)
+
+
+class DBCliDeviceAuthorization(Base):
+    """Hashed short-lived device authorization state."""
+
+    __tablename__ = "cli_device_authorizations"
+
+    device_code_hash = Column(String, primary_key=True)
+    user_code_hash = Column(String, unique=True, index=True, nullable=False)
+    status = Column(String, index=True, nullable=False, default="pending")
+    expires_at = Column(Float, nullable=False)
+    owner_user_id = Column(String, nullable=True)
+    provider = Column(String, nullable=True)
+    email = Column(String, nullable=True)
+    display_name = Column(String, nullable=True)
+    consumed = Column(Boolean, nullable=False, default=False)
+    created_at = Column(String, nullable=False)
+
+
+class DBCliTokenSession(Base):
+    """Hashed CLI access/refresh token state with revocation support."""
+
+    __tablename__ = "cli_token_sessions"
+
+    token_hash = Column(String, primary_key=True)
+    token_type = Column(String, index=True, nullable=False)
+    refresh_token_hash = Column(String, index=True, nullable=True)
+    owner_user_id = Column(String, index=True, nullable=False)
+    provider = Column(String, nullable=False)
+    email = Column(String, nullable=True)
+    display_name = Column(String, nullable=True)
+    expires_at = Column(Float, nullable=False)
+    revoked_at = Column(Float, nullable=True)
+    created_at = Column(String, nullable=False)
+
+
 class DBProjectValidationReport(Base):
     __tablename__ = "project_validation_reports"
     __table_args__ = (

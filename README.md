@@ -132,6 +132,28 @@ forma-core iterate project.json "Keep the components but reshape the product as 
 python -m forma_core --help
 ```
 
+**Forma OSS CLI:**
+
+The first-party `forma-oss` CLI is local-first. `init`, `build`, `status`, and
+validation work without an account or network connection. Cloud operations are
+always explicit; provider credentials are excluded from project uploads.
+
+```bash
+forma-oss --help
+forma-oss init ./my-project
+forma-oss build "plant watering monitor" --path ./my-project --simulation
+forma-oss status --path ./my-project
+forma-oss login
+forma-oss projects push --path ./my-project
+forma-oss projects pull --path ./my-project
+forma-oss keys set openai --scope local
+forma-oss keys list --scope both
+```
+
+CLI sessions and local provider keys use the operating system credential store
+through `keyring`. A plaintext fallback is disabled by default and can only be
+enabled explicitly with `FORMA_ALLOW_PLAINTEXT_CREDENTIALS=1`.
+
 **Developer utilities:**
 
 ```bash

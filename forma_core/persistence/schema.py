@@ -63,6 +63,34 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ),
     ),
     TableContract(
+        "cli_projects",
+        (
+            "project_id", "workspace_id", "owner_user_id", "title", "current_revision",
+            "current_revision_id", "created_at", "updated_at",
+        ),
+    ),
+    TableContract(
+        "cli_project_revisions",
+        (
+            "revision_id", "project_id", "owner_user_id", "revision", "parent_revision_id",
+            "manifest_json", "created_at",
+        ),
+    ),
+    TableContract(
+        "cli_device_authorizations",
+        (
+            "device_code_hash", "user_code_hash", "status", "expires_at", "owner_user_id", "provider",
+            "email", "display_name", "consumed", "created_at",
+        ),
+    ),
+    TableContract(
+        "cli_token_sessions",
+        (
+            "token_hash", "token_type", "refresh_token_hash", "owner_user_id", "provider", "email",
+            "display_name", "expires_at", "revoked_at", "created_at",
+        ),
+    ),
+    TableContract(
         "project_validation_reports",
         (
             "id", "project_id", "owner_user_id", "project_revision", "design_brief_id",

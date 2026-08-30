@@ -123,6 +123,48 @@ class ApplicationRepository(Protocol):
 
     def insert_initial_project_revision(self, record: Dict[str, Any]) -> Optional[Any]: ...
 
+    def get_cli_project(self, project_id: str, owner_user_id: str) -> Optional[Any]: ...
+
+    def list_cli_projects(self, owner_user_id: str) -> List[Any]: ...
+
+    def get_cli_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision_id: Optional[str] = None,
+    ) -> Optional[Any]: ...
+
+    def insert_cli_project_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+        expected_revision_id: Optional[str],
+    ) -> Optional[Any]: ...
+
+    def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]: ...
+
+    def insert_cli_device_authorization(self, record: Dict[str, Any]) -> Any: ...
+
+    def update_cli_device_authorization(
+        self,
+        device_code_hash: str,
+        updates: Dict[str, Any],
+        expected_status: Optional[str] = None,
+        expected_consumed: Optional[bool] = None,
+    ) -> Optional[Any]: ...
+
+    def get_cli_token_session(self, token_hash: str) -> Optional[Any]: ...
+
+    def insert_cli_token_session(self, record: Dict[str, Any]) -> Any: ...
+
+    def revoke_cli_token_sessions(
+        self,
+        *,
+        token_hash: Optional[str] = None,
+        refresh_token_hash: Optional[str] = None,
+        revoked_at: float,
+    ) -> int: ...
+
     def get_validation_report(self, report_id: str, owner_user_id: str) -> Optional[Any]: ...
 
     def get_validation_report_by_source_job(

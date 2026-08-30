@@ -21,6 +21,10 @@ from forma_core.persistence.models import (
     DBProjectWorkflow,
     DBProjectWorkflowTransition,
     DBProjectRevision,
+    DBCliProject,
+    DBCliProjectRevision,
+    DBCliDeviceAuthorization,
+    DBCliTokenSession,
     DBProjectValidationReport,
     DBWorkerExecutionPlan,
     DBUserSettings,
@@ -420,6 +424,155 @@ class SqlAlchemyRepository:
                 return revision
         except IntegrityError:
             return None
+
+    def get_cli_project(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBCliProject).filter(
+                DBCliProject.project_id == project_id,
+                DBCliProject.owner_user_id == owner_user_id,
+            ).first()
+
+    def list_cli_projects(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return session.query(DBCliProject).filter(
+                DBCliProject.owner_user_id == owner_user_id,
+            ).order_by(DBCliProject.updated_at.desc()).all()
+
+    def get_cli_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision_id: Optional[str] = None,
+    ) -> Optional[Any]:
+        with self._session() as session:
+            query = session.query(DBCliProjectRevision).filter(
+                DBCliProjectRevision.project_id == project_id,
+                DBCliProjectRevision.owner_user_id == owner_user_id,
+            )
+            if revision_id:
+                query = query.filter(DBCliProjectRevision.revision_id == revision_id)
+            return query.order_by(DBCliProjectRevision.revision.desc()).first()
+
+    def insert_cli_project_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+        expected_revision_id: Optional[str],
+    ) -> Optional[Any]:
+        try:
+            with self._session() as session, session.begin():
+                project = session.query(DBCliProject).filter(
+                    DBCliProject.project_id == project_record["project_id"],
+                ).first()
+                if project is None:
+                    if expected_revision_id is not None:
+                        return None
+                    project = DBCliProject(**project_record)
+                    session.add(project)
+                elif (
+                    project.owner_user_id != project_record["owner_user_id"]
+                    or project.current_revision_id != expected_revision_id
+                    or project.current_revision + 1 != revision_record["revision"]
+                ):
+                    return None
+                revision = DBCliProjectRevision(**revision_record)
+                session.add(revision)
+                project.current_revision = revision_record["revision"]
+                project.current_revision_id = revision_record["revision_id"]
+                project.updated_at = revision_record["created_at"]
+                session.flush()
+                session.refresh(revision)
+                session.expunge(revision)
+                return revision
+        except IntegrityError:
+            return None
+
+    def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
+        with self._session() as session:
+            query = session.query(DBCliDeviceAuthorization)
+            if device_code_hash:
+                query = query.filter(DBCliDeviceAuthorization.device_code_hash == device_code_hash)
+            if user_code_hash:
+                query = query.filter(DBCliDeviceAuthorization.user_code_hash == user_code_hash)
+            return query.first()
+
+    def insert_cli_device_authorization(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            authorization = DBCliDeviceAuthorization(**record)
+            session.add(authorization)
+            session.flush()
+            session.refresh(authorization)
+            session.expunge(authorization)
+            return authorization
+
+    def update_cli_device_authorization(
+        self,
+        device_code_hash: str,
+        updates: Dict[str, Any],
+        expected_status: Optional[str] = None,
+        expected_consumed: Optional[bool] = None,
+    ) -> Optional[Any]:
+        with self._session() as session, session.begin():
+            query = session.query(DBCliDeviceAuthorization).filter(
+                DBCliDeviceAuthorization.device_code_hash == device_code_hash,
+            )
+            if expected_status is not None:
+                query = query.filter(DBCliDeviceAuthorization.status == expected_status)
+            if expected_consumed is not None:
+                query = query.filter(DBCliDeviceAuthorization.consumed == expected_consumed)
+            authorization = query.first()
+            if authorization is None:
+                return None
+            for key, value in updates.items():
+                setattr(authorization, key, value)
+            session.flush()
+            session.refresh(authorization)
+            session.expunge(authorization)
+            return authorization
+
+    def get_cli_token_session(self, token_hash: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBCliTokenSession).filter(
+                DBCliTokenSession.token_hash == token_hash,
+            ).first()
+
+    def insert_cli_token_session(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            token = DBCliTokenSession(**record)
+            session.add(token)
+            session.flush()
+            session.refresh(token)
+            session.expunge(token)
+            return token
+
+    def revoke_cli_token_sessions(
+        self,
+        *,
+        token_hash: Optional[str] = None,
+        refresh_token_hash: Optional[str] = None,
+        revoked_at: float,
+    ) -> int:
+        with self._session() as session, session.begin():
+            count = 0
+            queries = []
+            if token_hash:
+                queries.append(session.query(DBCliTokenSession).filter(
+                    DBCliTokenSession.token_hash == token_hash,
+                    DBCliTokenSession.revoked_at.is_(None),
+                ))
+            if refresh_token_hash:
+                queries.append(session.query(DBCliTokenSession).filter(
+                    DBCliTokenSession.refresh_token_hash == refresh_token_hash,
+                    DBCliTokenSession.revoked_at.is_(None),
+                ))
+            seen: set[str] = set()
+            for query in queries:
+                for token in query.all():
+                    if token.token_hash not in seen:
+                        token.revoked_at = revoked_at
+                        seen.add(token.token_hash)
+                        count += 1
+            return count
 
     def insert_project_revision(
         self,

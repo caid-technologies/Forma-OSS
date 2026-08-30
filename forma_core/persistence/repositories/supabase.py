@@ -398,6 +398,143 @@ class SupabaseRepository:
         payload = data[0] if isinstance(data, list) and data else data
         return _record(payload) if isinstance(payload, dict) else None
 
+    def get_cli_project(self, project_id: str, owner_user_id: str) -> Optional[Any]:
+        rows = (
+            self._client.table("cli_projects")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        return _record(rows[0]) if rows else None
+
+    def list_cli_projects(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("cli_projects")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .order("updated_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
+    def get_cli_project_revision(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        revision_id: Optional[str] = None,
+    ) -> Optional[Any]:
+        query = (
+            self._client.table("cli_project_revisions")
+            .select("*")
+            .eq("project_id", project_id)
+            .eq("owner_user_id", owner_user_id)
+        )
+        if revision_id:
+            query = query.eq("revision_id", revision_id)
+        rows = query.order("revision", desc=True).limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def insert_cli_project_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+        expected_revision_id: Optional[str],
+    ) -> Optional[Any]:
+        project = self.get_cli_project(project_record["project_id"], project_record["owner_user_id"])
+        if project is None:
+            if expected_revision_id is not None:
+                return None
+            self._client.table("cli_projects").insert(project_record).execute()
+        elif (
+            getattr(project, "current_revision_id", None) != expected_revision_id
+            or int(getattr(project, "current_revision", 0)) + 1 != revision_record["revision"]
+        ):
+            return None
+        try:
+            rows = self._client.table("cli_project_revisions").insert(revision_record).execute().data or []
+            self._client.table("cli_projects").update({
+                "current_revision": revision_record["revision"],
+                "current_revision_id": revision_record["revision_id"],
+                "updated_at": revision_record["created_at"],
+            }).eq("project_id", project_record["project_id"]).eq(
+                "owner_user_id", project_record["owner_user_id"]
+            ).execute()
+        except Exception:
+            return None
+        return _record(rows[0]) if rows else None
+
+    def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
+        query = self._client.table("cli_device_authorizations").select("*")
+        if device_code_hash:
+            query = query.eq("device_code_hash", device_code_hash)
+        if user_code_hash:
+            query = query.eq("user_code_hash", user_code_hash)
+        rows = query.limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def insert_cli_device_authorization(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("cli_device_authorizations").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def update_cli_device_authorization(
+        self,
+        device_code_hash: str,
+        updates: Dict[str, Any],
+        expected_status: Optional[str] = None,
+        expected_consumed: Optional[bool] = None,
+    ) -> Optional[Any]:
+        query = self._client.table("cli_device_authorizations").update(updates).eq(
+            "device_code_hash", device_code_hash
+        )
+        if expected_status is not None:
+            query = query.eq("status", expected_status)
+        if expected_consumed is not None:
+            query = query.eq("consumed", expected_consumed)
+        rows = query.select("*").execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def get_cli_token_session(self, token_hash: str) -> Optional[Any]:
+        rows = self._client.table("cli_token_sessions").select("*").eq("token_hash", token_hash).limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def insert_cli_token_session(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("cli_token_sessions").insert(record).execute().data or []
+        return _record(rows[0]) if rows else _record(record)
+
+    def revoke_cli_token_sessions(
+        self,
+        *,
+        token_hash: Optional[str] = None,
+        refresh_token_hash: Optional[str] = None,
+        revoked_at: float,
+    ) -> int:
+        count = 0
+        seen: set[str] = set()
+        for column, value in (("token_hash", token_hash), ("refresh_token_hash", refresh_token_hash)):
+            if not value:
+                continue
+            rows = (
+                self._client.table("cli_token_sessions")
+                .update({"revoked_at": revoked_at})
+                .eq(column, value)
+                .is_("revoked_at", "null")
+                .execute()
+                .data
+                or []
+            )
+            for row in rows:
+                token_hash_value = str(row.get("token_hash") or "")
+                if token_hash_value and token_hash_value not in seen:
+                    seen.add(token_hash_value)
+                    count += 1
+        return count
+
     def insert_project_revision(
         self,
         record: Dict[str, Any],

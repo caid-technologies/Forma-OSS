@@ -197,6 +197,14 @@ class ApplicationRepository(Protocol):
         owner_user_id: Optional[str],
     ) -> bool: ...
 
+    def claim_unowned_generated_project(
+        self,
+        project_id: str,
+        hardware_ir: Dict[str, Any],
+        chat_id: Optional[str],
+        owner_user_id: str,
+    ) -> bool: ...
+
     def update_generated_project_metadata(
         self,
         project_id: str,

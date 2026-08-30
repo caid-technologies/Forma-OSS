@@ -8,7 +8,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from forma_core.database import init_db, save_generated_project, update_generated_project_hardware_ir
+from forma_core.database import (
+    claim_unowned_generated_project,
+    init_db,
+    save_generated_project,
+    update_generated_project_hardware_ir,
+)
 from forma_core.images import build_image_provider, build_project_visual_spec
 from forma_core.persistence.images import get_image_storage_config, upload_image_to_supabase_s3
 
@@ -374,6 +379,8 @@ def persist_project_output(ir: Any, *, prompt_text: str = "", owner_user_id: Opt
         raise ValueError("Project output cannot be persisted without assembly_metadata.project_id.")
     hardware_ir = ir.model_dump(mode="json")
     if update_generated_project_hardware_ir(project_id, hardware_ir, owner_user_id=owner_user_id):
+        return project_id
+    if owner_user_id and claim_unowned_generated_project(project_id, hardware_ir, owner_user_id):
         return project_id
     title = getattr(getattr(ir, "overview", None), "title", None) or prompt_text.strip() or "Untitled Forma Project"
     created_at = metadata.get("created_at") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")

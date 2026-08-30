@@ -1295,6 +1295,29 @@ def update_generated_project_hardware_ir(
     return updated
 
 
+def claim_unowned_generated_project(
+    project_id: str,
+    hardware_ir: Dict[str, Any],
+    owner_user_id: str,
+) -> bool:
+    project_id = _canonical_project_id(project_id)
+    hardware_ir = _hardware_ir_with_project_id(project_id, hardware_ir)
+    metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
+    chat_id = _normalize_chat_id(metadata.get("chat_id"))
+    normalized_owner_user_id = _normalize_user_id(owner_user_id)
+    if not normalized_owner_user_id:
+        return False
+    claimed = _DATABASE_REPOSITORY.claim_unowned_generated_project(
+        project_id,
+        hardware_ir,
+        chat_id,
+        normalized_owner_user_id,
+    )
+    if claimed:
+        invalidate_project_lists()
+    return claimed
+
+
 def _hardware_ir_with_overview_title(hardware_ir: Any, title: str) -> Optional[Dict[str, Any]]:
     if hardware_ir is None:
         return None

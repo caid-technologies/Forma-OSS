@@ -33,6 +33,7 @@ SIMULATION_ENVIRONMENT = {
     "LLM_DISABLE_FALLBACK": "false",
 }
 ASSEMBLY_STEP_FILENAMES = ("assembly.step", "assembled.step")
+LOCAL_OWNER_USER_ID = "local-dev-user"
 LOCAL_PROVIDER_ENVIRONMENT = {
     "anthropic": "ANTHROPIC_API_KEY",
     "baseten": "BASETEN_API_KEY",
@@ -162,7 +163,7 @@ def build_project(
     from forma_core.workspaces.projects.output import attach_assembly_step, persist_project_output
 
     assembly_artifact = attach_assembly_step(ir, assembly_path)
-    persist_project_output(ir, prompt_text=requested_prompt)
+    persist_project_output(ir, prompt_text=requested_prompt, owner_user_id=LOCAL_OWNER_USER_ID)
     artifacts = [
         artifact
         for artifact in current.artifacts

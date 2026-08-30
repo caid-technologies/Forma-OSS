@@ -129,6 +129,7 @@ class OssCliTests(unittest.TestCase):
             self.assertEqual("assembly.step", manifest.artifacts[-1].path)
             saved = get_generated_project(manifest.project_id)
             self.assertIsNotNone(saved)
+            self.assertEqual("local-dev-user", saved.owner_user_id)
             self.assertEqual(
                 str((root / "assembly.step").resolve()),
                 saved.hardware_ir["cad_model"]["path"],

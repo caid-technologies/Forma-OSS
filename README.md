@@ -141,7 +141,7 @@ always explicit; provider credentials are excluded from project uploads.
 ```bash
 forma-oss --help
 forma-oss init ./my-project
-forma-oss build "plant watering monitor" --path ./my-project --assembly-step ./assembly.step --simulation
+forma-oss build "plant watering monitor" --path ./my-project --simulation
 forma-oss status --path ./my-project
 forma-oss render --path ./my-project --output ./my-project/mechanical-render.png
 forma-oss login

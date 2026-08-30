@@ -158,6 +158,19 @@ class OssCliTests(unittest.TestCase):
             self.assertIsNotNone(saved)
             self.assertEqual("local-dev-user", saved.owner_user_id)
 
+    def test_build_generates_assembly_step_without_manual_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_project(temp_dir, title="Generated assembly")
+
+            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+
+            root = Path(temp_dir)
+            assembly = root / "assembly.step"
+            self.assertTrue(assembly.is_file())
+            self.assertEqual("assembly.step", manifest.artifacts[-1].path)
+            self.assertTrue(manifest.project_ir["cad_model"]["generated"])
+            self.assertEqual(str(assembly.resolve()), manifest.project_ir["cad_model"]["path"])
+
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()
         store = CredentialStore(keyring_backend=keyring)

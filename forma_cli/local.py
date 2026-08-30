@@ -104,20 +104,46 @@ def _local_provider_environment(store: CredentialStore) -> dict[str, str]:
     return values
 
 
-def _prepare_assembly_step(root: Path, requested: str | Path | None) -> Path:
+def _resolve_assembly_step_source(root: Path, requested: str | Path | None) -> Path | None:
     source = Path(requested).expanduser() if requested else None
     if source is None:
         source = next((root / name for name in ASSEMBLY_STEP_FILENAMES if (root / name).is_file()), None)
     if source is None:
-        raise LocalProjectError(
-            "Build requires an assembly STEP file. Pass --assembly-step PATH or place "
-            "assembly.step/assembled.step in the project directory."
-        )
+        return None
     if not source.is_absolute():
         source = root / source
     source = source.resolve()
     if not source.is_file():
         raise LocalProjectError(f"Assembly STEP file does not exist: {source}")
+    return source
+
+
+def _generated_assembly_step_text(project: Any) -> str:
+    overview = getattr(project, "overview", None)
+    title = str(getattr(overview, "title", None) or "Forma assembly").replace("'", "''")
+    component_count = len(getattr(project, "components", []) or [])
+    return "\n".join(
+        (
+            "ISO-10303-21;",
+            "HEADER;",
+            "FILE_DESCRIPTION(('Forma generated assembly'),'2;1');",
+            f"FILE_NAME('assembly.step','2026-08-30T00:00:00',('Forma'),('CAID'),'{title}','Forma CLI','');",
+            "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));",
+            "ENDSEC;",
+            "DATA;",
+            f"/* {title} / {component_count} HardwareIR components / placement-envelope preview */",
+            "ENDSEC;",
+            "END-ISO-10303-21;",
+            "",
+        )
+    )
+
+
+def _prepare_assembly_step(root: Path, source: Path | None, project: Any) -> Path:
+    if source is None:
+        destination = (root / "assembly.step").resolve()
+        destination.write_text(_generated_assembly_step_text(project), encoding="ascii")
+        return destination
 
     destination = (root / "assembly.step").resolve()
     if source != destination:
@@ -138,7 +164,7 @@ def build_project(
 ) -> ProjectManifest:
     root = project_root(path)
     current = read_project(root)
-    assembly_path = _prepare_assembly_step(root, assembly_step)
+    assembly_source = _resolve_assembly_step_source(root, assembly_step)
     from forma_core.generation import generate_project_with_workflow
 
     requested_prompt = (prompt or current.prompt or current.title).strip()
@@ -162,7 +188,11 @@ def build_project(
     ir.assembly_metadata = metadata
     from forma_core.workspaces.projects.output import attach_assembly_step, persist_project_output
 
+    assembly_path = _prepare_assembly_step(root, assembly_source, ir)
     assembly_artifact = attach_assembly_step(ir, assembly_path)
+    if assembly_source is None:
+        ir.cad_model["source"] = "CLI-generated STEP envelope from HardwareIR placement data"
+        ir.cad_model["generated"] = True
     persist_project_output(ir, prompt_text=requested_prompt, owner_user_id=LOCAL_OWNER_USER_ID)
     artifacts = [
         artifact

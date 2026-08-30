@@ -77,6 +77,10 @@ class DesignBriefAccessError(PermissionError):
     """The project id is already owned by a different user."""
 
 
+class CliProjectConflictError(RuntimeError):
+    """A CLI sync write was based on a stale remote revision."""
+
+
 def _env(name: str, default: Optional[str] = None) -> Optional[str]:
     value = config.get(name)
     if value is None:
@@ -489,6 +493,142 @@ def list_generated_projects_page(
 
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
     return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
+
+
+def list_cli_projects(owner_user_id: str) -> List[Dict[str, Any]]:
+    """Return private CLI project metadata without project payloads."""
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    return [
+        {
+            "project_id": str(record.project_id),
+            "workspace_id": getattr(record, "workspace_id", None),
+            "title": getattr(record, "title", ""),
+            "revision_id": getattr(record, "current_revision_id", None),
+            "revision": getattr(record, "current_revision", 0),
+            "updated_at": getattr(record, "updated_at", None),
+            "created_at": getattr(record, "created_at", None),
+        }
+        for record in _DATABASE_REPOSITORY.list_cli_projects(owner)
+    ]
+
+
+def get_cli_project_revision(
+    project_id: str,
+    owner_user_id: str,
+    revision_id: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    owner = _normalize_user_id(owner_user_id)
+    project = str(project_id or "").strip()
+    if not owner or not project:
+        return None
+    record = _DATABASE_REPOSITORY.get_cli_project_revision(project, owner, revision_id)
+    if record is None:
+        return None
+    return {
+        "revision_id": str(record.revision_id),
+        "project_id": str(record.project_id),
+        "revision": int(record.revision),
+        "parent_revision_id": getattr(record, "parent_revision_id", None),
+        "manifest": getattr(record, "manifest_json", {}),
+        "created_at": getattr(record, "created_at", None),
+    }
+
+
+def insert_cli_project_revision(
+    manifest: Dict[str, Any],
+    owner_user_id: str,
+    *,
+    expected_revision_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Create one private project revision with compare-and-swap ancestry."""
+    owner = _normalize_user_id(owner_user_id)
+    project_id = str(manifest.get("project_id") or "").strip()
+    if not owner or not project_id:
+        raise ValueError("A project_id and authenticated owner are required.")
+    existing = _DATABASE_REPOSITORY.get_cli_project(project_id, owner)
+    next_revision = int(getattr(existing, "current_revision", 0)) + 1 if existing else 1
+    now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    revision_id = str(uuid.uuid4())
+    revision_record = {
+        "revision_id": revision_id,
+        "project_id": project_id,
+        "owner_user_id": owner,
+        "revision": next_revision,
+        "parent_revision_id": expected_revision_id,
+        "manifest_json": manifest,
+        "created_at": now,
+    }
+    project_record = {
+        "project_id": project_id,
+        "workspace_id": manifest.get("workspace_id"),
+        "owner_user_id": owner,
+        "title": str(manifest.get("title") or "Untitled Forma Project"),
+        "current_revision": 0,
+        "current_revision_id": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    saved = _DATABASE_REPOSITORY.insert_cli_project_revision(
+        project_record,
+        revision_record,
+        expected_revision_id,
+    )
+    if saved is None:
+        raise CliProjectConflictError("The cloud project changed since the local project was last pulled.")
+    return {
+        "revision_id": revision_id,
+        "project_id": project_id,
+        "revision": next_revision,
+        "parent_revision_id": expected_revision_id,
+        "manifest": manifest,
+        "created_at": now,
+    }
+
+
+def get_cli_device_authorization(device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_cli_device_authorization(device_code_hash, user_code_hash)
+
+
+def insert_cli_device_authorization(record: Dict[str, Any]) -> Any:
+    return _DATABASE_REPOSITORY.insert_cli_device_authorization(record)
+
+
+def update_cli_device_authorization(
+    device_code_hash: str,
+    updates: Dict[str, Any],
+    *,
+    expected_status: Optional[str] = None,
+    expected_consumed: Optional[bool] = None,
+) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.update_cli_device_authorization(
+        device_code_hash,
+        updates,
+        expected_status=expected_status,
+        expected_consumed=expected_consumed,
+    )
+
+
+def get_cli_token_session(token_hash: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_cli_token_session(token_hash)
+
+
+def insert_cli_token_session(record: Dict[str, Any]) -> Any:
+    return _DATABASE_REPOSITORY.insert_cli_token_session(record)
+
+
+def revoke_cli_token_sessions(
+    *,
+    token_hash: Optional[str] = None,
+    refresh_token_hash: Optional[str] = None,
+    revoked_at: float,
+) -> int:
+    return _DATABASE_REPOSITORY.revoke_cli_token_sessions(
+        token_hash=token_hash,
+        refresh_token_hash=refresh_token_hash,
+        revoked_at=revoked_at,
+    )
 
 
 def _design_brief_from_record(record: Any) -> DesignBrief:

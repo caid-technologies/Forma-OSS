@@ -27,6 +27,7 @@ class CorePackageTests(unittest.TestCase):
         self.assertEqual("apps.api.main:app", pyproject["tool"]["vercel"]["entrypoint"])
         self.assertEqual("forma_core._version.__version__", pyproject["tool"]["setuptools"]["dynamic"]["version"]["attr"])
         self.assertEqual("forma_core.cli.main:main", pyproject["project"]["scripts"]["forma-core"])
+        self.assertEqual("forma_cli.app:app", pyproject["project"]["scripts"]["forma-oss"])
         self.assertEqual(
             "forma_core.fabricator.main:main",
             pyproject["project"]["scripts"]["fabricator"],

@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request, status
 from jwt import PyJWKClient
 
 from apps.api.auth_mode import clerk_auth_required
+from apps.api.cli_auth_store import is_cli_access_token, resolve_access_token
 from forma_core.config import config
 
 
@@ -311,10 +312,28 @@ def _authenticated_clerk_context(auth_claims: Dict[str, Any]) -> UserContext:
 
 async def optional_user_context(request: Request) -> UserContext:
     """Resolve a request identity without requiring the caller to be signed in."""
+    token = _request_bearer_token(request)
+    if token:
+        cli_identity = resolve_access_token(token)
+        if cli_identity is not None:
+            claims = {
+                "sub": cli_identity.subject,
+                "email": cli_identity.email,
+                "name": cli_identity.display_name,
+            }
+            return UserContext(
+                provider="forma-cli",
+                subject=cli_identity.subject,
+                owner_user_id=cli_identity.subject,
+                is_authenticated=True,
+                is_admin=False,
+                claims=claims,
+            )
+        if not deployed_auth_required() and is_cli_access_token(token):
+            return _anonymous_clerk_context()
+
     if not deployed_auth_required():
         return _local_user_context()
-
-    token = _request_bearer_token(request)
     if not token:
         return _anonymous_clerk_context()
     return _authenticated_clerk_context(verify_clerk_bearer_token(token))
@@ -401,7 +420,6 @@ async def require_mcp_user_context(request: Request) -> UserContext:
 async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
     """Compatibility wrapper for routes that still consume raw Clerk claims."""
     if not deployed_auth_required():
-        await require_user_context(request)
         return None
 
     context = await optional_user_context(request)
@@ -413,7 +431,7 @@ async def require_deployed_clerk_auth(request: Request) -> Optional[Dict[str, An
 async def optional_deployed_clerk_auth(request: Request) -> Optional[Dict[str, Any]]:
     """Compatibility wrapper for routes that still consume raw Clerk claims."""
     context = await optional_user_context(request)
-    if context.provider == "local" or not _request_bearer_token(request):
+    if not deployed_auth_required() or context.provider == "local" or not _request_bearer_token(request):
         return None
     return dict(context.claims)
 

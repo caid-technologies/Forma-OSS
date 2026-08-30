@@ -145,6 +145,7 @@ class WebResearchHardwarePipeline:
         model_name: Optional[str] = None,
         runtime_config: Optional[LLMRuntimeConfig] = None,
         external_source_provider: Optional[str] = None,
+        persist_project: bool = True,
     ):
         self.runtime_config = runtime_config or resolve_llm_runtime_config(
             provider_name=provider_name,
@@ -154,6 +155,7 @@ class WebResearchHardwarePipeline:
         self.use_simulation = not self.llm_provider.is_configured
         self.model_name = self.llm_provider.model_name
         self.external_source_provider = external_source_provider
+        self.persist_project = persist_project
         self.research_client = build_external_source_provider(provider=external_source_provider)
         self._active_generation_metadata: Dict[str, Any] = {}
 
@@ -1115,6 +1117,8 @@ class WebResearchHardwarePipeline:
             **public_generation_metadata,
             "project_id": project_id,
         }
+        if not self.persist_project:
+            return project_id
         try:
             save_generated_project(
                 project_id=project_id,

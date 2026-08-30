@@ -150,6 +150,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     from forma_core.terminal.images import TerminalImageRenderConfig, render_images
     from forma_core.workspaces.projects.output import (
         attach_product_image,
+        attach_assembly_step,
         persist_project_output,
         primary_product_image_data,
     )
@@ -177,6 +178,8 @@ def cmd_generate(args: argparse.Namespace) -> int:
             external_source_provider=args.external_source_provider,
         )
         _reject_live_fallback_output(project, simulation=args.simulation)
+        if args.assembly_step:
+            attach_assembly_step(project, args.assembly_step)
         attach_product_image(args.prompt, project, generate_image=args.generate_image)
         persist_project_output(project, prompt_text=args.prompt)
 
@@ -279,6 +282,7 @@ def build_parser() -> argparse.ArgumentParser:
     generate.add_argument("--show-image", action="store_true", help="Render the generated product image in the terminal.")
     generate.add_argument("--terminal-width", type=int, help="Maximum terminal columns for --show-image.")
     generate.add_argument("--terminal-height", type=int, default=40, help="Maximum terminal rows for --show-image.")
+    generate.add_argument("--assembly-step", help="Attach a validated assembly.step or assembled.step artifact before persistence.")
     generate.add_argument("--simulation", action="store_true", help="Use the deterministic built-in generator.")
     generate.add_argument("--output", help="Write HardwareIR JSON to this path; defaults to stdout.")
     _add_runtime_selector_arguments(generate)

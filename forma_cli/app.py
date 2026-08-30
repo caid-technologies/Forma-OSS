@@ -93,8 +93,12 @@ def cmd_build(args: argparse.Namespace) -> int:
         provider=args.provider,
         model=args.model,
         simulation=args.simulation,
+        assembly_step=args.assembly_step,
     )
-    print(f"Built {manifest.title or manifest.project_id} at {project_root(args.path) / 'forma-project.json'}")
+    print(
+        f"Built {manifest.title or manifest.project_id}, persisted {manifest.project_id} to Forma DB, "
+        f"at {project_root(args.path) / 'forma-project.json'}"
+    )
     return 0
 
 
@@ -317,6 +321,10 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--provider")
     build.add_argument("--model")
     build.add_argument("--simulation", action="store_true")
+    build.add_argument(
+        "--assembly-step",
+        help="Assembly STEP file; defaults to assembly.step or assembled.step in the project directory.",
+    )
     build.set_defaults(func=cmd_build)
     status = subparsers.add_parser("status", help="Validate and show local/remote project state.")
     status.add_argument("--path", default=".")

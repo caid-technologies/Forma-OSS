@@ -8,8 +8,9 @@ from unittest.mock import patch
 
 from forma_cli.app import build_parser, cmd_projects_pull, cmd_render
 from forma_cli.credentials import CredentialStore
-from forma_cli.local import init_project
+from forma_cli.local import build_project, init_project
 from forma_cli.sdk import CloudProjectRevision, FormaAPIClient
+from forma_core.database import get_generated_project
 from forma_core.workspaces.projects.manifest import ProjectManifest, write_project_manifest
 
 
@@ -107,6 +108,31 @@ class OssCliTests(unittest.TestCase):
             output = root / "render.png"
             self.assertTrue(output.exists())
             self.assertGreater(output.stat().st_size, 1000)
+
+    def test_simulated_test_tube_build_has_matching_cad_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_project(temp_dir, title="Test tube")
+            root = Path(temp_dir)
+            (root / "assembled.step").write_text(
+                "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+                encoding="ascii",
+            )
+
+            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+            ir = manifest.project_ir
+
+            self.assertEqual("Test Tube Monitor", ir["overview"]["title"])
+            self.assertEqual("forma-opencad", ir["cad_model"]["adapter"])
+            self.assertEqual(1, len(ir["cad_model"]["meshes"]))
+            self.assertGreater(len(ir["cad_model"]["meshes"][0]["vertices"]), 100)
+            self.assertTrue((root / "assembly.step").is_file())
+            self.assertEqual("assembly.step", manifest.artifacts[-1].path)
+            saved = get_generated_project(manifest.project_id)
+            self.assertIsNotNone(saved)
+            self.assertEqual(
+                str((root / "assembly.step").resolve()),
+                saved.hardware_ir["cad_model"]["path"],
+            )
 
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()

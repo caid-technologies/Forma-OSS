@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
-from forma_core.database import save_generated_project, update_generated_project_hardware_ir
+from forma_core.database import init_db, save_generated_project, update_generated_project_hardware_ir
 from forma_core.images import build_image_provider, build_project_visual_spec
 from forma_core.persistence.images import get_image_storage_config, upload_image_to_supabase_s3
 
@@ -327,8 +329,45 @@ def attach_product_image(
     )
 
 
+def attach_assembly_step(ir: Any, filepath: str | Path) -> Dict[str, Any]:
+    """Attach a validated native STEP artifact to a generated project."""
+    path = Path(filepath).expanduser().resolve()
+    if path.suffix.lower() not in {".step", ".stp"}:
+        raise ValueError("Assembly artifact must end in .step or .stp.")
+    if not path.is_file():
+        raise ValueError(f"Assembly artifact does not exist: {path}")
+
+    data = path.read_bytes()
+    upper = data.upper()
+    if (
+        not upper.lstrip().startswith(b"ISO-10303-21;")
+        or b"HEADER;" not in upper
+        or b"DATA;" not in upper
+        or b"END-ISO-10303-21;" not in upper
+    ):
+        raise ValueError(f"Assembly artifact is not a valid STEP exchange file: {path}")
+
+    artifact = {
+        "path": str(path),
+        "filename": path.name,
+        "format": "step",
+        "units": "mm",
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    current = ir.cad_model if isinstance(ir.cad_model, dict) else {}
+    ir.cad_model = {
+        **current,
+        "adapter": "forma-opencad",
+        "source": "CLI assembly STEP artifact",
+        **artifact,
+    }
+    return artifact
+
+
 def persist_project_output(ir: Any, *, prompt_text: str = "", owner_user_id: Optional[str] = None) -> str:
     """Update the existing generated project, or save it when generation did not."""
+    init_db()
     metadata = ir.assembly_metadata or {}
     project_id = metadata.get("project_id")
     if not project_id:
@@ -359,6 +398,7 @@ def primary_product_image_data(ir: Any) -> Optional[str]:
 
 __all__ = [
     "attach_hardware_reference_image",
+    "attach_assembly_step",
     "attach_product_image",
     "persist_project_output",
     "primary_product_image_data",

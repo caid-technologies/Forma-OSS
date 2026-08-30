@@ -111,7 +111,7 @@ def generate_project_with_workflow(
     public_generation_metadata = {
         key: value
         for key, value in (generation_metadata or {}).items()
-        if key not in {"owner_user_id", "project_prompt"}
+        if key not in {"owner_user_id", "project_prompt"} and value is not None and value != ""
     }
     ir.assembly_metadata = {
         **(ir.assembly_metadata or {}),

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from pathlib import Path
+import shutil
 from typing import Any
 from uuid import uuid4
 
 from forma_core.config import config
 from forma_core.workspaces.projects.manifest import (
     PROJECT_MANIFEST_FORMAT,
+    ProjectArtifactReference,
     ProjectManifest,
     load_project_manifest,
     write_project_manifest,
@@ -30,6 +32,7 @@ SIMULATION_ENVIRONMENT = {
     "FORMA_STRICT_GENERATION": "false",
     "LLM_DISABLE_FALLBACK": "false",
 }
+ASSEMBLY_STEP_FILENAMES = ("assembly.step", "assembled.step")
 LOCAL_PROVIDER_ENVIRONMENT = {
     "anthropic": "ANTHROPIC_API_KEY",
     "baseten": "BASETEN_API_KEY",
@@ -100,6 +103,27 @@ def _local_provider_environment(store: CredentialStore) -> dict[str, str]:
     return values
 
 
+def _prepare_assembly_step(root: Path, requested: str | Path | None) -> Path:
+    source = Path(requested).expanduser() if requested else None
+    if source is None:
+        source = next((root / name for name in ASSEMBLY_STEP_FILENAMES if (root / name).is_file()), None)
+    if source is None:
+        raise LocalProjectError(
+            "Build requires an assembly STEP file. Pass --assembly-step PATH or place "
+            "assembly.step/assembled.step in the project directory."
+        )
+    if not source.is_absolute():
+        source = root / source
+    source = source.resolve()
+    if not source.is_file():
+        raise LocalProjectError(f"Assembly STEP file does not exist: {source}")
+
+    destination = (root / "assembly.step").resolve()
+    if source != destination:
+        shutil.copy2(source, destination)
+    return destination
+
+
 def build_project(
     path: str | Path | None = None,
     *,
@@ -108,10 +132,12 @@ def build_project(
     provider: str | None = None,
     model: str | None = None,
     simulation: bool = False,
+    assembly_step: str | Path | None = None,
     credential_store: CredentialStore | None = None,
 ) -> ProjectManifest:
     root = project_root(path)
     current = read_project(root)
+    assembly_path = _prepare_assembly_step(root, assembly_step)
     from forma_core.generation import generate_project_with_workflow
 
     requested_prompt = (prompt or current.prompt or current.title).strip()
@@ -133,6 +159,22 @@ def build_project(
     metadata["project_id"] = current.project_id
     metadata["project_prompt"] = requested_prompt
     ir.assembly_metadata = metadata
+    from forma_core.workspaces.projects.output import attach_assembly_step, persist_project_output
+
+    assembly_artifact = attach_assembly_step(ir, assembly_path)
+    persist_project_output(ir, prompt_text=requested_prompt)
+    artifacts = [
+        artifact
+        for artifact in current.artifacts
+        if artifact.path not in {"assembly.step", "assembled.step"}
+    ]
+    artifacts.append(
+        ProjectArtifactReference(
+            path="assembly.step",
+            sha256=assembly_artifact["sha256"],
+            media_type="model/step",
+        )
+    )
     updated = ProjectManifest(
         format=PROJECT_MANIFEST_FORMAT,
         version=1,
@@ -141,7 +183,7 @@ def build_project(
         title=current.title or (ir.overview.title if ir.overview else requested_prompt),
         prompt=requested_prompt,
         project_ir=ir.model_dump(mode="json"),
-        artifacts=current.artifacts,
+        artifacts=artifacts,
     )
     write_project_manifest(root / PROJECT_FILENAME, updated)
     return updated

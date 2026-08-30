@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+from pathlib import Path
 import sys
 import time
 import webbrowser
@@ -109,6 +110,28 @@ def cmd_status(args: argparse.Namespace) -> int:
             print(f"Remote: {payload['remote']}")
             print(f"Revision: {payload.get('revision_id') or 'none'}")
     return 0 if payload["valid"] else 1
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    from forma_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
+
+    root = project_root(args.path)
+    manifest = read_project(root)
+    output = Path(args.output).expanduser()
+    if not output.is_absolute():
+        output = root / output
+    render_dashboard_image(
+        manifest.project_ir,
+        output,
+        config=DashboardRenderConfig(
+            width=args.width,
+            height=args.height,
+            scene_yaw_degrees=args.yaw,
+            scene_label="FORMA OSS / CLI RENDER",
+        ),
+    )
+    print(f"Rendered {manifest.title or manifest.project_id} at {output}")
+    return 0
 
 
 def cmd_projects_list(args: argparse.Namespace) -> int:
@@ -299,6 +322,14 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--path", default=".")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=cmd_status)
+
+    render = subparsers.add_parser("render", help="Render the local mechanical project layout to a PNG.")
+    render.add_argument("--path", default=None)
+    render.add_argument("--output", default="forma-render.png")
+    render.add_argument("--width", type=int, default=1280)
+    render.add_argument("--height", type=int, default=900)
+    render.add_argument("--yaw", type=float, default=0.0)
+    render.set_defaults(func=cmd_render)
 
     projects = subparsers.add_parser("projects", help="Manage explicit cloud project synchronization.")
     project_commands = projects.add_subparsers(dest="projects_command", required=True)

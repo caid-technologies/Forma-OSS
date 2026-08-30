@@ -480,6 +480,7 @@ class ProjectReadAccessTests(unittest.TestCase):
 
     def test_public_current_ir_keeps_required_cad_url_field_valid_while_redacting_value(self) -> None:
         downloadable_url = "https://downloads.example.test/private/enclosure.step"
+        cad_model = {"url": downloadable_url, "s3_uri": "s3://private-bucket/enclosure.step"}
         ir = HardwareIR(
             overview=ProjectOverview(
                 title="Public enclosure",
@@ -497,6 +498,7 @@ class ProjectReadAccessTests(unittest.TestCase):
                 enclosure_type="3D Printed",
                 mounting_guidance="Fasten the board to internal standoffs.",
                 manufacturability_rating="Easy",
+                cad_model=cad_model,
                 cad_sources=[
                     MechanicalSource(
                         name="Enclosure STEP",
@@ -509,6 +511,7 @@ class ProjectReadAccessTests(unittest.TestCase):
             assembly_metadata={
                 "project_id": "current-public-project",
                 "chat_id": "private-current-chat",
+                "cad_model": cad_model,
             },
         )
         public_project = _project(
@@ -528,6 +531,9 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertFalse(response["can_chat"])
         self.assertIsNone(response["chat_id"])
         self.assertNotIn("chat_id", response["project_ir"]["assembly_metadata"])
+        self.assertIsNone(response["project_ir"]["cad_model"])
+        self.assertIsNone(response["project_ir"]["mechanical"]["cad_model"])
+        self.assertIsNone(response["project_ir"]["assembly_metadata"]["cad_model"])
         self.assertEqual("", response["project_ir"]["mechanical"]["cad_sources"][0]["url"])
         self.assertNotIn(downloadable_url, json.dumps(response, default=str))
 

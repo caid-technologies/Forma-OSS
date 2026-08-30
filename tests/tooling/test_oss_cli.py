@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from forma_cli.app import build_parser, cmd_projects_pull
+from forma_cli.app import build_parser, cmd_projects_pull, cmd_render
 from forma_cli.credentials import CredentialStore
 from forma_cli.local import init_project
 from forma_cli.sdk import CloudProjectRevision, FormaAPIClient
@@ -46,7 +46,7 @@ class OssCliTests(unittest.TestCase):
         parser = build_parser()
         self.assertEqual("forma-oss", parser.prog)
         self.assertEqual(
-            {"login", "logout", "whoami", "init", "build", "status", "projects", "keys"},
+            {"login", "logout", "whoami", "init", "build", "status", "render", "projects", "keys"},
             set(parser._subparsers._group_actions[0].choices),
         )
 
@@ -84,6 +84,29 @@ class OssCliTests(unittest.TestCase):
                 ProjectManifest(project_id="local-project", project_ir={"api_key": "secret-value"}),
             )
             self.assertNotIn("secret-value", path.read_text(encoding="utf-8"))
+
+    def test_render_writes_a_local_dashboard_png(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = ProjectManifest(
+                project_id="render-project",
+                title="Rendered project",
+                project_ir=json.loads(
+                    (Path(__file__).resolve().parents[2] / "apps" / "web" / "public" / "examples" / "plant_watering.json")
+                    .read_text(encoding="utf-8")
+                ),
+            )
+            write_project_manifest(root / "forma-project.json", manifest)
+            args = type(
+                "Args",
+                (),
+                {"path": temp_dir, "output": "render.png", "width": 720, "height": 520, "yaw": 20.0},
+            )()
+
+            self.assertEqual(0, cmd_render(args))
+            output = root / "render.png"
+            self.assertTrue(output.exists())
+            self.assertGreater(output.stat().st_size, 1000)
 
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()

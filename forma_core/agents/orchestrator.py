@@ -536,6 +536,53 @@ def _placement_position(component: ComponentInstance, components: List[Component
     remaining_index = max(0, next((index for index, item in enumerate(remaining) if item.ref_des == component.ref_des), 0))
     return _mechanical_vector(_row_position(remaining_index, len(remaining), width * 0.64), -depth * 0.16, -height * 0.03)
 
+def _placement_mesh(placement: MechanicalPlacement) -> Dict[str, Any]:
+    """Convert an approximate placement envelope into a renderable box mesh."""
+    center = placement.position
+    size = placement.size
+    half_x = max(abs(float(size.x_mm)) / 2.0, 0.5)
+    half_y = max(abs(float(size.y_mm)) / 2.0, 0.5)
+    half_z = max(abs(float(size.z_mm)) / 2.0, 0.5)
+    x, y, z = float(center.x_mm), float(center.y_mm), float(center.z_mm)
+    vertices = [
+        x - half_x, y - half_y, z - half_z,
+        x + half_x, y - half_y, z - half_z,
+        x + half_x, y + half_y, z - half_z,
+        x - half_x, y + half_y, z - half_z,
+        x - half_x, y - half_y, z + half_z,
+        x + half_x, y - half_y, z + half_z,
+        x + half_x, y + half_y, z + half_z,
+        x - half_x, y + half_y, z + half_z,
+    ]
+    faces = [
+        0, 2, 1, 0, 3, 2,
+        4, 5, 6, 4, 6, 7,
+        0, 1, 5, 0, 5, 4,
+        3, 7, 6, 3, 6, 2,
+        0, 4, 7, 0, 7, 3,
+        1, 2, 6, 1, 6, 5,
+    ]
+    return {
+        "shapeId": placement.ref_des,
+        "name": placement.label or placement.ref_des,
+        "vertices": vertices,
+        "faces": faces,
+    }
+
+def _ensure_cad_model(ir: HardwareIR) -> None:
+    """Provide a safe mesh fallback when no canonical CAD source was authored."""
+    if ir.cad_model is not None or not ir.mechanical or ir.mechanical.cad_model is not None:
+        return
+    placements = ir.mechanical.component_placements
+    if not placements:
+        return
+    ir.cad_model = {
+        "adapter": "forma-mechanical-layout",
+        "source": "deterministic placement envelopes; replace with canonical CAD when available",
+        "units": "mm",
+        "meshes": [_placement_mesh(placement) for placement in placements],
+    }
+
 def _dominant_axis(source: MechanicalPlacement, target: MechanicalPlacement) -> str:
     deltas = {
         "X": abs(target.position.x_mm - source.position.x_mm),
@@ -640,6 +687,7 @@ def build_mechanical_render_data(ir: HardwareIR) -> HardwareIR:
         "spatial_relationship_count": len(ir.mechanical.spatial_relationships),
         "render_pipeline": "Three.js + React Three Fiber",
     }
+    _ensure_cad_model(ir)
     return ir
 
 # Define the ADK-style Multi-Agent Orchestrator

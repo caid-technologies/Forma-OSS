@@ -10,6 +10,10 @@ export const webConfig = {
     process.env.NEXT_PUBLIC_API_URL ||
     process.env.NEXT_PUBLIC_BACKEND_URL ||
     (development ? "http://127.0.0.1:8000" : ""),
+  openCadBaseUrl:
+    process.env.NEXT_PUBLIC_OPENCAD_URL ||
+    (development ? "http://127.0.0.1:8000" : ""),
+  openCadKernelUrl: process.env.NEXT_PUBLIC_OPENCAD_KERNEL_URL || "",
   publicDeveloperTools:
     development ||
     truthy(process.env.NEXT_PUBLIC_FORMA_DEBUG) ||

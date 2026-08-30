@@ -82,3 +82,6 @@ cargo run --manifest-path rust/Cargo.toml -p forma-edge -- linux-snapshot
 - Main UI: `apps/web/app/page.tsx`
 - Styling: Tailwind + custom CSS in `apps/web/app/globals.css`
 - Example IRs: `apps/web/public/examples/`
+- CAD models: add a `cad_model` to the Hardware IR. The project CAD tab accepts
+  serialized mesh payloads directly, or uses `NEXT_PUBLIC_OPENCAD_URL` to import
+  an authorized browser-loadable CAD URL or fetch an OpenCAD shape mesh.

@@ -1881,7 +1881,12 @@ def _with_project_engagement(
 def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[str, Any]:
     """Keep public project reads inspectable while withholding owner-only files."""
     sanitized = json.loads(json.dumps(hardware_ir))
+    if "cad_model" in sanitized:
+        sanitized["cad_model"] = None
     mechanical = sanitized.get("mechanical")
+    if isinstance(mechanical, dict):
+        if "cad_model" in mechanical:
+            mechanical["cad_model"] = None
     if isinstance(mechanical, dict) and isinstance(mechanical.get("cad_sources"), list):
         sanitized_sources = []
         for source in mechanical["cad_sources"]:
@@ -1911,6 +1916,8 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
     metadata = sanitized.get("assembly_metadata")
     if isinstance(metadata, dict):
         metadata.pop("chat_id", None)
+        if "cad_model" in metadata:
+            metadata["cad_model"] = None
         metadata["can_chat"] = False
         metadata["downloadable_assets_owner_only"] = True
     return sanitized

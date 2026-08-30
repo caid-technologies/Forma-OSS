@@ -75,6 +75,8 @@ import {
   previewableImageSrc,
   type ProjectGalleryItem,
 } from "./forma-workspace/project-gallery";
+import CadModelPanel from "./forma-workspace/cad-model-panel";
+import { projectCadModel } from "../lib/cad-model";
 import { FormaProjectBrowser, type FormaProjectSummary } from "@isayahc/forma-gui";
 import {
   AssemblyPanel,
@@ -122,6 +124,7 @@ import {
   LayoutDashboard,
   ClipboardList,
   Cuboid,
+  Box,
   CircuitBoard,
   BookOpen,
   Clapperboard,
@@ -1520,6 +1523,7 @@ const workspaceTabs = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "bom", label: "Billing Materials", icon: ClipboardList },
   { id: "mechanical", label: "Mechanical", icon: Cuboid },
+  { id: "cad", label: "CAD", icon: Box },
   { id: "schematic", label: "Electrical", icon: CircuitBoard },
   { id: "assembly", label: "Documentation", icon: BookOpen },
   { id: "video", label: "Media", icon: Clapperboard },
@@ -1529,6 +1533,7 @@ const workspaceTabNamespaces: Record<string, string> = {
   overview: "product.overview",
   bom: "product.bom",
   mechanical: "product.mech",
+  cad: "product.mech",
   schematic: "product.electrical",
   assembly: "project.docs",
   video: "product.visuals.video",
@@ -1544,6 +1549,8 @@ function normalizeTab(tab: string | null) {
     info: "overview",
     image: "overview",
     mech: "mechanical",
+    opencad: "cad",
+    model: "cad",
     wire: "schematic",
     electrical: "schematic",
     docs: "assembly",
@@ -5057,6 +5064,8 @@ export function FormaWorkspace({
             mechanical={projectIR?.mechanical || {}}
           />
         );
+      case "cad":
+        return <CadModelPanel cadModel={projectCadModel(projectIR)} />;
       case "schematic":
         return <SchematicCanvas project={schematicProject} />;
       case "assembly":

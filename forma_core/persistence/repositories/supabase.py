@@ -696,6 +696,27 @@ class SupabaseRepository:
             query = query.eq("owner_user_id", owner_user_id)
         return bool(query.execute().data)
 
+    def claim_unowned_generated_project(
+        self,
+        project_id: str,
+        hardware_ir: Dict[str, Any],
+        chat_id: Optional[str],
+        owner_user_id: str,
+    ) -> bool:
+        response = (
+            self._client.table("generated_projects")
+            .update({
+                "hardware_ir": hardware_ir,
+                "chat_id": chat_id,
+                "owner_user_id": owner_user_id,
+            })
+            .eq("project_id", project_id)
+            .eq("status", "active")
+            .is_("owner_user_id", "null")
+            .execute()
+        )
+        return bool(response.data)
+
     def update_generated_project_metadata(
         self,
         project_id: str,

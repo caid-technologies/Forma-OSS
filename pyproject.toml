@@ -57,6 +57,7 @@ terminal = ["Pillow>=10.0.0"]
 backend = [
     "fastapi>=0.124.1",
     "cryptography>=42.0.0",
+    "Pillow>=10.0.0",
     "redis>=5.0.0",
     "uvicorn",
     "websockets>=12.0",

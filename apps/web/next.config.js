@@ -10,6 +10,13 @@ const nextConfig = {
   reactStrictMode: true,
   output: "standalone",
   outputFileTracingRoot: path.resolve(__dirname),
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "opencad-viewport$": path.resolve(__dirname, "node_modules/opencad-viewport/dist/index.js"),
+    };
+    return config;
+  },
 };
 
 module.exports = nextConfig;

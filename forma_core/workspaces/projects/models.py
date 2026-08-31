@@ -209,6 +209,10 @@ class MechanicalNotes(BaseModel):
     fabrication_details: List[str] = Field(default_factory=list, description="Enclosure dimensions, material recommendations, or printing instructions")
     fabrication_cost_estimate_usd: float = Field(0.0, description="Estimated mechanical fabrication cost in USD, excluding electrical BOM")
     cad_sources: List[MechanicalSource] = Field(default_factory=list, description="CAD, enclosure, and fabrication source records")
+    cad_model: Optional[Any] = Field(
+        None,
+        description="Optional canonical CAD model source for the primary project model.",
+    )
     manufacturability_rating: str = Field(..., description="Ease of manufacturing: Easy, Moderate, Challenging")
     render_dimensions: Optional[MechanicalVector3] = Field(None, description="Overall live-render envelope dimensions in millimeters")
     component_placements: List[MechanicalPlacement] = Field(default_factory=list, description="Per-component 3D placements for live Three.js rendering")
@@ -488,6 +492,13 @@ class HardwareIR(BaseModel):
     pin_mappings: List[PinMappingEntry] = Field(default_factory=list, description="MCU functional pin map")
     assembly: List[AssemblyStep] = Field(default_factory=list, description="Step-by-step physical build instruction package")
     mechanical: Optional[MechanicalNotes] = Field(None, description="Enclosure and fabrications specifications")
+    cad_model: Optional[Any] = Field(
+        None,
+        description=(
+            "Optional canonical CAD model source for the project. This may be a serialized Forma/OpenCAD adapter "
+            "payload, a server-accessible file path or URL, an S3 location, or renderable mesh data."
+        ),
+    )
     
     # Extra requested fields
     constraints: List[str] = Field(default_factory=list, description="Project architectural and electrical constraints")

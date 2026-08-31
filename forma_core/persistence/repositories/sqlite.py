@@ -781,6 +781,26 @@ class SqlAlchemyRepository:
             project.chat_id = chat_id
             return True
 
+    def claim_unowned_generated_project(
+        self,
+        project_id: str,
+        hardware_ir: Dict[str, Any],
+        chat_id: Optional[str],
+        owner_user_id: str,
+    ) -> bool:
+        with self._session() as session, session.begin():
+            project = session.query(DBGeneratedProject).filter(
+                DBGeneratedProject.project_id == project_id,
+                DBGeneratedProject.status == "active",
+                DBGeneratedProject.owner_user_id.is_(None),
+            ).first()
+            if not project:
+                return False
+            project.hardware_ir = hardware_ir
+            project.chat_id = chat_id
+            project.owner_user_id = owner_user_id
+            return True
+
     def update_generated_project_metadata(
         self,
         project_id: str,

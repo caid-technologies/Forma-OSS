@@ -187,7 +187,7 @@ def common_settings(timeout_seconds: float, *, generate_image: bool = False) -> 
     return (
         EnvSetting("FORMA_DEV_MODE", "true"),
         EnvSetting("FORMA_DEPLOYMENT", "false"),
-        EnvSetting("FORMA_DEPLOYMENT_MODE", "false"),
+        EnvSetting("FORMA_DEPLOYMENT_MODE", "local"),
         EnvSetting("DEPLOYMENT", "false"),
         EnvSetting("DEPLOYMENT_MODE", "false"),
         EnvSetting("NEXT_PUBLIC_FORMA_DEPLOYMENT", "false"),

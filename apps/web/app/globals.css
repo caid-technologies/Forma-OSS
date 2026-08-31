@@ -1,4 +1,5 @@
 @import "@isayahc/forma-gui/styles.css";
+@import "opencad-viewport/styles.css";
 
 @tailwind base;
 @tailwind components;
@@ -219,6 +220,14 @@ video {
 .schematic-svg-wrap svg {
   height: auto;
   max-width: 100%;
+}
+
+.forma-cad-viewport .viewport3d,
+.forma-cad-viewport .viewport3d canvas {
+  display: block;
+  height: 100%;
+  width: 100%;
+  max-width: none;
 }
 
 .break-anywhere {

@@ -170,7 +170,9 @@ $FrontendLogFile = Join-Path (Split-Path -Parent $BackendLogFile) "frontend-dev.
 $FrontendErrorLogFile = "$FrontendLogFile.err"
 
 $env:FORMA_AUTH_MODE = Get-ConfiguredValue "FORMA_AUTH_MODE" "local"
-$env:FORMA_DEV_MODE = Get-ConfiguredValue "FORMA_DEV_MODE" "true"
+$env:FORMA_DEPLOYMENT_MODE = Get-ConfiguredValue "FORMA_DEPLOYMENT_MODE" "local"
+$env:FORMA_DEVELOPMENT_MODE = Get-ConfiguredValue "FORMA_DEVELOPMENT_MODE" "true"
+$env:FORMA_DEV_MODE = Get-ConfiguredValue "FORMA_DEV_MODE" $env:FORMA_DEVELOPMENT_MODE
 $env:BACKEND_LOG_FILE = $BackendLogFile
 # Do not select an LLM here. The connected host agent authors the IR, while
 # Forma compiles it deterministically. Existing provider/model environment

@@ -6,10 +6,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from forma_cli.app import build_parser, cmd_projects_pull
+from forma_cli.app import build_parser, cmd_projects_pull, cmd_render
 from forma_cli.credentials import CredentialStore
-from forma_cli.local import init_project
+from forma_cli.local import build_project, import_project, init_project
+from forma_cli.metadata_api import project_metadata
 from forma_cli.sdk import CloudProjectRevision, FormaAPIClient
+from forma_core.database import get_generated_project, init_db, save_generated_project
 from forma_core.workspaces.projects.manifest import ProjectManifest, write_project_manifest
 
 
@@ -46,7 +48,10 @@ class OssCliTests(unittest.TestCase):
         parser = build_parser()
         self.assertEqual("forma-oss", parser.prog)
         self.assertEqual(
-            {"login", "logout", "whoami", "init", "build", "status", "projects", "keys"},
+            {
+                "login", "logout", "whoami", "init", "build", "import", "metadata", "metadata-api",
+                "status", "render", "projects", "keys",
+            },
             set(parser._subparsers._group_actions[0].choices),
         )
 
@@ -84,6 +89,144 @@ class OssCliTests(unittest.TestCase):
                 ProjectManifest(project_id="local-project", project_ir={"api_key": "secret-value"}),
             )
             self.assertNotIn("secret-value", path.read_text(encoding="utf-8"))
+
+    def test_render_writes_a_local_dashboard_png(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = ProjectManifest(
+                project_id="render-project",
+                title="Rendered project",
+                project_ir=json.loads(
+                    (Path(__file__).resolve().parents[2] / "apps" / "web" / "public" / "examples" / "plant_watering.json")
+                    .read_text(encoding="utf-8")
+                ),
+            )
+            write_project_manifest(root / "forma-project.json", manifest)
+            args = type(
+                "Args",
+                (),
+                {"path": temp_dir, "output": "render.png", "width": 720, "height": 520, "yaw": 20.0},
+            )()
+
+            self.assertEqual(0, cmd_render(args))
+            output = root / "render.png"
+            self.assertTrue(output.exists())
+            self.assertGreater(output.stat().st_size, 1000)
+
+    def test_simulated_test_tube_build_has_matching_cad_preview(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_project(temp_dir, title="Test tube")
+            root = Path(temp_dir)
+            (root / "assembled.step").write_text(
+                "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+                encoding="ascii",
+            )
+
+            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+            ir = manifest.project_ir
+
+            self.assertEqual("Test Tube Monitor", ir["overview"]["title"])
+            self.assertEqual("forma-opencad", ir["cad_model"]["adapter"])
+            self.assertEqual(1, len(ir["cad_model"]["meshes"]))
+            self.assertGreater(len(ir["cad_model"]["meshes"][0]["vertices"]), 100)
+            self.assertTrue((root / "assembly.step").is_file())
+            self.assertEqual("assembly.step", manifest.artifacts[-1].path)
+            saved = get_generated_project(manifest.project_id)
+            self.assertIsNotNone(saved)
+            self.assertEqual("local-dev-user", saved.owner_user_id)
+            self.assertEqual(
+                str((root / "assembly.step").resolve()),
+                saved.hardware_ir["cad_model"]["path"],
+            )
+
+    def test_build_claims_legacy_unowned_project_for_local_ui(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = init_project(temp_dir, title="Legacy project")
+            root = Path(temp_dir)
+            (root / "assembly.step").write_text(
+                "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+                encoding="ascii",
+            )
+            init_db()
+            save_generated_project(
+                project_id=manifest.project_id,
+                title="Legacy project",
+                prompt="legacy",
+                hardware_ir={"assembly_metadata": {"project_id": manifest.project_id}},
+                created_at="2026-08-30T00:00:00Z",
+            )
+
+            build_project(temp_dir, prompt="test tube", simulation=True)
+
+            saved = get_generated_project(manifest.project_id)
+            self.assertIsNotNone(saved)
+            self.assertEqual("local-dev-user", saved.owner_user_id)
+
+    def test_build_generates_assembly_step_without_manual_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_project(temp_dir, title="Generated assembly")
+
+            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+
+            root = Path(temp_dir)
+            assembly = root / "assembly.step"
+            self.assertTrue(assembly.is_file())
+            self.assertEqual("assembly.step", manifest.artifacts[-1].path)
+            self.assertTrue(manifest.project_ir["cad_model"]["generated"])
+            self.assertEqual(str(assembly.resolve()), manifest.project_ir["cad_model"]["path"])
+
+    def test_import_preserves_native_cad_and_adds_renderable_stl_mesh(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            source = Path(temp_dir) / "source"
+            target = Path(temp_dir) / "target"
+            init_project(source, title="Imported controller")
+            source_manifest = ProjectManifest(
+                project_id="03940f0b-0223-4fa3-921e-9ef3026e670f",
+                title="Imported controller",
+                prompt="mechanical game controller",
+                project_ir=json.loads(
+                    (Path(__file__).resolve().parents[2] / "apps" / "web" / "public" / "examples" / "plant_watering.json")
+                    .read_text(encoding="utf-8")
+                ),
+            )
+            write_project_manifest(source / "forma-project.json", source_manifest)
+            (source / "native.step").write_text(
+                "ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n",
+                encoding="ascii",
+            )
+            (source / "preview.stl").write_text(
+                "solid preview\n"
+                "facet normal 0 0 1\nouter loop\n"
+                "vertex 0 0 0\nvertex 1 0 0\nvertex 0 1 0\n"
+                "endloop\nendfacet\nendsolid preview\n",
+                encoding="ascii",
+            )
+            raw = json.loads((source / "forma-project.json").read_text(encoding="utf-8"))
+            raw["project_ir"]["cad_model"] = {"path": "native.step", "preview_path": "preview.stl"}
+            write_project_manifest(source / "forma-project.json", ProjectManifest.from_document(raw))
+
+            imported = import_project(source, destination=target)
+
+            self.assertEqual("03940f0b-0223-4fa3-921e-9ef3026e670f", imported.project_id)
+            self.assertTrue((target / "assembly.step").is_file())
+            self.assertTrue((target / "cad-preview.stl").is_file())
+            self.assertEqual(1, len(imported.project_ir["cad_model"]["meshes"]))
+            self.assertEqual("local-dev-user", get_generated_project(imported.project_id).owner_user_id)
+
+    def test_metadata_reports_project_and_artifact_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            init_project(temp_dir, title="Metadata project")
+            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+
+            payload = project_metadata(temp_dir)
+
+            self.assertEqual(manifest.project_id, payload["project_id"])
+            self.assertTrue(payload["database"]["present"])
+            self.assertEqual("local-dev-user", payload["database"]["owner_user_id"])
+            self.assertEqual(4, payload["hardware"]["components"])
+            self.assertEqual(1, payload["cad"]["meshes"])
+            self.assertTrue(payload["cad"]["step"]["exists"])
+            self.assertTrue(payload["artifacts"][0]["exists"])
 
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()

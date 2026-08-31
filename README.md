@@ -143,6 +143,7 @@ forma-oss --help
 forma-oss init ./my-project
 forma-oss build "plant watering monitor" --path ./my-project --simulation
 forma-oss status --path ./my-project
+forma-oss render --path ./my-project --output ./my-project/mechanical-render.png
 forma-oss login
 forma-oss projects push --path ./my-project
 forma-oss projects pull --path ./my-project
@@ -219,14 +220,16 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `FORMA_DEBUG`: When `true`, API errors and failed job metadata include redacted traceback/context debug payloads. Intended for trusted local/dev environments.
 - `SUPABASE_URL`: Supabase project API URL, for example `https://your-project-ref.supabase.co`.
 - `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_SECRET_KEY`: Backend-only Supabase key for writes. Do not use anon/publishable keys.
-- `FORMA_DEV_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record.
+- `FORMA_DEVELOPMENT_MODE`: When `true`, forces the application database to SQLite, disables Supabase Storage writes, and keeps reference/product image data inline in the SQLite project record. `FORMA_DEV_MODE` remains a compatibility alias.
 - `NEXT_PUBLIC_FORMA_DEBUG` / `NEXT_PUBLIC_FORMA_DEV_MODE`: Frontend-visible local/dev flags. The `Keys` integrations UI, `Listening Jobs`, and `Backend Logs` are shown only in Next development mode or when a debug/dev-mode flag is truthy. Keep these unset or `false` in public production builds.
 - `DATABASE_BACKEND`: Optional override: `supabase` or `sqlite`.
 - `FORMA_IMAGE_STORAGE_BACKEND`: Optional ancillary override (`supabase`, `s3-compatible`, or `local`). By default image storage follows `DATABASE_BACKEND`.
 - `FORMA_WORKSPACE_INTEGRATIONS_BACKEND` / `FORMA_USER_INTEGRATIONS_BACKEND`: Optional encrypted-settings storage overrides. By default they follow `DATABASE_BACKEND`, so SQLite mode does not contact Supabase just because credentials are present.
 - `SQLITE_DATABASE_URL`: SQLite fallback URL (default: `sqlite:///./forma.db`).
-- `FORMA_DEPLOYMENT`: When `true`, generation requires a deployment provider or the signed-in user's BYOK provider; users without an active provider are directed to Settings.
+- `FORMA_DEPLOYMENT`: Legacy boolean deployment switch; prefer `FORMA_DEPLOYMENT_MODE=hosted`.
 - `FORMA_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
+- `FORMA_DEPLOYMENT_MODE`: `local` (default) or `hosted`. Other values fail startup.
+- `FORMA_DEVELOPMENT_MODE`: Strict `true`/`false` switch, defaulting to `false`. Hosted mode cannot run with development mode enabled.
 - `FORMA_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
 - `FORMA_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. SQLite-primary runtimes use an encrypted file; Supabase-primary runtimes use encrypted `workspace_integration_configs` storage.
 

@@ -94,9 +94,14 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
     def test_local_launcher_bootstraps_required_runtime_defaults(self) -> None:
         launcher = (REPO_ROOT / "scripts" / "development" / "dev.sh").read_text(encoding="utf-8")
         self.assertIn('FORMA_AUTH_MODE="${FORMA_AUTH_MODE:-local}"', launcher)
-        self.assertIn('FORMA_DEV_MODE="${FORMA_DEV_MODE:-true}"', launcher)
+        self.assertIn('FORMA_DEPLOYMENT_MODE="${FORMA_DEPLOYMENT_MODE:-local}"', launcher)
+        self.assertIn('FORMA_DEVELOPMENT_MODE="${FORMA_DEVELOPMENT_MODE:-true}"', launcher)
+        self.assertIn('FORMA_DEV_MODE="${FORMA_DEV_MODE:-$FORMA_DEVELOPMENT_MODE}"', launcher)
         self.assertNotIn('LLM_PROVIDER="${LLM_PROVIDER:-simulation}"', launcher)
-        self.assertNotIn("export FORMA_AUTH_MODE FORMA_DEV_MODE LLM_PROVIDER", launcher)
+        self.assertIn(
+            "export FORMA_AUTH_MODE FORMA_DEPLOYMENT_MODE FORMA_DEVELOPMENT_MODE FORMA_DEV_MODE",
+            launcher,
+        )
         self.assertIn("authors the IR, while Forma compiles it deterministically", launcher)
         self.assertIn("secrets.token_urlsafe(48)", launcher)
 

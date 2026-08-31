@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from forma_core.config import config
 import re
 import uuid
@@ -536,6 +537,118 @@ def _placement_position(component: ComponentInstance, components: List[Component
     remaining_index = max(0, next((index for index, item in enumerate(remaining) if item.ref_des == component.ref_des), 0))
     return _mechanical_vector(_row_position(remaining_index, len(remaining), width * 0.64), -depth * 0.16, -height * 0.03)
 
+def _placement_mesh(placement: MechanicalPlacement) -> Dict[str, Any]:
+    """Convert an approximate placement envelope into a renderable box mesh."""
+    center = placement.position
+    size = placement.size
+    half_x = max(abs(float(size.x_mm)) / 2.0, 0.5)
+    half_y = max(abs(float(size.y_mm)) / 2.0, 0.5)
+    half_z = max(abs(float(size.z_mm)) / 2.0, 0.5)
+    x, y, z = float(center.x_mm), float(center.y_mm), float(center.z_mm)
+    vertices = [
+        x - half_x, y - half_y, z - half_z,
+        x + half_x, y - half_y, z - half_z,
+        x + half_x, y + half_y, z - half_z,
+        x - half_x, y + half_y, z - half_z,
+        x - half_x, y - half_y, z + half_z,
+        x + half_x, y - half_y, z + half_z,
+        x + half_x, y + half_y, z + half_z,
+        x - half_x, y + half_y, z + half_z,
+    ]
+    faces = [
+        0, 2, 1, 0, 3, 2,
+        4, 5, 6, 4, 6, 7,
+        0, 1, 5, 0, 5, 4,
+        3, 7, 6, 3, 6, 2,
+        0, 4, 7, 0, 7, 3,
+        1, 2, 6, 1, 6, 5,
+    ]
+    return {
+        "shapeId": placement.ref_des,
+        "name": placement.label or placement.ref_des,
+        "vertices": vertices,
+        "faces": faces,
+    }
+
+def _ensure_cad_model(ir: HardwareIR) -> None:
+    """Provide a safe mesh fallback when no canonical CAD source was authored."""
+    if ir.cad_model is not None or not ir.mechanical or ir.mechanical.cad_model is not None:
+        return
+    placements = ir.mechanical.component_placements
+    if not placements:
+        return
+    ir.cad_model = {
+        "adapter": "forma-mechanical-layout",
+        "source": "deterministic placement envelopes; replace with canonical CAD when available",
+        "units": "mm",
+        "meshes": [_placement_mesh(placement) for placement in placements],
+    }
+
+def _test_tube_mesh() -> Dict[str, Any]:
+    """Return a lightweight hollow test-tube mesh for deterministic demos."""
+    segments = 32
+    radius = 15.0
+    wall = 1.5
+    height = 100.0
+    outer_bottom = -height / 2
+    outer_top = height / 2
+    inner_bottom = outer_bottom + wall
+    inner_top = outer_top
+    vertices: List[float] = []
+
+    def ring(ring_radius: float, z: float) -> int:
+        start = len(vertices) // 3
+        for index in range(segments):
+            angle = 2 * math.pi * index / segments
+            vertices.extend((ring_radius * math.cos(angle), ring_radius * math.sin(angle), z))
+        return start
+
+    outer_bottom_start = ring(radius, outer_bottom)
+    outer_top_start = ring(radius, outer_top)
+    inner_top_start = ring(radius - wall, inner_top)
+    inner_bottom_start = ring(radius - wall, inner_bottom)
+    outer_center = len(vertices) // 3
+    vertices.extend((0.0, 0.0, outer_bottom))
+    inner_center = len(vertices) // 3
+    vertices.extend((0.0, 0.0, inner_bottom))
+    faces: List[int] = []
+
+    for index in range(segments):
+        next_index = (index + 1) % segments
+        outer_bottom_a = outer_bottom_start + index
+        outer_bottom_b = outer_bottom_start + next_index
+        outer_top_a = outer_top_start + index
+        outer_top_b = outer_top_start + next_index
+        inner_top_a = inner_top_start + index
+        inner_top_b = inner_top_start + next_index
+        inner_bottom_a = inner_bottom_start + index
+        inner_bottom_b = inner_bottom_start + next_index
+        faces.extend((
+            outer_bottom_a, outer_bottom_b, outer_top_b,
+            outer_bottom_a, outer_top_b, outer_top_a,
+            outer_top_a, outer_top_b, inner_top_b,
+            outer_top_a, inner_top_b, inner_top_a,
+            inner_top_a, inner_top_b, inner_bottom_b,
+            inner_top_a, inner_bottom_b, inner_bottom_a,
+            outer_center, outer_bottom_b, outer_bottom_a,
+            inner_center, inner_bottom_a, inner_bottom_b,
+        ))
+
+    return {
+        "shapeId": "TEST_TUBE",
+        "name": "Test tube",
+        "vertices": vertices,
+        "faces": faces,
+    }
+
+def _test_tube_cad_model() -> Dict[str, Any]:
+    return {
+        "adapter": "forma-test-tube-preview",
+        "source": "deterministic hollow test-tube preview for simulation",
+        "units": "mm",
+        "meshes": [_test_tube_mesh()],
+    }
+
 def _dominant_axis(source: MechanicalPlacement, target: MechanicalPlacement) -> str:
     deltas = {
         "X": abs(target.position.x_mm - source.position.x_mm),
@@ -640,6 +753,7 @@ def build_mechanical_render_data(ir: HardwareIR) -> HardwareIR:
         "spatial_relationship_count": len(ir.mechanical.spatial_relationships),
         "render_pipeline": "Three.js + React Three Fiber",
     }
+    _ensure_cad_model(ir)
     return ir
 
 # Define the ADK-style Multi-Agent Orchestrator
@@ -2200,6 +2314,8 @@ class HardwarePipelineOrchestrator:
         logger.info(f"Generating simulated project package for: '{prompt}'")
         
         prompt_lower = prompt.lower()
+        if "test tube" in prompt_lower or "test-tube" in prompt_lower:
+            return self._load_simulated_test_tube_project(prompt)
         if has_image or "mp3" in prompt_lower or "music" in prompt_lower or "audio" in prompt_lower or "player" in prompt_lower or "pocket" in prompt_lower:
             return self._load_simulated_mp3_player_project(prompt)
         elif "water" in prompt_lower or "plant" in prompt_lower or "soil" in prompt_lower or "garden" in prompt_lower:
@@ -2208,6 +2324,91 @@ class HardwarePipelineOrchestrator:
             return self._load_simulated_thermostat_project(prompt)
         else:
             return self._load_simulated_smart_lock_project(prompt)
+
+    def _load_simulated_test_tube_project(self, prompt: str) -> HardwareIR:
+        """Provide a safe low-voltage test-tube monitor fixture for CLI smoke tests."""
+        overview = ProjectOverview(
+            title="Test Tube Monitor",
+            description=f"A compact low-voltage monitor for a single test tube, compiled for: '{prompt}'",
+            difficulty="Beginner",
+            estimated_cost=18.00,
+            category="Educational Instrumentation",
+        )
+        requirements = FunctionalRequirements(
+            requirements=[
+                "Monitor temperature near a single test tube.",
+                "Display the latest reading on a small OLED screen.",
+                "Run from a safe 5V USB supply.",
+            ],
+            power_needs="5V USB supply with 3.3V logic regulation.",
+            operating_voltage=3.3,
+            physical_constraints=["Single 30mm diameter test-tube cavity.", "100mm tube height."],
+            safety_notes=["Use a non-contact sensor or sealed probe; do not place electronics in the sample."],
+            missing_info=[],
+        )
+        components = [
+            ComponentInstance(
+                ref_des="U1",
+                part_number="ESP32-WROOM-32D",
+                name="ESP32 Controller",
+                category="Microcontroller",
+                rationale="Reads the sensor and drives the display.",
+            ),
+            ComponentInstance(
+                ref_des="SEN1",
+                part_number="TMP117",
+                name="Temperature Sensor",
+                category="Sensor",
+                rationale="Measures the test-tube environment without placing electronics in the sample.",
+            ),
+            ComponentInstance(
+                ref_des="DISP1",
+                part_number="OLED-096-I2C",
+                name="0.96 inch OLED Display",
+                category="Display",
+                rationale="Shows the current temperature reading.",
+            ),
+            ComponentInstance(
+                ref_des="PWR1",
+                part_number="USB-C-5V",
+                name="USB-C Power Input",
+                category="Power",
+                rationale="Provides a low-voltage supply.",
+            ),
+        ]
+        mechanical = MechanicalNotes(
+            physical_form="Cylindrical test-tube sleeve",
+            enclosure_type="3D Printed test-tube holder",
+            mounting_guidance="Use a separate dry electronics compartment beside the tube cavity.",
+            fabrication_details=["30mm inside diameter", "100mm usable height", "1.5mm nominal wall thickness"],
+            fabrication_cost_estimate_usd=4.00,
+            manufacturability_rating="Easy",
+            render_dimensions=MechanicalVector3(x_mm=30, y_mm=30, z_mm=100),
+        )
+        validation_issues = validate_circuit(components, [], requirements)
+        project_ir = HardwareIR(
+            hardware_ir_version="0.1",
+            overview=overview,
+            requirements=requirements,
+            components=components,
+            nets=[],
+            assembly=[],
+            mechanical=mechanical,
+            constraints=requirements.physical_constraints,
+            estimated_current_draw_ma=120.0,
+            fabrication_notes=mechanical.fabrication_details,
+            assembly_metadata={
+                "status": "active",
+                "pipeline": "deterministic simulation + test-tube CAD preview",
+            },
+            project_version_history=[{"version": "0.1", "description": "Initial test-tube monitor fixture"}],
+            validation=build_validation_summary(validation_issues),
+            is_valid=not any(issue.severity.upper() == "CRITICAL" for issue in validation_issues),
+        )
+        project_ir = build_mechanical_render_data(project_ir)
+        project_ir.cad_model = _test_tube_cad_model()
+        self.save_project_to_db(prompt, project_ir)
+        return project_ir
 
     def _generate_failed_project(self, error: Exception) -> HardwareIR:
         """Return an empty, invalid project that preserves a pipeline failure for callers."""

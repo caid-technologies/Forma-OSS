@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+from pathlib import Path
 import sys
 import time
 import webbrowser
@@ -17,12 +18,14 @@ from forma_cli.local import (
     LOCAL_PROVIDER_ENVIRONMENT,
     LocalProjectError,
     build_project,
+    import_project,
     init_project,
     project_root,
     read_project,
     status_project,
     update_linkage,
 )
+from forma_cli.metadata_api import project_metadata, serve_metadata_api
 from forma_cli.sdk import FormaAPIClient, FormaAPIError
 
 
@@ -92,8 +95,51 @@ def cmd_build(args: argparse.Namespace) -> int:
         provider=args.provider,
         model=args.model,
         simulation=args.simulation,
+        assembly_step=args.assembly_step,
     )
-    print(f"Built {manifest.title or manifest.project_id} at {project_root(args.path) / 'forma-project.json'}")
+    print(
+        f"Built {manifest.title or manifest.project_id}, persisted {manifest.project_id} to Forma DB, "
+        f"at {project_root(args.path) / 'forma-project.json'}"
+    )
+    return 0
+
+
+def cmd_import(args: argparse.Namespace) -> int:
+    source_path = Path(args.source).expanduser()
+    destination = Path(args.path).expanduser() if args.path else (
+        source_path if source_path.is_dir() else source_path.parent
+    )
+    manifest = import_project(
+        args.source,
+        destination=destination,
+        assembly_step=args.assembly_step,
+        preview_stl=args.preview_stl,
+    )
+    print(
+        f"Imported {manifest.title or manifest.project_id}, persisted {manifest.project_id} to Forma DB, "
+        f"at {destination / 'forma-project.json'}"
+    )
+    return 0
+
+
+def cmd_metadata(args: argparse.Namespace) -> int:
+    payload = project_metadata(args.path)
+    if args.json:
+        _print_json(payload)
+    else:
+        print(f"Project: {payload['title'] or payload['project_id']}")
+        print(f"Project ID: {payload['project_id']}")
+        print(f"Database: {'present' if payload['database']['present'] else 'missing'}")
+        print(f"CAD: {payload['cad']['meshes']} mesh(es), {payload['cad']['mesh_vertices']} vertices")
+        print(f"Components: {payload['hardware']['components']}")
+        print(f"Placements: {payload['hardware']['placements']}")
+        print(f"Valid: {'yes' if payload['valid'] else 'no'}")
+    return 0
+
+
+def cmd_metadata_api(args: argparse.Namespace) -> int:
+    print(f"Serving project metadata at http://{args.host}:{args.port}/metadata")
+    serve_metadata_api(args.path, args.host, args.port)
     return 0
 
 
@@ -109,6 +155,28 @@ def cmd_status(args: argparse.Namespace) -> int:
             print(f"Remote: {payload['remote']}")
             print(f"Revision: {payload.get('revision_id') or 'none'}")
     return 0 if payload["valid"] else 1
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    from forma_core.terminal.dashboard import DashboardRenderConfig, render_dashboard_image
+
+    root = project_root(args.path)
+    manifest = read_project(root)
+    output = Path(args.output).expanduser()
+    if not output.is_absolute():
+        output = root / output
+    render_dashboard_image(
+        manifest.project_ir,
+        output,
+        config=DashboardRenderConfig(
+            width=args.width,
+            height=args.height,
+            scene_yaw_degrees=args.yaw,
+            scene_label="FORMA OSS / CLI RENDER",
+        ),
+    )
+    print(f"Rendered {manifest.title or manifest.project_id} at {output}")
+    return 0
 
 
 def cmd_projects_list(args: argparse.Namespace) -> int:
@@ -294,11 +362,41 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--provider")
     build.add_argument("--model")
     build.add_argument("--simulation", action="store_true")
+    build.add_argument(
+        "--assembly-step",
+        help="Optional native STEP file; otherwise assembly.step is generated from the project layout.",
+    )
     build.set_defaults(func=cmd_build)
+    imported = subparsers.add_parser(
+        "import",
+        help="Import an existing generated HardwareIR project and its native CAD artifacts.",
+    )
+    imported.add_argument("source", help="Existing forma-project.json or its containing directory.")
+    imported.add_argument("--path", default=None, help="Destination project directory; defaults to the source directory.")
+    imported.add_argument("--assembly-step", help="Override the STEP artifact discovered from the source project.")
+    imported.add_argument("--preview-stl", help="Override the STL preview discovered from the source project.")
+    imported.set_defaults(func=cmd_import)
+    metadata = subparsers.add_parser("metadata", help="Read local project and artifact metadata without the Forma API.")
+    metadata.add_argument("--path", default=".")
+    metadata.add_argument("--json", action="store_true")
+    metadata.set_defaults(func=cmd_metadata)
+    metadata_api = subparsers.add_parser("metadata-api", help="Serve local project metadata over a read-only HTTP API.")
+    metadata_api.add_argument("--path", default=".")
+    metadata_api.add_argument("--host", default="127.0.0.1")
+    metadata_api.add_argument("--port", type=int, default=8765)
+    metadata_api.set_defaults(func=cmd_metadata_api)
     status = subparsers.add_parser("status", help="Validate and show local/remote project state.")
     status.add_argument("--path", default=".")
     status.add_argument("--json", action="store_true")
     status.set_defaults(func=cmd_status)
+
+    render = subparsers.add_parser("render", help="Render the local mechanical project layout to a PNG.")
+    render.add_argument("--path", default=None)
+    render.add_argument("--output", default="forma-render.png")
+    render.add_argument("--width", type=int, default=1280)
+    render.add_argument("--height", type=int, default=900)
+    render.add_argument("--yaw", type=float, default=0.0)
+    render.set_defaults(func=cmd_render)
 
     projects = subparsers.add_parser("projects", help="Manage explicit cloud project synchronization.")
     project_commands = projects.add_subparsers(dest="projects_command", required=True)

@@ -61,7 +61,7 @@ If validation produces CRITICAL issues, the orchestrator runs a one-step **auto-
 **Output:** `MechanicalNotes`  
 **Goal:** Preserve the requested physical form and suggest appropriate housing or open-frame structure, mounting, and fabrication details.
 
-The agent may also emit `render_dimensions`, `component_placements`, and `spatial_relationships` for the 3D viewer.
+The agent may also emit `render_dimensions`, `component_placements`, `spatial_relationships`, and an optional `cad_model` source for the OpenCAD project tab. `cad_model` should identify one canonical model, not a directory or a collection of STEP files.
 
 ### Assembly Instruction Agent
 **Input:** System tree + pin-free component/net summaries + mechanical notes

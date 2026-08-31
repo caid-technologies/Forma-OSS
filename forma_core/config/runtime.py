@@ -1,5 +1,5 @@
 from forma_core.config.environment import config
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 from urllib.parse import urlparse
 
 
@@ -16,12 +16,89 @@ class AlphaGenerationUnavailableError(RuntimeError):
     """Raised when deployment mode should route users to the alpha signup flow."""
 
 
+class RuntimeConfigurationError(RuntimeError):
+    """Raised when runtime environment values are invalid or unsafe together."""
+
+
+DeploymentMode = Literal["local", "hosted"]
+DEPLOYMENT_MODE_ENV = "FORMA_DEPLOYMENT_MODE"
+DEVELOPMENT_MODE_ENV = "FORMA_DEVELOPMENT_MODE"
+LEGACY_DEVELOPMENT_MODE_ENV = "FORMA_DEV_MODE"
+DEPLOYMENT_MODES = {"local", "hosted"}
+BOOLEAN_VALUES = {"true": True, "false": False}
+
+
 def env_bool(name: str, default: bool = False) -> bool:
     return config.boolean(name, default)
 
 
+def _strict_env_bool(name: str, default: bool) -> bool:
+    value = config.optional(name)
+    if value is None:
+        return default
+    normalized = value.lower()
+    if normalized not in BOOLEAN_VALUES:
+        raise RuntimeConfigurationError(
+            f"Invalid {name}={value!r}. Expected 'true' or 'false'."
+        )
+    return BOOLEAN_VALUES[normalized]
+
+
+def deployment_mode() -> DeploymentMode:
+    """Resolve the deployment mode, defaulting to the safe local mode."""
+    value = config.optional(DEPLOYMENT_MODE_ENV)
+    if value is not None:
+        normalized = value.lower()
+        if normalized not in DEPLOYMENT_MODES:
+            raise RuntimeConfigurationError(
+                f"Invalid {DEPLOYMENT_MODE_ENV}={value!r}. Expected 'local' or 'hosted'."
+            )
+        return normalized  # type: ignore[return-value]
+
+    # Preserve older boolean deployment aliases while callers migrate.
+    for name in (
+        "FORMA_DEPLOYMENT",
+        "DEPLOYMENT",
+        "DEPLOYMENT_MODE",
+        "NEXT_PUBLIC_FORMA_DEPLOYMENT",
+    ):
+        value = config.optional(name)
+        if value is not None:
+            return "hosted" if value.lower() in {"1", "true", "yes", "on"} else "local"
+    return "local"
+
+
+def development_mode_enabled() -> bool:
+    """Resolve strict development mode, using FORMA_DEV_MODE as a legacy alias."""
+    if config.optional(DEVELOPMENT_MODE_ENV) is not None:
+        return _strict_env_bool(DEVELOPMENT_MODE_ENV, False)
+    return env_bool(LEGACY_DEVELOPMENT_MODE_ENV, False)
+
+
 def forma_dev_mode_enabled() -> bool:
-    return env_bool("FORMA_DEV_MODE")
+    """Compatibility alias for the canonical development-mode resolver."""
+    return development_mode_enabled()
+
+
+def runtime_state() -> Dict[str, Any]:
+    """Resolve and validate deployment/development state."""
+    mode = deployment_mode()
+    development = development_mode_enabled()
+    if mode == "hosted" and development:
+        raise RuntimeConfigurationError(
+            f"{DEPLOYMENT_MODE_ENV}=hosted cannot be combined with "
+            f"{DEVELOPMENT_MODE_ENV}=true. Disable development mode or use local deployment mode."
+        )
+    return {
+        "deployment_mode": mode,
+        "development_mode": development,
+        "legacy_development_mode": config.optional(LEGACY_DEVELOPMENT_MODE_ENV),
+    }
+
+
+def validate_runtime_configuration() -> Dict[str, Any]:
+    """Validate runtime state before database, provider, or worker startup."""
+    return runtime_state()
 
 
 def primary_database_backend_from_environment() -> str:
@@ -58,16 +135,7 @@ def primary_database_backend_from_environment() -> str:
 
 
 def deployment_mode_enabled() -> bool:
-    return any(
-        env_bool(name)
-        for name in (
-            "FORMA_DEPLOYMENT",
-            "FORMA_DEPLOYMENT_MODE",
-            "DEPLOYMENT",
-            "DEPLOYMENT_MODE",
-            "NEXT_PUBLIC_FORMA_DEPLOYMENT",
-        )
-    )
+    return deployment_mode() == "hosted"
 
 
 def deployment_runtime_config(
@@ -75,10 +143,13 @@ def deployment_runtime_config(
     *,
     signup_storage: Optional[str] = None,
 ) -> Dict[str, Any]:
-    deployment_enabled = deployment_mode_enabled()
+    state = runtime_state()
+    deployment_enabled = state["deployment_mode"] == "hosted"
     live_generation_enabled = bool(llm_config.get("live_generation_enabled"))
     config = {
         "enabled": deployment_enabled,
+        "mode": state["deployment_mode"],
+        "development_mode": state["development_mode"],
         "alpha_generation_gate_active": deployment_enabled and not live_generation_enabled,
         "generation_available": (not deployment_enabled) or live_generation_enabled,
     }
@@ -131,3 +202,27 @@ def generation_unavailable_detail(llm_config: Dict[str, Any]) -> Dict[str, Any]:
         "model": model,
         "live_generation_enabled": bool(llm_config.get("live_generation_enabled")),
     }
+
+
+__all__ = [
+    "ALPHA_GENERATION_UNAVAILABLE_MESSAGE",
+    "AlphaGenerationUnavailableError",
+    "BOOLEAN_VALUES",
+    "DEPLOYMENT_MODE_ENV",
+    "DEVELOPMENT_MODE_ENV",
+    "DeploymentMode",
+    "LEGACY_DEVELOPMENT_MODE_ENV",
+    "RuntimeConfigurationError",
+    "deployment_mode",
+    "deployment_mode_enabled",
+    "deployment_runtime_config",
+    "development_mode_enabled",
+    "env_bool",
+    "forma_dev_mode_enabled",
+    "generation_unavailable_detail",
+    "generation_unavailable_message",
+    "generation_unavailable_reason",
+    "primary_database_backend_from_environment",
+    "runtime_state",
+    "validate_runtime_configuration",
+]

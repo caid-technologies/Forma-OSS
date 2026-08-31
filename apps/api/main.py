@@ -185,7 +185,7 @@ from forma_core.runtime import (
     deployment_runtime_config,
     generation_unavailable_detail,
 )
-from forma_core.config.runtime import forma_dev_mode_enabled
+from forma_core.config.runtime import forma_dev_mode_enabled, validate_runtime_configuration
 from apps.api.storage import get_image_storage_config, hydrate_image_storage_metadata
 from forma_core.validation import validate_circuit
 from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
@@ -472,6 +472,7 @@ def _delete_cancelled_generation_projects(job_id: str, job: Optional[Dict[str, A
 async def startup_event():
     global _project_purge_stop_event, _project_purge_task
     logger.info("Starting up Forma server...")
+    validate_runtime_configuration()
     require_user_secrets_key()
     require_project_list_cache_config()
     logger.info("Authentication mode: %s", "clerk" if deployed_auth_required() else "local")

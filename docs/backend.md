@@ -54,12 +54,12 @@ LLM configuration behavior:
 - `LOG_LEVEL`: backend logging level, for example `INFO` or `DEBUG`
 - `BACKEND_LOG_FILE`: optional log file for backend and uvicorn logs, for example `./forma-backend.log`. The development launchers default this to `.logs/backend-dev.log` so the frontend LOGS tab can tail local backend output.
 - `FORMA_DEBUG=true`: include redacted traceback/context debug payloads in API errors and failed job metadata; this also defaults backend logging to `DEBUG` when `LOG_LEVEL` is unset
-- `FORMA_DEV_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record
-- `FORMA_DEPLOYMENT=true`: requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate`; the frontend keeps the composer visible and directs users without an active provider to Settings
+- `FORMA_DEVELOPMENT_MODE=true`: selects SQLite for the complete application database even when remote Supabase env vars are present; Supabase Storage writes are disabled and image data stays inline in the SQLite project record. `FORMA_DEV_MODE` is a compatibility alias.
+- `FORMA_DEPLOYMENT_MODE`: `local` by default or `hosted`; invalid values fail startup. Hosted mode requires a configured deployment provider or signed-in user's BYOK provider for `/api/generate` and cannot run with `FORMA_DEVELOPMENT_MODE=true`.
 - `REDIS_URL`: Redis connection URL for cached `/projects` and `/my/projects` responses. In production, set it or the complete Upstash REST pair below, plus `REDIS_CACHE_PREFIX`; runtime cache failures still fall back to the database.
 - `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`: server-only Upstash REST credentials that can replace `REDIS_URL`, which avoids persistent Redis socket requirements on serverless deployments.
 - `PROJECTS_CACHE_TTL_SECONDS`: project-list cache lifetime in seconds, default `60`; successful project writes invalidate all list variants immediately.
-- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `FORMA_DEV_MODE=false` and defaulting to `forma` only for development-mode cache usage.
+- `REDIS_CACHE_PREFIX`: Redis key namespace, required when `FORMA_DEVELOPMENT_MODE=false` and defaulting to `forma` only for development-mode cache usage.
 - `REDIS_SOCKET_TIMEOUT_SECONDS`: Redis connect/read timeout, default `0.25`; failures open a 30-second local circuit breaker.
 - `LLM_PROVIDER`: `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `LLM_MODEL`: provider model ID
@@ -91,7 +91,7 @@ LLM configuration behavior:
 - `HUGGINGFACE_IMAGE_MODEL_REVISION` / `HUGGINGFACE_IMAGE_MODEL_LICENSE`: optional policy metadata recorded with stored Hugging Face image outputs
 - `SUPABASE_S3_ENDPOINT`: explicit endpoint required for direct S3-compatible image uploads; Supabase-client uploads derive their endpoint from `SUPABASE_URL`
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for reference and generated product images, defaulting to `contents`
-- `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `FORMA_DEV_MODE=true` disables these image uploads
+- `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: optional S3-compatible fallback credentials. The normal backend path writes through the Supabase client using `SUPABASE_URL` plus the service-role/secret key; `FORMA_DEVELOPMENT_MODE=true` disables these image uploads
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: lifetime for refreshed Supabase Storage read URLs when projects are loaded, defaulting to `86400`
 - `SUPABASE_STORAGE_PUBLIC_BASE_URL`: optional public object URL base; defaults from `SUPABASE_URL` or the S3 endpoint
 - `LLM_FALLBACK_MODEL`: optional fallback model

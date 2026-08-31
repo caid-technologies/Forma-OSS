@@ -95,6 +95,33 @@ class AuthModeTests(unittest.IsolatedAsyncioTestCase):
                     await main.startup_event()
         init_db.assert_not_called()
 
+    async def test_backend_startup_rejects_hosted_development_before_secrets(self) -> None:
+        from apps.api import main
+
+        with patch.dict(
+            os.environ,
+            {
+                "FORMA_DEPLOYMENT_MODE": "hosted",
+                "FORMA_DEVELOPMENT_MODE": "true",
+            },
+            clear=True,
+        ), patch.object(main, "require_user_secrets_key") as require_secrets:
+            with self.assertRaisesRegex(RuntimeError, "cannot be combined"):
+                await main.startup_event()
+        require_secrets.assert_not_called()
+
+    async def test_backend_startup_rejects_invalid_deployment_mode_before_secrets(self) -> None:
+        from apps.api import main
+
+        with patch.dict(
+            os.environ,
+            {"FORMA_DEPLOYMENT_MODE": "staging"},
+            clear=True,
+        ), patch.object(main, "require_user_secrets_key") as require_secrets:
+            with self.assertRaisesRegex(RuntimeError, "Expected 'local' or 'hosted'"):
+                await main.startup_event()
+        require_secrets.assert_not_called()
+
     async def test_backend_startup_fails_before_database_initialization_without_redis(self) -> None:
         from apps.api import main
 

@@ -10,7 +10,9 @@ PYTHON_BIN="${PYTHON_BIN:-python3}"
 VENV_DIR="${VENV_DIR:-$ROOT_DIR/.venv}"
 BACKEND_LOG_FILE="${BACKEND_LOG_FILE:-$ROOT_DIR/.logs/backend-dev.log}"
 FORMA_AUTH_MODE="${FORMA_AUTH_MODE:-local}"
-FORMA_DEV_MODE="${FORMA_DEV_MODE:-true}"
+FORMA_DEPLOYMENT_MODE="${FORMA_DEPLOYMENT_MODE:-local}"
+FORMA_DEVELOPMENT_MODE="${FORMA_DEVELOPMENT_MODE:-true}"
+FORMA_DEV_MODE="${FORMA_DEV_MODE:-$FORMA_DEVELOPMENT_MODE}"
 LOCAL_SECRETS_FILE="${FORMA_LOCAL_SECRETS_FILE:-$ROOT_DIR/.forma/local-secrets.env}"
 
 # shellcheck source=scripts/development/dev-processes.sh
@@ -109,7 +111,7 @@ fi
 # Do not select an LLM here. The connected host agent (for example, OpenCode)
 # authors the IR, while Forma compiles it deterministically. Server-side
 # generation uses any explicit provider/model configuration already in the environment.
-export FORMA_AUTH_MODE FORMA_DEV_MODE FORMA_USER_SECRETS_KEY
+export FORMA_AUTH_MODE FORMA_DEPLOYMENT_MODE FORMA_DEVELOPMENT_MODE FORMA_DEV_MODE FORMA_USER_SECRETS_KEY
 
 dev_cleanup_previous_session
 

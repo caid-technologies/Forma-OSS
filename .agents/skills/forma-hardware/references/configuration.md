@@ -33,7 +33,7 @@ launcher does not set `LLM_PROVIDER` or `LLM_MODEL`. To run only the backend
 manually, set a server-only key:
 
 ```bash
-FORMA_AUTH_MODE=local FORMA_DEV_MODE=true \
+FORMA_AUTH_MODE=local FORMA_DEPLOYMENT_MODE=local FORMA_DEVELOPMENT_MODE=true \
 FORMA_USER_SECRETS_KEY="$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" \
 uvicorn apps.api.main:app --port 8000
 ```

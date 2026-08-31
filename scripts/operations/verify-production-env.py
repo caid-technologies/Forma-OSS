@@ -120,7 +120,13 @@ def validate(env: dict[str, str], *, require_live_clerk: bool) -> CheckReport:
     report.check("Supabase URL present", bool(value("SUPABASE_URL")))
     report.check("Supabase service/secret key present", bool(first_present(env, ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_SECRET_KEY"))))
     report.check("Database backend is Supabase", value("DATABASE_BACKEND").lower() == "supabase", f"DATABASE_BACKEND={value('DATABASE_BACKEND') or '<unset>'}")
-    report.check("Forma dev mode disabled", not is_true(env, "FORMA_DEV_MODE"))
+    deployment_mode = value("FORMA_DEPLOYMENT_MODE") or "local"
+    report.check(
+        "Deployment mode is hosted",
+        deployment_mode.lower() == "hosted",
+        f"FORMA_DEPLOYMENT_MODE={deployment_mode}",
+    )
+    report.check("Forma development mode disabled", not is_true(env, "FORMA_DEVELOPMENT_MODE") and not is_true(env, "FORMA_DEV_MODE"))
     report.check("Frontend dev mode disabled", not is_true(env, "NEXT_PUBLIC_FORMA_DEV_MODE"))
     report.check("Backend debug disabled", not is_true(env, "FORMA_DEBUG"))
     report.check("Frontend debug disabled", not is_true(env, "NEXT_PUBLIC_FORMA_DEBUG"))

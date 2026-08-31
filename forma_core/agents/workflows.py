@@ -11,6 +11,7 @@ from forma_core.jobs.source_usage import (
     normalize_generation_workflow_id,
     source_usage_for_workflow,
 )
+from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
 from forma_core.workspaces.projects.models import HardwareIR
 
 
@@ -119,4 +120,16 @@ def generate_project_with_workflow(
         "workflow": normalized,
         "source_usage": (ir.assembly_metadata or {}).get("source_usage") or source_usage,
     }
+    ir_metadata = ir.assembly_metadata or {}
+    cad_required = (generation_metadata or {}).get("cad_required")
+    if cad_required is None:
+        cad_required = ir_metadata.get("cad_required") is True
+    if cad_required is True and "cad_generation" not in ir_metadata:
+        ensure_native_cad_model(
+            ir,
+            project_id=ir_metadata.get("project_id"),
+            required=True,
+            authoring_agent=ir_metadata.get("authoring_agent"),
+            workflow=normalized,
+        )
     return ir

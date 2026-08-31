@@ -46,6 +46,7 @@ from forma_core.workspaces.projects.models import (
     component_instance_count,
     expand_component_instances,
 )
+from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
 from forma_core.observability import serialize_for_langfuse, start_observation, update_observation
 from forma_core.agents.pipeline import (
     GenerationStageRun,
@@ -129,6 +130,10 @@ WEB_GENERATION_STAGE_SPECS = [
     GenerationStageSpec(
         stage_id="completeness_audit",
         dependencies=["validation_repair", "mechanical_fabrication", "assembly"],
+    ),
+    GenerationStageSpec(
+        stage_id="cad_generation",
+        dependencies=["mechanical_fabrication", "assembly"],
     ),
     GenerationStageSpec(stage_id="package_project"),
 ]
@@ -270,6 +275,10 @@ class WebResearchHardwarePipeline:
             for key, value in (generation_metadata or {}).items()
             if value is not None and value != ""
         }
+        self._active_generation_metadata.setdefault(
+            "cad_required",
+            not bool(self._active_generation_metadata.get("project_id")),
+        )
         emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "started")
         safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
         safety_error = check_safety_violations(safety_prompt)
@@ -614,6 +623,15 @@ class WebResearchHardwarePipeline:
             ),
             schema=CompletenessAudit,
         )
+        cad_snapshot = self._project_ir_from_stage_run(
+            stage_run,
+            user_prompt=user_prompt,
+            model_validation=model_validation,
+        )
+        stage_run.run(
+            "cad_generation",
+            lambda: self._generate_cad_stage(cad_snapshot, metadata),
+        )
         stage_run.run(
             "package_project",
             lambda: {
@@ -626,6 +644,26 @@ class WebResearchHardwarePipeline:
             user_prompt=user_prompt,
             model_validation=model_validation,
         )
+
+    def _generate_cad_stage(
+        self,
+        project: HardwareIR,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        ensure_native_cad_model(
+            project,
+            project_id=metadata.get("project_id"),
+            required=bool(
+                metadata.get(
+                    "cad_required",
+                    not bool(metadata.get("project_id")),
+                )
+            ),
+        )
+        return {
+            "cad_model": project.cad_model,
+            "cad_generation": (project.assembly_metadata or {}).get("cad_generation"),
+        }
 
     def _project_ir_from_stage_run(
         self,
@@ -642,6 +680,7 @@ class WebResearchHardwarePipeline:
         mechanical = stage_run.output("mechanical_fabrication", MechanicalNotes)
         assembly_wrapper = stage_run.output("assembly", AssemblyWrapper)
         audit = stage_run.output("completeness_audit", CompletenessAudit)
+        cad_output = stage_run.output("cad_generation") or {}
         research = stage_run.output("external_research", ExternalSourceLibrary)
 
         nets = list(validation.nets if validation is not None else (wiring.nets if wiring is not None else []))
@@ -661,6 +700,19 @@ class WebResearchHardwarePipeline:
             )
 
         generation_status = self._generation_status(stage_run)
+        cad_record = stage_run.records.get("cad_generation")
+        if (
+            self._active_generation_metadata.get("cad_required") is True
+            and cad_record is not None
+            and cad_record.status.value == "failed"
+        ):
+            generation_status = "failed"
+            all_issues.append(ValidationIssue(
+                severity="CRITICAL",
+                category="CAD Generation Failure",
+                description=str((cad_record.error or {}).get("message") or "Native CAD generation failed."),
+                troubleshooting="Install the OpenCAD runtime/adapter or retry native CAD generation.",
+            ))
         stage_snapshot = stage_run.snapshot(include_outputs=True)
         public_generation_metadata = {
             key: value
@@ -682,6 +734,7 @@ class WebResearchHardwarePipeline:
             pin_mappings=pin_mappings,
             assembly=assembly,
             mechanical=mechanical,
+            cad_model=cad_output.get("cad_model") if isinstance(cad_output, dict) else None,
             constraints=constraints,
             power_rails=extract_power_rails(components, nets),
             estimated_current_draw_ma=estimate_current_draw(components),
@@ -709,6 +762,9 @@ class WebResearchHardwarePipeline:
                 "external_research": research.source_metadata() if research is not None else None,
                 "sourcing_notes": selection.sourcing_notes if selection is not None else [],
                 "completeness_audit": audit.model_dump(mode="json") if audit is not None else None,
+                "cad_generation": (
+                    cad_output.get("cad_generation") if isinstance(cad_output, dict) else None
+                ),
             },
             project_version_history=[{
                 "version": "0.2",
@@ -735,6 +791,8 @@ class WebResearchHardwarePipeline:
         statuses = {stage_id: record.status.value for stage_id, record in stage_run.records.items()}
         if statuses.get("web_architect") != "succeeded":
             return "draft"
+        if statuses.get("cad_generation") in {"failed", "blocked"}:
+            return "partial"
         non_package_statuses = [
             status for stage_id, status in statuses.items()
             if stage_id != "package_project"

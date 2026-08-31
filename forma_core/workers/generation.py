@@ -36,6 +36,10 @@ from forma_core.workspaces.projects import (
     ProjectSystem,
 )
 from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.cad_generation import (
+    cad_project_artifact,
+    ensure_native_cad_model,
+)
 from forma_core.workspaces.projects.output import attach_hardware_reference_image, attach_product_image
 
 
@@ -104,6 +108,19 @@ class HardwareIRGenerationEngine:
                 **(generation_metadata or {}),
             },
         )
+        cad_adapter = (
+            str(state.cad_model.get("adapter") or "").strip().lower()
+            if isinstance(state.cad_model, dict)
+            else ""
+        )
+        if cad_adapter in {"", "forma-mechanical-layout", "forma-test-tube-preview"}:
+            ensure_native_cad_model(
+                state,
+                project_id=str(design_brief.project_id),
+                required=bool((generation_metadata or {}).get("cad_required", True)),
+                authoring_agent="HardwareIRGenerationEngine",
+                workflow="default",
+            )
         generation_error = (state.assembly_metadata or {}).get("generation_error")
         generation_run = (state.assembly_metadata or {}).get("generation_run")
         if (generation_error or (state.assembly_metadata or {}).get("status") == "failed") and not isinstance(
@@ -252,6 +269,9 @@ def build_generation_draft(design_brief: DesignBrief, state: HardwareIR) -> Proj
             uri=f"{revision_base}/assembly",
             media_type="application/json",
         ))
+    cad_artifact = cad_project_artifact(state, str(design_brief.project_id))
+    if cad_artifact is not None:
+        artifacts.append(cad_artifact)
 
     generation_run = (state.assembly_metadata or {}).get("generation_run") or {}
     generation_records = generation_run.get("records") if isinstance(generation_run, dict) else {}

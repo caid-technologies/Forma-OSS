@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { projectCadModel, projectHasMechanicalPreview, resolveCadModel } from "../lib/cad-model.ts";
+import { projectCadModel, resolveCadModel } from "../lib/cad-model.ts";
 
 const mesh = {
   shapeId: "body",
@@ -9,16 +9,17 @@ const mesh = {
   faces: [0, 1, 2],
 };
 
-test("project CAD models can be read from the canonical or mechanical payload", () => {
+test("project CAD models are read from the canonical payload", () => {
   assert.equal(projectCadModel({ cad_model: "body.step" }), "body.step");
-  assert.deepEqual(projectCadModel({ mechanical: { cad_model: { shape_id: "body" } } }), { shape_id: "body" });
-  assert.equal(projectCadModel({ assembly_metadata: { cad_model: "legacy.step" } }), "legacy.step");
+  assert.equal(projectCadModel({ mechanical: { cad_model: { shape_id: "body" } } }), null);
+  assert.equal(projectCadModel({ assembly_metadata: { cad_model: "legacy.step" } }), null);
 });
 
-test("mechanical placements provide a CAD-tab fallback when no native model is attached", () => {
-  assert.equal(projectHasMechanicalPreview({ mechanical: { component_placements: [{ ref_des: "U1" }] } }), true);
-  assert.equal(projectHasMechanicalPreview({ mechanical: { component_placements: [] } }), false);
-  assert.equal(projectHasMechanicalPreview({ mechanical: null }), false);
+test("mechanical placements do not resolve into a CAD model", () => {
+  const project = { mechanical: { component_placements: [{ ref_des: "U1" }] } };
+
+  assert.equal(projectCadModel(project), null);
+  assert.equal(resolveCadModel(projectCadModel(project)), null);
 });
 
 test("renderable adapter meshes normalize into a viewport payload", () => {

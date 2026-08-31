@@ -234,6 +234,59 @@ class PersistenceArchitectureTests(unittest.TestCase):
             [(revision.project_id, revision.revision) for revision in revisions],
         )
 
+    def test_cli_revision_push_updates_project_summary_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            try:
+                project_record = {
+                    "project_id": "cli-summary",
+                    "workspace_id": "workspace-a",
+                    "owner_user_id": "user-a",
+                    "title": "Initial title",
+                    "current_revision": 0,
+                    "current_revision_id": None,
+                    "created_at": "2026-08-31T12:00:00Z",
+                    "updated_at": "2026-08-31T12:00:00Z",
+                }
+                first_revision = {
+                    "revision_id": "cli-summary-r1",
+                    "project_id": "cli-summary",
+                    "owner_user_id": "user-a",
+                    "revision": 1,
+                    "parent_revision_id": None,
+                    "manifest_json": {},
+                    "created_at": "2026-08-31T12:00:00Z",
+                }
+                self.assertIsNotNone(repository.insert_cli_project_revision(project_record, first_revision, None))
+
+                updated_project_record = {**project_record, "workspace_id": "workspace-b", "title": "Updated title"}
+                second_revision = {
+                    **first_revision,
+                    "revision_id": "cli-summary-r2",
+                    "revision": 2,
+                    "parent_revision_id": "cli-summary-r1",
+                }
+                self.assertIsNotNone(
+                    repository.insert_cli_project_revision(updated_project_record, second_revision, "cli-summary-r1")
+                )
+
+                project = repository.get_cli_project("cli-summary", "user-a")
+            finally:
+                assert provider.engine is not None
+                provider.engine.dispose()
+
+        self.assertIsNotNone(project)
+        self.assertEqual("workspace-b", project.workspace_id)
+        self.assertEqual("Updated title", project.title)
+        self.assertEqual(2, project.current_revision)
+
     def test_sqlite_repository_pages_filtered_projects_before_loading_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             provider = create_sqlite_provider(

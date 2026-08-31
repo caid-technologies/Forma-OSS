@@ -169,11 +169,22 @@ $BackendErrorLogFile = "$BackendLogFile.err"
 $FrontendLogFile = Join-Path (Split-Path -Parent $BackendLogFile) "frontend-dev.log"
 $FrontendErrorLogFile = "$FrontendLogFile.err"
 
+$frontendPort = $RequestedFrontendPort
+while (Test-PortOpen $frontendPort) {
+    $frontendPort++
+    if ($frontendPort -gt ($RequestedFrontendPort + 20)) {
+        throw "No free frontend port found from $RequestedFrontendPort to $($RequestedFrontendPort + 20)."
+    }
+}
+
 $env:FORMA_AUTH_MODE = Get-ConfiguredValue "FORMA_AUTH_MODE" "local"
 $env:FORMA_DEPLOYMENT_MODE = Get-ConfiguredValue "FORMA_DEPLOYMENT_MODE" "local"
 $env:FORMA_DEVELOPMENT_MODE = Get-ConfiguredValue "FORMA_DEVELOPMENT_MODE" "true"
 $env:FORMA_DEV_MODE = Get-ConfiguredValue "FORMA_DEV_MODE" $env:FORMA_DEVELOPMENT_MODE
 $env:BACKEND_LOG_FILE = $BackendLogFile
+if ([string]::IsNullOrWhiteSpace($env:FORMA_WEB_URL)) {
+    $env:FORMA_WEB_URL = "http://$FrontendHost`:$frontendPort"
+}
 # Do not select an LLM here. The connected host agent authors the IR, while
 # Forma compiles it deterministically. Existing provider/model environment
 # values are inherited unchanged for explicit server-side generation.
@@ -252,14 +263,6 @@ try {
             -ErrorFile $BackendErrorLogFile
         $ownsBackend = $true
         Wait-ForUrl "http://$BackendHost`:$BackendPort/api" "Backend" 60 $backendProcessId
-    }
-
-    $frontendPort = $RequestedFrontendPort
-    while (Test-PortOpen $frontendPort) {
-        $frontendPort++
-        if ($frontendPort -gt ($RequestedFrontendPort + 20)) {
-            throw "No free frontend port found from $RequestedFrontendPort to $($RequestedFrontendPort + 20)."
-        }
     }
 
     Write-Host "[forma-dev] Starting frontend at http://$FrontendHost`:$frontendPort"

@@ -477,6 +477,8 @@ class SqlAlchemyRepository:
                     return None
                 revision = DBCliProjectRevision(**revision_record)
                 session.add(revision)
+                project.workspace_id = project_record["workspace_id"]
+                project.title = project_record["title"]
                 project.current_revision = revision_record["revision"]
                 project.current_revision_id = revision_record["revision_id"]
                 project.updated_at = revision_record["created_at"]

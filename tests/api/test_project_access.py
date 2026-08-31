@@ -350,6 +350,39 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertTrue(response["can_chat"])
         self.assertEqual("chat-private-project", response["chat_id"])
 
+    def test_owner_can_read_cli_project_through_project_endpoint(self) -> None:
+        project_id = "cli-project"
+        cli_revision = {
+            "revision_id": "cli-revision-1",
+            "project_id": project_id,
+            "revision": 1,
+            "manifest": {
+                "format": "forma-project",
+                "version": 1,
+                "project_id": project_id,
+                "title": "CLI project",
+                "prompt": "Build a CLI project.",
+                "project_ir": {
+                    "components": [],
+                    "assembly_metadata": {"project_id": project_id},
+                },
+            },
+            "created_at": "2026-07-25T12:00:00Z",
+        }
+
+        with patch.object(main, "get_generated_project", return_value=None), patch.object(
+            main,
+            "get_latest_project_revision",
+            side_effect=main.ProjectStateError("project_not_found", "Project not found."),
+        ), patch.object(main, "get_cli_project_revision", return_value=cli_revision):
+            response = main.get_project_endpoint(project_id, _user_context("user-a"))
+
+        self.assertEqual(project_id, response["project_id"])
+        self.assertFalse(response["can_chat"])
+        self.assertIsNone(response["chat_id"])
+        self.assertEqual("cli", response["project_ir"]["assembly_metadata"]["project_source"])
+        self.assertEqual("cli-revision-1", response["project_ir"]["assembly_metadata"]["cloud_revision_id"])
+
     def test_owner_can_update_project_title(self) -> None:
         project = _project("owned-project", owner_user_id="user-a", visibility="public")
 
@@ -498,7 +531,6 @@ class ProjectReadAccessTests(unittest.TestCase):
                 enclosure_type="3D Printed",
                 mounting_guidance="Fasten the board to internal standoffs.",
                 manufacturability_rating="Easy",
-                cad_model=cad_model,
                 cad_sources=[
                     MechanicalSource(
                         name="Enclosure STEP",
@@ -513,6 +545,7 @@ class ProjectReadAccessTests(unittest.TestCase):
                 "chat_id": "private-current-chat",
                 "cad_model": cad_model,
             },
+            cad_model=cad_model,
         )
         public_project = _project(
             "current-public-project",
@@ -532,7 +565,6 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(response["chat_id"])
         self.assertNotIn("chat_id", response["project_ir"]["assembly_metadata"])
         self.assertIsNone(response["project_ir"]["cad_model"])
-        self.assertIsNone(response["project_ir"]["mechanical"]["cad_model"])
         self.assertIsNone(response["project_ir"]["assembly_metadata"]["cad_model"])
         self.assertEqual("", response["project_ir"]["mechanical"]["cad_sources"][0]["url"])
         self.assertNotIn(downloadable_url, json.dumps(response, default=str))

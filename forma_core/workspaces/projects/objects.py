@@ -542,11 +542,6 @@ def namespace_payload(ir: HardwareIR | dict[str, Any], namespace: str) -> dict[s
     payload = _ir_payload(hardware_ir)
     metadata = payload.get("assembly_metadata") or {}
     cad_model = payload.get("cad_model")
-    mechanical_payload = payload.get("mechanical")
-    if cad_model is None and isinstance(mechanical_payload, dict):
-        cad_model = mechanical_payload.get("cad_model")
-    if cad_model is None and isinstance(metadata, dict):
-        cad_model = metadata.get("cad_model")
     custom_payloads = metadata.get("namespace_payloads") if isinstance(metadata, dict) else None
     if isinstance(custom_payloads, dict) and isinstance(custom_payloads.get(normalized), dict):
         return _redact_payload_value(custom_payloads[normalized])

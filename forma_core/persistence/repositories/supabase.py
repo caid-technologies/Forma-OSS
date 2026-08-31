@@ -459,6 +459,8 @@ class SupabaseRepository:
         try:
             rows = self._client.table("cli_project_revisions").insert(revision_record).execute().data or []
             self._client.table("cli_projects").update({
+                "workspace_id": project_record["workspace_id"],
+                "title": project_record["title"],
                 "current_revision": revision_record["revision"],
                 "current_revision_id": revision_record["revision_id"],
                 "updated_at": revision_record["created_at"],

@@ -135,8 +135,10 @@ python -m forma_core --help
 **Forma OSS CLI:**
 
 The first-party `forma-oss` CLI is local-first. `init`, `build`, `status`, and
-validation work without an account or network connection. Cloud operations are
-always explicit; provider credentials are excluded from project uploads.
+validation work without an account or network connection. Cloud operations target
+the hosted Forma deployment by default; set `FORMA_API_URL` to a local API URL when
+developing against a local server. Provider credentials are excluded from project
+uploads.
 
 ```bash
 forma-oss --help

@@ -9,7 +9,9 @@ import tomllib
 from typing import Any
 
 
-DEFAULT_API_URL = "http://127.0.0.1:8000"
+# Cloud CLI commands target the hosted Forma deployment by default. Set
+# FORMA_API_URL to a local API URL when developing against a local server.
+DEFAULT_API_URL = "https://caid-technologies.us/api"
 CONFIG_FILENAME = "config.json"
 LINKAGE_FILENAME = "project.toml"
 

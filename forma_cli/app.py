@@ -191,14 +191,19 @@ def cmd_projects_list(args: argparse.Namespace) -> int:
 
 
 def _confirm_push(args: argparse.Namespace, manifest: Any) -> bool:
+    output = sys.stderr if args.json else sys.stdout
     artifacts = list(getattr(manifest, "artifacts", []) or [])
-    print(f"This will upload the private project manifest and {len(artifacts)} referenced artifact(s).")
+    print(f"This will upload the private project manifest and {len(artifacts)} referenced artifact(s).", file=output)
     for artifact in artifacts:
-        print(f"  - {artifact.path}")
-    print("Provider credentials and authentication tokens are excluded.")
+        print(f"  - {artifact.path}", file=output)
+    print("Provider credentials and authentication tokens are excluded.", file=output)
     if args.yes:
         return True
-    answer = input("Continue? [y/N] ").strip().lower()
+    if args.json:
+        print("Continue? [y/N] ", end="", file=output, flush=True)
+        answer = input().strip().lower()
+    else:
+        answer = input("Continue? [y/N] ").strip().lower()
     return answer in {"y", "yes"}
 
 

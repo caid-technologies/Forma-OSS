@@ -338,4 +338,10 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    # OCCT can raise an access violation while tearing down native globals on
+    # Windows after a successful export. Flush the JSON result before exiting
+    # directly so callers do not lose a valid artifact to interpreter teardown.
+    exit_code = main()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(exit_code)

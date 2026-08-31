@@ -209,6 +209,12 @@ export function projectCadModel(project: unknown): unknown {
   return record.cad_model ?? mechanical?.cad_model ?? metadata?.cad_model ?? null;
 }
 
+export function projectHasMechanicalPreview(project: unknown): boolean {
+  const record = asRecord(project);
+  const mechanical = asRecord(record?.mechanical);
+  return Array.isArray(mechanical?.component_placements) && mechanical.component_placements.length > 0;
+}
+
 export function resolveCadModel(value: unknown): CadModelDescriptor | null {
   if (value === null || value === undefined || value === "") return null;
 

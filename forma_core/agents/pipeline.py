@@ -423,6 +423,13 @@ DEFAULT_AGENT_PIPELINE_STEPS = [
         duration_ms=5500,
     ),
     AgentPipelineStep(
+        id="cad_generation",
+        agent="OpenCAD Authoring Agent",
+        label="Authoring native CAD",
+        description="Converting the agent-authored mechanical design into a native OpenCAD artifact.",
+        duration_ms=9000,
+    ),
+    AgentPipelineStep(
         id="package_project",
         agent="Project Packager",
         label="Packaging project artifacts",
@@ -495,6 +502,13 @@ WEB_RESEARCH_AGENT_PIPELINE_STEPS = [
         label="Writing build steps",
         description="Producing build instructions grounded in the sourced parts and generated wiring.",
         duration_ms=5500,
+    ),
+    AgentPipelineStep(
+        id="cad_generation",
+        agent="OpenCAD Authoring Agent",
+        label="Authoring native CAD",
+        description="Converting the sourced mechanical design into a native OpenCAD artifact.",
+        duration_ms=9000,
     ),
     AgentPipelineStep(
         id="completeness_audit",

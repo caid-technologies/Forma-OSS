@@ -62,6 +62,7 @@ from forma_core.workspaces.projects.models import (
     SystemArchitecture, component_detail_payload, component_instance_count,
     expand_component_instances,
 )
+from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
 from forma_core.validation import validate_circuit, check_safety_violations, build_validation_summary
 from forma_core.wiring import (
     WiringIntent,
@@ -128,6 +129,10 @@ DEFAULT_GENERATION_STAGE_SPECS = [
             "wiring_netlist",
             "mechanical_fabrication",
         ],
+    ),
+    GenerationStageSpec(
+        stage_id="cad_generation",
+        dependencies=["mechanical_fabrication", "assembly"],
     ),
     GenerationStageSpec(stage_id="package_project"),
 ]
@@ -850,6 +855,10 @@ class HardwarePipelineOrchestrator:
             for key, value in (generation_metadata or {}).items()
             if value is not None and value != ""
         }
+        self._active_generation_metadata.setdefault(
+            "cad_required",
+            not bool(self._active_generation_metadata.get("project_id")),
+        )
         # 0. Safety Guardrail Pre-check
         emit_agent_pipeline_event("default", "safety_guardrail", "started")
         safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
@@ -1876,6 +1885,11 @@ class HardwarePipelineOrchestrator:
             ),
             schema=DefaultAssemblyOutput,
         )
+        cad_snapshot = self._project_ir_from_stage_run(stage_run, model_validation=model_validation)
+        stage_run.run(
+            "cad_generation",
+            lambda: self._generate_cad_stage(cad_snapshot, metadata),
+        )
         stage_run.run(
             "package_project",
             lambda: {
@@ -1884,6 +1898,26 @@ class HardwarePipelineOrchestrator:
             },
         )
         return self._project_ir_from_stage_run(stage_run, model_validation=model_validation)
+
+    def _generate_cad_stage(
+        self,
+        project: HardwareIR,
+        metadata: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        ensure_native_cad_model(
+            project,
+            project_id=metadata.get("project_id"),
+            required=bool(
+                metadata.get(
+                    "cad_required",
+                    not bool(metadata.get("project_id")),
+                )
+            ),
+        )
+        return {
+            "cad_model": project.cad_model,
+            "cad_generation": (project.assembly_metadata or {}).get("cad_generation"),
+        }
 
     def _generate_default_overview(
         self,
@@ -2141,6 +2175,7 @@ class HardwarePipelineOrchestrator:
         bom = stage_run.output("bom", DefaultBomOutput)
         mechanical = stage_run.output("mechanical_fabrication", MechanicalNotes)
         assembly_output = stage_run.output("assembly", DefaultAssemblyOutput)
+        cad_output = stage_run.output("cad_generation") or {}
         components = list(selection.components) if selection is not None else []
         nets = list(validation.nets if validation is not None else (wiring.nets if wiring is not None else []))
         pin_mappings = derive_pin_mappings(components, nets)
@@ -2169,6 +2204,19 @@ class HardwarePipelineOrchestrator:
         ]
         generation_status = self._default_generation_status(stage_run)
         issues = list(validation.issues) if validation is not None else []
+        cad_record = stage_run.records.get("cad_generation")
+        if (
+            self._active_generation_metadata.get("cad_required") is True
+            and cad_record is not None
+            and cad_record.status.value == "failed"
+        ):
+            generation_status = "failed"
+            issues.append(ValidationIssue(
+                severity="CRITICAL",
+                category="CAD Generation Failure",
+                description=str((cad_record.error or {}).get("message") or "Native CAD generation failed."),
+                troubleshooting="Install the OpenCAD runtime/adapter or retry native CAD generation.",
+            ))
         root_failure = next((
             record
             for record in stage_run.records.values()
@@ -2191,6 +2239,7 @@ class HardwarePipelineOrchestrator:
             pin_mappings=pin_mappings,
             assembly=list(assembly_output.steps) if assembly_output is not None else [],
             mechanical=mechanical,
+            cad_model=cad_output.get("cad_model") if isinstance(cad_output, dict) else None,
             constraints=constraints,
             power_rails=extract_power_rails(components, nets),
             estimated_current_draw_ma=estimate_current_draw(components),
@@ -2223,13 +2272,20 @@ class HardwarePipelineOrchestrator:
                 "component_reconciliation_added": (
                     selection.reconciled_component_parts if selection is not None else []
                 ),
+                "cad_generation": (
+                    cad_output.get("cad_generation") if isinstance(cad_output, dict) else None
+                ),
             },
             project_version_history=[{
                 "version": "0.2",
                 "description": "Dependency-aware staged default generation",
             }],
             validation=build_validation_summary(issues),
-            is_valid=bool(validation is not None and validation.is_valid),
+            is_valid=bool(
+                validation is not None
+                and validation.is_valid
+                and not any(issue.severity.upper() == "CRITICAL" for issue in issues)
+            ),
         )
         return build_mechanical_render_data(project_ir) if mechanical is not None else project_ir
 
@@ -2244,6 +2300,8 @@ class HardwarePipelineOrchestrator:
         statuses = {stage_id: record.status.value for stage_id, record in stage_run.records.items()}
         if statuses.get("system_architecture") != "succeeded":
             return "draft"
+        if statuses.get("cad_generation") in {"failed", "blocked"}:
+            return "partial"
         non_package = [status for stage_id, status in statuses.items() if stage_id != "package_project"]
         if (
             non_package

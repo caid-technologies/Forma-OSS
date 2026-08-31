@@ -44,6 +44,7 @@ from forma_core.workspaces.projects.models import (
     ConnectionNet,
     HardwareIR,
 )
+from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
 from forma_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
@@ -897,6 +898,8 @@ def build_generation_response(
         raise ValueError("Provide a prompt or reference image.")
     if not has_prompt:
         prompt_text = "Infer a buildable hardware project from the uploaded reference image."
+    existing_project_for_cad = get_generated_project(project_id) if project_id else None
+    cad_required = existing_project_for_cad is None
     normalized_data_sources = normalize_generation_data_sources(data_sources)
     context_requested = PAST_JOBS_DATA_SOURCE in normalized_data_sources
     resolved_past_job_context = past_job_context or PastJobContext(
@@ -979,6 +982,7 @@ def build_generation_response(
                     "retry_stage": normalized_retry_stage,
                     "prior_generation_run": prior_generation_run,
                     "retry_stage_replay": retry_stage_replay,
+                    "cad_required": cad_required,
                 },
             )
             ensure_agent_pipeline_active()
@@ -1879,7 +1883,29 @@ async def _call_mcp_tool(
         issues = validate_circuit(project.components, project.nets, project.requirements)
         project.validation = build_validation_summary(issues)
         project.is_valid = not project.validation.critical
-        persistence = _persist_mcp_compile(project, arguments, user_context)
+        requested_project_id = arguments.get("project_id") or (project.assembly_metadata or {}).get("project_id")
+        try:
+            compile_project_id = (
+                str(uuid.UUID(str(requested_project_id).strip()))
+                if requested_project_id
+                else str(uuid.uuid4())
+            )
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise ValueError("project_id must be a UUID when supplied.") from exc
+        existing_project = get_generated_project(compile_project_id, include_deleted=True)
+        if existing_project is None:
+            ensure_native_cad_model(
+                project,
+                project_id=compile_project_id,
+                required=True,
+                authoring_agent=arguments.get("authoring_agent"),
+                workflow="default",
+            )
+        persistence = _persist_mcp_compile(
+            project,
+            {**arguments, "project_id": compile_project_id},
+            user_context,
+        )
         return {
             **persistence,
             "project_ir": project.model_dump(mode="json"),

@@ -76,7 +76,7 @@ import {
   type ProjectGalleryItem,
 } from "./forma-workspace/project-gallery";
 import CadModelPanel from "./forma-workspace/cad-model-panel";
-import { projectCadModel } from "../lib/cad-model";
+import { projectCadModel, projectHasMechanicalPreview } from "../lib/cad-model";
 import { FormaProjectBrowser, type FormaProjectSummary } from "@isayahc/forma-gui";
 import {
   AssemblyPanel,
@@ -5064,8 +5064,24 @@ export function FormaWorkspace({
             mechanical={projectIR?.mechanical || {}}
           />
         );
-      case "cad":
-        return <CadModelPanel cadModel={projectCadModel(projectIR)} />;
+      case "cad": {
+        const cadModel = projectCadModel(projectIR);
+        if (!cadModel && projectHasMechanicalPreview(projectIR)) {
+          return (
+            <MechanicalPanel
+              toggles={mechToggles}
+              setToggles={setMechToggles}
+              electricalActive={mechElectricalActive}
+              setElectricalActive={setMechElectricalActive}
+              components={components}
+              features={imageFeatures}
+              metadata={projectIR?.assembly_metadata || {}}
+              mechanical={projectIR?.mechanical || {}}
+            />
+          );
+        }
+        return <CadModelPanel cadModel={cadModel} />;
+      }
       case "schematic":
         return <SchematicCanvas project={schematicProject} />;
       case "assembly":

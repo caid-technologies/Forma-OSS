@@ -1020,7 +1020,7 @@ def create_project_generation_plan(
         capability_id=GENERATION_CAPABILITY_ID,
         input_contract_version=GENERATION_INPUT_VERSION,
         payload={"design_brief": build.brief_snapshot.model_dump(mode="json")},
-        metadata={"build_id": str(build.build_id)},
+        metadata={"build_id": str(build.build_id), "cad_required": True},
     )
     return orchestrator.create_plan([request], owner, max_concurrency=1, plan_id=plan_id)
 

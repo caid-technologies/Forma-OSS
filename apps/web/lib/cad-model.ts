@@ -203,16 +203,7 @@ function sourceDescriptor(value: unknown): CadModelDescriptor {
 
 export function projectCadModel(project: unknown): unknown {
   const record = asRecord(project);
-  if (!record) return null;
-  const mechanical = asRecord(record.mechanical);
-  const metadata = asRecord(record.assembly_metadata);
-  return record.cad_model ?? mechanical?.cad_model ?? metadata?.cad_model ?? null;
-}
-
-export function projectHasMechanicalPreview(project: unknown): boolean {
-  const record = asRecord(project);
-  const mechanical = asRecord(record?.mechanical);
-  return Array.isArray(mechanical?.component_placements) && mechanical.component_placements.length > 0;
+  return record?.cad_model ?? null;
 }
 
 export function resolveCadModel(value: unknown): CadModelDescriptor | null {

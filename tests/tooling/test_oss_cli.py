@@ -115,7 +115,7 @@ class OssCliTests(unittest.TestCase):
             self.assertTrue(output.exists())
             self.assertGreater(output.stat().st_size, 1000)
 
-    def test_simulated_test_tube_build_has_matching_cad_preview(self) -> None:
+    def test_simulated_test_tube_build_preserves_a_provided_cad_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             init_project(temp_dir, title="Test tube")
             root = Path(temp_dir)
@@ -129,8 +129,7 @@ class OssCliTests(unittest.TestCase):
 
             self.assertEqual("Test Tube Monitor", ir["overview"]["title"])
             self.assertEqual("forma-opencad", ir["cad_model"]["adapter"])
-            self.assertEqual(1, len(ir["cad_model"]["meshes"]))
-            self.assertGreater(len(ir["cad_model"]["meshes"][0]["vertices"]), 100)
+            self.assertEqual(str((root / "assembly.step").resolve()), ir["cad_model"]["path"])
             self.assertTrue((root / "assembly.step").is_file())
             self.assertEqual("assembly.step", manifest.artifacts[-1].path)
             saved = get_generated_project(manifest.project_id)
@@ -164,18 +163,20 @@ class OssCliTests(unittest.TestCase):
             self.assertIsNotNone(saved)
             self.assertEqual("local-dev-user", saved.owner_user_id)
 
-    def test_build_generates_assembly_step_without_manual_artifact(self) -> None:
+    def test_build_without_manual_cad_artifact_leaves_cad_model_empty(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             init_project(temp_dir, title="Generated assembly")
 
-            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+            with patch(
+                "forma_core.workspaces.projects.cad_generation._adapter_path",
+                side_effect=RuntimeError("native CAD is unavailable for this CLI test"),
+            ):
+                manifest = build_project(temp_dir, prompt="test tube", simulation=True)
 
             root = Path(temp_dir)
-            assembly = root / "assembly.step"
-            self.assertTrue(assembly.is_file())
-            self.assertEqual("assembly.step", manifest.artifacts[-1].path)
-            self.assertTrue(manifest.project_ir["cad_model"]["generated"])
-            self.assertEqual(str(assembly.resolve()), manifest.project_ir["cad_model"]["path"])
+            self.assertFalse((root / "assembly.step").exists())
+            self.assertIsNone(manifest.project_ir["cad_model"])
+            self.assertFalse(any(artifact.path == "assembly.step" for artifact in manifest.artifacts))
 
     def test_import_preserves_native_cad_and_adds_renderable_stl_mesh(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -218,7 +219,11 @@ class OssCliTests(unittest.TestCase):
     def test_metadata_reports_project_and_artifact_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             init_project(temp_dir, title="Metadata project")
-            manifest = build_project(temp_dir, prompt="test tube", simulation=True)
+            with patch(
+                "forma_core.workspaces.projects.cad_generation._adapter_path",
+                side_effect=RuntimeError("native CAD is unavailable for this CLI test"),
+            ):
+                manifest = build_project(temp_dir, prompt="test tube", simulation=True)
 
             payload = project_metadata(temp_dir)
 
@@ -226,9 +231,10 @@ class OssCliTests(unittest.TestCase):
             self.assertTrue(payload["database"]["present"])
             self.assertEqual("local-dev-user", payload["database"]["owner_user_id"])
             self.assertEqual(4, payload["hardware"]["components"])
-            self.assertEqual(1, payload["cad"]["meshes"])
-            self.assertTrue(payload["cad"]["step"]["exists"])
-            self.assertTrue(payload["artifacts"][0]["exists"])
+            self.assertFalse(payload["cad"]["present"])
+            self.assertEqual(0, payload["cad"]["meshes"])
+            self.assertIsNone(payload["cad"]["step"])
+            self.assertEqual([], payload["artifacts"])
 
     def test_credential_store_uses_keyring_backend_without_exposing_values(self) -> None:
         keyring = FakeKeyring()

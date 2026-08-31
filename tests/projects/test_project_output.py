@@ -10,7 +10,7 @@ from forma_core.workspaces.projects.output import attach_hardware_reference_imag
 
 
 class ProjectOutputTests(unittest.TestCase):
-    def test_mechanical_render_data_adds_a_cad_mesh_fallback(self) -> None:
+    def test_mechanical_render_data_does_not_create_a_cad_model(self) -> None:
         ir = HardwareIR(
             components=[
                 ComponentInstance(
@@ -29,29 +29,30 @@ class ProjectOutputTests(unittest.TestCase):
 
         rendered = build_mechanical_render_data(ir)
 
-        self.assertEqual("forma-mechanical-layout", rendered.cad_model["adapter"])
-        self.assertEqual(1, len(rendered.cad_model["meshes"]))
-        self.assertEqual("U1", rendered.cad_model["meshes"][0]["shapeId"])
+        self.assertIsNone(rendered.cad_model)
 
     def test_cad_model_survives_hardware_ir_round_trip_and_mechanical_namespace_projection(self) -> None:
         cad_model = {"path": "/srv/models/enclosure.step", "adapter": "forma-opencad"}
         ir = HardwareIR(cad_model=cad_model)
-        nested_ir = HardwareIR(
-            mechanical=MechanicalNotes(
-                cad_model=cad_model,
-                enclosure_type="3D Printed",
-                mounting_guidance="Test",
-                manufacturability_rating="Easy",
-            )
-        )
 
         restored = HardwareIR.model_validate(ir.model_dump(mode="json"))
-        restored_nested = HardwareIR.model_validate(nested_ir.model_dump(mode="json"))
 
         self.assertEqual(cad_model, restored.cad_model)
-        self.assertEqual(cad_model, restored_nested.mechanical.cad_model)
         self.assertEqual(cad_model, namespace_payload(restored, "product.mech")["cad_model"])
-        self.assertEqual(cad_model, namespace_payload(restored_nested, "product.mech")["cad_model"])
+
+    def test_mechanical_namespace_does_not_promote_legacy_cad_model_fields(self) -> None:
+        ir = HardwareIR.model_validate({
+            "mechanical": {
+                "cad_model": {"path": "/srv/models/legacy.step"},
+                "enclosure_type": "3D Printed",
+                "mounting_guidance": "Test",
+                "manufacturability_rating": "Easy",
+            },
+            "assembly_metadata": {"cad_model": {"path": "/srv/models/metadata.step"}},
+        })
+
+        self.assertIsNone(ir.cad_model)
+        self.assertIsNone(namespace_payload(ir, "product.mech")["cad_model"])
 
     def test_generated_image_is_attached_inline_when_storage_skips_upload(self) -> None:
         ir = HardwareIR(

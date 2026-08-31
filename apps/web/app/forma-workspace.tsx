@@ -76,7 +76,7 @@ import {
   type ProjectGalleryItem,
 } from "./forma-workspace/project-gallery";
 import CadModelPanel from "./forma-workspace/cad-model-panel";
-import { projectCadModel, projectHasMechanicalPreview } from "../lib/cad-model";
+import { projectCadModel, resolveCadModel } from "../lib/cad-model";
 import { FormaProjectBrowser, type FormaProjectSummary } from "@isayahc/forma-gui";
 import {
   AssemblyPanel,
@@ -1713,6 +1713,9 @@ export function FormaWorkspace({
   const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
   const [activeTab, setActiveTab] = useState("overview");
   const [projectIR, setProjectIR] = useState<any>(null);
+  const currentCadModel = projectCadModel(projectIR);
+  const currentCadDescriptor = resolveCadModel(currentCadModel);
+  const hasRenderableCadModel = Boolean(currentCadDescriptor && currentCadDescriptor.kind !== "unsupported");
   const [projectHistory, setProjectHistory] = useState<any[]>([]);
   const [myProjectHistory, setMyProjectHistory] = useState<any[]>([]);
   const [projectHistoryPage, setProjectHistoryPage] = useState(0);
@@ -3012,8 +3015,10 @@ export function FormaWorkspace({
 
 
   useEffect(() => {
-    if (!normalizeTab(activeTab)) setActiveTab("overview");
-  }, [activeTab]);
+    if (!normalizeTab(activeTab) || (activeTab === "cad" && !hasRenderableCadModel)) {
+      setActiveTab("overview");
+    }
+  }, [activeTab, hasRenderableCadModel]);
 
 
   useEffect(() => {
@@ -5019,11 +5024,12 @@ export function FormaWorkspace({
     return false;
   });
   const visibleWorkspaceTabs = useMemo(
-    () => workspaceTabs,
-    []
+    () => hasRenderableCadModel ? workspaceTabs : workspaceTabs.filter((item) => item.id !== "cad"),
+    [hasRenderableCadModel]
   );
-  const activeWorkspaceTab = workspaceTabMeta(activeTab);
-  const activeWorkspaceNamespace = workspaceNamespaceForTab(activeTab);
+  const effectiveActiveTab = activeTab === "cad" && !hasRenderableCadModel ? "overview" : activeTab;
+  const activeWorkspaceTab = workspaceTabMeta(effectiveActiveTab);
+  const activeWorkspaceNamespace = workspaceNamespaceForTab(effectiveActiveTab);
   const displayedWorkspaceNamespace = activeWorkspaceNamespace;
   const projectNamespaceContent = (() => {
     switch (activeWorkspaceTab.id) {
@@ -5065,22 +5071,7 @@ export function FormaWorkspace({
           />
         );
       case "cad": {
-        const cadModel = projectCadModel(projectIR);
-        if (!cadModel && projectHasMechanicalPreview(projectIR)) {
-          return (
-            <MechanicalPanel
-              toggles={mechToggles}
-              setToggles={setMechToggles}
-              electricalActive={mechElectricalActive}
-              setElectricalActive={setMechElectricalActive}
-              components={components}
-              features={imageFeatures}
-              metadata={projectIR?.assembly_metadata || {}}
-              mechanical={projectIR?.mechanical || {}}
-            />
-          );
-        }
-        return <CadModelPanel cadModel={cadModel} />;
+        return <CadModelPanel cadModel={currentCadModel} />;
       }
       case "schematic":
         return <SchematicCanvas project={schematicProject} />;

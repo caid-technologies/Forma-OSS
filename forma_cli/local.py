@@ -121,32 +121,9 @@ def _resolve_assembly_step_source(root: Path, requested: str | Path | None) -> P
     return source
 
 
-def _generated_assembly_step_text(project: Any) -> str:
-    overview = getattr(project, "overview", None)
-    title = str(getattr(overview, "title", None) or "Forma assembly").replace("'", "''")
-    component_count = len(getattr(project, "components", []) or [])
-    return "\n".join(
-        (
-            "ISO-10303-21;",
-            "HEADER;",
-            "FILE_DESCRIPTION(('Forma generated assembly'),'2;1');",
-            f"FILE_NAME('assembly.step','2026-08-30T00:00:00',('Forma'),('CAID'),'{title}','Forma CLI','');",
-            "FILE_SCHEMA(('CONFIG_CONTROL_DESIGN'));",
-            "ENDSEC;",
-            "DATA;",
-            f"/* {title} / {component_count} HardwareIR components / placement-envelope preview */",
-            "ENDSEC;",
-            "END-ISO-10303-21;",
-            "",
-        )
-    )
-
-
-def _prepare_assembly_step(root: Path, source: Path | None, project: Any) -> Path:
+def _prepare_assembly_step(root: Path, source: Path | None) -> Path | None:
     if source is None:
-        destination = (root / "assembly.step").resolve()
-        destination.write_text(_generated_assembly_step_text(project), encoding="ascii")
-        return destination
+        return None
 
     destination = (root / "assembly.step").resolve()
     if source != destination:
@@ -267,7 +244,7 @@ def import_project(
 
     from forma_core.workspaces.projects.output import attach_assembly_step, persist_project_output
 
-    assembly_path = _prepare_assembly_step(target_root, step_source, ir)
+    assembly_path = _prepare_assembly_step(target_root, step_source)
     preview_path = (target_root / "cad-preview.stl").resolve()
     if preview_source != preview_path:
         shutil.copy2(preview_source, preview_path)
@@ -361,24 +338,22 @@ def build_project(
     ir.assembly_metadata = metadata
     from forma_core.workspaces.projects.output import attach_assembly_step, persist_project_output
 
-    assembly_path = _prepare_assembly_step(root, assembly_source, ir)
-    assembly_artifact = attach_assembly_step(ir, assembly_path)
-    if assembly_source is None:
-        ir.cad_model["source"] = "CLI-generated STEP envelope from HardwareIR placement data"
-        ir.cad_model["generated"] = True
+    assembly_path = _prepare_assembly_step(root, assembly_source)
+    assembly_artifact = attach_assembly_step(ir, assembly_path) if assembly_path is not None else None
     persist_project_output(ir, prompt_text=requested_prompt, owner_user_id=LOCAL_OWNER_USER_ID)
     artifacts = [
         artifact
         for artifact in current.artifacts
         if artifact.path not in {"assembly.step", "assembled.step"}
     ]
-    artifacts.append(
-        ProjectArtifactReference(
-            path="assembly.step",
-            sha256=assembly_artifact["sha256"],
-            media_type="model/step",
+    if assembly_artifact is not None:
+        artifacts.append(
+            ProjectArtifactReference(
+                path="assembly.step",
+                sha256=assembly_artifact["sha256"],
+                media_type="model/step",
+            )
         )
-    )
     updated = ProjectManifest(
         format=PROJECT_MANIFEST_FORMAT,
         version=1,

@@ -18,7 +18,6 @@ from forma_core.workspaces.projects.state import ProjectArtifact
 
 CAD_ADAPTER_RELATIVE_PATH = Path(".agents") / "skills" / "forma-hardware" / "scripts" / "cad.py"
 CAD_ADAPTER_NAME = "forma-opencad"
-PLACEMENT_FALLBACK_ADAPTER = "forma-mechanical-layout"
 
 
 class CadGenerationError(RuntimeError):
@@ -319,10 +318,7 @@ def _stl_mesh(path: Path) -> dict[str, Any]:
 def _has_authoritative_cad(value: Any) -> bool:
     if value in (None, "", {}):
         return False
-    if not isinstance(value, dict):
-        return True
-    adapter = str(value.get("adapter") or "").strip().lower()
-    return adapter not in {PLACEMENT_FALLBACK_ADAPTER, "forma-test-tube-preview"}
+    return True
 
 
 def _cad_is_applicable(project: HardwareIR) -> bool:

@@ -277,7 +277,7 @@ class WebResearchHardwarePipeline:
         }
         self._active_generation_metadata.setdefault(
             "cad_required",
-            not bool(self._active_generation_metadata.get("project_id")),
+            False,
         )
         emit_agent_pipeline_event(self.workflow_id, "safety_guardrail", "started")
         safety_prompt = str(self._active_generation_metadata.get("project_prompt") or user_prompt)
@@ -656,7 +656,7 @@ class WebResearchHardwarePipeline:
             required=bool(
                 metadata.get(
                     "cad_required",
-                    not bool(metadata.get("project_id")),
+                    False,
                 )
             ),
         )

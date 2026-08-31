@@ -369,7 +369,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.add_argument("--simulation", action="store_true")
     build.add_argument(
         "--assembly-step",
-        help="Optional native STEP file; otherwise assembly.step is generated from the project layout.",
+        help="Optional native STEP file to attach to the project.",
     )
     build.set_defaults(func=cmd_build)
     imported = subparsers.add_parser(

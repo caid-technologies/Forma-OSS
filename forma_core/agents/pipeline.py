@@ -428,6 +428,7 @@ DEFAULT_AGENT_PIPELINE_STEPS = [
         label="Authoring native CAD",
         description="Converting the agent-authored mechanical design into a native OpenCAD artifact.",
         duration_ms=9000,
+        optional=True,
     ),
     AgentPipelineStep(
         id="package_project",
@@ -509,6 +510,7 @@ WEB_RESEARCH_AGENT_PIPELINE_STEPS = [
         label="Authoring native CAD",
         description="Converting the sourced mechanical design into a native OpenCAD artifact.",
         duration_ms=9000,
+        optional=True,
     ),
     AgentPipelineStep(
         id="completeness_audit",

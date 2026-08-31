@@ -79,6 +79,7 @@ from forma_core.database import (
     delete_generated_project,
     delete_project_chat,
     ensure_project_action_allowed,
+    get_cli_project_revision,
     get_database_config,
     get_generated_project,
     get_latest_design_brief,
@@ -118,6 +119,7 @@ from forma_core.workspaces.projects.models import (
     ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
 from forma_core.workspaces.projects import ProjectStateError
+from forma_core.workspaces.projects.manifest import ProjectManifest
 from forma_core.workspaces.workflow import WorkflowStateError
 from forma_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
 from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
@@ -1924,6 +1926,58 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
     return sanitized
 
 
+def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[str, Any]]:
+    """Adapt an authenticated CLI revision to the web project's response shape."""
+    revision = get_cli_project_revision(project_id, owner_user_id)
+    if revision is None:
+        return None
+
+    manifest = ProjectManifest.from_document(revision.get("manifest") or {})
+    project_ir = json.loads(json.dumps(manifest.project_ir))
+    metadata = project_ir.get("assembly_metadata")
+    metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    metadata.update(
+        {
+            "project_id": str(revision["project_id"]),
+            "chat_id": None,
+            "can_chat": False,
+            "project_revision": revision.get("revision"),
+            "cloud_revision_id": revision.get("revision_id"),
+            "source_prompt": manifest.prompt,
+            "project_source": "cli",
+        }
+    )
+    project_ir["assembly_metadata"] = metadata
+
+    project_object = None
+    mermaid_code = None
+    svg_schematic = None
+    try:
+        typed_ir = HardwareIR.model_validate(project_ir)
+        project_ir = typed_ir.model_dump(mode="json")
+        project_object = build_project_object(typed_ir).model_dump(mode="json")
+        mermaid_code = generate_mermaid_chart(typed_ir)
+        svg_schematic = generate_svg_schematic(typed_ir)
+    except ValidationError:
+        # Keep older CLI manifests inspectable even if they predate HardwareIR.
+        pass
+
+    return {
+        "project_id": str(revision["project_id"]),
+        "chat_id": None,
+        "prompt": manifest.prompt,
+        "created_at": revision.get("created_at"),
+        "can_chat": False,
+        "project_ir": project_ir,
+        "project_object": project_object,
+        "mermaid_code": mermaid_code,
+        "svg_schematic": svg_schematic,
+        "generation_status": metadata.get("generation_status", "succeeded"),
+        "project_readiness": metadata.get("project_readiness", "complete"),
+        "generation_stages": (metadata.get("generation_run") or {}).get("records", {}),
+    }
+
+
 @app.get("/projects")
 def list_projects_endpoint(
     user: UserContext = Depends(optional_user_context),
@@ -2067,6 +2121,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             revision = get_latest_project_revision(project_id, owner_user_id)
             brief = get_latest_design_brief(project_id, owner_user_id)
         except (ProjectStateError, DesignBriefNotFoundError) as exc:
+            cli_response = _cli_project_response(project_id, owner_user_id)
+            if cli_response is not None:
+                return cli_response
             raise HTTPException(status_code=404, detail="Project not found.") from exc
         ir = revision.state.model_copy(deep=True)
         ir.assembly_metadata = {

@@ -41,30 +41,55 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str = Field(min_length=1, max_length=500)
 
 
-def _web_url() -> str:
-    return (
+def _configured_web_url() -> Optional[str]:
+    value = (
         config.optional("FORMA_WEB_URL")
         or config.optional("NEXT_PUBLIC_APP_URL")
         or config.optional("FRONTEND_URL")
-        or "http://127.0.0.1:3000"
-    ).rstrip("/")
+    )
+    return value.rstrip("/") if value else None
 
 
-def _api_url() -> str:
-    return (
-        config.optional("FORMA_API_URL")
-        or config.optional("NEXT_PUBLIC_API_URL")
-        or "http://127.0.0.1:8000"
-    ).rstrip("/")
+def _request_origin(request: Request) -> Optional[str]:
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",", 1)[0].strip()
+    if not host:
+        return None
+    scheme = (request.headers.get("x-forwarded-proto") or request.url.scheme).split(",", 1)[0].strip()
+    return f"{scheme}://{host}".rstrip("/")
+
+
+def _web_url(request: Optional[Request] = None) -> str:
+    configured = _configured_web_url()
+    if configured:
+        return configured
+    if request is not None and (config.optional("FORMA_DEPLOYMENT_MODE") or "local").lower() == "hosted":
+        origin = _request_origin(request)
+        if origin:
+            return origin
+    return "http://127.0.0.1:3000"
+
+
+def _api_url(request: Optional[Request] = None) -> str:
+    configured = config.optional("FORMA_API_URL") or config.optional("NEXT_PUBLIC_API_URL")
+    if configured:
+        return configured.rstrip("/")
+    if request is not None and (config.optional("FORMA_DEPLOYMENT_MODE") or "local").lower() == "hosted":
+        origin = _request_origin(request)
+        if origin:
+            return f"{origin}/api"
+    return "http://127.0.0.1:8000"
 
 
 @router.post("/device/authorize")
-def authorize_device(request: DeviceAuthorizationRequest) -> dict[str, object]:
+def authorize_device(
+    request: DeviceAuthorizationRequest,
+    http_request: Request,
+) -> dict[str, object]:
     session = create_device_session()
     return {
         "device_code": session.device_code,
         "user_code": session.user_code,
-        "verification_uri": f"{_web_url()}/cli/authorize?code={session.user_code}",
+        "verification_uri": f"{_web_url(http_request)}/cli/authorize?code={session.user_code}",
         "expires_in": max(1, round(session.expires_at - time.time())),
         "interval": 5,
         "client_name": request.client_name,
@@ -152,14 +177,17 @@ async def revoke_token(request: Request, body: Optional[RefreshTokenRequest] = N
 
 
 @router.get("/whoami")
-async def cli_whoami(user: UserContext = Depends(require_user_context)) -> dict[str, object]:
+async def cli_whoami(
+    request: Request,
+    user: UserContext = Depends(require_user_context),
+) -> dict[str, object]:
     claims = user.claims
     return {
         "subject": user.owner_user_id or user.subject or "unknown",
         "provider": user.provider,
         "email": claims.get("email") if isinstance(claims.get("email"), str) else None,
         "display_name": claims.get("name") if isinstance(claims.get("name"), str) else None,
-        "api_url": _api_url(),
+        "api_url": _api_url(request),
     }
 
 

@@ -47,13 +47,30 @@ It reads `FORMA_MCP_URL`, defaulting to `http://127.0.0.1:8000/mcp`, and optiona
 4. Call `forma.compile_project` with `project_ir` and the correct `authoring_agent` (`openclaw`, `nemoclaw`, `opencode`, `claude`, or `codex`). With the bundled client:
 
 ```bash
-python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent openclaw --output "$PROJECT_DIR/compiled-project.json"
-python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent nemoclaw --output "$PROJECT_DIR/compiled-project.json"
-python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent opencode --output "$PROJECT_DIR/compiled-project.json"
+python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent openclaw --output "$PROJECT_DIR/compiled-project.json" --update-project
+python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent nemoclaw --output "$PROJECT_DIR/compiled-project.json" --update-project
+python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent opencode --output "$PROJECT_DIR/compiled-project.json" --update-project
 ```
 
+When using the bundled client, add `--update-project` so the canonical local
+manifest contains the returned compiled IR and can be uploaded later. The
+client also writes `validation.json`, `wiring.mmd`, and `schematic.svg` beside
+the manifest when those compiler artifacts are returned:
+
+```bash
+python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent opencode --output "$PROJECT_DIR/compiled-project.json" --update-project
+```
+
+When using a native MCP tool, replace the manifest's `project_ir` with the
+returned `project_ir`, preserve the manifest wrapper and artifacts, and update
+its `project_id` from the compiler response before uploading. Save returned
+`validation`, `mermaid_code`, and `svg_schematic` values as local artifact
+files and reference them from the manifest. Never leave the pre-compiled draft
+as the uploadable project.
+
 5. Fix practical agent-authored errors and compile again. Treat every `CRITICAL` finding as blocking.
-6. Report artifact paths, power assumptions, major components, and remaining findings. Label the result as an AI-assisted prototype plan.
+6. Run `forma-oss status --path "$PROJECT_DIR"` before presenting the project.
+7. Report artifact paths, power assumptions, major components, and remaining findings. Label the result as an AI-assisted prototype plan.
 
 ## Validate existing IR
 

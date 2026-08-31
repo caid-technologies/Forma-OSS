@@ -5,9 +5,11 @@ from __future__ import annotations
 import argparse
 import getpass
 import json
+import os
 from pathlib import Path
 import sys
 import time
+from urllib.parse import quote
 import webbrowser
 from typing import Any
 
@@ -214,7 +216,8 @@ def cmd_projects_push(args: argparse.Namespace) -> int:
         print("Upload cancelled.")
         return 1
     linkage = load_linkage(root)
-    revision = _client(args).push_project(
+    client = _client(args)
+    revision = client.push_project(
         manifest.upload_payload(),
         parent_revision_id=linkage.get("revision_id"),
     )
@@ -229,10 +232,12 @@ def cmd_projects_push(args: argparse.Namespace) -> int:
         manifest_digest=_manifest_digest(manifest.upload_payload()),
     )
     payload = revision.model_dump(mode="json")
+    payload["project_url"] = _project_url(client.base_url or api_url(), revision.project_id)
     if args.json:
         _print_json(payload)
     else:
         print(f"Uploaded private project {revision.project_id} revision {revision.revision_id}")
+        print(f"Project URL: {payload['project_url']}")
     return 0
 
 
@@ -279,6 +284,18 @@ def _manifest_digest(value: Any) -> str:
 
     canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
+
+
+def _project_url(api_endpoint: str, project_id: str) -> str:
+    """Build the browser URL without coupling the CLI to the web client."""
+    web_endpoint = (
+        os.environ.get("FORMA_WEB_URL")
+        or os.environ.get("NEXT_PUBLIC_APP_URL")
+        or api_endpoint.rstrip("/")
+    ).rstrip("/")
+    if web_endpoint.endswith("/api"):
+        web_endpoint = web_endpoint[:-4].rstrip("/")
+    return f"{web_endpoint}/project/{quote(project_id, safe='')}"
 
 
 def _local_key_rows(store: CredentialStore) -> list[dict[str, Any]]:

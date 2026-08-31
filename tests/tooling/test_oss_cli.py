@@ -319,6 +319,10 @@ class OssCliTests(unittest.TestCase):
 
             payload = json.loads(stdout.getvalue())
             self.assertEqual("revision-1", payload["revision_id"])
+            self.assertEqual(
+                f"https://api.example.test/project/{manifest.project_id}",
+                payload["project_url"],
+            )
             self.assertIn("This will upload", stderr.getvalue())
 
 

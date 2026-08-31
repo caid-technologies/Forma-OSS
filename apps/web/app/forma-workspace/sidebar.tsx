@@ -731,6 +731,7 @@ export function ChatSidebar({
         <SidebarSectionLabel compact={compact}>General</SidebarSectionLabel>
         <div className={`space-y-0.5 ${compact ? "mt-1" : ""}`}>
           <SidebarNavLink href="/settings" icon={Settings} label="Settings" compact={compact} onNavigate={onNavigate} />
+          <SidebarNavLink href="/install/opencode" icon={Terminal} label="OpenCode setup" compact={compact} onNavigate={onNavigate} />
           <SidebarNavLink href="/about" icon={Handshake} label="About" compact={compact} onNavigate={onNavigate} />
         </div>
         {authRequired && <SidebarAccountDock compact={compact} />}

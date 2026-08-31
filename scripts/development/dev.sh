@@ -125,6 +125,11 @@ if ! "$VENV_DIR/bin/python" -m uvicorn --version >/dev/null 2>&1; then
   "$VENV_DIR/bin/pip" install -r "$ROOT_DIR/apps/api/requirements.txt"
 fi
 
+if ! "$VENV_DIR/bin/python" -c 'import forma_cli' >/dev/null 2>&1; then
+  log "Installing the forma-oss CLI"
+  "$VENV_DIR/bin/pip" install -e "$ROOT_DIR"
+fi
+
 if [ ! -d "$ROOT_DIR/apps/web/node_modules" ]; then
   log "Installing frontend dependencies"
   (cd "$ROOT_DIR/apps/web" && npm install)

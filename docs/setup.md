@@ -8,6 +8,66 @@ Forma OSS runs a FastAPI backend and a Next.js frontend. Supabase is supported f
 - **Supabase project** (optional, recommended for deployed persistent storage)
 - **Docker** (optional, for containerized frontend and backend images)
 
+## OpenCode local setup
+
+Forma can run entirely locally while OpenCode supplies the model and authors
+the Hardware IR. Local generation, validation, rendering, and project status do
+not require a Forma account. The account is only needed when a project is
+uploaded to Forma Cloud.
+
+The website provides copyable installers for macOS/Linux and Windows:
+
+- [Install Forma for OpenCode](https://caid-technologies.us/install/opencode)
+
+From an existing checkout, the equivalent setup commands are:
+
+```bash
+python3 scripts/development/setup-opencode.py --root . --workspace "$HOME/forma-workspace" --install-cli
+./scripts/development/dev.sh
+```
+
+On Windows PowerShell:
+
+```powershell
+py -3 .\scripts\development\setup-opencode.py --root . --workspace "$HOME\forma-workspace" --install-cli
+.\scripts\development\dev.ps1
+```
+
+Open the local workspace in a second terminal after the services start:
+
+```bash
+cd ~/forma-workspace
+opencode mcp list
+opencode
+```
+
+The local MCP endpoint is `http://127.0.0.1:8000/mcp`. OpenCode should call
+`forma.compile_project`, which performs deterministic normalization,
+validation, schematic generation, and local persistence without invoking a
+server-side LLM or substituting simulation output.
+
+The final compiled response must be written back to the local
+`forma-project.json`. The shared skill's bundled client supports this directly
+and materializes the returned validation, Mermaid, and SVG artifacts beside the
+manifest:
+
+```bash
+python .agents/skills/forma-hardware/scripts/forma.py compile \
+  "$HOME/forma-workspace/<project-id>/forma-project.json" \
+  --authoring-agent opencode \
+  --output "$HOME/forma-workspace/<project-id>/compiled-project.json" \
+  --update-project
+```
+
+To upload later, authenticate explicitly and push the local project:
+
+```bash
+forma-oss login
+forma-oss projects push --path "$HOME/forma-workspace/<project-id>"
+```
+
+Provider credentials and local secrets are excluded from the upload payload.
+
 ## Docker setup
 From the repo root:
 

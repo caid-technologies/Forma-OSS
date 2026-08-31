@@ -58,6 +58,31 @@ the host agent's model, and persists a generated encryption key under
 `.forma/`. Use `BACKEND_PORT`,
 `FRONTEND_PORT`, `BACKEND_HOST`, or `FRONTEND_HOST` to override defaults.
 
+### OpenCode local workflow
+
+The recommended user path is to have OpenCode author the design while Forma
+runs locally. The installer creates a local OpenCode workspace, installs the
+complete `forma-hardware` skill, configures the local MCP endpoint, installs the
+`forma-oss` CLI, and starts the backend and frontend. It does not configure a
+simulation model.
+
+Use the public [OpenCode installation page](https://caid-technologies.us/install/opencode)
+for copyable commands, or run the platform installer directly:
+
+```bash
+curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.com/caid-technologies/Forma-OSS/main/scripts/development/install-opencode.sh | bash
+```
+
+On Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/caid-technologies/Forma-OSS/main/scripts/development/install-opencode.ps1 | iex
+```
+
+OpenCode supplies the configured model, calls the local `forma.compile_project`
+tool, and writes the compiled project into `~/forma-workspace`. No Forma login
+is needed for local generation, validation, rendering, or status.
+
 ### Python Package (PyPI)
 The reusable core is published on PyPI as [`caid-forma-core`](https://pypi.org/project/caid-forma-core/). The distribution name is `caid-forma-core`; the Python import package is `forma_core`.
 
@@ -143,12 +168,22 @@ uploads.
 ```bash
 forma-oss --help
 forma-oss init ./my-project
-forma-oss build "plant watering monitor" --path ./my-project --simulation
 forma-oss status --path ./my-project
 forma-oss render --path ./my-project --output ./my-project/mechanical-render.png
+forma-oss build "plant watering monitor" --path ./my-project --provider openai --model gpt-5.5
+```
+
+Cloud operations require an explicit login:
+
+```bash
 forma-oss login
 forma-oss projects push --path ./my-project
 forma-oss projects pull --path ./my-project
+```
+
+Provider credentials for direct CLI generation can be stored locally:
+
+```bash
 forma-oss keys set openai --scope local
 forma-oss keys list --scope both
 ```

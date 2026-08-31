@@ -229,6 +229,12 @@ try {
         Invoke-Checked $VenvPip @("install", "-r", (Join-Path $RootDir "apps\api\requirements.txt"))
     }
 
+    & $VenvPython -c "import forma_cli" *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "[forma-dev] Installing the forma-oss CLI"
+        Invoke-Checked $VenvPip @("install", "-e", $RootDir)
+    }
+
     $npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
     if ($null -eq $npmCommand) {
         $npmCommand = Get-Command npm -ErrorAction SilentlyContinue

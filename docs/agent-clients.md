@@ -61,7 +61,16 @@ overrides.
 
 ## OpenCode
 
-OpenCode also discovers `.agents/skills/forma-hardware/SKILL.md`. Add Forma to `opencode.json`:
+The one-command local setup is documented at
+[Install Forma for OpenCode](https://caid-technologies.us/install/opencode). It
+clones or reuses a Forma checkout, starts the local backend and frontend,
+copies the complete skill into `~/forma-workspace`, and preserves existing
+OpenCode settings while adding the local MCP entry. From an existing checkout,
+run `scripts/development/setup-opencode.py` followed by `dev.sh` (or the
+PowerShell equivalents).
+
+OpenCode also discovers `.agents/skills/forma-hardware/SKILL.md`. The setup
+helper writes this `opencode.json` entry:
 
 ```json
 {
@@ -107,5 +116,9 @@ If MCP is not configured in the host, the skill's standard-library client can ca
 
 ```bash
 python .agents/skills/forma-hardware/scripts/forma.py tools
-python .agents/skills/forma-hardware/scripts/forma.py compile project.json --authoring-agent opencode --output compiled.json
+python .agents/skills/forma-hardware/scripts/forma.py compile project.json --authoring-agent opencode --output compiled.json --update-project
 ```
+
+The `--update-project` flag replaces the draft manifest's `project_ir` with the
+compiled response and updates its project ID, so the local manifest is ready
+for an intentional `forma-oss login` followed by cloud upload.

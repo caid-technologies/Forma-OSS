@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import io
 import json
 from pathlib import Path
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
-from forma_cli.app import build_parser, cmd_projects_pull, cmd_render
+from forma_cli.app import build_parser, cmd_projects_pull, cmd_projects_push, cmd_render
 from forma_cli.credentials import CredentialStore
 from forma_cli.local import build_project, import_project, init_project
 from forma_cli.metadata_api import project_metadata
@@ -283,6 +285,35 @@ class OssCliTests(unittest.TestCase):
                 self.assertEqual(0, cmd_projects_pull(args))
             saved = json.loads((Path(temp_dir) / "forma-project.json").read_text(encoding="utf-8"))
             self.assertEqual("project-1", saved["project_id"])
+
+    def test_projects_push_json_keeps_stdout_machine_readable(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            manifest = init_project(temp_dir, title="Upload project")
+            revision = CloudProjectRevision(
+                revision_id="revision-1",
+                project_id=manifest.project_id,
+                revision=1,
+                manifest=manifest.upload_payload(),
+            )
+            client = FormaAPIClient(
+                base_url="https://api.example.test",
+                credential_store=CredentialStore(keyring_backend=FakeKeyring()),
+            )
+            client.push_project = lambda _manifest, parent_revision_id=None: revision  # type: ignore[method-assign]
+            args = type("Args", (), {
+                "path": temp_dir,
+                "yes": True,
+                "json": True,
+                "api_url": None,
+            })()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with patch("forma_cli.app.FormaAPIClient", return_value=client), redirect_stdout(stdout), redirect_stderr(stderr):
+                self.assertEqual(0, cmd_projects_push(args))
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual("revision-1", payload["revision_id"])
+            self.assertIn("This will upload", stderr.getvalue())
 
 
 if __name__ == "__main__":

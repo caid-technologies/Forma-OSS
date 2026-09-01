@@ -181,6 +181,10 @@ forma-oss projects push --path ./my-project
 forma-oss projects pull --path ./my-project
 ```
 
+`projects push` validates and uploads every file declared in the local
+manifest. `projects pull` verifies downloaded bytes, restores them beneath the
+project directory, and rewrites native CAD paths before updating the manifest.
+
 Provider credentials for direct CLI generation can be stored locally:
 
 ```bash
@@ -417,6 +421,10 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `SUPABASE_S3_BUCKET`: Supabase Storage bucket for image uploads (default: `contents`).
 - `SUPABASE_S3_ACCESS_KEY_ID` / `SUPABASE_S3_SECRET_ACCESS_KEY`: Optional S3-compatible fallback credentials. The normal backend path uploads through the Supabase client with `SUPABASE_URL` plus the service-role/secret key.
 - `SUPABASE_IMAGE_SIGNED_URL_SECONDS`: Lifetime for refreshed Supabase Storage read URLs when projects are loaded (default: `86400`).
+- `FORMA_CLI_ARTIFACT_BUCKET`: Private bucket for `forma-oss projects push/pull` artifacts (default: `cli-project-artifacts`).
+- `FORMA_CLI_ARTIFACT_STORAGE_BACKEND`: Optional `supabase`, `s3-compatible`, or `local` override for CLI artifacts. Supabase-primary hosted deployments use Supabase by default; SQLite/local deployments use the local API storage directory by default.
+- `FORMA_CLI_ARTIFACT_STORAGE_DIR`: Local artifact directory when the CLI artifact backend is `local` (default: `./.forma/cli-artifacts`).
+- `FORMA_CLI_ARTIFACT_MAX_BYTES`: Maximum size of one transferred artifact (default: `52428800`).
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `forma`.
 - `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.

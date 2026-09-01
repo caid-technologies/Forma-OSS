@@ -30,6 +30,7 @@ from forma_core.database import (
 )
 from forma_core.jobs.store import JOB_STORE
 from forma_core.persistence.images import delete_project_images
+from forma_core.persistence.project_artifacts import ProjectArtifactStorage
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +369,12 @@ def purge_project(project_id: str) -> Dict[str, Any]:
     try:
         counts["images"] = delete_project_images(project_id)
         counts["videos"] = delete_project_videos(project_id)
+        artifact_storage = ProjectArtifactStorage()
+        counts["artifacts"] = (
+            artifact_storage.delete_project(project_id)
+            if artifact_storage.config.get("enabled")
+            else 0
+        )
         counts["jobs"] = JOB_STORE.delete_project_jobs(project_id)
 
         consent = get_project_contribution_consent(project_id, owner_user_id) if owner_user_id else None

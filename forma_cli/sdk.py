@@ -84,6 +84,16 @@ class CloudProjectRevision(BaseModel):
     created_at: str | None = None
 
 
+@dataclass(frozen=True)
+class ProjectArtifactDownload:
+    """Binary artifact response returned by a cloud project revision."""
+
+    content: bytes
+    content_type: str | None = None
+    sha256: str | None = None
+    size_bytes: int | None = None
+
+
 class ManagedCredentialMetadata(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -121,17 +131,22 @@ class FormaAPIClient:
         self._store.set_json(SESSION_KEY, tokens.model_dump(mode="json"))
         return tokens
 
-    def _request(
+    def _request_wire(
         self,
         path: str,
         *,
         method: str = "GET",
         payload: Mapping[str, Any] | None = None,
+        body: bytes | None = None,
+        content_type: str | None = None,
+        accept: str = "application/json",
         authenticated: bool = False,
         retry_refresh: bool = True,
-    ) -> Any:
+    ) -> tuple[bytes, dict[str, str]]:
+        if payload is not None and body is not None:
+            raise ValueError("A Forma API request cannot contain both JSON and binary payloads.")
         headers = {
-            "Accept": "application/json",
+            "Accept": accept,
             "User-Agent": "forma-oss-cli/0.1",
         }
         tokens = self._saved_tokens() if authenticated else None
@@ -139,13 +154,17 @@ class FormaAPIClient:
             if tokens is None:
                 raise FormaAPIError("Sign in with `forma-oss login` before using cloud commands.")
             headers["Authorization"] = f"{tokens.token_type} {tokens.access_token}"
-        body = json.dumps(dict(payload)).encode("utf-8") if payload is not None else None
-        if body is not None:
-            headers["Content-Type"] = "application/json"
-        request = Request(f"{self.base_url}/{path.lstrip('/')}", data=body, headers=headers, method=method)
+        request_body = json.dumps(dict(payload)).encode("utf-8") if payload is not None else body
+        if request_body is not None:
+            headers["Content-Type"] = content_type or "application/json"
+        request = Request(f"{self.base_url}/{path.lstrip('/')}", data=request_body, headers=headers, method=method)
         try:
             with urlopen(request, timeout=self.timeout_seconds) as response:
                 raw = response.read()
+                response_headers = {
+                    str(key).lower(): str(value)
+                    for key, value in getattr(response, "headers", {}).items()
+                }
         except HTTPError as exc:
             raw = exc.read()
             detail = self._decode_json(raw)
@@ -155,10 +174,13 @@ class FormaAPIClient:
                 except FormaAPIError:
                     pass
                 else:
-                    return self._request(
+                    return self._request_wire(
                         path,
                         method=method,
                         payload=payload,
+                        body=body,
+                        content_type=content_type,
+                        accept=accept,
                         authenticated=authenticated,
                         retry_refresh=False,
                     )
@@ -171,7 +193,55 @@ class FormaAPIClient:
             raise FormaAPIError(f"Could not reach Forma API at {self.base_url}: {exc.reason}") from exc
         except OSError as exc:
             raise FormaAPIError(f"Could not reach Forma API at {self.base_url}: {exc}") from exc
+        return raw, response_headers
+
+    def _request(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        payload: Mapping[str, Any] | None = None,
+        authenticated: bool = False,
+        retry_refresh: bool = True,
+    ) -> Any:
+        raw, _headers = self._request_wire(
+            path,
+            method=method,
+            payload=payload,
+            authenticated=authenticated,
+            retry_refresh=retry_refresh,
+        )
         return self._decode_json(raw)
+
+    def _request_bytes(
+        self,
+        path: str,
+        *,
+        method: str = "GET",
+        body: bytes | None = None,
+        content_type: str | None = None,
+        authenticated: bool = False,
+        retry_refresh: bool = True,
+    ) -> ProjectArtifactDownload:
+        raw, headers = self._request_wire(
+            path,
+            method=method,
+            body=body,
+            content_type=content_type,
+            accept="application/octet-stream",
+            authenticated=authenticated,
+            retry_refresh=retry_refresh,
+        )
+        try:
+            size_bytes = int(headers["x-forma-artifact-size"]) if headers.get("x-forma-artifact-size") else None
+        except ValueError:
+            size_bytes = None
+        return ProjectArtifactDownload(
+            content=raw,
+            content_type=headers.get("content-type"),
+            sha256=headers.get("x-forma-artifact-sha256"),
+            size_bytes=size_bytes,
+        )
 
     @staticmethod
     def _decode_json(raw: bytes) -> Any:
@@ -255,6 +325,40 @@ class FormaAPIClient:
         )
         return CloudProjectRevision.model_validate(payload)
 
+    def upload_project_artifact(
+        self,
+        project_id: str,
+        revision_id: str,
+        sha256: str,
+        content: bytes,
+        media_type: str,
+    ) -> dict[str, Any]:
+        path = (
+            f"/cli/projects/{quote(project_id, safe='')}/revisions/"
+            f"{quote(revision_id, safe='')}/artifacts/{quote(sha256, safe='')}"
+        )
+        raw, _headers = self._request_wire(
+            path,
+            method="PUT",
+            body=content,
+            content_type=media_type,
+            authenticated=True,
+        )
+        payload = self._decode_json(raw)
+        return payload if isinstance(payload, dict) else {}
+
+    def download_project_artifact(
+        self,
+        project_id: str,
+        revision_id: str,
+        sha256: str,
+    ) -> ProjectArtifactDownload:
+        path = (
+            f"/cli/projects/{quote(project_id, safe='')}/revisions/"
+            f"{quote(revision_id, safe='')}/artifacts/{quote(sha256, safe='')}"
+        )
+        return self._request_bytes(path, authenticated=True)
+
     def pull_project(self, project_id: str, revision_id: str | None = None) -> CloudProjectRevision:
         path = f"/cli/projects/{quote(project_id, safe='')}"
         if revision_id:
@@ -289,5 +393,6 @@ __all__ = [
     "FormaAPIClient",
     "FormaAPIError",
     "ManagedCredentialMetadata",
+    "ProjectArtifactDownload",
     "TokenSet",
 ]

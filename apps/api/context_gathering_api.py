@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.context_builds import ContextBuildDispatcher, context_build_dispatcher
+from apps.api.hosted_chat import require_hosted_chat_enabled
 from forma_core.agents.context_gathering import ContextGatheringAgent
 from forma_core.database import (
     DesignBriefAccessError,
@@ -109,6 +110,7 @@ def gather_project_context_endpoint(
 ) -> ContextGatheringResponse:
     """Route one natural conversation turn and mutate context only when appropriate."""
 
+    require_hosted_chat_enabled()
     owner = _owner(user)
     existing_chat = get_project_chat(request.conversation_id, owner)
     existing_messages = list(getattr(existing_chat, "messages", None) or [])

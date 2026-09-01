@@ -4,6 +4,10 @@ from urllib.parse import urlparse
 
 
 ALPHA_GENERATION_UNAVAILABLE_MESSAGE = "Generation is not available in this alpha deployment yet."
+HOSTED_CHAT_UNAVAILABLE_MESSAGE = (
+    "Forma hosted chat is temporarily under maintenance. "
+    "Use the Forma-OSS CLI to build locally and upload completed projects when needed."
+)
 DATABASE_BACKEND_ENV_NAMES = (
     "DATABASE_BACKEND",
     "DATABASE_PROVIDER",
@@ -24,6 +28,7 @@ DeploymentMode = Literal["local", "hosted"]
 DEPLOYMENT_MODE_ENV = "FORMA_DEPLOYMENT_MODE"
 DEVELOPMENT_MODE_ENV = "FORMA_DEVELOPMENT_MODE"
 LEGACY_DEVELOPMENT_MODE_ENV = "FORMA_DEV_MODE"
+HOSTED_CHAT_ENABLED_ENV = "FORMA_HOSTED_CHAT_ENABLED"
 DEPLOYMENT_MODES = {"local", "hosted"}
 BOOLEAN_VALUES = {"true": True, "false": False}
 
@@ -138,6 +143,20 @@ def deployment_mode_enabled() -> bool:
     return deployment_mode() == "hosted"
 
 
+def hosted_chat_enabled() -> bool:
+    """Resolve hosted chat availability with a safe hosted-deployment default."""
+    return env_bool(HOSTED_CHAT_ENABLED_ENV, default=not deployment_mode_enabled())
+
+
+class HostedChatUnavailableError(RuntimeError):
+    """Raised when hosted chat is disabled by deployment configuration."""
+
+
+def ensure_hosted_chat_enabled() -> None:
+    if not hosted_chat_enabled():
+        raise HostedChatUnavailableError(HOSTED_CHAT_UNAVAILABLE_MESSAGE)
+
+
 def deployment_runtime_config(
     llm_config: Dict[str, Any],
     *,
@@ -150,6 +169,7 @@ def deployment_runtime_config(
         "enabled": deployment_enabled,
         "mode": state["deployment_mode"],
         "development_mode": state["development_mode"],
+        "hosted_chat_enabled": hosted_chat_enabled(),
         "alpha_generation_gate_active": deployment_enabled and not live_generation_enabled,
         "generation_available": (not deployment_enabled) or live_generation_enabled,
     }
@@ -211,17 +231,22 @@ __all__ = [
     "DEPLOYMENT_MODE_ENV",
     "DEVELOPMENT_MODE_ENV",
     "DeploymentMode",
+    "HOSTED_CHAT_ENABLED_ENV",
+    "HOSTED_CHAT_UNAVAILABLE_MESSAGE",
+    "HostedChatUnavailableError",
     "LEGACY_DEVELOPMENT_MODE_ENV",
     "RuntimeConfigurationError",
     "deployment_mode",
     "deployment_mode_enabled",
     "deployment_runtime_config",
     "development_mode_enabled",
+    "ensure_hosted_chat_enabled",
     "env_bool",
     "forma_dev_mode_enabled",
     "generation_unavailable_detail",
     "generation_unavailable_message",
     "generation_unavailable_reason",
+    "hosted_chat_enabled",
     "primary_database_backend_from_environment",
     "runtime_state",
     "validate_runtime_configuration",

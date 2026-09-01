@@ -7,7 +7,7 @@ import uuid
 from typing import Any, Dict, Optional
 
 from forma_core.config import config
-from forma_core.config.runtime import forma_dev_mode_enabled
+from forma_core.config.runtime import HOSTED_CHAT_UNAVAILABLE_MESSAGE, forma_dev_mode_enabled
 
 
 DEBUG_ENV_VARS = ("FORMA_DEBUG", "FORMA_DEBUG_MODE", "API_DEBUG", "DEBUG")
@@ -55,6 +55,7 @@ PUBLIC_ERROR_MESSAGES = {
     "mcp_invalid_params": "The MCP request parameters are invalid.",
     "mcp_method_not_found": "The requested MCP method is not available.",
     "mcp_request_failed": "The MCP request could not be completed.",
+    "hosted_chat_unavailable": HOSTED_CHAT_UNAVAILABLE_MESSAGE,
     "generation_input_invalid": "The generation request is missing valid input.",
     "generation_request_invalid": "The generation request is invalid.",
     "generation_cancelled": "Generation was stopped by the user.",

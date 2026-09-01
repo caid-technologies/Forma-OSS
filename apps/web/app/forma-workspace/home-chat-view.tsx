@@ -17,6 +17,7 @@ import {
 
 import { shouldOfferFailedBuildRetry } from "../../lib/conversation-build-state";
 import ConversationMessageList, { type ConversationMessage } from "./conversation-message-list";
+import HostedChatMaintenance from "./hosted-chat-maintenance";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 
 type HomeChatViewProps = {
@@ -52,6 +53,7 @@ type HomeChatViewProps = {
   imageInputRef: RefObject<HTMLInputElement | null>;
   onImageChange: ChangeEventHandler<HTMLInputElement>;
   onImagePaste: ClipboardEventHandler<HTMLTextAreaElement>;
+  readOnly: boolean;
 };
 
 export default function HomeChatView({
@@ -87,6 +89,7 @@ export default function HomeChatView({
   imageInputRef,
   onImageChange,
   onImagePaste,
+  readOnly,
 }: HomeChatViewProps) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(conversationKey, messages);
   const promptRef = useRef<HTMLTextAreaElement>(null);
@@ -117,7 +120,7 @@ export default function HomeChatView({
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
-      {!started && (
+      {!started && !readOnly && (
         <div className="shrink-0">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 sm:mt-1 sm:text-3xl">
             Turn an idea into a hardware plan.
@@ -125,6 +128,11 @@ export default function HomeChatView({
           <p className="mx-auto mt-1.5 max-w-xl text-xs leading-relaxed text-zinc-400 sm:text-sm">
             Upload a photo, sketch, or short description. Get parts, wiring, cost, and build steps.
           </p>
+        </div>
+      )}
+      {readOnly && !started && (
+        <div className="mx-auto w-full max-w-2xl px-3 sm:px-4 md:px-0">
+          <HostedChatMaintenance />
         </div>
       )}
 
@@ -146,21 +154,22 @@ export default function HomeChatView({
             onScroll={handleScroll}
             className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-4 sm:pb-6 md:pt-5"
           >
+            {readOnly && <HostedChatMaintenance compact />}
             <ConversationMessageList
               messages={messages}
               renderPipelineProgress={renderPipelineProgress}
-              onSelectContextSuggestion={onSelectContextSuggestion}
-              isLoading={isLoading}
-              canBuildNow={canBuildNow}
-              buildNowLoading={buildNowLoading}
-              onBuildNow={onBuildNow}
+              onSelectContextSuggestion={readOnly ? undefined : onSelectContextSuggestion}
+              isLoading={readOnly ? false : isLoading}
+              canBuildNow={readOnly ? false : canBuildNow}
+              buildNowLoading={readOnly ? false : buildNowLoading}
+              onBuildNow={readOnly ? undefined : onBuildNow}
             />
             {projectArtifact}
             <div ref={endRef} />
           </div>
         )}
 
-        {!started && (
+        {!started && !readOnly && (
           <div className="mt-auto shrink-0 px-3 py-3 sm:px-4 md:order-2 md:mt-4 md:px-0 md:py-0">
             <div className="flex snap-x gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
               {examples.map((example) => (
@@ -182,14 +191,15 @@ export default function HomeChatView({
           </div>
         )}
 
-        <form
-          onSubmit={onSubmit}
-          className={`${
+        {!readOnly && (
+          <form
+            onSubmit={onSubmit}
+            className={`${
             started
               ? "md:sticky md:bottom-0 md:bg-transparent md:pb-3"
               : "md:static md:order-1 md:bg-transparent md:p-0"
-          } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
-        >
+            } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
+          >
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 rounded-xl border border-white/5 bg-[#181b22] p-3 text-left sm:p-4" aria-label="Bring your own key setup">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -336,8 +346,9 @@ export default function HomeChatView({
             </div>
           </div>
 
-        </form>
-        {started && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
+          </form>
+        )}
+        {started && !readOnly && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
   );

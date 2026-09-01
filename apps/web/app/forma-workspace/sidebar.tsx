@@ -210,6 +210,8 @@ export function MobileSidebarDrawer({
   activeChatId,
   onNewChat,
   newChatDisabled,
+  newChatDisabledReason,
+  readOnly,
   onOpenChat,
   onRenameChat,
   onPinChat,
@@ -230,6 +232,8 @@ export function MobileSidebarDrawer({
   activeChatId: string | null;
   onNewChat: () => void;
   newChatDisabled: boolean;
+  newChatDisabledReason?: string;
+  readOnly?: boolean;
   onOpenChat: (item: ChatListItem) => void;
   onRenameChat?: (item: ChatListItem, title: string) => void;
   onPinChat?: (item: ChatListItem) => void;
@@ -263,6 +267,8 @@ export function MobileSidebarDrawer({
           activeChatId={activeChatId}
           onNewChat={onNewChat}
           newChatDisabled={newChatDisabled}
+          newChatDisabledReason={newChatDisabledReason}
+          readOnly={readOnly}
           onOpenChat={onOpenChat}
           onRenameChat={onRenameChat}
           onPinChat={onPinChat}
@@ -298,6 +304,7 @@ function ChatSidebarRow({
   onDelete,
   onToggleMenu,
   onCloseMenu,
+  readOnly,
 }: {
   chat: ChatListItem;
   compact: boolean;
@@ -317,10 +324,11 @@ function ChatSidebarRow({
   onDelete?: () => void;
   onToggleMenu: () => void;
   onCloseMenu: () => void;
+  readOnly: boolean;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
-  const showActions = Boolean(!compact && !renaming && (onPin || onDelete));
+  const showActions = Boolean(!compact && !readOnly && !renaming && (onPin || onDelete));
   const rowClassName = `group relative flex w-full min-w-0 items-center gap-1 rounded-lg text-left text-xs font-medium transition-colors ${
     active
       ? "bg-emerald-500/10 text-emerald-400"
@@ -398,6 +406,11 @@ function ChatSidebarRow({
               <Pin className={`h-3 w-3 shrink-0 ${active ? "text-emerald-400" : "text-zinc-500"}`} aria-hidden="true" />
             )}
             <div className="truncate">{chat.title}</div>
+            {readOnly && (
+              <span className="shrink-0 rounded border border-cyan-300/20 px-1 py-0.5 text-[9px] font-medium text-cyan-300">
+                Read-only
+              </span>
+            )}
           </div>
         )}
         {chat.projectCount > 1 && (
@@ -427,8 +440,8 @@ function ChatSidebarRow({
           onStartRename();
         }}
         className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 text-left ${compact ? "justify-center px-0" : "px-3"}`}
-        title={waiting ? `${chat.title} is waiting` : canRename ? `${chat.title}. Double-click to rename.` : chat.title}
-        aria-label={`Open chat ${chat.title}${waiting ? " (waiting)" : ""}${chat.pinned ? ", pinned" : ""}`}
+        title={readOnly ? `${chat.title} (read-only during maintenance)` : waiting ? `${chat.title} is waiting` : canRename ? `${chat.title}. Double-click to rename.` : chat.title}
+        aria-label={`Open chat ${chat.title}${readOnly ? " (read-only)" : ""}${waiting ? " (waiting)" : ""}${chat.pinned ? ", pinned" : ""}`}
       >
         {titleBlock}
       </button>
@@ -544,6 +557,8 @@ export function ChatSidebar({
   activeChatId,
   onNewChat,
   newChatDisabled,
+  newChatDisabledReason,
+  readOnly = false,
   onOpenChat,
   onRenameChat,
   onPinChat,
@@ -565,6 +580,8 @@ export function ChatSidebar({
   activeChatId: string | null;
   onNewChat: () => void;
   newChatDisabled: boolean;
+  newChatDisabledReason?: string;
+  readOnly?: boolean;
   onOpenChat: (item: ChatListItem) => void;
   onRenameChat?: (item: ChatListItem, title: string) => void;
   onPinChat?: (item: ChatListItem) => void;
@@ -639,7 +656,7 @@ export function ChatSidebar({
                 : "forma-action-fill shadow-sm"
             } ${compact ? "px-0" : "px-3"}`}
             aria-label="New chat"
-            title={newChatDisabled ? "Send a message before starting another chat" : "New chat"}
+            title={newChatDisabled ? newChatDisabledReason || "Send a message before starting another chat" : "New chat"}
           >
             <Plus className="h-4 w-4 shrink-0" />
             {!compact && <span className="truncate">New chat</span>}
@@ -647,7 +664,7 @@ export function ChatSidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <SidebarSectionLabel compact={compact}>Chats</SidebarSectionLabel>
+          <SidebarSectionLabel compact={compact}>{readOnly ? "Chats (read-only)" : "Chats"}</SidebarSectionLabel>
           <div className="space-y-0.5">
             {chatsLoading ? (
               Array.from({ length: compact ? 5 : 7 }, (_, index) => (
@@ -674,11 +691,11 @@ export function ChatSidebar({
                   compact={compact}
                   active={chat.chatId === activeChatId}
                   waiting={waitingChatIds.has(chat.chatId)}
-                  renaming={!compact && Boolean(onRenameChat) && renamingChatId === chat.chatId}
+                  renaming={!readOnly && !compact && Boolean(onRenameChat) && renamingChatId === chat.chatId}
                   renameDraft={renameDraft}
                   dateLabel={formatSidebarDate(chat.createdAt)}
                   menuOpen={menuChatId === chat.chatId}
-                  canRename={!compact && Boolean(onRenameChat)}
+                  canRename={!readOnly && !compact && Boolean(onRenameChat)}
                   onRenameDraftChange={setRenameDraft}
                   onCommitRename={() => commitSidebarRename(chat)}
                   onCancelRename={() => {
@@ -695,10 +712,11 @@ export function ChatSidebar({
                     onOpenChat(chat);
                     onNavigate?.();
                   }}
-                  onPin={onPinChat ? () => onPinChat(chat) : undefined}
-                  onDelete={onDeleteChat ? () => onDeleteChat(chat) : undefined}
+                  onPin={!readOnly && onPinChat ? () => onPinChat(chat) : undefined}
+                  onDelete={!readOnly && onDeleteChat ? () => onDeleteChat(chat) : undefined}
                   onToggleMenu={() => setMenuChatId((current) => (current === chat.chatId ? null : chat.chatId))}
                   onCloseMenu={() => setMenuChatId(null)}
+                  readOnly={readOnly}
                 />
               ))
             ) : (

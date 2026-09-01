@@ -63,7 +63,9 @@ from forma_core.debug import (
 )
 from forma_core.runtime import (
     AlphaGenerationUnavailableError,
+    HostedChatUnavailableError,
     deployment_runtime_config,
+    ensure_hosted_chat_enabled,
     generation_unavailable_message,
 )
 from forma_core.user_integrations import UserIntegrationStore, apply_user_integrations_to_environment, default_integration_store
@@ -854,6 +856,7 @@ def build_generation_response(
     project_id: Optional[str] = None,
     retry_stage: Optional[str] = None,
 ) -> Dict[str, Any]:
+    ensure_hosted_chat_enabled()
     _apply_owner_user_integrations(owner_user_id)
 
     prompt_text = (prompt or "").strip()
@@ -1087,6 +1090,8 @@ async def call_forma_action(
     user_context: Optional[UserContext] = None,
 ) -> Dict[str, Any]:
     normalized = action.removeprefix("forma.")
+    if normalized == "generate_project":
+        ensure_hosted_chat_enabled()
     owner_user_id = _context_owner_user_id(user_context)
     project_id = payload.get("project_id")
 
@@ -1173,8 +1178,10 @@ async def submit_a2a_message(
 ) -> A2AEvent:
     message = _message_for_user_context(message, user_context)
     message = message.model_copy(update={"correlation_id": message.correlation_id or new_error_correlation_id()})
-    await A2A_HUB.register(message.sender)
     server_owned = _is_server_message(message)
+    if server_owned and message.action.removeprefix("forma.") == "generate_project":
+        ensure_hosted_chat_enabled()
+    await A2A_HUB.register(message.sender)
     project_id = message.payload.get("project_id")
     owner_user_id = _context_owner_user_id(user_context)
     if server_owned and project_id and not owner_user_id:
@@ -1759,7 +1766,11 @@ async def _handle_mcp_request(
             correlation_id=correlation_id,
             context={"method": method, "params": params},
         )
-        if isinstance(exc, PermissionError):
+        if isinstance(exc, HostedChatUnavailableError):
+            error_code = "hosted_chat_unavailable"
+            rpc_code = -32004
+            public_message = str(exc)
+        elif isinstance(exc, PermissionError):
             error_code = "authorization_required"
             rpc_code = -32003
             public_message = "You are not authorized to use this MCP tool."

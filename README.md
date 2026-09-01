@@ -270,6 +270,7 @@ Environment variables (recommended via a repo-root `.env`; see `.env.example`):
 - `FORMA_DEPLOYMENT`: Legacy boolean deployment switch; prefer `FORMA_DEPLOYMENT_MODE=hosted`.
 - `FORMA_AUTH_MODE`: Explicitly `local` (Clerk is not mounted and settings belong to the local workspace) or `clerk` (sign-in is required and settings belong to the Clerk user).
 - `FORMA_DEPLOYMENT_MODE`: `local` (default) or `hosted`. Other values fail startup.
+- `FORMA_HOSTED_CHAT_ENABLED`: Reversible hosted-chat maintenance flag. It defaults to `true` for local deployments and `false` for hosted deployments; set it to `true` only after the hosted chat path passes an end-to-end smoke test. Existing hosted chats remain readable while disabled.
 - `FORMA_DEVELOPMENT_MODE`: Strict `true`/`false` switch, defaulting to `false`. Hosted mode cannot run with development mode enabled.
 - `FORMA_USER_SECRETS_KEY`: Required for every backend runtime. Startup fails immediately when it is absent. Use a high-entropy server-only value; it encrypts per-user settings and is the workspace-encryption fallback.
 - `FORMA_WORKSPACE_SECRETS_KEY`: Optional separate high-entropy key for local/workspace settings. SQLite-primary runtimes use an encrypted file; Supabase-primary runtimes use encrypted `workspace_integration_configs` storage.

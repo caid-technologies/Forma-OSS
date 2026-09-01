@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from apps.api.auth import UserContext, require_user_context
+from apps.api.hosted_chat import require_hosted_chat_enabled
 from forma_core.database import (
     evaluate_project_readiness,
     get_latest_project_build,
@@ -58,6 +59,7 @@ def build_project_endpoint(
     request: BuildRequest,
     user: UserContext = Depends(require_user_context),
 ) -> BuildInitiationOutcome:
+    require_hosted_chat_enabled()
     owner = _owner(user)
     try:
         return initiate_project_build(
@@ -77,6 +79,7 @@ def build_project_anyway_endpoint(
     request: BuildAnywayRequest,
     user: UserContext = Depends(require_user_context),
 ) -> BuildInitiationOutcome:
+    require_hosted_chat_enabled()
     owner = _owner(user)
     try:
         return initiate_project_build(

@@ -173,6 +173,9 @@ REDIS_URL=redis://localhost:6379/0
 
 # Deployment-only alpha gate
 # FORMA_DEPLOYMENT_MODE=hosted
+# Hosted chat defaults to disabled in hosted deployments. Enable only after an
+# end-to-end smoke test of the hosted chat path.
+# FORMA_HOSTED_CHAT_ENABLED=true
 
 # Live LLM generation
 LLM_PROVIDER=anthropic
@@ -281,7 +284,8 @@ Notes:
 - CLI project artifacts use the private `FORMA_CLI_ARTIFACT_BUCKET` (default `cli-project-artifacts`). `FORMA_CLI_ARTIFACT_STORAGE_BACKEND` may select `supabase`, `s3-compatible`, or `local`; the default follows the primary database backend. Each artifact is stored under a project-scoped hash key and is validated against its declared SHA-256 and media type.
 - Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
 - After those inputs are applied, `GET /api/runtime/config` is authoritative for the frontend. Resolution precedence is request override, saved integration, environment, then provider default; the browser does not repeat this merge.
-- `FORMA_DEPLOYMENT_MODE=hosted` requires a configured deployment provider or signed-in user's BYOK provider for generation. Hosted mode cannot run with `FORMA_DEVELOPMENT_MODE=true`; the frontend keeps the composer visible and directs users without an active provider to Settings.
+- `FORMA_DEPLOYMENT_MODE=hosted` requires a configured deployment provider or signed-in user's BYOK provider for generation. Hosted mode cannot run with `FORMA_DEVELOPMENT_MODE=true`.
+- `FORMA_HOSTED_CHAT_ENABLED` defaults to `true` for local deployments and `false` for hosted deployments. While it is `false`, the frontend shows the local-first maintenance state and the API rejects hosted chat/generation mutations without disabling read-only project access, local CLI generation, or CLI uploads.
 - `LLM_PROVIDER` can be `vertex`, `anthropic`, `baseten`, `gemini`, `gmi`, `huggingface`, `cloudflare`, `nvidia`, `openai`, `openai-compatible`, `runpod`, `runpod-serverless`, or `simulation`. Use `runpod` for Runpod OpenAI-compatible/vLLM endpoints and `runpod-serverless` for queue-style `/runsync` workers.
 - `/api/generate` accepts optional `provider` and `model` fields for runtime switching, for example `{"provider":"openai","model":"gpt-4o-mini"}`.
 - Use `LLM_ALLOWED_PROVIDERS` plus provider-specific model allowlists (`VERTEX_AI_ALLOWED_MODELS`, `OPENAI_ALLOWED_MODELS`, `BASETEN_ALLOWED_MODELS`, `HUGGINGFACE_ALLOWED_MODELS`, `CLOUDFLARE_ALLOWED_MODELS`, `NVIDIA_ALLOWED_MODELS`, `OPENAI_COMPATIBLE_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, `RUNPOD_ALLOWED_MODELS`) to control what clients can select at runtime.

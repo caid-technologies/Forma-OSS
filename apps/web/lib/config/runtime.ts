@@ -39,6 +39,9 @@ export type RuntimeConfigContract = {
     llm_required: boolean;
     image_required: boolean;
   };
+  deployment?: {
+    hosted_chat_enabled?: boolean;
+  };
   video?: {
     generation?: { configured?: boolean; reason?: string | null };
     self_correction?: { configured?: boolean; reason?: string | null };

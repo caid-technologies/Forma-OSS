@@ -25,4 +25,5 @@ export const webConfig = {
     truthy(process.env.NEXT_PUBLIC_FORMA_DEBUG) ||
     truthy(process.env.NEXT_PUBLIC_FORMA_DEV_MODE),
   authMode: (process.env.FORMA_AUTH_MODE || "local").trim().toLowerCase(),
+  hostedChatEnabled: development,
 } as const;

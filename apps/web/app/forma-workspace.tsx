@@ -60,6 +60,9 @@ import HomeChatView from "./forma-workspace/home-chat-view";
 import ConversationMessageList, {
   type ConversationMessage,
 } from "./forma-workspace/conversation-message-list";
+import HostedChatMaintenance, {
+  HOSTED_CHAT_MAINTENANCE_MESSAGE,
+} from "./forma-workspace/hosted-chat-maintenance";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
 import {
@@ -141,6 +144,7 @@ const SchematicCanvas = dynamic(() => import("../components/schematic-canvas"), 
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 const DEFAULT_SHOW_DEVELOPER_TOOLS = webConfig.publicDeveloperTools;
+const DEFAULT_HOSTED_CHAT_ENABLED = webConfig.hostedChatEnabled;
 const DEFAULT_WORKFLOW_ID = "default";
 const WEB_RESEARCH_WORKFLOW_ID = "web_research";
 const JOB_POLL_INTERVAL_MS = 5000;
@@ -1758,6 +1762,7 @@ export function FormaWorkspace({
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageSource, setSelectedImageSource] = useState<"upload" | "clipboard">("upload");
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
+  const [hostedChatEnabled, setHostedChatEnabled] = useState(DEFAULT_HOSTED_CHAT_ENABLED);
   const [videoGenerationConfig, setVideoGenerationConfig] = useState<VideoGenerationConfig>({
     configured: null,
     reason: null,
@@ -1917,6 +1922,12 @@ export function FormaWorkspace({
     generationInputNotice || ((prompt.trim() || selectedImage) && !generationInputValidation.isValid
       ? generationInputValidation.message
       : null);
+  const hostedChatReadOnly = !hostedChatEnabled;
+  const requireHostedChatEnabled = () => {
+    if (hostedChatEnabled) return true;
+    setGenerationInputNotice(HOSTED_CHAT_MAINTENANCE_MESSAGE);
+    return false;
+  };
   const appendChatMessage = (message: Omit<ChatMessage, "id" | "timestamp"> & { id?: string }) => {
     const nextMessage: ChatMessage = {
       id: message.id || newChatMessageId(),
@@ -2221,7 +2232,7 @@ export function FormaWorkspace({
   }, [canInteractWithGallery, generationRequestHeaders, noteAuthResponseStatus, patchProjectEngagement]);
 
   const handleRemixProject = useCallback(async (item: ProjectGalleryItem) => {
-    if (!canInteractWithGallery) return;
+    if (!canInteractWithGallery || !hostedChatEnabled) return;
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(item.projectId)}/remix`, {
         method: "POST",
@@ -2255,7 +2266,7 @@ export function FormaWorkspace({
     } catch (error) {
       console.error("Could not remix project", error);
     }
-  }, [canInteractWithGallery, generationRequestHeaders, noteAuthResponseStatus, patchProjectEngagement, router, userImageUrl]);
+  }, [canInteractWithGallery, generationRequestHeaders, hostedChatEnabled, noteAuthResponseStatus, patchProjectEngagement, router, userImageUrl]);
 
   const openProjectDeletion = useCallback((project: PendingProjectDeletion) => {
     setPendingProjectDeletion(project);
@@ -2306,6 +2317,10 @@ export function FormaWorkspace({
 
   const confirmProjectDeletion = async () => {
     if (!pendingProjectDeletion || !deletionAcknowledged || projectDeletionBusy) return;
+    if (!hostedChatEnabled) {
+      setProjectDeletionError(HOSTED_CHAT_MAINTENANCE_MESSAGE);
+      return;
+    }
     setProjectDeletionBusy(true);
     setProjectDeletionError(null);
     const projectId = pendingProjectDeletion.projectId;
@@ -2487,7 +2502,7 @@ export function FormaWorkspace({
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
-    if ((authRequired && !isSignedIn) || !chatId || typeof window === "undefined") return;
+    if (!hostedChatEnabled || (authRequired && !isSignedIn) || !chatId || typeof window === "undefined") return;
     const nextMessages = persistableChatMessages(messages);
     if (!chatHasStarted(nextMessages)) return;
     const listedTitle = chatListItems.find((item) => item.chatId === chatId)?.title?.trim() || "";
@@ -2497,6 +2512,7 @@ export function FormaWorkspace({
     if (existingTimer) window.clearTimeout(existingTimer);
     chatPersistenceTimersRef.current[chatId] = window.setTimeout(async () => {
       delete chatPersistenceTimersRef.current[chatId];
+      if (!hostedChatEnabled) return;
       try {
         const res = await fetch(`${API_URL}/chats/${encodeURIComponent(chatId)}`, {
           method: "PUT",
@@ -2553,6 +2569,13 @@ export function FormaWorkspace({
   };
 
   const goHome = () => {
+    if (!hostedChatEnabled) {
+      setChatRouteTransition(null);
+      setProjectIR(null);
+      setActiveTab("overview");
+      router.push("/");
+      return;
+    }
     if (currentProjectChatHasStarted()) {
       resetToNewProjectChat();
     } else {
@@ -2564,6 +2587,7 @@ export function FormaWorkspace({
   };
 
   const startNewProjectChat = () => {
+    if (!requireHostedChatEnabled()) return;
     if (homeView === "chat" && !currentRouteProjectId && !currentProjectChatHasStarted()) return;
     const nextChatId = resetToNewProjectChat();
     router.push(chatRoute(nextChatId));
@@ -2782,6 +2806,9 @@ export function FormaWorkspace({
 
       const config = (await res.json()) as RuntimeConfigContract;
       if (!requestIsCurrent()) return;
+      if (typeof config.deployment?.hosted_chat_enabled === "boolean") {
+        setHostedChatEnabled(config.deployment.hosted_chat_enabled);
+      }
       setFormaDevMode(config.forma_dev_mode === true);
       const activeLlms = usableRuntimeLlmOptions(config);
       const selectedLlm = config.generation.selected_llm;
@@ -3313,6 +3340,7 @@ export function FormaWorkspace({
     planId: string,
     run?: ActiveGenerationRun,
   ) => {
+    if (!hostedChatEnabled) return;
     for (let attempt = 1; attempt <= 4; attempt += 1) {
       try {
         const response = await fetch(
@@ -3394,6 +3422,7 @@ export function FormaWorkspace({
     assistantMessageId: string,
     run?: ActiveGenerationRun,
   ) => {
+    if (!hostedChatEnabled) return;
     const watcherKey = `${projectId}:${planId}`;
     if (contextBuildWatchersRef.current.has(watcherKey)) return;
     contextBuildWatchersRef.current.add(watcherKey);
@@ -3564,6 +3593,7 @@ export function FormaWorkspace({
   };
 
   const resetFailedContextBuild = async (message: ChatMessage) => {
+    if (!requireHostedChatEnabled()) return;
     const projectId = message.contextProjectId;
     const planId = message.buildPlanId;
     const jobId = message.buildJobId;
@@ -3624,10 +3654,14 @@ export function FormaWorkspace({
 
   const renderConversationPipelineProgress = (message: ConversationMessage) => {
     const buildMessage = message as ChatMessage;
-    const controls = contextBuildControls(
+    const buildControls = contextBuildControls(
       buildMessage,
       Boolean(activeGeneration || pendingContextBuildMessage),
     );
+    const controls = {
+      canStop: buildControls.canStop,
+      canReset: hostedChatEnabled && buildControls.canReset,
+    };
     return (
       <AgentPipelineProgressView
         progress={buildMessage.pipelineProgress}
@@ -3641,6 +3675,7 @@ export function FormaWorkspace({
   };
 
   useEffect(() => {
+    if (!hostedChatEnabled) return;
     const pending = [...chatMessages].reverse().find((message) => (
       message.status === "loading"
       && Boolean(message.buildPlanId)
@@ -3676,9 +3711,10 @@ export function FormaWorkspace({
     );
     // The watcher registry makes this restart-safe without duplicating poll loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChatId, chatMessageIdentityKey(chatMessages)]);
+  }, [activeChatId, chatMessageIdentityKey(chatMessages), hostedChatEnabled]);
 
   const submitGatherContext = async (answer?: string) => {
+    if (!requireHostedChatEnabled()) return;
     if (contextSubmitting || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
 
@@ -3834,6 +3870,7 @@ export function FormaWorkspace({
   };
 
   const handleBuildNow = async () => {
+    if (!requireHostedChatEnabled()) return;
     if (contextBuildStarting || contextSubmitting || activeGenerationRef.current) return;
     const requestChatId = activeChatId;
     const availableMessages = requestChatId
@@ -3918,6 +3955,7 @@ export function FormaWorkspace({
 
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireHostedChatEnabled()) return;
     if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!selectedGenerationLlm) {
@@ -4310,6 +4348,7 @@ export function FormaWorkspace({
 
   const handleProjectChatGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (!requireHostedChatEnabled()) return;
     if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!currentUserOwnsProject) {
@@ -4891,7 +4930,7 @@ export function FormaWorkspace({
     enabled: Boolean(projectIR && activeTab === "video"),
     projectId: currentProjectId,
     authIdentityKey,
-    canManageProject: currentUserOwnsProject,
+    canManageProject: hostedChatEnabled && currentUserOwnsProject,
     canLoadProjectVideos: currentProjectCanDownloadAssets,
     imageOptions: videoImageOptions,
     defaultImage: defaultVideoImage,
@@ -4930,6 +4969,7 @@ export function FormaWorkspace({
     activeSidebarChatItem?.projectCount
   );
   const commitOwnedWorkspaceTitle = async (nextTitle: string, options?: { chatId?: string | null; projectId?: string | null }) => {
+    if (!hostedChatEnabled) return;
     const title = nextTitle.trim() || "Untitled Hardware Project";
     const chatId = options && "chatId" in options
       ? options.chatId
@@ -4971,9 +5011,11 @@ export function FormaWorkspace({
     }
   };
   const renameSidebarChat = (item: ChatListItem, title: string) => {
+    if (!hostedChatEnabled) return;
     void commitOwnedWorkspaceTitle(title, { chatId: item.chatId, projectId: item.projectId || null });
   };
   const togglePinnedChat = (item: ChatListItem) => {
+    if (!hostedChatEnabled) return;
     setPinnedChatIds((current) => {
       const next = new Set(current);
       if (next.has(item.chatId)) next.delete(item.chatId);
@@ -4983,6 +5025,7 @@ export function FormaWorkspace({
     });
   };
   const deleteSidebarChat = (item: ChatListItem) => {
+    if (!hostedChatEnabled) return;
     if (item.projectId) {
       openProjectDeletion({ projectId: item.projectId, title: item.title });
       return;
@@ -5003,7 +5046,7 @@ export function FormaWorkspace({
       goHome();
     }
   };
-  const newChatDisabled = homeView === "chat" && !routedProjectId && !activeSidebarChatStarted;
+  const newChatDisabled = hostedChatReadOnly || (homeView === "chat" && !routedProjectId && !activeSidebarChatStarted);
   const homeChromeRef = useRef<HTMLDivElement>(null);
   const { headerAway: homeHeaderAway, bindCapture: bindHomeChromeScroll } = useChromeHeaderScroll(
     `${homeView}:${activeChatId || ""}:${activeSidebarChatStarted ? "started" : "new"}`
@@ -5184,6 +5227,8 @@ export function FormaWorkspace({
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
+            newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+            readOnly={hostedChatReadOnly}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
             onPinChat={togglePinnedChat}
@@ -5205,6 +5250,8 @@ export function FormaWorkspace({
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
+            newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+            readOnly={hostedChatReadOnly}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
             onPinChat={togglePinnedChat}
@@ -5254,6 +5301,8 @@ export function FormaWorkspace({
             activeChatId={null}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
+            newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+            readOnly={hostedChatReadOnly}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
             onPinChat={togglePinnedChat}
@@ -5275,6 +5324,8 @@ export function FormaWorkspace({
             activeChatId={null}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
+            newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+            readOnly={hostedChatReadOnly}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
             onPinChat={togglePinnedChat}
@@ -5326,6 +5377,8 @@ export function FormaWorkspace({
             activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
+            newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+            readOnly={hostedChatReadOnly}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
             onPinChat={togglePinnedChat}
@@ -5347,6 +5400,8 @@ export function FormaWorkspace({
             activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
+            newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+            readOnly={hostedChatReadOnly}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
             onPinChat={togglePinnedChat}
@@ -5381,7 +5436,7 @@ export function FormaWorkspace({
               title={(
                 <EditableWorkspaceTitle
                   value={activeSidebarChatItem?.title || NEW_PROJECT_TITLE}
-                  canEdit
+                  canEdit={hostedChatEnabled}
                   label="Chat title"
                   onCommit={(title) => {
                     if (activeChatId) {
@@ -5412,7 +5467,7 @@ export function FormaWorkspace({
                   const item = projectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
                   return item ? handleToggleProjectSave(item) : undefined;
                 } : undefined}
-                onRemixProject={canInteractWithGallery ? (project) => {
+                onRemixProject={canInteractWithGallery && hostedChatEnabled ? (project) => {
                   const item = projectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
                   return item ? handleRemixProject(item) : undefined;
                 } : undefined}
@@ -5434,7 +5489,7 @@ export function FormaWorkspace({
                   const item = myProjectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
                   return item ? handleToggleProjectSave(item) : undefined;
                 } : undefined}
-                onRemixProject={canInteractWithGallery ? (project) => {
+                onRemixProject={canInteractWithGallery && hostedChatEnabled ? (project) => {
                   const item = myProjectGalleryItems.find((candidate) => candidate.projectId === project.project_id);
                   return item ? handleRemixProject(item) : undefined;
                 } : undefined}
@@ -5506,12 +5561,13 @@ export function FormaWorkspace({
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
+              readOnly={hostedChatReadOnly}
               conversationKey={activeChatId || "new-chat"}
               workspaceTitle={
                 activeSidebarChatStarted ? (
                   <EditableWorkspaceTitle
                     value={activeSidebarChatItem?.title || NEW_PROJECT_TITLE}
-                    canEdit
+                    canEdit={hostedChatEnabled}
                     label="Chat title"
                     onCommit={(title) => {
                       if (activeChatId) {
@@ -5532,8 +5588,8 @@ export function FormaWorkspace({
                     <ChatProjectArtifact
                       projectId={currentProjectId}
                       projectTitle={projectTitle}
-                      canEdit={currentUserOwnsProject}
-                      onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
+                      canEdit={hostedChatEnabled && currentUserOwnsProject}
+                      onRenameTitle={hostedChatEnabled && currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                       namespaceTabs={visibleWorkspaceTabs}
                       activeNamespace={activeWorkspaceTab.id}
                       onNamespaceChange={setActiveTab}
@@ -5549,7 +5605,7 @@ export function FormaWorkspace({
                 setPrompt(example);
               }}
               onSubmit={handleGatherContext}
-              canBuildNow={(() => {
+              canBuildNow={hostedChatEnabled && (() => {
                 const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
                 const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
                 const state = contextWorkflowStates[activeChatId]
@@ -5562,7 +5618,7 @@ export function FormaWorkspace({
               onSelectContextSuggestion={(suggestion) => {
                 void submitGatherContext(suggestion);
               }}
-              isLoading={contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage || resettingBuildMessageId)}
+              isLoading={hostedChatEnabled && (contextSubmitting || Boolean(activeGeneration || pendingContextBuildMessage || resettingBuildMessageId))}
               generationReady
               needsGenerationProvider={false}
               needsImageProvider={false}
@@ -5574,13 +5630,13 @@ export function FormaWorkspace({
                 setGenerationInputNotice(null);
                 setPrompt(value);
               }}
-              generationActive={Boolean(activeGeneration || pendingContextBuildMessage)}
+              generationActive={hostedChatEnabled && Boolean(activeGeneration || pendingContextBuildMessage)}
               onStop={() => {
                 if (activeGenerationRef.current) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
               }}
-              canRetryFailedBuild={Boolean(retryableContextBuildMessage)}
-              retryingFailedBuild={resettingBuildMessageId === retryableContextBuildMessage?.id}
+              canRetryFailedBuild={hostedChatEnabled && Boolean(retryableContextBuildMessage)}
+              retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableContextBuildMessage?.id}
               onRetryFailedBuild={() => {
                 if (retryableContextBuildMessage) void resetFailedContextBuild(retryableContextBuildMessage);
               }}
@@ -5623,6 +5679,8 @@ export function FormaWorkspace({
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
+          newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+          readOnly={hostedChatReadOnly}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
           onPinChat={togglePinnedChat}
@@ -5644,6 +5702,8 @@ export function FormaWorkspace({
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
+          newChatDisabledReason={hostedChatReadOnly ? HOSTED_CHAT_MAINTENANCE_MESSAGE : undefined}
+          readOnly={hostedChatReadOnly}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
           onPinChat={togglePinnedChat}
@@ -5673,7 +5733,8 @@ export function FormaWorkspace({
                 projectId={currentProjectId}
                 projectTitle={projectTitle}
                 owned={currentUserOwnsProject}
-                onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
+                readOnly={hostedChatReadOnly}
+                onRenameTitle={hostedChatEnabled && currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
                 onNamespaceChange={setActiveTab}
@@ -5685,21 +5746,22 @@ export function FormaWorkspace({
                 projectId={currentProjectId}
                 chatId={currentProjectChatId}
                 projectTitle={projectTitle}
-                onRenameTitle={currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
+                onRenameTitle={hostedChatEnabled && currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 messages={currentProjectChatMessages}
                 renderPipelineProgress={renderConversationPipelineProgress}
                 input={projectChatInput}
                 setInput={setProjectChatInput}
                 onSubmit={handleProjectChatGenerate}
-                isLoading={isLoading}
-                canStop={activeGeneration?.kind === "project-chat"}
+                isLoading={hostedChatEnabled && isLoading}
+                canStop={hostedChatEnabled && activeGeneration?.kind === "project-chat"}
                 onStop={stopActiveGeneration}
-                canRetryFailedBuild={Boolean(retryableProjectBuildMessage)}
-                retryingFailedBuild={resettingBuildMessageId === retryableProjectBuildMessage?.id}
+                canRetryFailedBuild={hostedChatEnabled && Boolean(retryableProjectBuildMessage)}
+                retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableProjectBuildMessage?.id}
                 onRetryFailedBuild={() => {
                   if (retryableProjectBuildMessage) void resetFailedContextBuild(retryableProjectBuildMessage);
                 }}
-                canChat={currentUserOwnsProject}
+                canChat={hostedChatEnabled && currentUserOwnsProject}
+                readOnly={hostedChatReadOnly}
                 namespaceTabs={visibleWorkspaceTabs}
                 activeNamespace={activeWorkspaceTab.id}
                 activeNamespaceLabel={activeWorkspaceTab.label}
@@ -6235,9 +6297,11 @@ function VideoPanel({
   canReview,
   canMakeNewVideo,
   canGeneratePrompt,
+  canOpenAssets,
 }: {
   projectId: string | null;
   readOnly: boolean;
+  canOpenAssets: boolean;
   models: VideoModelOption[];
   modelsLoading: boolean;
   modelsError: string | null;
@@ -6307,7 +6371,7 @@ function VideoPanel({
   const isReviewing = reviewStatus === "loading";
   const generateDisabled = !canGenerate || isGenerating || !modeModels.length;
   const reviewDisabled = !canReview || isReviewing;
-  const savedHref = readOnly ? null : storedVideo?.publicUrl || null;
+  const savedHref = canOpenAssets ? storedVideo?.publicUrl || null : null;
   const allProjectImagesSelected = imageOptions.length > 0 && imageOptions.every((candidate) => selectedImageSources.includes(candidate.src));
   const toggleImageSource = (source: string) => {
     setSelectedImageSources(
@@ -6346,7 +6410,9 @@ function VideoPanel({
 
             {readOnly && (
               <div className="mt-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 text-xs leading-5 text-[var(--forma-text-secondary)]">
-                Read-only project. Video actions are available only to the owner.
+                {canOpenAssets
+                  ? "Video generation and review are unavailable during hosted chat maintenance. Saved videos remain available for viewing."
+                  : "Read-only project. Video actions are available only to the owner."}
               </div>
             )}
 
@@ -6376,18 +6442,18 @@ function VideoPanel({
               canMakeNewVideo={canMakeNewVideo}
             />
 
-            <VideoGallery
-              videos={gallery}
-              loading={galleryLoading}
-              error={galleryError}
-              onRefresh={onRefreshGallery}
-              selectedKey={selectedReviewVideoKey}
-              onSelect={setSelectedReviewVideoKey}
-              onReview={onReviewVideo}
-              canReview={canReview}
-              canOpenAssets={!readOnly}
-              reviewing={isReviewing}
-            />
+              <VideoGallery
+                videos={gallery}
+                loading={galleryLoading}
+                error={galleryError}
+                onRefresh={onRefreshGallery}
+                selectedKey={selectedReviewVideoKey}
+                onSelect={setSelectedReviewVideoKey}
+                onReview={onReviewVideo}
+                canReview={canReview}
+                canOpenAssets={canOpenAssets}
+                reviewing={isReviewing}
+              />
           </section>
         </div>
       </div>
@@ -6433,7 +6499,9 @@ function VideoPanel({
 
           {readOnly && (
             <div className="mb-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 text-xs leading-5 text-[var(--forma-text-secondary)]">
-              Read-only project. Video actions are available only to the owner.
+              {canOpenAssets
+                ? "Video generation and review are unavailable during hosted chat maintenance. Saved videos remain available for viewing."
+                : "Read-only project. Video actions are available only to the owner."}
             </div>
           )}
 
@@ -6448,7 +6516,7 @@ function VideoPanel({
                 onClick={() => {
                   if (!item.disabled) setMode(item.value);
                 }}
-                disabled={item.disabled}
+                disabled={readOnly || item.disabled}
                 className={`flex h-10 items-center justify-center gap-2 border-r border-[var(--forma-border)] text-xs font-medium last:border-r-0 ${
                   mode === item.value
                     ? "bg-[var(--forma-surface)] text-[var(--forma-text-strong)]"
@@ -6467,7 +6535,7 @@ function VideoPanel({
               <select
                 value={selectedModel}
                 onChange={(event) => setSelectedModel(event.target.value)}
-                disabled={modelsLoading || !modeModels.length}
+                disabled={readOnly || modelsLoading || !modeModels.length}
                 className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))] disabled:opacity-50"
               >
                 {!modeModels.length && <option value="">No models</option>}
@@ -6484,7 +6552,8 @@ function VideoPanel({
               <select
                 value={aspectRatio}
                 onChange={(event) => setAspectRatio(event.target.value)}
-                className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))]"
+                disabled={readOnly}
+                className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {aspectRatios.map((value) => (
                   <option key={value} value={value}>
@@ -6502,11 +6571,12 @@ function VideoPanel({
                     key={value}
                     type="button"
                     onClick={() => setDuration(value)}
+                    disabled={readOnly}
                     className={`h-10 border-r border-[var(--forma-border)] text-xs font-medium last:border-r-0 ${
                       duration === value
                         ? "bg-[var(--forma-surface)] text-[var(--forma-text-strong)]"
                         : "bg-[var(--forma-surface-muted)] text-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
-                    }`}
+                    } disabled:cursor-not-allowed disabled:opacity-50`}
                   >
                     {value}s
                   </button>
@@ -6535,9 +6605,10 @@ function VideoPanel({
               id="video-prompt"
               value={prompt}
               onChange={(event) => setPrompt(event.target.value)}
+              readOnly={readOnly}
               maxLength={VIDEO_PROMPT_MAX_CHARS}
               placeholder="Slow orbit, reveal ports, show display glow."
-              className="mt-2 min-h-[132px] w-full resize-none rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-3 text-sm font-normal leading-6 tracking-normal text-[var(--forma-text-body)] outline-none placeholder:text-[var(--forma-text-muted)] focus:border-[rgb(var(--forma-cyan-rgb))]"
+              className="mt-2 min-h-[132px] w-full resize-none rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 py-3 text-sm font-normal leading-6 tracking-normal text-[var(--forma-text-body)] outline-none placeholder:text-[var(--forma-text-muted)] focus:border-[rgb(var(--forma-cyan-rgb))] read-only:cursor-not-allowed read-only:opacity-60"
             />
             <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
               {promptMessage ? (
@@ -6559,6 +6630,7 @@ function VideoPanel({
                   <button
                     type="button"
                     onClick={onUploadImage}
+                    disabled={readOnly}
                     className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
                   >
                     <Paperclip className="h-4 w-4" />
@@ -6567,7 +6639,7 @@ function VideoPanel({
                   <button
                     type="button"
                     onClick={() => setSelectedImageSources(allProjectImagesSelected ? [] : imageOptions.map((candidate) => candidate.src))}
-                    disabled={!imageOptions.length}
+                    disabled={readOnly || !imageOptions.length}
                     className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Layers className="h-4 w-4" />
@@ -6576,7 +6648,7 @@ function VideoPanel({
                   <button
                     type="button"
                     onClick={onUseProjectImage}
-                    disabled={!defaultImage}
+                    disabled={readOnly || !defaultImage}
                     className="inline-flex h-9 items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     <Eye className="h-4 w-4" />
@@ -6594,6 +6666,7 @@ function VideoPanel({
                         key={candidate.src}
                         type="button"
                         onClick={() => toggleImageSource(candidate.src)}
+                        disabled={readOnly}
                         className={`min-w-0 rounded-lg border p-2 text-left transition ${
                           selected
                             ? "border-[rgb(var(--forma-cyan-rgb)/0.55)] bg-[var(--forma-surface)] text-[rgb(var(--forma-cyan-rgb))]"
@@ -6624,6 +6697,7 @@ function VideoPanel({
                   setImageInput(event.target.value);
                   setSelectedImageSources([]);
                 }}
+                readOnly={readOnly}
                 placeholder="https://... or data:image/..."
                 className="h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 font-mono text-xs text-[var(--forma-text-body)] outline-none placeholder:text-[var(--forma-text-muted)] focus:border-[rgb(var(--forma-cyan-rgb))]"
               />
@@ -6639,7 +6713,7 @@ function VideoPanel({
               <select
                 value={sourceVideoUrl}
                 onChange={(event) => setSourceVideoUrl(event.target.value)}
-                disabled={!sourceVideos.length}
+                disabled={readOnly || !sourceVideos.length}
                 className="mt-2 h-10 w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-3 text-sm font-normal tracking-normal text-[var(--forma-text-body)] outline-none focus:border-[rgb(var(--forma-cyan-rgb))] disabled:opacity-50"
               >
                 {!sourceVideos.length && <option value="">No saved videos</option>}
@@ -6661,7 +6735,7 @@ function VideoPanel({
             onSelect={setSelectedReviewVideoKey}
             onReview={onReviewVideo}
             canReview={canReview}
-            canOpenAssets={!readOnly}
+            canOpenAssets={canOpenAssets}
             reviewing={isReviewing}
           />
         </section>
@@ -6986,6 +7060,7 @@ function ProjectDetailWorkspace({
   projectId,
   projectTitle,
   owned,
+  readOnly,
   onRenameTitle,
   namespaceTabs,
   activeNamespace,
@@ -6996,6 +7071,7 @@ function ProjectDetailWorkspace({
   projectId: string | null;
   projectTitle: string;
   owned: boolean;
+  readOnly: boolean;
   onRenameTitle?: (title: string) => void;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
@@ -7014,13 +7090,19 @@ function ProjectDetailWorkspace({
             </span>
             <EditableWorkspaceTitle
               value={projectTitle}
-              canEdit={owned && Boolean(onRenameTitle)}
+              canEdit={!readOnly && owned && Boolean(onRenameTitle)}
               label="Project title"
               onCommit={(title) => onRenameTitle?.(title)}
             />
           </div>
         </div>
       </header>
+
+      {readOnly && (
+        <div className="px-3 pt-3 sm:px-4">
+          <HostedChatMaintenance compact />
+        </div>
+      )}
 
       <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--forma-page)]" aria-label="Project workspace">
         <ProjectWorkspacePanel
@@ -7054,6 +7136,7 @@ function ChatWorkspace({
   retryingFailedBuild,
   onRetryFailedBuild,
   canChat,
+  readOnly,
   namespaceTabs,
   activeNamespace,
   activeNamespaceLabel,
@@ -7078,6 +7161,7 @@ function ChatWorkspace({
   retryingFailedBuild: boolean;
   onRetryFailedBuild: () => void;
   canChat: boolean;
+  readOnly: boolean;
   namespaceTabs: typeof workspaceTabs;
   activeNamespace: string;
   activeNamespaceLabel: string;
@@ -7087,17 +7171,20 @@ function ChatWorkspace({
 }) {
   const { containerRef, endRef, handleScroll } = useChatAutoScroll(chatId || projectId || "project-chat", messages);
   const { headerAway, updateFromContainer } = useChromeHeaderScroll(chatId || projectId || "project-chat");
+  const chatAvailable = canChat && !readOnly;
   const hasInput = Boolean(input.trim());
   const retryMode = shouldOfferFailedBuildRetry({
-    canRetryFailedBuild,
+    canRetryFailedBuild: canRetryFailedBuild && !readOnly,
     hasInput,
     generationActive: canStop,
   });
-  const primaryActionLabel = canStop
-    ? "Stop project update"
-    : retryMode
-      ? "Try failed build again"
-      : "Apply change to project, or press Enter";
+  const primaryActionLabel = readOnly
+    ? "Hosted chat is read-only during maintenance"
+    : canStop
+      ? "Stop project update"
+      : retryMode
+        ? "Try failed build again"
+        : "Apply change to project, or press Enter";
 
   const onChatScroll = () => {
     handleScroll();
@@ -7111,12 +7198,12 @@ function ChatWorkspace({
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-2">
             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[rgb(var(--forma-green-rgb)/0.12)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--forma-green-rgb))]">
-              {canChat ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-              {canChat ? "Project chat" : "Read-only project"}
+              {chatAvailable ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+              {chatAvailable ? "Project chat" : readOnly ? "Read-only during maintenance" : "Read-only project"}
             </span>
             <EditableWorkspaceTitle
               value={projectTitle}
-              canEdit={canChat && Boolean(onRenameTitle)}
+              canEdit={chatAvailable && Boolean(onRenameTitle)}
               label="Project chat title"
               onCommit={(title) => onRenameTitle?.(title)}
             />
@@ -7125,7 +7212,7 @@ function ChatWorkspace({
       </header>
 
       <div className="relative min-h-0 min-w-0 flex-1 overflow-hidden">
-        {canChat && (
+        {(chatAvailable || readOnly) && (
           <div className="flex h-full min-h-0 min-w-0 flex-col">
             <div
               ref={containerRef}
@@ -7133,18 +7220,20 @@ function ChatWorkspace({
               className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-5 sm:pb-6 sm:pt-16"
             >
               <div className="mx-auto flex w-full min-w-0 max-w-6xl flex-col gap-3">
+                {readOnly && <HostedChatMaintenance compact />}
                 <ConversationMessageList
                   messages={messages}
                   renderPipelineProgress={renderPipelineProgress}
                   variant="project"
                   emptyMessage="This chat has no project messages yet."
+                  isLoading={readOnly ? false : isLoading}
                 />
                 <div ref={endRef} />
                 <ChatProjectArtifact
                   projectId={projectId}
                   projectTitle={projectTitle}
-                  canEdit={canChat && Boolean(onRenameTitle)}
-                  onRenameTitle={onRenameTitle}
+                  canEdit={chatAvailable && Boolean(onRenameTitle)}
+                  onRenameTitle={chatAvailable ? onRenameTitle : undefined}
                   namespaceTabs={namespaceTabs}
                   activeNamespace={activeNamespace}
                   onNamespaceChange={onNamespaceChange}
@@ -7153,7 +7242,8 @@ function ChatWorkspace({
               </div>
             </div>
 
-            <form onSubmit={onSubmit} className="shrink-0 border-t border-white/5 bg-[#0f1117]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
+            {chatAvailable && (
+              <form onSubmit={onSubmit} className="shrink-0 border-t border-white/5 bg-[#0f1117]/95 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur sm:p-4">
               <div className="mx-auto max-w-3xl">
                 <div className="w-full rounded-2xl border border-white/5 bg-[#181b22] p-3 shadow-lg transition-all focus-within:border-emerald-500/50 focus-within:ring-1 focus-within:ring-emerald-500/20">
                   <textarea
@@ -7202,11 +7292,12 @@ function ChatWorkspace({
                   </div>
                 </div>
               </div>
-            </form>
+              </form>
+            )}
           </div>
         )}
 
-        {!canChat && (
+        {!chatAvailable && !readOnly && (
           <section className="absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-[var(--forma-page)] pt-14" aria-label="Project workspace">
             <ProjectWorkspacePanel
               projectId={projectId}

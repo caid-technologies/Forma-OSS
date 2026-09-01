@@ -8,6 +8,7 @@ from forma_core.config.runtime import (
     RuntimeConfigurationError,
     deployment_mode,
     development_mode_enabled,
+    hosted_chat_enabled,
     runtime_state,
 )
 
@@ -62,6 +63,20 @@ class RuntimeStateTests(unittest.TestCase):
     def test_legacy_development_alias_is_still_supported(self) -> None:
         with patch.dict(os.environ, {"FORMA_DEV_MODE": "true"}, clear=True):
             self.assertTrue(development_mode_enabled())
+
+    def test_hosted_chat_defaults_to_enabled_locally_and_disabled_when_hosted(self) -> None:
+        with patch.dict(os.environ, {"FORMA_DEPLOYMENT_MODE": "local"}, clear=True):
+            self.assertTrue(hosted_chat_enabled())
+        with patch.dict(os.environ, {"FORMA_DEPLOYMENT_MODE": "hosted"}, clear=True):
+            self.assertFalse(hosted_chat_enabled())
+
+    def test_hosted_chat_flag_can_be_reversed_explicitly(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"FORMA_DEPLOYMENT_MODE": "hosted", "FORMA_HOSTED_CHAT_ENABLED": "true"},
+            clear=True,
+        ):
+            self.assertTrue(hosted_chat_enabled())
 
 
 if __name__ == "__main__":

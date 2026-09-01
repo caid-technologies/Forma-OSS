@@ -39,6 +39,7 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual("web_research", contract["workflow"]["default_id"])
         self.assertTrue(contract["images"]["generate_by_default"])
         self.assertFalse(contract["provider_setup"]["required"])
+        self.assertTrue(contract["deployment"]["hosted_chat_enabled"])
         self.assertEqual(
             ("cloudflare", "@cf/google/gemma-4-26b-a4b-it"),
             (
@@ -75,6 +76,24 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertTrue(contract["provider_setup"]["required"])
         self.assertTrue(contract["provider_setup"]["llm_required"])
         self.assertTrue(contract["provider_setup"]["image_required"])
+        self.assertTrue(contract["deployment"]["hosted_chat_enabled"])
+
+    def test_hosted_deployment_disables_chat_by_default(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FORMA_DEPLOYMENT_MODE": "hosted",
+                "FORMA_DEVELOPMENT_MODE": "false",
+            },
+            clear=True,
+        ):
+            contract = resolve_runtime_contract(
+                llm_config={"live_generation_enabled": False, "validation_error": "Unavailable."},
+                image_config={"request_capable": False},
+                workflows=[{"id": "default", "label": "Catalog", "description": "Catalog"}],
+            )
+
+        self.assertFalse(contract["deployment"]["hosted_chat_enabled"])
 
     def test_config_can_select_catalog_as_the_default_workflow(self) -> None:
         with patch.dict(os.environ, {"FORMA_DEFAULT_GENERATION_WORKFLOW": "default"}, clear=True):

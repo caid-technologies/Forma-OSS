@@ -158,6 +158,7 @@ from apps.api.user_settings_api import router as user_settings_router
 from apps.api.cli_auth_api import router as cli_auth_router
 from apps.api.cli_projects_api import router as cli_projects_router
 from apps.api.cli_credentials_api import router as cli_credentials_router
+from apps.api.hosted_chat import require_hosted_chat_enabled
 from apps.api.auth import (
     UserContext,
     clerk_user_profile,
@@ -184,6 +185,7 @@ from forma_core.observability import flush_langfuse, get_langfuse_debug_config
 from forma_core.runtime import (
     ALPHA_GENERATION_UNAVAILABLE_MESSAGE,
     AlphaGenerationUnavailableError,
+    HostedChatUnavailableError,
     deployment_runtime_config,
     generation_unavailable_detail,
 )
@@ -620,6 +622,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     Submits a natural language hardware idea and optional multimodal reference image.
     Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
     """
+    require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
     if request.project_id:
         try:
@@ -972,6 +975,7 @@ def list_agent_pipeline_steps_endpoint(
 @app.post("/clarifying-questions", response_model=ClarifyingQuestionsResponse)
 def clarifying_questions_endpoint(request: ClarifyingQuestionsRequest):
     """Run the core Context Clarifier Agent before starting a generation job."""
+    require_hosted_chat_enabled()
     return ask_clarifying_questions(request)
 
 
@@ -1197,6 +1201,7 @@ def list_project_videos_endpoint(project_id: str, user: UserContext = Depends(re
 @app.post("/video/image-to-video")
 def create_image_to_video_endpoint(request: VideoImageToVideoRequest, user: UserContext = Depends(require_user_context)):
     """Queues a backend-only GMI Cloud image-to-video generation request."""
+    require_hosted_chat_enabled()
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
@@ -1256,6 +1261,7 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest, user: User
 @app.post("/video/video-to-video")
 def create_video_to_video_endpoint(request: VideoToVideoRequest, user: UserContext = Depends(require_user_context)):
     """Queues a backend-only GMI Cloud video-to-video generation request."""
+    require_hosted_chat_enabled()
     project_id = _require_non_empty(request.projectId, "projectId is required.")
     project = get_generated_project(project_id)
     if not project:
@@ -1420,6 +1426,11 @@ async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(requ
     try:
         ack = await submit_a2a_message(message.model_copy(update={"correlation_id": request_correlation_id}), user)
         return ack.model_dump()
+    except HostedChatUnavailableError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={"code": "hosted_chat_unavailable", "message": str(exc)},
+        ) from exc
     except PermissionError as exc:
         correlation_id = new_error_correlation_id()
         detail = api_error_detail(
@@ -2237,6 +2248,7 @@ def update_project_endpoint(
     user: UserContext = Depends(require_user_context),
 ):
     """Updates owner-managed project metadata, including public/private visibility."""
+    require_hosted_chat_enabled()
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
@@ -2284,6 +2296,7 @@ def unsave_project_endpoint(project_id: str, user: UserContext = Depends(require
 @app.post("/projects/{project_id}/remix")
 def remix_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Copy a readable project into a new owned project the signed-in user can edit."""
+    require_hosted_chat_enabled()
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
@@ -2315,6 +2328,7 @@ def delete_project_endpoint(
     user: UserContext = Depends(require_destructive_user_context),
 ):
     """Immediately hide a project and schedule its permanent purge."""
+    require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
     try:
         project = get_generated_project(project_id, include_deleted=True)
@@ -2355,6 +2369,7 @@ def restore_project_endpoint(
     user: UserContext = Depends(require_destructive_user_context),
 ):
     """Restore a project while it is still inside the retention window."""
+    require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
     try:
         project = restore_project(project_id, owner_user_id)
@@ -2498,6 +2513,7 @@ def upsert_chat_endpoint(
     user: UserContext = Depends(require_user_context),
 ):
     """Creates or updates a private chat owned by the signed-in user."""
+    require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
     now = datetime.utcnow().isoformat() + "Z"
     chat = upsert_project_chat(
@@ -2514,6 +2530,7 @@ def upsert_chat_endpoint(
 @app.delete("/chats/{chat_id}")
 def delete_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_context)):
     """Deletes a private chat owned by the signed-in user."""
+    require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
     deleted = delete_project_chat(chat_id, owner_user_id)
     if not deleted:
@@ -2524,6 +2541,7 @@ def delete_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_
 @app.get("/projects/{project_id}/video-prompt")
 def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Builds an image-to-video prompt from Forma project namespaces."""
+    require_hosted_chat_enabled()
     project = get_generated_project(project_id)
     if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
@@ -2549,6 +2567,7 @@ def iterate_project_endpoint(
     user: UserContext = Depends(require_user_context),
 ):
     """Applies an iteration instruction to an existing project through forma_core."""
+    require_hosted_chat_enabled()
     _apply_user_integrations(user)
     project = get_generated_project(project_id)
     canonical_revision = None
@@ -2749,6 +2768,7 @@ def video_self_correct_project_endpoint(
     user: UserContext = Depends(require_user_context),
 ):
     """Reviews a generated project video with a Fireworks native video model and applies a corrective iteration."""
+    require_hosted_chat_enabled()
     _apply_user_integrations(user)
     project = get_generated_project(project_id)
     if not project:

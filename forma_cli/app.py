@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import hashlib
 import json
 import os
 from pathlib import Path
 import sys
+import tempfile
 import time
 from urllib.parse import quote
 import webbrowser
@@ -28,7 +30,20 @@ from forma_cli.local import (
     update_linkage,
 )
 from forma_cli.metadata_api import project_metadata, serve_metadata_api
-from forma_cli.sdk import FormaAPIClient, FormaAPIError
+from forma_cli.project_artifacts import (
+    artifact_target,
+    canonical_project_upload_payload,
+    file_digest,
+    prepare_project_upload,
+)
+from forma_cli.sdk import FormaAPIClient, FormaAPIError, ProjectArtifactDownload
+from forma_core.workspaces.projects.manifest import (
+    ProjectManifest,
+    normalize_artifact_media_type,
+    validate_artifact_references,
+    write_project_manifest,
+    rewrite_artifact_paths,
+)
 
 
 def _print_json(value: Any) -> None:
@@ -209,18 +224,201 @@ def _confirm_push(args: argparse.Namespace, manifest: Any) -> bool:
     return answer in {"y", "yes"}
 
 
+def _artifact_summary(statuses: list[dict[str, Any]]) -> dict[str, Any]:
+    counts: dict[str, int] = {}
+    for item in statuses:
+        status = str(item.get("status") or "unknown")
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "total": len(statuses),
+        "succeeded": sum(value for key, value in counts.items() if key in {"uploaded", "restored", "already_present"}),
+        "failed": sum(value for key, value in counts.items() if key not in {"uploaded", "restored", "already_present"}),
+        "by_status": counts,
+    }
+
+
+def _linkage_artifact_digests(linkage: dict[str, Any]) -> dict[str, str]:
+    value = linkage.get("artifact_digests")
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return {}
+    if not isinstance(value, dict):
+        return {}
+    return {
+        str(path): str(digest).strip().lower()
+        for path, digest in value.items()
+        if str(path).strip() and isinstance(digest, str) and digest.strip()
+    }
+
+
+def _ensure_pull_is_safe(
+    root: Path,
+    linkage: dict[str, Any],
+    local_manifest: ProjectManifest,
+    remote_artifacts: list[dict[str, Any]],
+) -> None:
+    """Reject dirty working trees before any remote bytes can replace files."""
+    current_revision = linkage.get("revision_id")
+    if current_revision:
+        expected_digest = linkage.get("manifest_digest")
+        if not expected_digest:
+            raise LocalProjectError(
+                "The linked project lacks a working-tree integrity record; refusing to overwrite local changes."
+            )
+        try:
+            current_digest = _manifest_digest(canonical_project_upload_payload(root, local_manifest))
+        except (LocalProjectError, ValueError) as exc:
+            raise LocalProjectError(
+                "Local project references cannot be verified; refusing to overwrite local changes."
+            ) from exc
+        if current_digest != expected_digest:
+            raise LocalProjectError(
+                "Local project changes diverge from the linked cloud revision; refusing to overwrite them."
+            )
+    elif (
+        local_manifest.project_ir
+        or local_manifest.artifacts
+        or local_manifest.prompt
+        or local_manifest.title not in {"", "Untitled Forma Project"}
+    ):
+        raise LocalProjectError(
+            "The local project is not pristine and has no linked revision; refusing to overwrite local changes."
+        )
+
+    baseline_digests = _linkage_artifact_digests(linkage)
+    local_digests = {
+        artifact.path: artifact.sha256.strip().lower()
+        for artifact in local_manifest.artifacts
+        if artifact.sha256 and artifact.sha256.strip()
+    }
+    for artifact in remote_artifacts:
+        target = artifact_target(root, artifact["path"])
+        if not target.exists() and not target.is_symlink():
+            continue
+        if target.is_symlink() or target.is_dir():
+            raise LocalProjectError(
+                f"Local artifact target is not a regular file: {artifact['path']}; refusing to overwrite it."
+            )
+        actual_digest = file_digest(target)
+        if actual_digest == artifact["sha256"]:
+            continue
+        baseline = baseline_digests.get(artifact["path"]) or local_digests.get(artifact["path"])
+        if not baseline or actual_digest != baseline:
+            raise LocalProjectError(
+                f"Local artifact {artifact['path']} has changed; refusing to overwrite local changes."
+            )
+
+
+def _restored_manifest(
+    root: Path,
+    manifest: ProjectManifest,
+    artifacts: list[dict[str, Any]],
+) -> ProjectManifest:
+    replacements = {
+        artifact["path"]: str(artifact_target(root, artifact["path"]).resolve())
+        for artifact in artifacts
+    }
+    payload = manifest.model_dump(mode="json")
+    payload["artifacts"] = artifacts
+    payload["project_ir"] = rewrite_artifact_paths(payload.get("project_ir", {}), replacements)
+    return ProjectManifest.model_validate(payload)
+
+
+def _download_parts(download: Any) -> tuple[bytes, str | None, str | None, int | None]:
+    if isinstance(download, ProjectArtifactDownload):
+        return download.content, download.content_type, download.sha256, download.size_bytes
+    if isinstance(download, (bytes, bytearray)):
+        return bytes(download), None, None, None
+    if isinstance(download, tuple):
+        content = bytes(download[0])
+        content_type = download[1] if len(download) > 1 else None
+        sha256 = download[2] if len(download) > 2 else None
+        size_bytes = download[3] if len(download) > 3 else None
+        return content, content_type, sha256, size_bytes
+    if isinstance(download, dict):
+        content = download.get("content", b"")
+        return (
+            bytes(content),
+            download.get("content_type") or download.get("media_type"),
+            download.get("sha256"),
+            download.get("size_bytes"),
+        )
+    content = getattr(download, "content", b"")
+    return (
+        bytes(content),
+        getattr(download, "content_type", None),
+        getattr(download, "sha256", None),
+        getattr(download, "size_bytes", None),
+    )
+
+
 def cmd_projects_push(args: argparse.Namespace) -> int:
     root = project_root(args.path)
     manifest = read_project(root)
+    upload_payload, local_artifacts = prepare_project_upload(root, manifest)
     if not _confirm_push(args, manifest):
-        print("Upload cancelled.")
+        if args.json:
+            _print_json({"ok": False, "operation": "push", "status": "cancelled"})
+        else:
+            print("Upload cancelled.")
         return 1
     linkage = load_linkage(root)
     client = _client(args)
     revision = client.push_project(
-        manifest.upload_payload(),
+        upload_payload,
         parent_revision_id=linkage.get("revision_id"),
     )
+    if revision.project_id != manifest.project_id:
+        raise LocalProjectError("Cloud push returned a different project identity; refusing to update local linkage.")
+    artifact_statuses: list[dict[str, Any]] = []
+    for artifact in local_artifacts:
+        try:
+            content = artifact.source_path.read_bytes()
+        except OSError as exc:
+            raise LocalProjectError(f"Could not read project artifact {artifact.path}: {exc}") from exc
+        if hashlib.sha256(content).hexdigest() != artifact.sha256:
+            raise LocalProjectError(
+                f"Project artifact {artifact.path} changed after validation; refusing to upload it."
+            )
+        try:
+            response = client.upload_project_artifact(
+                revision.project_id,
+                revision.revision_id,
+                artifact.sha256,
+                content,
+                artifact.media_type,
+            )
+        except FormaAPIError as exc:
+            raise LocalProjectError(f"Could not upload project artifact {artifact.path}: {exc}") from exc
+        response_sha256 = str(response.get("sha256") or artifact.sha256).strip().lower()
+        response_media_type = str(response.get("media_type") or artifact.media_type)
+        try:
+            response_media_type = normalize_artifact_media_type(response_media_type)
+        except ValueError as exc:
+            raise LocalProjectError(f"Cloud artifact validation failed for {artifact.path}.") from exc
+        if response_sha256 != artifact.sha256 or response_media_type != artifact.media_type:
+            raise LocalProjectError(f"Cloud artifact validation failed for {artifact.path}.")
+        response_size = response.get("size_bytes")
+        if response_size is not None:
+            try:
+                if int(response_size) != artifact.size_bytes:
+                    raise LocalProjectError(f"Cloud artifact validation failed for {artifact.path}.")
+            except (TypeError, ValueError) as exc:
+                raise LocalProjectError(f"Cloud artifact validation failed for {artifact.path}.") from exc
+        artifact_statuses.append(
+            {
+                "path": artifact.path,
+                "status": str(response.get("status") or "uploaded"),
+                "sha256": artifact.sha256,
+                "media_type": artifact.media_type,
+                "size_bytes": artifact.size_bytes,
+            }
+        )
+    if local_artifacts:
+        # Persist the same portable, secret-free shape that was committed remotely.
+        write_project_manifest(root / "forma-project.json", ProjectManifest.model_validate(upload_payload))
     update_linkage(
         root,
         version=1,
@@ -229,14 +427,22 @@ def cmd_projects_push(args: argparse.Namespace) -> int:
         project_id=manifest.project_id,
         revision_id=revision.revision_id,
         parent_revision_id=revision.parent_revision_id,
-        manifest_digest=_manifest_digest(manifest.upload_payload()),
+        manifest_digest=_manifest_digest(upload_payload),
+        artifact_digests=json.dumps(
+            {artifact.path: artifact.sha256 for artifact in local_artifacts},
+            sort_keys=True,
+        ),
     )
     payload = revision.model_dump(mode="json")
+    payload["operation"] = "push"
+    payload["artifacts"] = artifact_statuses
+    payload["artifact_summary"] = _artifact_summary(artifact_statuses)
     payload["project_url"] = _project_url(client.base_url or api_url(), revision.project_id)
     if args.json:
         _print_json(payload)
     else:
         print(f"Uploaded private project {revision.project_id} revision {revision.revision_id}")
+        print(f"Uploaded {len(artifact_statuses)} project artifact(s)")
         print(f"Project URL: {payload['project_url']}")
     return 0
 
@@ -247,22 +453,73 @@ def cmd_projects_pull(args: argparse.Namespace) -> int:
     remote_project_id = args.project_id or linkage.get("remote_project_id") or linkage.get("project_id")
     if not remote_project_id:
         raise LocalProjectError("No remote project is linked. Push this project first or pass --project-id.")
-    revision = _client(args).pull_project(remote_project_id, args.revision_id)
+    client = _client(args)
+    revision = client.pull_project(remote_project_id, args.revision_id)
+    if revision.project_id != remote_project_id:
+        raise LocalProjectError("Cloud pull returned a different project identity; refusing to update local files.")
     current_revision = linkage.get("revision_id")
     if current_revision and current_revision != revision.revision_id:
-        local_manifest = read_project(root)
-        if linkage.get("manifest_digest") and _manifest_digest(local_manifest.upload_payload()) != linkage["manifest_digest"]:
-            raise LocalProjectError(
-                "Local changes diverge from the linked cloud revision; refusing to overwrite them."
-            )
         if revision.parent_revision_id not in {current_revision, None}:
             raise LocalProjectError(
                 "Cloud revision ancestry diverges from the linked local revision; refusing to overwrite it."
             )
-    from forma_core.workspaces.projects.manifest import ProjectManifest, write_project_manifest
-
     manifest = ProjectManifest.from_document(revision.manifest)
-    write_project_manifest(root / "forma-project.json", manifest)
+    if manifest.project_id != revision.project_id:
+        raise LocalProjectError("Cloud revision manifest identity does not match the revision; refusing to pull it.")
+    remote_artifacts = validate_artifact_references(manifest.artifacts, require_integrity=True)
+    local_manifest = read_project(root)
+    _ensure_pull_is_safe(root, linkage, local_manifest, remote_artifacts)
+
+    artifact_statuses: list[dict[str, Any]] = []
+    restored_manifest: ProjectManifest
+    with tempfile.TemporaryDirectory(prefix="forma-pull-", dir=root) as temporary_dir:
+        stage_root = Path(temporary_dir)
+        for artifact in remote_artifacts:
+            try:
+                downloaded = client.download_project_artifact(
+                    revision.project_id,
+                    revision.revision_id,
+                    artifact["sha256"],
+                )
+            except (FormaAPIError, OSError) as exc:
+                raise LocalProjectError(f"Could not restore project artifact {artifact['path']}: {exc}") from exc
+            content, response_media_type, response_sha256, response_size = _download_parts(downloaded)
+            actual_sha256 = hashlib.sha256(content).hexdigest()
+            if actual_sha256 != artifact["sha256"] or (
+                response_sha256 and str(response_sha256).lower() != artifact["sha256"]
+            ):
+                raise LocalProjectError(f"Downloaded project artifact {artifact['path']} failed its hash check.")
+            if response_media_type:
+                try:
+                    normalized_media_type = normalize_artifact_media_type(response_media_type)
+                except ValueError as exc:
+                    raise LocalProjectError(f"Downloaded project artifact {artifact['path']} has an invalid media type.") from exc
+                if normalized_media_type != artifact["media_type"]:
+                    raise LocalProjectError(f"Downloaded project artifact {artifact['path']} failed its media type check.")
+            if artifact.get("size_bytes") is not None and len(content) != artifact["size_bytes"]:
+                raise LocalProjectError(f"Downloaded project artifact {artifact['path']} failed its size check.")
+            if response_size is not None and int(response_size) != len(content):
+                raise LocalProjectError(f"Downloaded project artifact {artifact['path']} returned an invalid size.")
+            staged = stage_root / Path(*artifact["path"].split("/"))
+            staged.parent.mkdir(parents=True, exist_ok=True)
+            staged.write_bytes(content)
+            target = artifact_target(root, artifact["path"])
+            artifact_statuses.append(
+                {
+                    "path": artifact["path"],
+                    "status": "already_present" if target.is_file() and file_digest(target) == artifact["sha256"] else "restored",
+                    "sha256": artifact["sha256"],
+                    "media_type": artifact["media_type"],
+                    "size_bytes": len(content),
+                }
+            )
+
+        restored_manifest = _restored_manifest(root, manifest, remote_artifacts)
+        for artifact in remote_artifacts:
+            target = artifact_target(root, artifact["path"])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (stage_root / Path(*artifact["path"].split("/"))).replace(target)
+        write_project_manifest(root / "forma-project.json", restored_manifest)
     update_linkage(
         root,
         remote=args.api_url.rstrip("/") if args.api_url else api_url(),
@@ -270,18 +527,25 @@ def cmd_projects_pull(args: argparse.Namespace) -> int:
         project_id=manifest.project_id,
         revision_id=revision.revision_id,
         parent_revision_id=revision.parent_revision_id,
-        manifest_digest=_manifest_digest(manifest.upload_payload()),
+        manifest_digest=_manifest_digest(canonical_project_upload_payload(root, restored_manifest)),
+        artifact_digests=json.dumps(
+            {artifact["path"]: artifact["sha256"] for artifact in remote_artifacts},
+            sort_keys=True,
+        ),
     )
     if args.json:
-        _print_json(revision.model_dump(mode="json"))
+        payload = revision.model_dump(mode="json")
+        payload["operation"] = "pull"
+        payload["artifacts"] = artifact_statuses
+        payload["artifact_summary"] = _artifact_summary(artifact_statuses)
+        _print_json(payload)
     else:
         print(f"Pulled private project {revision.project_id} revision {revision.revision_id}")
+        print(f"Restored {len(artifact_statuses)} project artifact(s)")
     return 0
 
 
 def _manifest_digest(value: Any) -> str:
-    import hashlib
-
     canonical = json.dumps(value, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(canonical).hexdigest()
 
@@ -425,7 +689,7 @@ def build_parser() -> argparse.ArgumentParser:
     projects_list = project_commands.add_parser("list", help="List private cloud projects.")
     projects_list.add_argument("--json", action="store_true")
     projects_list.set_defaults(func=cmd_projects_list)
-    push = project_commands.add_parser("push", help="Upload the canonical local manifest explicitly.")
+    push = project_commands.add_parser("push", help="Upload the canonical manifest and referenced artifacts explicitly.")
     push.add_argument("--path", default=".")
     push.add_argument("--yes", action="store_true", help="Confirm upload without prompting.")
     push.add_argument("--json", action="store_true")
@@ -462,7 +726,10 @@ def app(argv: list[str] | None = None) -> int:
     try:
         return args.func(args)
     except (CredentialStoreError, FormaAPIError, LocalProjectError, OSError, ValueError, RuntimeError) as exc:
-        print(f"{parser.prog}: {exc}", file=sys.stderr)
+        if getattr(args, "json", False):
+            _print_json({"ok": False, "error": str(exc), "error_type": exc.__class__.__name__})
+        else:
+            print(f"{parser.prog}: {exc}", file=sys.stderr)
         return 2
 
 

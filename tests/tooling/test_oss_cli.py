@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 from pathlib import Path
@@ -9,12 +10,13 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from forma_cli.app import build_parser, cmd_projects_pull, cmd_projects_push, cmd_render
+from forma_cli.config import load_linkage
 from forma_cli.credentials import CredentialStore
-from forma_cli.local import build_project, import_project, init_project
+from forma_cli.local import LocalProjectError, build_project, import_project, init_project
 from forma_cli.metadata_api import project_metadata
-from forma_cli.sdk import CloudProjectRevision, FormaAPIClient
+from forma_cli.sdk import CloudProjectRevision, FormaAPIClient, ProjectArtifactDownload, TokenSet
 from forma_core.database import get_generated_project, init_db, save_generated_project
-from forma_core.workspaces.projects.manifest import ProjectManifest, write_project_manifest
+from forma_core.workspaces.projects.manifest import ProjectArtifactReference, ProjectManifest, write_project_manifest
 
 
 class FakeKeyring:
@@ -43,6 +45,21 @@ class Response:
 
     def read(self) -> bytes:
         return json.dumps(self.payload).encode("utf-8")
+
+
+class BinaryResponse:
+    def __init__(self, content: bytes, headers: dict[str, str]) -> None:
+        self.content = content
+        self.headers = headers
+
+    def __enter__(self) -> "BinaryResponse":
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+    def read(self) -> bytes:
+        return self.content
 
 
 class OssCliTests(unittest.TestCase):
@@ -74,6 +91,7 @@ class OssCliTests(unittest.TestCase):
                 "assembly_metadata": {"api_key": "do-not-upload", "safe": "yes"},
                 "nested": {"authorization": "Bearer secret", "safe": "yes"},
             },
+            extra_token="top-level-secret",
         )
 
         payload = manifest.upload_payload()
@@ -81,6 +99,7 @@ class OssCliTests(unittest.TestCase):
         serialized = json.dumps(payload)
         self.assertNotIn("do-not-upload", serialized)
         self.assertNotIn("Bearer secret", serialized)
+        self.assertNotIn("top-level-secret", serialized)
         self.assertEqual("yes", payload["project_ir"]["assembly_metadata"]["safe"])
 
     def test_local_manifest_writer_does_not_persist_provider_secrets(self) -> None:
@@ -268,6 +287,42 @@ class OssCliTests(unittest.TestCase):
         self.assertEqual("access", tokens.access_token)
         self.assertEqual("refresh", client._saved_tokens().refresh_token)
 
+    def test_sdk_transfers_binary_project_artifacts_with_integrity_headers(self) -> None:
+        keyring = FakeKeyring()
+        client = FormaAPIClient(
+            base_url="https://api.example.test",
+            credential_store=CredentialStore(keyring_backend=keyring),
+        )
+        client._save_tokens(
+            TokenSet(access_token="access", refresh_token="refresh", expires_in=3600)
+        )
+        content = b"native cad bytes"
+        sha256 = hashlib.sha256(content).hexdigest()
+        with patch(
+            "forma_cli.sdk.urlopen",
+            side_effect=[
+                Response({"status": "uploaded", "sha256": sha256}),
+                BinaryResponse(
+                    content,
+                    {
+                        "Content-Type": "model/step",
+                        "X-Forma-Artifact-SHA256": sha256,
+                        "X-Forma-Artifact-Size": str(len(content)),
+                    },
+                ),
+            ],
+        ) as urlopen:
+            uploaded = client.upload_project_artifact("project/a", "revision-1", sha256, content, "model/step")
+            downloaded = client.download_project_artifact("project/a", "revision-1", sha256)
+
+        upload_request = urlopen.call_args_list[0].args[0]
+        self.assertEqual(content, upload_request.data)
+        self.assertEqual("model/step", upload_request.get_header("Content-type"))
+        self.assertEqual("uploaded", uploaded["status"])
+        self.assertEqual(content, downloaded.content)
+        self.assertEqual(sha256, downloaded.sha256)
+        self.assertEqual(len(content), downloaded.size_bytes)
+
     def test_projects_pull_writes_typed_remote_manifest(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             init_project(temp_dir)
@@ -324,6 +379,189 @@ class OssCliTests(unittest.TestCase):
                 payload["project_url"],
             )
             self.assertIn("This will upload", stderr.getvalue())
+
+    def test_projects_push_uploads_referenced_files_and_records_integrity(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            manifest = init_project(root, title="Portable project")
+            assembly = b"ISO-10303-21;\nHEADER;\nENDSEC;\nDATA;\nENDSEC;\nEND-ISO-10303-21;\n"
+            (root / "assembly.step").write_bytes(assembly)
+            source_manifest = ProjectManifest(
+                project_id=manifest.project_id,
+                title="Portable project",
+                project_ir={
+                    "cad_model": {
+                        "path": str(root / "assembly.step"),
+                        "filename": "assembly.step",
+                    }
+                },
+                artifacts=[ProjectArtifactReference(path="assembly.step", media_type="model/step")],
+            )
+            write_project_manifest(root / "forma-project.json", source_manifest)
+            revision = CloudProjectRevision(
+                revision_id="revision-1",
+                project_id=manifest.project_id,
+                revision=1,
+                manifest={},
+            )
+            client = FormaAPIClient(
+                base_url="https://api.example.test",
+                credential_store=CredentialStore(keyring_backend=FakeKeyring()),
+            )
+            uploaded: list[tuple[str, bytes, str]] = []
+            client.push_project = lambda _manifest, parent_revision_id=None: revision  # type: ignore[method-assign]
+            client.upload_project_artifact = lambda _project_id, _revision_id, sha256, content, media_type: (  # type: ignore[method-assign]
+                uploaded.append((sha256, content, media_type))
+                or {
+                    "status": "uploaded",
+                    "sha256": sha256,
+                    "media_type": media_type,
+                    "size_bytes": len(content),
+                }
+            )
+            args = type("Args", (), {"path": temp_dir, "yes": True, "json": True, "api_url": None})()
+            stdout = io.StringIO()
+            with patch("forma_cli.app.FormaAPIClient", return_value=client), redirect_stdout(stdout):
+                self.assertEqual(0, cmd_projects_push(args))
+
+            payload = json.loads(stdout.getvalue())
+            self.assertEqual("uploaded", payload["artifacts"][0]["status"])
+            self.assertEqual(assembly, uploaded[0][1])
+            self.assertEqual("model/step", uploaded[0][2])
+            self.assertEqual(
+                "assembly.step",
+                json.loads((root / "forma-project.json").read_text(encoding="utf-8"))["artifacts"][0]["path"],
+            )
+            self.assertEqual(
+                "assembly.step",
+                json.loads((root / "forma-project.json").read_text(encoding="utf-8"))["project_ir"]["cad_model"]["path"],
+            )
+            linkage = load_linkage(root)
+            self.assertEqual(
+                {"assembly.step": hashlib.sha256(assembly).hexdigest()},
+                json.loads(linkage["artifact_digests"]),
+            )
+
+    def test_projects_pull_restores_files_and_rewrites_cad_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            init_project(root)
+            content = b"native cad bytes"
+            sha256 = hashlib.sha256(content).hexdigest()
+            remote_manifest = {
+                "format": "forma-project",
+                "project_id": "project-1",
+                "title": "Remote CAD",
+                "project_ir": {
+                    "cad_model": {"path": "assembly.step", "filename": "assembly.step"}
+                },
+                "artifacts": [
+                    {
+                        "path": "assembly.step",
+                        "sha256": sha256,
+                        "media_type": "model/step",
+                        "size_bytes": len(content),
+                    }
+                ],
+            }
+            revision = CloudProjectRevision(
+                revision_id="revision-1",
+                project_id="project-1",
+                revision=1,
+                manifest=remote_manifest,
+            )
+            client = FormaAPIClient(
+                base_url="https://api.example.test",
+                credential_store=CredentialStore(keyring_backend=FakeKeyring()),
+            )
+            client.pull_project = lambda _project_id, _revision_id=None: revision  # type: ignore[method-assign]
+            client.download_project_artifact = lambda *_args: ProjectArtifactDownload(  # type: ignore[method-assign]
+                content=content,
+                content_type="model/step",
+                sha256=sha256,
+                size_bytes=len(content),
+            )
+            args = type("Args", (), {
+                "path": temp_dir,
+                "project_id": "project-1",
+                "revision_id": None,
+                "json": True,
+                "api_url": None,
+            })()
+            stdout = io.StringIO()
+            with patch("forma_cli.app.FormaAPIClient", return_value=client), redirect_stdout(stdout):
+                self.assertEqual(0, cmd_projects_pull(args))
+
+            self.assertEqual(content, (root / "assembly.step").read_bytes())
+            saved = json.loads((root / "forma-project.json").read_text(encoding="utf-8"))
+            self.assertEqual(str((root / "assembly.step").resolve()), saved["project_ir"]["cad_model"]["path"])
+            self.assertEqual("assembly.step", saved["project_ir"]["cad_model"]["filename"])
+            self.assertEqual("restored", json.loads(stdout.getvalue())["artifacts"][0]["status"])
+
+            stdout = io.StringIO()
+            with patch("forma_cli.app.FormaAPIClient", return_value=client), redirect_stdout(stdout):
+                self.assertEqual(0, cmd_projects_pull(args))
+            self.assertEqual("already_present", json.loads(stdout.getvalue())["artifacts"][0]["status"])
+
+    def test_projects_pull_refuses_to_overwrite_a_changed_artifact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            init_project(root)
+            original = b"original"
+            original_sha256 = hashlib.sha256(original).hexdigest()
+            remote = ProjectManifest(
+                project_id="project-1",
+                title="Remote",
+                project_ir={"cad_model": {"path": "assembly.step"}},
+                artifacts=[
+                    ProjectArtifactReference(
+                        path="assembly.step",
+                        sha256=original_sha256,
+                        media_type="model/step",
+                        size_bytes=len(original),
+                    )
+                ],
+            )
+            write_project_manifest(root / "forma-project.json", remote)
+            # Simulate a previously pulled revision and then a local edit.
+            from forma_cli.config import save_linkage
+
+            save_linkage(
+                root,
+                {
+                    "version": 1,
+                    "project_id": "project-1",
+                    "remote_project_id": "project-1",
+                    "revision_id": "revision-1",
+                    "manifest_digest": hashlib.sha256(
+                        json.dumps(remote.upload_payload(), sort_keys=True, separators=(",", ":")).encode()
+                    ).hexdigest(),
+                    "artifact_digests": json.dumps({"assembly.step": original_sha256}),
+                },
+            )
+            (root / "assembly.step").write_bytes(b"local edit")
+            revision = CloudProjectRevision(
+                revision_id="revision-1",
+                project_id="project-1",
+                revision=1,
+                manifest=remote.upload_payload(),
+            )
+            client = FormaAPIClient(
+                base_url="https://api.example.test",
+                credential_store=CredentialStore(keyring_backend=FakeKeyring()),
+            )
+            client.pull_project = lambda _project_id, _revision_id=None: revision  # type: ignore[method-assign]
+            args = type("Args", (), {
+                "path": temp_dir,
+                "project_id": "project-1",
+                "revision_id": None,
+                "json": False,
+                "api_url": None,
+            })()
+            with patch("forma_cli.app.FormaAPIClient", return_value=client):
+                with self.assertRaisesRegex(LocalProjectError, "refusing to overwrite local changes"):
+                    cmd_projects_pull(args)
+            self.assertEqual(b"local edit", (root / "assembly.step").read_bytes())
 
 
 if __name__ == "__main__":

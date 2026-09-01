@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+import mimetypes
 from pathlib import Path
+import re
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -13,6 +15,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 PROJECT_MANIFEST_FORMAT = "forma-project"
 PROJECT_MANIFEST_VERSION = 1
+_SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
+_MEDIA_TYPE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9!#$&^_.+-]*/[a-z0-9][a-z0-9!#$&^_.+-]*$")
+_NON_PATH_KEYS = frozenset(
+    {
+        "filename",
+        "name",
+        "title",
+        "description",
+        "label",
+        "format",
+        "source",
+        "url",
+        "download_url",
+        "source_url",
+    }
+)
 _SECRET_FIELD_MARKERS = (
     "api_key",
     "apikey",
@@ -21,6 +39,135 @@ _SECRET_FIELD_MARKERS = (
     "secret",
     "token",
 )
+
+
+def normalize_artifact_path(value: object) -> str:
+    """Return a safe, portable project-relative artifact path."""
+    raw = str(value or "").strip().replace("\\", "/")
+    if not raw:
+        raise ValueError("Artifact path must not be empty.")
+    if (
+        "\x00" in raw
+        or "://" in raw
+        or raw.startswith("/")
+        or re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", raw)
+    ):
+        raise ValueError(f"Artifact path must be project-relative: {value!r}")
+
+    parts = []
+    for part in raw.split("/"):
+        if part in {"", "."}:
+            continue
+        if part == "..":
+            raise ValueError(f"Artifact path may not escape the project directory: {value!r}")
+        parts.append(part)
+    if not parts:
+        raise ValueError("Artifact path must identify a file.")
+    return "/".join(parts)
+
+
+def normalize_artifact_media_type(value: object) -> str:
+    """Normalize and validate an artifact media type without parameters."""
+    media_type = str(value or "").split(";", 1)[0].strip().lower()
+    if not media_type or not _MEDIA_TYPE_PATTERN.fullmatch(media_type):
+        raise ValueError(f"Invalid artifact media type: {value!r}")
+    return media_type
+
+
+def infer_artifact_media_type(path: str) -> str:
+    """Infer a stable media type for common CAD files and ordinary documents."""
+    suffix = Path(path).suffix.lower()
+    if suffix in {".step", ".stp"}:
+        return "model/step"
+    if suffix == ".stl":
+        return "model/stl"
+    if suffix == ".3mf":
+        return "model/3mf"
+    return mimetypes.guess_type(path)[0] or "application/octet-stream"
+
+
+def validate_artifact_references(
+    artifacts: object,
+    *,
+    require_integrity: bool = True,
+) -> list[dict[str, Any]]:
+    """Normalize artifact declarations and reject unsafe or ambiguous entries."""
+    if artifacts is None:
+        return []
+    if not isinstance(artifacts, list):
+        raise ValueError("Project artifacts must be a list.")
+
+    normalized: list[dict[str, Any]] = []
+    seen_paths: set[str] = set()
+    for index, item in enumerate(artifacts):
+        if isinstance(item, BaseModel):
+            record = item.model_dump(mode="json")
+        elif isinstance(item, Mapping):
+            record = dict(item)
+        else:
+            raise ValueError(f"Project artifact {index + 1} must be an object.")
+        path = normalize_artifact_path(record.get("path"))
+        lower_path = path.lower()
+        if lower_path == "forma-project.json" or lower_path == ".forma" or lower_path.startswith(".forma/"):
+            raise ValueError(f"Project artifact path is reserved: {path}")
+        path_key = path.casefold()
+        if path_key in seen_paths:
+            raise ValueError(f"Project artifact path is duplicated: {path}")
+        seen_paths.add(path_key)
+        record["path"] = path
+
+        raw_sha256 = record.get("sha256")
+        if raw_sha256 is None or not str(raw_sha256).strip():
+            if require_integrity:
+                raise ValueError(f"Project artifact {path} must declare a SHA-256 hash.")
+        else:
+            sha256 = str(raw_sha256).strip().lower()
+            if not _SHA256_PATTERN.fullmatch(sha256):
+                raise ValueError(f"Project artifact {path} has an invalid SHA-256 hash.")
+            record["sha256"] = sha256
+
+        raw_media_type = record.get("media_type")
+        if raw_media_type is None or not str(raw_media_type).strip():
+            if require_integrity:
+                raise ValueError(f"Project artifact {path} must declare a media type.")
+        else:
+            record["media_type"] = normalize_artifact_media_type(raw_media_type)
+
+        if "size_bytes" in record and record["size_bytes"] is not None:
+            size = record["size_bytes"]
+            if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+                raise ValueError(f"Project artifact {path} has an invalid size_bytes value.")
+        normalized.append(record)
+    return normalized
+
+
+def rewrite_artifact_paths(value: Any, replacements: Mapping[str, str], *, _key: str | None = None) -> Any:
+    """Rewrite known project-file references while preserving display filenames."""
+    if isinstance(value, Mapping):
+        return {
+            str(key): rewrite_artifact_paths(item, replacements, _key=str(key))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [rewrite_artifact_paths(item, replacements, _key=_key) for item in value]
+    if isinstance(value, tuple):
+        return [rewrite_artifact_paths(item, replacements, _key=_key) for item in value]
+    if not isinstance(value, str) or (_key and _key.strip().lower() in _NON_PATH_KEYS):
+        return deepcopy(value)
+
+    candidates = (value, value.replace("\\", "/"))
+    for candidate in candidates:
+        replacement = replacements.get(candidate)
+        if replacement is not None:
+            return replacement
+        suffix_matches: list[tuple[int, str]] = []
+        for source, source_replacement in replacements.items():
+            normalized_source = str(source).replace("\\", "/").strip("/")
+            if normalized_source and candidate.rstrip("/").endswith(f"/{normalized_source}"):
+                suffix_matches.append((len(normalized_source), source_replacement))
+        if suffix_matches:
+            return max(suffix_matches, key=lambda match: match[0])[1]
+    return value
 
 
 def _is_secret_field(name: object) -> bool:
@@ -51,6 +198,7 @@ class ProjectArtifactReference(BaseModel):
     path: str
     sha256: str | None = None
     media_type: str | None = None
+    size_bytes: int | None = Field(default=None, ge=0)
 
 
 class ProjectManifest(BaseModel):
@@ -71,7 +219,9 @@ class ProjectManifest(BaseModel):
     def from_document(cls, document: Mapping[str, Any]) -> "ProjectManifest":
         """Accept both the canonical wrapper and legacy raw HardwareIR JSON."""
         raw = dict(document)
-        nested = raw.get("project_ir") or raw.get("hardware_ir")
+        nested = raw.get("project_ir")
+        if not isinstance(nested, Mapping):
+            nested = raw.get("hardware_ir")
         project_ir = dict(nested) if isinstance(nested, Mapping) else raw
         metadata = project_ir.get("assembly_metadata")
         metadata = metadata if isinstance(metadata, Mapping) else {}
@@ -100,10 +250,7 @@ class ProjectManifest(BaseModel):
 
     def upload_payload(self) -> dict[str, Any]:
         """Build the only payload shape that may cross the cloud boundary."""
-        payload = self.model_dump(mode="json")
-        payload["project_ir"] = redact_project_secrets(payload["project_ir"])
-        payload["artifacts"] = redact_project_secrets(payload["artifacts"])
-        return payload
+        return redact_project_secrets(self.model_dump(mode="json"))
 
 
 def load_project_manifest(path: str | Path) -> ProjectManifest:
@@ -132,7 +279,12 @@ __all__ = [
     "PROJECT_MANIFEST_VERSION",
     "ProjectArtifactReference",
     "ProjectManifest",
+    "infer_artifact_media_type",
     "load_project_manifest",
+    "normalize_artifact_media_type",
+    "normalize_artifact_path",
     "redact_project_secrets",
+    "rewrite_artifact_paths",
+    "validate_artifact_references",
     "write_project_manifest",
 ]

@@ -237,6 +237,14 @@ SUPABASE_S3_BUCKET=contents
 # SUPABASE_IMAGE_SIGNED_URL_SECONDS=86400
 # SUPABASE_STORAGE_PUBLIC_BASE_URL=https://your-project-ref.supabase.co
 
+# Optional private storage for forma-oss project artifacts.
+# Supabase-primary hosted deployments use the private bucket through the
+# service-role client; SQLite/local deployments use the local directory.
+# FORMA_CLI_ARTIFACT_BUCKET=cli-project-artifacts
+# FORMA_CLI_ARTIFACT_STORAGE_BACKEND=supabase
+# FORMA_CLI_ARTIFACT_STORAGE_DIR=./.forma/cli-artifacts
+# FORMA_CLI_ARTIFACT_MAX_BYTES=52428800
+
 # Generic provider aliases
 # LLM_API_KEY=your_provider_api_key_here
 # LLM_MODEL=gpt-5.6-sol
@@ -270,6 +278,7 @@ Notes:
 - `REDIS_URL` and `REDIS_CACHE_PREFIX` are required at backend startup whenever `FORMA_DEVELOPMENT_MODE` is false. Development mode can omit them and fall back directly to the primary database.
 - Docker Compose uses `COMPOSE_DATABASE_BACKEND` instead and defaults it to `sqlite`; this prevents host-only loopback Supabase URLs from breaking the container quickstart. `COMPOSE_SQLITE_DATABASE_URL` optionally overrides the container SQLite URL.
 - Image storage and encrypted integration stores follow `DATABASE_BACKEND`. Supabase credentials alone do not activate them when `DATABASE_BACKEND=sqlite`; use `FORMA_IMAGE_STORAGE_BACKEND=supabase` or the workspace/user integration backend overrides for an intentional exception.
+- CLI project artifacts use the private `FORMA_CLI_ARTIFACT_BUCKET` (default `cli-project-artifacts`). `FORMA_CLI_ARTIFACT_STORAGE_BACKEND` may select `supabase`, `s3-compatible`, or `local`; the default follows the primary database backend. Each artifact is stored under a project-scoped hash key and is validated against its declared SHA-256 and media type.
 - Provider availability is `environment configured OR (BYOK enabled AND BYOK configured)`. Environment variables remain workspace/platform defaults, saved BYOK values overlay matching fields, and clearing or disabling BYOK reveals the environment fallback. Generated provider/model allowlists include both sources, so either source can make a provider available without suppressing the other.
 - After those inputs are applied, `GET /api/runtime/config` is authoritative for the frontend. Resolution precedence is request override, saved integration, environment, then provider default; the browser does not repeat this merge.
 - `FORMA_DEPLOYMENT_MODE=hosted` requires a configured deployment provider or signed-in user's BYOK provider for generation. Hosted mode cannot run with `FORMA_DEVELOPMENT_MODE=true`; the frontend keeps the composer visible and directs users without an active provider to Settings.

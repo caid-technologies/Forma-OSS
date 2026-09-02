@@ -20,6 +20,7 @@ from forma_core.workspaces.projects.manifest import (
     write_project_manifest,
 )
 from forma_core.workspaces.projects.identity import ProjectCreationChannel, ProjectIdentity
+from forma_core.workspaces.projects.models import ProjectDetail, ProjectIdentityResponse, ProjectSummary
 
 __all__ = [
     "PROJECT_REVISION_SCHEMA_VERSION",
@@ -30,6 +31,9 @@ __all__ = [
     "ProjectStateError",
     "ProjectStateService",
     "ProjectSystem",
+    "ProjectSummary",
+    "ProjectDetail",
+    "ProjectIdentityResponse",
     "PROJECT_MANIFEST_FORMAT",
     "PROJECT_MANIFEST_VERSION",
     "ProjectArtifactReference",

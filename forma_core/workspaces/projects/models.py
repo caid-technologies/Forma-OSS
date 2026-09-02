@@ -1,5 +1,6 @@
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from typing import List, Optional, Dict, Any, Iterable, Mapping
+from datetime import datetime
 import re
 
 # ==========================================
@@ -618,12 +619,82 @@ class Project(BaseModel):
     """Durable design artifact contained by a workspace."""
 
     project_id: str
+    owner_user_id: str | None = None
     chat_id: str | None = None
     title: str
     prompt: str
     hardware_ir: HardwareIR | Dict[str, Any]
     created_at: str
+    updated_at: str | None = None
+    creation_channel: str = "hosted"
     visibility: str = "public"
+
+
+class ProjectSummary(BaseModel):
+    """Common gallery contract returned for every project creation channel."""
+
+    project_id: str
+    creation_channel: str
+    chat_id: str | None = None
+    title: str
+    prompt: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    visibility: str = "private"
+    can_chat: bool = False
+    creator_display: str = "unknown"
+    creator_username: str | None = None
+    creator_image_url: str | None = None
+    parts_count: int = 0
+    save_count: int = 0
+    remix_count: int = 0
+    saved: bool = False
+    has_product_image: bool = False
+    product_image_url: str | None = None
+    product_image_data: str | None = None
+    product_image_content_type: str | None = None
+    product_image_model: str | None = None
+    product_visual_sequence: list[dict[str, Any]] = Field(default_factory=list)
+    image_output_status: str | None = None
+    generation_status: str = "succeeded"
+    project_readiness: str = "complete"
+
+    model_config = ConfigDict(extra="allow")
+
+    def __getitem__(self, key: str) -> Any:
+        """Allow existing response assertions to inspect typed contracts by key."""
+        return getattr(self, key)
+
+
+class ProjectIdentityResponse(BaseModel):
+    """Stable identity projection shared by hosted and CLI project listings."""
+
+    model_config = ConfigDict(from_attributes=True, extra="ignore")
+
+    project_id: str
+    owner_user_id: str | None = None
+    creation_channel: str = "hosted"
+    title: str = ""
+    prompt: str = ""
+    chat_id: str | None = None
+    workspace_id: str | None = None
+    visibility: str = "private"
+    status: str = "active"
+    created_at: str | datetime | None = None
+    updated_at: str | datetime | None = None
+
+    def __getitem__(self, key: str) -> Any:
+        return getattr(self, key)
+
+
+class ProjectDetail(ProjectSummary):
+    """Extended project contract used by authenticated detail views."""
+
+    project_ir: dict[str, Any] | HardwareIR | None = None
+    project_object: dict[str, Any] | None = None
+    mermaid_code: str | None = None
+    svg_schematic: str | None = None
+    generation_stages: dict[str, Any] = Field(default_factory=dict)
 
 # ==========================================
 # 3. API Requests & Response Models

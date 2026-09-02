@@ -24,6 +24,7 @@ from forma_core.workspaces.projects.manifest import (
     normalize_artifact_media_type,
     validate_artifact_references,
 )
+from forma_core.workspaces.projects.models import ProjectIdentityResponse
 
 
 router = APIRouter(prefix="/cli/projects", tags=["cli"])
@@ -42,7 +43,11 @@ def _owner(user: UserContext) -> str:
 
 @router.get("")
 async def list_cli_projects_endpoint(user: UserContext = Depends(require_user_context)) -> dict[str, object]:
-    return {"items": list_project_identities(_owner(user))}
+    items = [
+        ProjectIdentityResponse.model_validate(identity).model_dump(mode="json", exclude_unset=True)
+        for identity in list_project_identities(_owner(user))
+    ]
+    return {"items": items}
 
 
 @router.post("/push")

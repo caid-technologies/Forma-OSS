@@ -71,6 +71,7 @@ class SupabaseRepository:
         record: Dict[str, Any],
         chat_record: Optional[Dict[str, Any]],
     ) -> None:
+        self._client.table("generated_projects").insert(record).execute()
         self._client.table("projects").upsert({
             "project_id": record["project_id"],
             "owner_user_id": record.get("owner_user_id"),
@@ -83,7 +84,6 @@ class SupabaseRepository:
             "created_at": record["created_at"],
             "updated_at": record["created_at"],
         }, on_conflict="project_id").execute()
-        self._client.table("generated_projects").insert(record).execute()
         if chat_record:
             self.upsert_project_chat(chat_record)
 

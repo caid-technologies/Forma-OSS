@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import Image from "next/image";
 import {
   AlertTriangle,
   ArrowRight,
@@ -149,9 +150,12 @@ export default function ConversationMessageList({
             </button>
           )}
           {message.imagePreview && (
-            <img
+            <Image
               src={message.imagePreview}
               alt="Hardware reference thumbnail"
+              width={144}
+              height={96}
+              unoptimized
               className="mt-3 h-24 w-36 rounded-lg border border-white/10 object-cover"
             />
           )}

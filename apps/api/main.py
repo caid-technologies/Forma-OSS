@@ -1805,6 +1805,7 @@ def _project_summary_response(
     current_user_id: Optional[str] = None,
     *,
     hydrate_storage: bool = True,
+    include_image_payload: bool = True,
 ) -> ProjectSummary:
     owner_user_id = _project_owner_user_id(project)
     can_chat = bool(current_user_id and owner_user_id == current_user_id)
@@ -1853,6 +1854,18 @@ def _project_summary_response(
         and stored_creator_image_url.strip().startswith(("http://", "https://"))
         else None
     )
+    gallery_sequence = sequence if isinstance(sequence, list) else []
+    if not include_image_payload:
+        gallery_sequence = [
+            {
+                key: value
+                for key, value in item.items()
+                if key not in {"data", "image_data", "base64", "image_base64"}
+            }
+            for item in gallery_sequence
+            if isinstance(item, dict)
+        ]
+
     return ProjectSummary(
         project_id=project.project_id,
         creation_channel=getattr(project, "creation_channel", "hosted"),
@@ -1871,10 +1884,10 @@ def _project_summary_response(
         saved=False,
         has_product_image=bool(product_image_url or product_image_data),
         product_image_url=product_image_url,
-        product_image_data=product_image_data,
+        product_image_data=product_image_data if include_image_payload else None,
         product_image_content_type=product_image_content_type,
         product_image_model=hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
-        product_visual_sequence=sequence if isinstance(sequence, list) else [],
+        product_visual_sequence=gallery_sequence,
         image_output_status=hydrated_metadata.get("image_output_status"),
         generation_status=metadata.get("generation_status", "succeeded"),
         project_readiness=metadata.get("project_readiness", "complete"),
@@ -1887,6 +1900,7 @@ def _canonical_project_summary_response(
     *,
     owner_user_id: str,
     hydrate_storage: bool = True,
+    include_image_payload: bool = True,
 ) -> ProjectSummary:
     """Adapt canonical project state to the established gallery response."""
 
@@ -1907,6 +1921,7 @@ def _canonical_project_summary_response(
         project,
         current_user_id=owner_user_id,
         hydrate_storage=hydrate_storage,
+        include_image_payload=include_image_payload,
     )
 
 
@@ -1918,7 +1933,12 @@ def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
 
 def _public_project_cache_record(project: Any) -> Dict[str, Any]:
     """Build one shared gallery record with non-response ownership hints."""
-    summary = _project_summary_response(project, current_user_id=None, hydrate_storage=False).model_dump(mode="json")
+    summary = _project_summary_response(
+        project,
+        current_user_id=None,
+        hydrate_storage=False,
+        include_image_payload=False,
+    ).model_dump(mode="json")
     summary[_CACHE_OWNER_DIGEST_FIELD] = _project_owner_digest(_project_owner_user_id(project))
     summary[_CACHE_OWNER_CHAT_FIELD] = getattr(project, "chat_id", None)
     return summary
@@ -2020,7 +2040,12 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
     return sanitized
 
 
-def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[ProjectDetail]:
+def _cli_project_response(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    include_payload: bool = True,
+) -> Optional[ProjectDetail]:
     """Adapt an authenticated CLI revision to the web project's response shape."""
     revision = get_cli_project_revision(project_id, owner_user_id)
     if revision is None:
@@ -2054,12 +2079,17 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Proje
     try:
         typed_ir = HardwareIR.model_validate(project_ir)
         project_ir = typed_ir.model_dump(mode="json")
-        project_object = build_project_object(typed_ir).model_dump(mode="json")
-        mermaid_code = generate_mermaid_chart(typed_ir)
-        svg_schematic = generate_svg_schematic(typed_ir)
+        if include_payload:
+            project_object = build_project_object(typed_ir).model_dump(mode="json")
+            mermaid_code = generate_mermaid_chart(typed_ir)
+            svg_schematic = generate_svg_schematic(typed_ir)
+        else:
+            project_ir = None
     except ValidationError:
         # Keep older CLI manifests inspectable even if they predate HardwareIR.
         pass
+    if not include_payload:
+        project_ir = None
 
     return ProjectDetail(
         project_id=str(revision["project_id"]),
@@ -2075,13 +2105,13 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Proje
         product_image_url=product_image_url,
         product_image_data=product_image_data,
         product_visual_sequence=metadata.get("product_visual_sequence") or [],
-        project_ir=project_ir,
+        project_ir=project_ir if include_payload else None,
         project_object=project_object,
         mermaid_code=mermaid_code,
         svg_schematic=svg_schematic,
         generation_status=metadata.get("generation_status", "succeeded"),
         project_readiness=metadata.get("project_readiness", "complete"),
-        generation_stages=(metadata.get("generation_run") or {}).get("records", {}),
+        generation_stages=(metadata.get("generation_run") or {}).get("records", {}) if include_payload else {},
     )
 
 
@@ -2156,13 +2186,17 @@ def list_my_projects_endpoint(
             for identity in identities:
                 project_id = str(identity["project_id"])
                 if identity.get("creation_channel") == "cli":
-                    project = _cli_project_response(project_id, owner_user_id)
+                    project = _cli_project_response(project_id, owner_user_id, include_payload=False)
                     if project is not None:
                         response.append(project.model_dump(mode="json"))
                     continue
                 project = get_generated_project(project_id)
                 if project is not None:
-                    response.append(_project_summary_response(project, current_user_id=owner_user_id).model_dump(mode="json"))
+                    response.append(_project_summary_response(
+                        project,
+                        current_user_id=owner_user_id,
+                        include_image_payload=False,
+                    ).model_dump(mode="json"))
                     continue
                 try:
                     revision = get_latest_project_revision(project_id, owner_user_id)
@@ -2173,6 +2207,7 @@ def list_my_projects_endpoint(
                     revision,
                     brief,
                     owner_user_id=owner_user_id,
+                    include_image_payload=False,
                 ).model_dump(mode="json"))
             return _with_project_engagement(response, owner_user_id)
         if limit is not None:
@@ -2186,6 +2221,7 @@ def list_my_projects_endpoint(
                         project,
                         current_user_id=owner_user_id,
                         hydrate_storage=False,
+                        include_image_payload=False,
                     ).model_dump(mode="json")
                 for project in projects
             ]
@@ -2201,7 +2237,11 @@ def list_my_projects_endpoint(
             return _with_project_engagement(cached, owner_user_id)
         projects = list_generated_projects(owner_user_id=owner_user_id)
         response = [
-                _project_summary_response(project, current_user_id=owner_user_id).model_dump(mode="json")
+                _project_summary_response(
+                    project,
+                    current_user_id=owner_user_id,
+                    include_image_payload=False,
+                ).model_dump(mode="json")
             for project in projects
         ]
         legacy_project_ids = {str(project.project_id) for project in projects}
@@ -2228,6 +2268,7 @@ def list_my_projects_endpoint(
                     brief,
                     owner_user_id=owner_user_id,
                     hydrate_storage=False,
+                    include_image_payload=False,
                 ).model_dump(mode="json")
             )
         response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)

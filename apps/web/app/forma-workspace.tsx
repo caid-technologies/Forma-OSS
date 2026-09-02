@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import {
   generationLlmImageSupport,
@@ -6675,7 +6676,14 @@ function VideoPanel({
                         aria-pressed={selected}
                       >
                         <div className="relative h-20 overflow-hidden rounded-md bg-[var(--forma-surface-muted)]">
-                          <img src={candidate.src} alt={candidate.label} className="h-full w-full object-cover" />
+                          <Image
+                            src={candidate.src}
+                            alt={candidate.label}
+                            width={1}
+                            height={1}
+                            unoptimized
+                            className="h-full w-full object-cover"
+                          />
                           <span className={`absolute right-2 top-2 flex h-5 w-5 items-center justify-center rounded-md border text-[10px] font-medium ${
                             selected
                               ? "border-[rgb(var(--forma-cyan-rgb))] bg-[rgb(var(--forma-cyan-rgb))] text-[var(--forma-page)]"
@@ -6745,8 +6753,14 @@ function VideoPanel({
             {mode === "video-to-video" && sourceVideoPreview ? (
               <video src={sourceVideoPreview} controls preload="metadata" className="h-full w-full object-contain" />
             ) : imagePreview ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={imagePreview} alt="Video source preview" className="h-full w-full object-contain" />
+              <Image
+                src={imagePreview}
+                alt="Video source preview"
+                width={1}
+                height={1}
+                unoptimized
+                className="h-full w-full object-contain"
+              />
             ) : (
               <div className="flex h-full items-center justify-center text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
                 No source

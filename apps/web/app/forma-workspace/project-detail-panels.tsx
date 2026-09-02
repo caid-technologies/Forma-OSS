@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
+import Image from "next/image";
 import {
   AlertTriangle,
   Battery,
@@ -96,9 +97,12 @@ export function OverviewPanel({
         {showProductImage && (
           <div className="relative overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)]">
             {activeImage ? (
-              <img
+              <Image
                 src={activeImage.src}
                 alt={activeImage.label}
+                width={1}
+                height={1}
+                unoptimized
                 onError={() => setImageIndex((current) => current + 1)}
                 className="h-[280px] w-full object-cover object-center sm:h-[380px]"
               />
@@ -126,7 +130,14 @@ export function OverviewPanel({
                     : "border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] hover:border-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
                 }`}
               >
-                <img src={candidate.src} alt={candidate.label} className="h-20 w-full rounded-md bg-[var(--forma-surface-muted)] object-cover" />
+                <Image
+                  src={candidate.src}
+                  alt={candidate.label}
+                  width={1}
+                  height={1}
+                  unoptimized
+                  className="h-20 w-full rounded-md bg-[var(--forma-surface-muted)] object-cover"
+                />
                 <div className="mt-2 truncate text-[10px] font-medium">{candidate.label}</div>
               </button>
             ))}
@@ -139,10 +150,13 @@ export function OverviewPanel({
             <p className="mt-1 text-xs leading-5 text-[var(--forma-text-secondary)]">The image you shared for this project.</p>
             <div className={`mt-3 grid gap-2 ${referenceImages.length > 1 ? "sm:grid-cols-2" : ""}`}>
               {referenceImages.map((candidate) => (
-                <img
+                <Image
                   key={candidate.src}
                   src={candidate.src}
                   alt={candidate.label}
+                  width={1}
+                  height={1}
+                  unoptimized
                   className="h-44 w-full rounded-lg bg-[var(--forma-surface-muted)] object-cover object-center sm:h-52"
                 />
               ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
@@ -373,9 +374,12 @@ function ProjectImageLoadingPanel() {
 
 function ProjectGalleryPlaceholderThumb() {
   return (
-    <img
+    <Image
       src="/project-placeholder.jpg"
       alt=""
+      width={1}
+      height={1}
+      unoptimized
       className="h-full w-full object-cover transition duration-300 group-hover:scale-[1.015]"
     />
   );
@@ -506,9 +510,12 @@ function ProjectGalleryCard({
     >
       <div className="aspect-square overflow-hidden border-b border-white/5 bg-[#0f1117] sm:aspect-[4/3]">
         {item.image && !imageFailed ? (
-          <img
+          <Image
             src={item.image.src}
             alt={`${item.title} preview`}
+            width={1}
+            height={1}
+            unoptimized
             className="h-full w-full object-contain p-2 transition duration-300 group-hover:scale-[1.015] sm:object-cover sm:p-0"
             onError={() => setImageFailed(true)}
           />
@@ -557,9 +564,12 @@ function ProjectGalleryCard({
         <div className="flex min-w-0 items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-zinc-500">
             {item.creatorImageUrl ? (
-              <img
+              <Image
                 src={item.creatorImageUrl}
                 alt=""
+                width={20}
+                height={20}
+                unoptimized
                 className="h-5 w-5 shrink-0 rounded-full border border-white/10 object-cover"
               />
             ) : (

@@ -1818,7 +1818,14 @@ def _project_summary_response(
     sequence = hydrated_metadata.get("product_visual_sequence")
     first_sequence_image = None
     if isinstance(sequence, list):
-        first_sequence_image = next((item for item in sequence if isinstance(item, dict) and item.get("url")), None)
+        first_sequence_image = next(
+            (
+                item
+                for item in sequence
+                if isinstance(item, dict) and (item.get("url") or item.get("data"))
+            ),
+            None,
+        )
     product_image_url = (
         (first_sequence_image.get("url") if isinstance(first_sequence_image, dict) else None)
         or hydrated_metadata.get("product_case_image_url")
@@ -1829,6 +1836,9 @@ def _project_summary_response(
         or hydrated_metadata.get("product_case_image_content_type")
         or hydrated_metadata.get("product_image_content_type")
     )
+    product_image_data = hydrated_metadata.get("product_image_data")
+    if not product_image_data and isinstance(first_sequence_image, dict):
+        product_image_data = first_sequence_image.get("data")
     stored_creator_display = metadata.get("creator_display") or metadata.get("creator_username")
     creator_display = (
         stored_creator_display.strip()
@@ -1857,8 +1867,9 @@ def _project_summary_response(
         "save_count": 0,
         "remix_count": 0,
         "saved": False,
-        "has_product_image": bool(product_image_url or hydrated_metadata.get("product_image_data")),
+        "has_product_image": bool(product_image_url or product_image_data),
         "product_image_url": product_image_url,
+        "product_image_data": product_image_data,
         "product_image_content_type": product_image_content_type,
         "product_image_model": hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
         "product_visual_sequence": sequence if isinstance(sequence, list) else [],

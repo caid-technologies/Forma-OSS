@@ -72,6 +72,36 @@ class ProjectSummaryTests(unittest.TestCase):
         self.assertTrue(summary["has_product_image"])
         self.assertEqual("inline-image-data", summary["product_image_data"])
 
+    def test_project_summary_can_omit_inline_image_payload_for_lists(self) -> None:
+        project = SimpleNamespace(
+            project_id="project-1",
+            title="Desk Lamp",
+            prompt="desk lamp",
+            created_at="2026-07-21T14:08:00Z",
+            owner_user_id="user_123",
+            hardware_ir={
+                "components": [],
+                "assembly_metadata": {
+                    "product_image_url": "https://storage.example.test/product.png",
+                    "product_image_data": "inline-image-data",
+                    "product_visual_sequence": [
+                        {"view_id": "case", "url": "https://storage.example.test/case.png", "data": "large-data"},
+                    ],
+                },
+            },
+        )
+
+        summary = main._project_summary_response(
+            project,
+            hydrate_storage=False,
+            include_image_payload=False,
+        )
+
+        self.assertTrue(summary["has_product_image"])
+        self.assertEqual("https://storage.example.test/case.png", summary["product_image_url"])
+        self.assertIsNone(summary["product_image_data"])
+        self.assertEqual({"view_id": "case", "url": "https://storage.example.test/case.png"}, summary["product_visual_sequence"][0])
+
     def test_project_summary_includes_hydrated_product_image(self) -> None:
         project = SimpleNamespace(
             project_id="fd54de37-2fbb-485a-92e4-8bfaf4a2f08c",

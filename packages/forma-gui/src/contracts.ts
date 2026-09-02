@@ -2,6 +2,7 @@ export type JsonObject = Record<string, unknown>;
 
 export type FormaProjectSummary = {
   project_id: string;
+  creation_channel?: "hosted" | "cli";
   title: string;
   description?: string | null;
   prompt?: string | null;
@@ -113,11 +114,13 @@ export type FormaHardwareProject = {
 
 export type FormaProjectResponse = {
   project_id?: string;
+  creation_channel?: "hosted" | "cli";
   chat_id?: string;
   title?: string;
   prompt?: string;
   status?: string | null;
   generation_status?: string | null;
+  project_readiness?: string | null;
   readiness?: string | null;
   stage?: string | null;
   created_at?: string;

@@ -64,9 +64,13 @@ class CloudProjectSummary(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     project_id: str
+    owner_user_id: str | None = None
     workspace_id: str | None = None
     creation_channel: str = "cli"
     title: str = ""
+    prompt: str = ""
+    visibility: str = "private"
+    status: str = "active"
     revision_id: str | None = None
     revision: int | None = None
     parent_revision_id: str | None = None

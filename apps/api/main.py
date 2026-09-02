@@ -117,7 +117,7 @@ from forma_core.workspaces.chats.models import Chat, ChatUpsertRequest, ProjectC
 from forma_core.workspaces.projects.models import (
     ClarifyingQuestionsRequest, ClarifyingQuestionsResponse, ComponentInstance,
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
-    ProjectContributionConsentRequest, ProjectUpdateRequest, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
+    ProjectContributionConsentRequest, ProjectDetail, ProjectIdentityResponse, ProjectUpdateRequest, ProjectSummary, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
 from forma_core.workspaces.projects import ProjectStateError
 from forma_core.workspaces.projects.manifest import ProjectManifest
@@ -1805,7 +1805,7 @@ def _project_summary_response(
     current_user_id: Optional[str] = None,
     *,
     hydrate_storage: bool = True,
-) -> Dict[str, Any]:
+) -> ProjectSummary:
     owner_user_id = _project_owner_user_id(project)
     can_chat = bool(current_user_id and owner_user_id == current_user_id)
     hardware_ir = getattr(project, "hardware_ir", None) if isinstance(getattr(project, "hardware_ir", None), dict) else {}
@@ -1853,32 +1853,32 @@ def _project_summary_response(
         and stored_creator_image_url.strip().startswith(("http://", "https://"))
         else None
     )
-    return {
-        "project_id": project.project_id,
-        "creation_channel": getattr(project, "creation_channel", "hosted"),
-        "chat_id": getattr(project, "chat_id", None) if can_chat else None,
-        "title": project.title,
-        "prompt": project.prompt,
-        "created_at": project.created_at,
-        "visibility": _project_visibility(project),
-        "can_chat": can_chat,
-        "creator_display": creator_display,
-        "creator_username": creator_display,
-        "creator_image_url": creator_image_url,
-        "parts_count": len(components) if isinstance(components, list) else 0,
-        "save_count": 0,
-        "remix_count": 0,
-        "saved": False,
-        "has_product_image": bool(product_image_url or product_image_data),
-        "product_image_url": product_image_url,
-        "product_image_data": product_image_data,
-        "product_image_content_type": product_image_content_type,
-        "product_image_model": hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
-        "product_visual_sequence": sequence if isinstance(sequence, list) else [],
-        "image_output_status": hydrated_metadata.get("image_output_status"),
-        "generation_status": metadata.get("generation_status", "succeeded"),
-        "project_readiness": metadata.get("project_readiness", "complete"),
-    }
+    return ProjectSummary(
+        project_id=project.project_id,
+        creation_channel=getattr(project, "creation_channel", "hosted"),
+        chat_id=getattr(project, "chat_id", None) if can_chat else None,
+        title=project.title,
+        prompt=project.prompt,
+        created_at=project.created_at,
+        visibility=_project_visibility(project),
+        can_chat=can_chat,
+        creator_display=creator_display,
+        creator_username=creator_display,
+        creator_image_url=creator_image_url,
+        parts_count=len(components) if isinstance(components, list) else 0,
+        save_count=0,
+        remix_count=0,
+        saved=False,
+        has_product_image=bool(product_image_url or product_image_data),
+        product_image_url=product_image_url,
+        product_image_data=product_image_data,
+        product_image_content_type=product_image_content_type,
+        product_image_model=hydrated_metadata.get("product_image_model") or hydrated_metadata.get("image_output_model"),
+        product_visual_sequence=sequence if isinstance(sequence, list) else [],
+        image_output_status=hydrated_metadata.get("image_output_status"),
+        generation_status=metadata.get("generation_status", "succeeded"),
+        project_readiness=metadata.get("project_readiness", "complete"),
+    )
 
 
 def _canonical_project_summary_response(
@@ -1887,7 +1887,7 @@ def _canonical_project_summary_response(
     *,
     owner_user_id: str,
     hydrate_storage: bool = True,
-) -> Dict[str, Any]:
+) -> ProjectSummary:
     """Adapt canonical project state to the established gallery response."""
 
     state = revision.state
@@ -1918,7 +1918,7 @@ def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
 
 def _public_project_cache_record(project: Any) -> Dict[str, Any]:
     """Build one shared gallery record with non-response ownership hints."""
-    summary = _project_summary_response(project, current_user_id=None, hydrate_storage=False)
+    summary = _project_summary_response(project, current_user_id=None, hydrate_storage=False).model_dump(mode="json")
     summary[_CACHE_OWNER_DIGEST_FIELD] = _project_owner_digest(_project_owner_user_id(project))
     summary[_CACHE_OWNER_CHAT_FIELD] = getattr(project, "chat_id", None)
     return summary
@@ -1952,6 +1952,10 @@ def _with_project_engagement(
     current_user_id: Optional[str],
 ) -> List[Dict[str, Any]]:
     """Attach live save/remix counts and the current user's save state."""
+    records = [
+        record.model_dump(mode="json") if isinstance(record, ProjectSummary) else record
+        for record in records
+    ]
     if not records:
         return records
     project_ids = [str(record.get("project_id") or "") for record in records]
@@ -2016,7 +2020,7 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
     return sanitized
 
 
-def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[str, Any]]:
+def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[ProjectDetail]:
     """Adapt an authenticated CLI revision to the web project's response shape."""
     revision = get_cli_project_revision(project_id, owner_user_id)
     if revision is None:
@@ -2057,37 +2061,34 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[
         # Keep older CLI manifests inspectable even if they predate HardwareIR.
         pass
 
-    return {
-        "project_id": str(revision["project_id"]),
-        "creation_channel": "cli",
-        "chat_id": None,
-        "title": title,
-        "prompt": manifest.prompt,
-        "created_at": revision.get("created_at"),
-        "visibility": "private",
-        "can_chat": False,
-        "creator_display": creator_display_name(owner_user_id),
-        "creator_username": creator_display_name(owner_user_id),
-        "creator_image_url": None,
-        "parts_count": len(components),
-        "has_product_image": bool(product_image_url or product_image_data),
-        "product_image_url": product_image_url,
-        "product_image_data": product_image_data,
-        "product_visual_sequence": metadata.get("product_visual_sequence") or [],
-        "project_ir": project_ir,
-        "project_object": project_object,
-        "mermaid_code": mermaid_code,
-        "svg_schematic": svg_schematic,
-        "generation_status": metadata.get("generation_status", "succeeded"),
-        "project_readiness": metadata.get("project_readiness", "complete"),
-        "generation_stages": (metadata.get("generation_run") or {}).get("records", {}),
-    }
+    return ProjectDetail(
+        project_id=str(revision["project_id"]),
+        creation_channel="cli",
+        title=title,
+        prompt=manifest.prompt,
+        created_at=revision.get("created_at"),
+        visibility="private",
+        creator_display=creator_display_name(owner_user_id),
+        creator_username=creator_display_name(owner_user_id),
+        parts_count=len(components),
+        has_product_image=bool(product_image_url or product_image_data),
+        product_image_url=product_image_url,
+        product_image_data=product_image_data,
+        product_visual_sequence=metadata.get("product_visual_sequence") or [],
+        project_ir=project_ir,
+        project_object=project_object,
+        mermaid_code=mermaid_code,
+        svg_schematic=svg_schematic,
+        generation_status=metadata.get("generation_status", "succeeded"),
+        project_readiness=metadata.get("project_readiness", "complete"),
+        generation_stages=(metadata.get("generation_run") or {}).get("records", {}),
+    )
 
 
-def _list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
+def _list_project_identities(owner_user_id: str) -> List[ProjectIdentityResponse]:
     """Read the shared identity table, tolerating pre-migration local stores."""
     try:
-        return list_project_identities(owner_user_id)
+        return [ProjectIdentityResponse.model_validate(record) for record in list_project_identities(owner_user_id)]
     except Exception as exc:
         if "no such table" in str(exc).lower() and "projects" in str(exc).lower():
             return []
@@ -2157,11 +2158,11 @@ def list_my_projects_endpoint(
                 if identity.get("creation_channel") == "cli":
                     project = _cli_project_response(project_id, owner_user_id)
                     if project is not None:
-                        response.append(project)
+                        response.append(project.model_dump(mode="json"))
                     continue
                 project = get_generated_project(project_id)
                 if project is not None:
-                    response.append(_project_summary_response(project, current_user_id=owner_user_id))
+                    response.append(_project_summary_response(project, current_user_id=owner_user_id).model_dump(mode="json"))
                     continue
                 try:
                     revision = get_latest_project_revision(project_id, owner_user_id)
@@ -2172,7 +2173,7 @@ def list_my_projects_endpoint(
                     revision,
                     brief,
                     owner_user_id=owner_user_id,
-                ))
+                ).model_dump(mode="json"))
             return _with_project_engagement(response, owner_user_id)
         if limit is not None:
             projects, total = list_generated_projects_page(
@@ -2181,11 +2182,11 @@ def list_my_projects_endpoint(
                 offset=offset,
             )
             items = [
-                _project_summary_response(
-                    project,
-                    current_user_id=owner_user_id,
-                    hydrate_storage=False,
-                )
+                    _project_summary_response(
+                        project,
+                        current_user_id=owner_user_id,
+                        hydrate_storage=False,
+                    ).model_dump(mode="json")
                 for project in projects
             ]
             return {
@@ -2200,7 +2201,7 @@ def list_my_projects_endpoint(
             return _with_project_engagement(cached, owner_user_id)
         projects = list_generated_projects(owner_user_id=owner_user_id)
         response = [
-            _project_summary_response(project, current_user_id=owner_user_id)
+                _project_summary_response(project, current_user_id=owner_user_id).model_dump(mode="json")
             for project in projects
         ]
         legacy_project_ids = {str(project.project_id) for project in projects}
@@ -2227,7 +2228,7 @@ def list_my_projects_endpoint(
                     brief,
                     owner_user_id=owner_user_id,
                     hydrate_storage=False,
-                )
+                ).model_dump(mode="json")
             )
         response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         response = jsonable_encoder(response)
@@ -2247,7 +2248,7 @@ def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depe
 
     try:
         summaries = _with_project_engagement(
-            [_project_summary_response(project, current_user_id=user.owner_user_id)],
+            [_project_summary_response(project, current_user_id=user.owner_user_id).model_dump(mode="json")],
             user.owner_user_id,
         )
         return summaries[0]

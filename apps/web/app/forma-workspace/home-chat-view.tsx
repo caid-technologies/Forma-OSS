@@ -3,6 +3,7 @@
 import type { ChangeEventHandler, ClipboardEventHandler, FormEventHandler, ReactNode, RefObject } from "react";
 import { useEffect, useRef } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   AlertTriangle,
   ArrowRight,
@@ -260,9 +261,12 @@ export default function HomeChatView({
             <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
             {selectedImage && (
               <div className="mb-2 flex items-start gap-2 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-1.5 pr-2">
-                <img
+                <Image
                   src={selectedImage}
                   alt="Attached prompt image"
+                  width={64}
+                  height={64}
+                  unoptimized
                   className="h-16 w-16 shrink-0 rounded-lg object-cover"
                 />
                 <div className="min-w-0 flex-1 py-0.5">

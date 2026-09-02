@@ -7098,12 +7098,6 @@ function ProjectDetailWorkspace({
         </div>
       </header>
 
-      {readOnly && (
-        <div className="px-3 pt-3 sm:px-4">
-          <HostedChatMaintenance compact />
-        </div>
-      )}
-
       <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--forma-page)]" aria-label="Project workspace">
         <ProjectWorkspacePanel
           projectId={projectId}

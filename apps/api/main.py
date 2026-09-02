@@ -2038,6 +2038,11 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[
         }
     )
     project_ir["assembly_metadata"] = metadata
+    overview = project_ir.get("overview") if isinstance(project_ir.get("overview"), dict) else {}
+    components = project_ir.get("components") if isinstance(project_ir.get("components"), list) else []
+    title = str(manifest.title or overview.get("title") or "Untitled project")
+    product_image_url = metadata.get("product_image_url") or metadata.get("product_case_image_url")
+    product_image_data = metadata.get("product_image_data")
 
     project_object = None
     mermaid_code = None
@@ -2056,9 +2061,16 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[
         "project_id": str(revision["project_id"]),
         "creation_channel": "cli",
         "chat_id": None,
+        "title": title,
         "prompt": manifest.prompt,
         "created_at": revision.get("created_at"),
+        "visibility": "private",
         "can_chat": False,
+        "parts_count": len(components),
+        "has_product_image": bool(product_image_url or product_image_data),
+        "product_image_url": product_image_url,
+        "product_image_data": product_image_data,
+        "product_visual_sequence": metadata.get("product_visual_sequence") or [],
         "project_ir": project_ir,
         "project_object": project_object,
         "mermaid_code": mermaid_code,

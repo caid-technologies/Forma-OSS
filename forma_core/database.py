@@ -392,6 +392,7 @@ def save_generated_project(
         "project_id": project_id,
         "chat_id": normalized_chat_id,
         "owner_user_id": normalized_owner_user_id,
+        "creation_channel": "hosted",
         "visibility": normalized_visibility,
         "title": title,
         "prompt": prompt,
@@ -504,6 +505,7 @@ def list_cli_projects(owner_user_id: str) -> List[Dict[str, Any]]:
         {
             "project_id": str(record.project_id),
             "workspace_id": getattr(record, "workspace_id", None),
+            "creation_channel": getattr(record, "creation_channel", "cli"),
             "title": getattr(record, "title", ""),
             "revision_id": getattr(record, "current_revision_id", None),
             "revision": getattr(record, "current_revision", 0),
@@ -511,6 +513,29 @@ def list_cli_projects(owner_user_id: str) -> List[Dict[str, Any]]:
             "created_at": getattr(record, "created_at", None),
         }
         for record in _DATABASE_REPOSITORY.list_cli_projects(owner)
+    ]
+
+
+def list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
+    """Return the canonical project identities owned by a user."""
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        return []
+    return [
+        {
+            "project_id": str(record.project_id),
+            "owner_user_id": getattr(record, "owner_user_id", owner),
+            "creation_channel": getattr(record, "creation_channel", "hosted"),
+            "title": getattr(record, "title", ""),
+            "prompt": getattr(record, "prompt", ""),
+            "chat_id": getattr(record, "chat_id", None),
+            "workspace_id": getattr(record, "workspace_id", None),
+            "visibility": getattr(record, "visibility", "private"),
+            "status": getattr(record, "status", "active"),
+            "created_at": getattr(record, "created_at", None),
+            "updated_at": getattr(record, "updated_at", None),
+        }
+        for record in _DATABASE_REPOSITORY.list_project_identities(owner)
     ]
 
 
@@ -564,6 +589,7 @@ def insert_cli_project_revision(
         "project_id": project_id,
         "workspace_id": manifest.get("workspace_id"),
         "owner_user_id": owner,
+        "creation_channel": "cli",
         "title": str(manifest.get("title") or "Untitled Forma Project"),
         "current_revision": 0,
         "current_revision_id": None,

@@ -15,9 +15,16 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ("id", "part_number", "name", "category", "description", "price", "sourcing_url", "pins", "use_cases"),
     ),
     TableContract(
+        "projects",
+        (
+            "project_id", "owner_user_id", "creation_channel", "title", "prompt", "chat_id", "workspace_id",
+            "visibility", "status", "created_at", "updated_at",
+        ),
+    ),
+    TableContract(
         "generated_projects",
         (
-            "id", "project_id", "chat_id", "owner_user_id", "visibility", "title", "prompt", "hardware_ir", "created_at",
+            "id", "project_id", "chat_id", "owner_user_id", "creation_channel", "visibility", "title", "prompt", "hardware_ir", "created_at",
             "status", "deleted_at", "deletion_requested_by", "purge_after", "purge_started_at", "purge_completed_at",
             "deletion_error",
         ),
@@ -65,7 +72,7 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
     TableContract(
         "cli_projects",
         (
-            "project_id", "workspace_id", "owner_user_id", "title", "current_revision",
+            "project_id", "workspace_id", "owner_user_id", "creation_channel", "title", "current_revision",
             "current_revision_id", "created_at", "updated_at",
         ),
     ),

@@ -366,6 +366,20 @@ class ProjectStateService:
             "payload_json": revision.model_dump(mode="json"),
             "created_at": revision.created_at.isoformat(),
         }
+        overview = getattr(state, "overview", None)
+        self._repository.upsert_project_identity({
+            "project_id": project,
+            "owner_user_id": owner,
+            "creation_channel": "hosted",
+            "title": str(getattr(overview, "title", "") or "Untitled project"),
+            "prompt": str(getattr(brief, "summary", "") or ""),
+            "chat_id": getattr(brief, "conversation_id", None),
+            "workspace_id": None,
+            "visibility": "private",
+            "status": "active",
+            "created_at": revision.created_at.isoformat(),
+            "updated_at": revision.created_at.isoformat(),
+        })
         saved = self._repository.insert_initial_project_revision(record)
         if saved is not None:
             return ProjectRevisionOutcome(revision=_revision_from_record(saved))

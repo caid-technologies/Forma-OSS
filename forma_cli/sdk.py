@@ -65,6 +65,7 @@ class CloudProjectSummary(BaseModel):
 
     project_id: str
     workspace_id: str | None = None
+    creation_channel: str = "cli"
     title: str = ""
     revision_id: str | None = None
     revision: int | None = None

@@ -21,6 +21,24 @@ class DBComponentTemplate(Base):
     use_cases = Column(JSON, nullable=False)
 
 
+class DBProject(Base):
+    """Canonical project identity shared by every creation channel."""
+
+    __tablename__ = "projects"
+
+    project_id = Column(String, primary_key=True)
+    owner_user_id = Column(String, index=True, nullable=True)
+    creation_channel = Column(String, nullable=False)
+    title = Column(String, nullable=False, default="")
+    prompt = Column(Text, nullable=False, default="")
+    chat_id = Column(String, index=True, nullable=True)
+    workspace_id = Column(String, nullable=True)
+    visibility = Column(String, index=True, nullable=False, default="private")
+    status = Column(String, index=True, nullable=False, default="active")
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, index=True, nullable=False)
+
+
 class DBGeneratedProject(Base):
     __tablename__ = "generated_projects"
 
@@ -28,6 +46,7 @@ class DBGeneratedProject(Base):
     project_id = Column(String, unique=True, index=True, nullable=False)
     chat_id = Column(String, index=True, nullable=True)
     owner_user_id = Column(String, index=True, nullable=True)
+    creation_channel = Column(String, nullable=False, default="hosted")
     visibility = Column(String, index=True, nullable=False, default="public")
     title = Column(String, nullable=False)
     prompt = Column(Text, nullable=False)

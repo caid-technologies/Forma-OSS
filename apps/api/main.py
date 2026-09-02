@@ -1747,13 +1747,22 @@ async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depend
     return response
 
 
-def _project_summary_response(project: Any, current_user_id: Optional[str] = None) -> Dict[str, Any]:
+def _project_summary_response(
+    project: Any,
+    current_user_id: Optional[str] = None,
+    *,
+    hydrate_storage: bool = True,
+) -> Dict[str, Any]:
     owner_user_id = _project_owner_user_id(project)
     can_chat = bool(current_user_id and owner_user_id == current_user_id)
     hardware_ir = getattr(project, "hardware_ir", None) if isinstance(getattr(project, "hardware_ir", None), dict) else {}
     components = hardware_ir.get("components") if isinstance(hardware_ir, dict) else []
     metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir, dict) and isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
-    hydrated_metadata = hydrate_image_storage_metadata(metadata, project.project_id) if metadata else {}
+    hydrated_metadata = (
+        hydrate_image_storage_metadata(metadata, project.project_id)
+        if metadata and hydrate_storage
+        else metadata
+    )
     sequence = hydrated_metadata.get("product_visual_sequence")
     first_sequence_image = None
     if isinstance(sequence, list):
@@ -1812,6 +1821,7 @@ def _canonical_project_summary_response(
     brief: Any,
     *,
     owner_user_id: str,
+    hydrate_storage: bool = True,
 ) -> Dict[str, Any]:
     """Adapt canonical project state to the established gallery response."""
 
@@ -1828,7 +1838,11 @@ def _canonical_project_summary_response(
         created_at=revision.created_at,
         hardware_ir=state.model_dump(mode="json"),
     )
-    return _project_summary_response(project, current_user_id=owner_user_id)
+    return _project_summary_response(
+        project,
+        current_user_id=owner_user_id,
+        hydrate_storage=hydrate_storage,
+    )
 
 
 def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
@@ -1839,7 +1853,7 @@ def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
 
 def _public_project_cache_record(project: Any) -> Dict[str, Any]:
     """Build one shared gallery record with non-response ownership hints."""
-    summary = _project_summary_response(project, current_user_id=None)
+    summary = _project_summary_response(project, current_user_id=None, hydrate_storage=False)
     summary[_CACHE_OWNER_DIGEST_FIELD] = _project_owner_digest(_project_owner_user_id(project))
     summary[_CACHE_OWNER_CHAT_FIELD] = getattr(project, "chat_id", None)
     return summary
@@ -2051,7 +2065,11 @@ def list_my_projects_endpoint(
                 offset=offset,
             )
             items = [
-                _project_summary_response(project, current_user_id=owner_user_id)
+                _project_summary_response(
+                    project,
+                    current_user_id=owner_user_id,
+                    hydrate_storage=False,
+                )
                 for project in projects
             ]
             return {
@@ -2092,6 +2110,7 @@ def list_my_projects_endpoint(
                     revision,
                     brief,
                     owner_user_id=owner_user_id,
+                    hydrate_storage=False,
                 )
             )
         response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)

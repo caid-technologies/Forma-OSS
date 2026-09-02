@@ -2054,6 +2054,7 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[
 
     return {
         "project_id": str(revision["project_id"]),
+        "creation_channel": "cli",
         "chat_id": None,
         "prompt": manifest.prompt,
         "created_at": revision.get("created_at"),

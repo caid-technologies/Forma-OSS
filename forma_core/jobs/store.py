@@ -17,6 +17,7 @@ from forma_core.persistence.providers import SQLiteProvider, SupabaseProvider, c
 from forma_core.debug import (
     new_error_correlation_id,
     public_error_message,
+    redact_debug_text,
     redact_debug_value,
     redact_error_value,
 )
@@ -245,6 +246,7 @@ class JobMetadataStore:
         payload: Dict[str, Any],
         server_owned: bool,
         status: str = "queued",
+        replace_existing: bool = True,
     ) -> Dict[str, Any]:
         self.init_db()
         now = _utc_now()
@@ -271,7 +273,8 @@ class JobMetadataStore:
                 "progress_events_json": [],
                 "error_debug_json": None,
                 "error": None,
-            }
+            },
+            replace_existing=replace_existing,
         )
         return self.get_job(job_id) or {}
 

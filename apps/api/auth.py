@@ -1,5 +1,6 @@
 import base64
 from collections import defaultdict, deque
+import hashlib
 import json
 import secrets
 import threading
@@ -20,6 +21,10 @@ from forma_core.config import config
 
 
 LOCAL_USER_ID = "local-dev-user"
+FORMA_A2A_API_KEY = "FORMA_A2A_API_KEY"
+FORMA_MCP_API_KEY = "FORMA_MCP_API_KEY"
+MIN_SERVICE_KEY_LENGTH = 32
+MCP_SERVICE_PROVIDERS = frozenset({"a2a-api-key", "mcp-api-key"})
 _DESTRUCTIVE_RATE_LOCK = threading.Lock()
 _DESTRUCTIVE_RATE_EVENTS: Dict[str, deque[float]] = defaultdict(deque)
 
@@ -232,8 +237,8 @@ def clerk_user_email(user_id: str) -> Optional[str]:
     return profile.get("email") if profile else None
 
 
-def _request_bearer_token(request: Request) -> Optional[str]:
-    authorization = request.headers.get("authorization", "")
+def _request_bearer_token(request: Any) -> Optional[str]:
+    authorization = getattr(request, "headers", {}).get("authorization", "")
     scheme, _, token = authorization.partition(" ")
     if scheme.lower() != "bearer":
         return None
@@ -347,6 +352,139 @@ async def require_user_context(request: Request) -> UserContext:
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to use Forma generation.")
 
 
+def _service_context_for_token(token: Optional[str], *, a2a: bool) -> Optional[UserContext]:
+    """Resolve a configured service credential without treating it as a user session."""
+    if not token:
+        return None
+
+    credentials = (
+        (
+            (FORMA_A2A_API_KEY, "a2a-api-key", "a2a-service", False),
+            (FORMA_MCP_API_KEY, "mcp-api-key", "mcp-service", True),
+        )
+        if a2a
+        else (
+            (FORMA_MCP_API_KEY, "mcp-api-key", "mcp-service", True),
+            (FORMA_A2A_API_KEY, "a2a-api-key", "a2a-service", False),
+        )
+    )
+    for environment_name, provider, subject, is_admin in credentials:
+        configured_key = (config.get(environment_name) or "").strip()
+        if (
+            len(configured_key) >= MIN_SERVICE_KEY_LENGTH
+            and secrets.compare_digest(token, configured_key)
+        ):
+            return UserContext(
+                provider=provider,
+                subject=subject,
+                owner_user_id=None,
+                is_authenticated=True,
+                is_admin=is_admin,
+            )
+    return None
+
+
+def resolve_a2a_service_context(token: Optional[str]) -> Optional[UserContext]:
+    """Resolve the service identity accepted by non-HTTP A2A transports."""
+    normalized = (token or "").strip()
+    if normalized.lower().startswith("bearer "):
+        normalized = normalized[7:].strip()
+    return _service_context_for_token(normalized or None, a2a=True)
+
+
+def a2a_service_credentials_configured() -> bool:
+    """Return whether an A2A-capable service credential is configured safely."""
+    return any(
+        len((config.get(name) or "").strip()) >= MIN_SERVICE_KEY_LENGTH
+        for name in (FORMA_A2A_API_KEY, FORMA_MCP_API_KEY)
+    )
+
+
+def mcp_context_is_authorized(user_context: Optional[UserContext]) -> bool:
+    """Return whether an already-resolved context may use MCP tools."""
+    return bool(
+        user_context
+        and user_context.is_authenticated
+        and (user_context.is_admin or user_context.provider in MCP_SERVICE_PROVIDERS)
+    )
+
+
+def a2a_local_development_allowed() -> bool:
+    """Allow unauthenticated A2A only for explicitly local development."""
+    try:
+        return (
+            (config.get("FORMA_DEPLOYMENT_MODE") or "").strip().lower() == "local"
+            and (config.get("FORMA_AUTH_MODE") or "").strip().lower() == "local"
+        )
+    except RuntimeError:
+        # Missing or invalid auth configuration must never fall back to local access.
+        return False
+
+
+def authenticated_principal(user_context: Optional[UserContext]) -> Optional[str]:
+    """Return a stable, non-secret principal key for ownership checks."""
+    if user_context is None or not user_context.is_authenticated:
+        return None
+    owner_user_id = str(user_context.owner_user_id or "").strip()
+    if owner_user_id:
+        raw_principal = f"user:{owner_user_id}"
+    else:
+        subject = str(user_context.subject or "").strip()
+        provider = str(user_context.provider or "service").strip() or "service"
+        raw_principal = f"service:{provider}:{subject}" if subject else f"service:{provider}"
+    digest = hashlib.sha256(raw_principal.encode("utf-8")).hexdigest()
+    return f"principal:{digest}"
+
+
+async def require_a2a_user_context(request: Request) -> UserContext:
+    """Require a user or scoped service identity for an HTTP A2A transport."""
+    service_context = _service_context_for_token(_request_bearer_token(request), a2a=True)
+    if service_context is not None:
+        return service_context
+
+    if not _clerk_auth_mode_enabled() and not a2a_local_development_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required for A2A transports.",
+        )
+    return await require_user_context(request)
+
+
+async def require_a2a_websocket_context(websocket: Any) -> UserContext:
+    """Resolve an authenticated identity from a WebSocket handshake."""
+    service_context = _service_context_for_token(_request_bearer_token(websocket), a2a=True)
+    if service_context is not None:
+        return service_context
+
+    if not _clerk_auth_mode_enabled() and not a2a_local_development_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required for A2A transports.",
+        )
+    context = await optional_user_context(websocket)
+    if context.is_authenticated:
+        return context
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Authentication is required for A2A transports.",
+    )
+
+
+async def require_a2a_admin_user_context(request: Request) -> UserContext:
+    """Require an administrator while preserving the A2A transport auth policy."""
+    context = await require_a2a_user_context(request)
+    if context.is_admin and not context.provider.endswith("-api-key"):
+        return context
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access is required.")
+
+
+def _clerk_auth_mode_enabled() -> bool:
+    try:
+        return clerk_auth_required()
+    except RuntimeError:
+        return False
+
+
 async def require_recent_user_context(request: Request) -> UserContext:
     """Require a fresh session for destructive or consent-changing operations."""
     context = await require_user_context(request)
@@ -400,19 +538,13 @@ async def require_admin_user_context(request: Request) -> UserContext:
 
 async def require_mcp_user_context(request: Request) -> UserContext:
     """Authorize MCP with a dedicated API key or the normal admin identity."""
-    configured_key = (config.get("FORMA_MCP_API_KEY") or "").strip()
-    supplied_token = _request_bearer_token(request)
-    if (
-        len(configured_key) >= 32
-        and supplied_token is not None
-        and secrets.compare_digest(supplied_token, configured_key)
-    ):
-        return UserContext(
-            provider="mcp-api-key",
-            subject="mcp-service",
-            owner_user_id=None,
-            is_authenticated=True,
-            is_admin=True,
+    service_context = _service_context_for_token(_request_bearer_token(request), a2a=False)
+    if service_context is not None:
+        return service_context
+    if not _clerk_auth_mode_enabled() and not a2a_local_development_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authentication is required for MCP transports.",
         )
     return await require_admin_user_context(request)
 

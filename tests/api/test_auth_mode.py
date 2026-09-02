@@ -69,7 +69,15 @@ class AuthModeTests(unittest.IsolatedAsyncioTestCase):
         )
         fallback = AsyncMock(return_value=fallback_context)
         request = request_with_authorization("Bearer short-token")
-        with patch.dict(os.environ, {"FORMA_MCP_API_KEY": "short-token"}, clear=True), patch(
+        with patch.dict(
+            os.environ,
+            {
+                "FORMA_DEPLOYMENT_MODE": "local",
+                "FORMA_AUTH_MODE": "local",
+                "FORMA_MCP_API_KEY": "short-token",
+            },
+            clear=True,
+        ), patch(
             "apps.api.auth.require_admin_user_context", fallback
         ):
             context = await require_mcp_user_context(request)

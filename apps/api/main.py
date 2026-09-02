@@ -127,6 +127,7 @@ from apps.api.a2a import (
     A2A_HUB,
     A2AAgentRegistration,
     A2AMessage,
+    a2a_principal_for_user,
     build_generation_response,
     get_a2a_capabilities,
     handle_a2a_websocket,
@@ -161,6 +162,9 @@ from apps.api.cli_credentials_api import router as cli_credentials_router
 from apps.api.hosted_chat import require_hosted_chat_enabled
 from apps.api.auth import (
     UserContext,
+    require_a2a_admin_user_context,
+    require_a2a_user_context,
+    require_a2a_websocket_context,
     clerk_user_profile,
     deployed_auth_required,
     optional_user_context,
@@ -389,6 +393,14 @@ def _job_owner_user_id(job: Optional[Dict[str, Any]]) -> Optional[str]:
     return None
 
 
+def _job_a2a_principal(job: Optional[Dict[str, Any]]) -> Optional[str]:
+    payload = job.get("payload") if isinstance(job, dict) else None
+    value = payload.get("_forma_a2a_principal") if isinstance(payload, dict) else None
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return None
+
+
 def _admin_job_records(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Add admin-only owner labels without changing the persisted job shape."""
     records = [dict(job) for job in jobs]
@@ -425,10 +437,14 @@ def _admin_job_records(jobs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _require_job_reader(job: Dict[str, Any], user: UserContext) -> None:
-    if user.is_admin:
+    # API-key service principals are deliberately scoped like user principals;
+    # only a Clerk/local administrator gets the global job view.
+    if user.is_admin and not user.provider.endswith("-api-key"):
         return
     owner_user_id = _job_owner_user_id(job)
     if owner_user_id and owner_user_id == user.owner_user_id:
+        return
+    if _job_a2a_principal(job) == a2a_principal_for_user(user):
         return
     raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only view your own jobs.")
 
@@ -1406,21 +1422,41 @@ def alpha_signup_endpoint(request: AlphaSignupRequest):
 
 
 @app.get("/a2a/capabilities")
-def a2a_capabilities_endpoint():
+def a2a_capabilities_endpoint(_user: UserContext = Depends(require_a2a_user_context)):
     """Advertises Forma's A2A transports, actions, and MCP tools."""
     return get_a2a_capabilities()
 
 
 @app.put("/a2a/agents/{agent_id}")
-async def register_a2a_agent(agent_id: str, registration: A2AAgentRegistration):
+async def register_a2a_agent(
+    agent_id: str,
+    registration: A2AAgentRegistration,
+    user: UserContext = Depends(require_a2a_user_context),
+):
     """Registers an agent so it can receive queued A2A events."""
+    normalized_agent_id = agent_id.strip()
+    if not normalized_agent_id:
+        raise HTTPException(status_code=400, detail="agent_id is required.")
+    requested_agent_id = (registration.agent_id or "").strip()
+    if requested_agent_id and requested_agent_id != normalized_agent_id:
+        raise HTTPException(status_code=400, detail="The registration agent_id must match the URL.")
     record = registration.model_dump()
-    record["agent_id"] = registration.agent_id or agent_id
-    return await A2A_HUB.register(agent_id, record)
+    record["agent_id"] = normalized_agent_id
+    try:
+        return await A2A_HUB.register(
+            normalized_agent_id,
+            record,
+            principal=a2a_principal_for_user(user),
+            owner_user_id=user.owner_user_id,
+        )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail="The agent is owned by another authenticated principal.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="The agent registration is invalid.") from exc
 
 
 @app.post("/a2a/messages")
-async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_user_context)):
+async def send_a2a_message(message: A2AMessage, user: UserContext = Depends(require_a2a_user_context)):
     """Submits an A2A message and queues an async result for the sender."""
     request_correlation_id = message.correlation_id or new_error_correlation_id()
     try:
@@ -1468,9 +1504,19 @@ async def poll_a2a_events(
     agent_id: str,
     timeout: float = Query(25.0, ge=0.0, le=60.0),
     limit: int = Query(10, ge=1, le=100),
+    user: UserContext = Depends(require_a2a_user_context),
 ):
     """Long-polls queued A2A events for an agent."""
-    events = await A2A_HUB.poll(agent_id, timeout=timeout, limit=limit)
+    try:
+        events = await A2A_HUB.poll(
+            agent_id,
+            timeout=timeout,
+            limit=limit,
+            principal=a2a_principal_for_user(user),
+            create_if_missing=False,
+        )
+    except (KeyError, PermissionError) as exc:
+        raise HTTPException(status_code=403, detail="You are not authorized to poll this agent queue.") from exc
     return [event.model_dump() for event in events]
 
 
@@ -1479,7 +1525,7 @@ def list_a2a_jobs(
     sender: str | None = None,
     job_status: str | None = Query(None, alias="status"),
     limit: int = Query(50, ge=1, le=200),
-    _user: UserContext = Depends(require_admin_user_context),
+    _user: UserContext = Depends(require_a2a_admin_user_context),
 ):
     """Lists persisted A2A job metadata."""
     jobs = JOB_STORE.list_jobs(sender=sender, status=job_status, limit=limit)
@@ -1494,7 +1540,7 @@ def get_a2a_job_metrics(
     days: int = Query(7, ge=1, le=31),
     hours: int = Query(24, ge=1, le=168),
     interval_hours: int | None = Query(None, ge=1, le=744),
-    _user: UserContext = Depends(require_admin_user_context),
+    _user: UserContext = Depends(require_a2a_admin_user_context),
 ):
     """Returns aggregate job volume and failure metrics for administrators."""
     return JOB_STORE.get_metrics(
@@ -1506,7 +1552,7 @@ def get_a2a_job_metrics(
 
 
 @app.get("/a2a/jobs/{job_id}")
-def get_a2a_job(job_id: str, user: UserContext = Depends(require_user_context)):
+def get_a2a_job(job_id: str, user: UserContext = Depends(require_a2a_user_context)):
     """Fetches persisted metadata for one A2A job."""
     job = JOB_STORE.get_job(job_id)
     if not job:
@@ -1516,7 +1562,7 @@ def get_a2a_job(job_id: str, user: UserContext = Depends(require_user_context)):
 
 
 @app.post("/a2a/jobs/{job_id}/cancel")
-def cancel_a2a_job(job_id: str, user: UserContext = Depends(require_user_context)):
+def cancel_a2a_job(job_id: str, user: UserContext = Depends(require_a2a_user_context)):
     """Stops a queued or running job owned by the current user."""
     job = JOB_STORE.get_job(job_id)
     if not job:
@@ -1726,7 +1772,13 @@ def list_example_project_object_jobs(
 @app.websocket("/a2a/socket/{agent_id}")
 async def a2a_websocket_endpoint(websocket: WebSocket, agent_id: str):
     """WebSocket A2A transport. Send A2AMessage JSON; receive A2AEvent JSON."""
-    await handle_a2a_websocket(websocket, agent_id)
+    try:
+        user = await require_a2a_websocket_context(websocket)
+    except HTTPException as exc:
+        close_code = 4403 if exc.status_code == status.HTTP_403_FORBIDDEN else 4401
+        await websocket.close(code=close_code, reason="Authentication is required for A2A transports.")
+        return
+    await handle_a2a_websocket(websocket, agent_id, user)
 
 
 @app.post("/mcp")

@@ -1,12 +1,19 @@
 # Agent-To-Agent (A2A)
 
-Forma exposes the same hardware generation capability through several agent-friendly transports.
+Forma exposes the same hardware generation capability through several agent-friendly transports. In hosted mode,
+every transport requires a Clerk session or a configured service credential. The unauthenticated exception applies
+only when `FORMA_DEPLOYMENT_MODE=local` and `FORMA_AUTH_MODE=local`; it is never inferred for hosted deployments.
 
 ## Transports
 - **REST:** `GET /api/a2a/capabilities`, `PUT /api/a2a/agents/{agent_id}`, `POST /api/a2a/messages`, long-poll `GET /api/a2a/agents/{agent_id}/events`, and job metadata lookup under `GET /api/a2a/jobs`
 - **WebSocket:** `/api/a2a/socket/{agent_id}`
 - **TCP JSONL socket:** optional newline-delimited JSON socket enabled with `A2A_SOCKET_ENABLED=true`
 - **MCP Streamable HTTP (JSON responses):** `POST /api/mcp` or `POST /api/a2a/mcp`
+
+`FORMA_A2A_API_KEY` is the preferred service credential for A2A and A2A/MCP transports. The existing
+`FORMA_MCP_API_KEY` is also accepted for A2A clients for compatibility. Both credentials must be at least 32 characters and are sent as
+`Authorization: Bearer <credential>`. Agent queues are scoped to the authenticated user or service principal that
+registered them.
 
 Job metadata is stored in the primary application database selected by `DATABASE_BACKEND`. Local jobs live in the same SQLite file selected by `SQLITE_DATABASE_URL`; hosted jobs live in the same Supabase database as projects and chats. On upgrade, rows from the retired `forma_jobs.db` file are imported without overwriting jobs already present in the primary database. The legacy file is retained. The store keeps compact metadata only: payloads have image data redacted, results are summarized instead of storing full generated IR blobs, and `source_usage` records whether a generation job used the Catalog/data warehouse, Web Research/Firecrawl, past-job context, or a combination.
 
@@ -43,6 +50,7 @@ Persisted job failures use the same public message contract and retain only the 
 ```bash
 curl -X PUT http://localhost:8000/api/a2a/agents/agent_alpha \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $FORMA_A2A_API_KEY" \
   -d '{"name":"Agent Alpha","capabilities":["hardware_planning"],"transports":["rest"]}'
 ```
 
@@ -50,6 +58,7 @@ curl -X PUT http://localhost:8000/api/a2a/agents/agent_alpha \
 ```bash
 curl -X POST http://localhost:8000/api/a2a/messages \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $FORMA_A2A_API_KEY" \
   -d '{"sender":"agent_alpha","recipient":"forma","action":"forma.generate_project","payload":{"prompt":"ESP32 soil moisture monitor with OLED","generate_image":false}}'
 ```
 
@@ -57,17 +66,24 @@ Set `payload.generate_image` to `true` only for jobs that should call the config
 
 3. Long-poll for queued events:
 ```bash
-curl 'http://localhost:8000/api/a2a/agents/agent_alpha/events?timeout=30&limit=10'
+curl 'http://localhost:8000/api/a2a/agents/agent_alpha/events?timeout=30&limit=10' \
+  -H "Authorization: Bearer $FORMA_A2A_API_KEY"
 ```
 
 4. Fetch persisted job metadata:
 ```bash
-curl http://localhost:8000/api/a2a/jobs/job-build-001
-curl 'http://localhost:8000/api/a2a/jobs?sender=agent_alpha&status=succeeded'
+curl http://localhost:8000/api/a2a/jobs/job-build-001 \
+  -H "Authorization: Bearer $FORMA_A2A_API_KEY"
+# The administrative list and metrics endpoints require a Clerk/local admin.
+curl 'http://localhost:8000/api/a2a/jobs?sender=agent_alpha&status=succeeded' \
+  -H "Authorization: Bearer $FORMA_ADMIN_BEARER_TOKEN"
 ```
 
 ## WebSocket
-Connect to `/api/a2a/socket/{agent_id}` and send the same JSON message shape. The socket receives queued A2A events as JSON objects. It also accepts MCP JSON-RPC envelopes.
+Connect to `/api/a2a/socket/{agent_id}` with an `Authorization: Bearer ...` header and send the same JSON message
+shape. The socket receives queued A2A events as JSON objects. It also accepts MCP JSON-RPC envelopes, forwarding
+the authenticated context to every MCP tool call. A socket connected to an agent owned by another principal is
+rejected.
 
 ## TCP JSONL
 Set:
@@ -77,7 +93,16 @@ A2A_SOCKET_HOST=127.0.0.1
 A2A_SOCKET_PORT=8766
 ```
 
-Each line sent to the socket is an `A2AMessage` JSON object. Each line returned by the socket is an `A2AEvent` JSON object.
+Local loopback development (`FORMA_DEPLOYMENT_MODE=local` and `FORMA_AUTH_MODE=local`) may send `A2AMessage`
+objects directly. All other TCP listeners require a first-line authentication envelope, for example:
+
+```json
+{"type":"auth","token":"Bearer <FORMA_A2A_API_KEY>","agent_id":"agent_alpha"}
+```
+
+After authentication, each line sent to the socket is an `A2AMessage` JSON object and each line returned by the
+socket is an `A2AEvent` JSON object. TCP is disabled when it is not loopback-bound and no service credential is
+configured.
 
 ## MCP Tools
 `POST /api/mcp` supports:

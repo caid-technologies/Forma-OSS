@@ -3,6 +3,7 @@ import base64
 import contextlib
 import json
 import logging
+import math
 from forma_core.config import config
 import uuid
 from datetime import datetime
@@ -11,7 +12,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
-from apps.api.auth import UserContext
+from apps.api.auth import (
+    LOCAL_USER_ID,
+    UserContext,
+    a2a_local_development_allowed,
+    a2a_service_credentials_configured,
+    authenticated_principal,
+    mcp_context_is_authorized,
+    resolve_a2a_service_context,
+)
 from forma_core.agents.workflows import (
     generate_project_with_workflow,
     get_workflow_debug_config,
@@ -80,6 +89,9 @@ FORMA_AGENT_ID = "forma"
 SERVER_RECIPIENTS = {FORMA_AGENT_ID, "server", "hardware_pipeline", "hardware-compiler"}
 MCP_PROTOCOL_VERSIONS = ("2025-06-18", "2025-03-26", "2024-11-05")
 MCP_DEFAULT_PROTOCOL_VERSION = MCP_PROTOCOL_VERSIONS[0]
+TCP_AUTH_TIMEOUT_SECONDS = 10.0
+TCP_MAX_LINE_BYTES = 64 * 1024
+TCP_MAX_AGENT_ID_LENGTH = 200
 
 
 def _utc_now() -> str:
@@ -142,34 +154,104 @@ class A2AHub:
         self._queues: Dict[str, asyncio.Queue[A2AEvent]] = {}
         self._agents: Dict[str, Dict[str, Any]] = {}
         self._history: Dict[str, List[A2AEvent]] = {}
+        self._principals: Dict[str, str] = {}
+        self._owners: Dict[str, Optional[str]] = {}
         self._lock = asyncio.Lock()
 
-    async def register(self, agent_id: str, registration: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def register(
+        self,
+        agent_id: str,
+        registration: Optional[Dict[str, Any]] = None,
+        *,
+        principal: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        normalized_agent_id = str(agent_id or "").strip()
+        if not normalized_agent_id:
+            raise ValueError("agent_id is required.")
+        if len(normalized_agent_id) > 200:
+            raise ValueError("agent_id is too long.")
+        normalized_principal = str(principal or "").strip() or None
+        normalized_owner = str(owner_user_id or "").strip() or None
         async with self._lock:
-            if agent_id not in self._queues:
-                self._queues[agent_id] = asyncio.Queue()
-            current = self._agents.get(agent_id, {})
-            self._agents[agent_id] = {
+            current_principal = self._principals.get(normalized_agent_id)
+            current_owner = self._owners.get(normalized_agent_id)
+            if current_principal and current_principal != normalized_principal:
+                raise PermissionError("The agent is owned by another authenticated principal.")
+            if current_owner and current_owner != normalized_owner:
+                raise PermissionError("The agent is owned by another authenticated user.")
+
+            if normalized_agent_id not in self._queues:
+                self._queues[normalized_agent_id] = asyncio.Queue()
+            current = self._agents.get(normalized_agent_id, {})
+            public_registration = dict(registration or {})
+            # Ownership is assigned from the authenticated context, never from
+            # caller-controlled registration metadata.
+            public_registration.pop("principal", None)
+            public_registration.pop("auth_principal", None)
+            public_registration.pop("owner_user_id", None)
+            self._agents[normalized_agent_id] = {
                 **current,
-                **(registration or {}),
-                "agent_id": agent_id,
+                **public_registration,
+                "agent_id": normalized_agent_id,
                 "last_seen_at": _utc_now(),
             }
-            self._history.setdefault(agent_id, [])
-            return self._agents[agent_id]
+            if normalized_principal:
+                self._principals[normalized_agent_id] = normalized_principal
+            if normalized_owner:
+                self._owners[normalized_agent_id] = normalized_owner
+            self._history.setdefault(normalized_agent_id, [])
+            return self._agents[normalized_agent_id]
 
-    async def publish(self, event: A2AEvent) -> A2AEvent:
-        await self.register(event.recipient)
-        queue = self._queues[event.recipient]
+    async def authorize(self, agent_id: str, principal: Optional[str]) -> None:
+        normalized_agent_id = str(agent_id or "").strip()
+        normalized_principal = str(principal or "").strip() or None
+        async with self._lock:
+            if normalized_agent_id not in self._queues:
+                raise KeyError("A2A agent not found.")
+            current_principal = self._principals.get(normalized_agent_id)
+            if current_principal and current_principal != normalized_principal:
+                raise PermissionError("The agent is owned by another authenticated principal.")
+            if normalized_principal and current_principal is None:
+                raise PermissionError("The agent has no authenticated owner.")
+
+    async def publish(
+        self,
+        event: A2AEvent,
+        *,
+        principal: Optional[str] = None,
+        owner_user_id: Optional[str] = None,
+    ) -> A2AEvent:
+        recipient = str(event.recipient or "").strip()
+        if not recipient:
+            raise ValueError("event recipient is required.")
+        if recipient != event.recipient:
+            event = event.model_copy(update={"recipient": recipient})
+        await self.register(recipient, principal=principal, owner_user_id=owner_user_id)
+        queue = self._queues[recipient]
         await queue.put(event)
-        history = self._history.setdefault(event.recipient, [])
+        history = self._history.setdefault(recipient, [])
         history.append(event)
         del history[:-100]
         return event
 
-    async def poll(self, agent_id: str, timeout: float = 25.0, limit: int = 10) -> List[A2AEvent]:
-        await self.register(agent_id)
-        queue = self._queues[agent_id]
+    async def poll(
+        self,
+        agent_id: str,
+        timeout: float = 25.0,
+        limit: int = 10,
+        *,
+        principal: Optional[str] = None,
+        create_if_missing: bool = True,
+    ) -> List[A2AEvent]:
+        normalized_agent_id = str(agent_id or "").strip()
+        if normalized_agent_id not in self._queues:
+            if not create_if_missing:
+                raise KeyError("A2A agent not found.")
+            await self.register(normalized_agent_id, principal=principal)
+        else:
+            await self.authorize(normalized_agent_id, principal)
+        queue = self._queues[normalized_agent_id]
         events: List[A2AEvent] = []
 
         if limit <= 0:
@@ -280,7 +362,6 @@ def get_a2a_capabilities() -> Dict[str, Any]:
             "a2a.ping",
         ],
         "lattice": _lattice_registry().manifest(),
-        "hub": A2A_HUB.snapshot(),
     }
 
 
@@ -826,16 +907,25 @@ def _context_owner_user_id(user_context: Optional[UserContext]) -> Optional[str]
     return owner_user_id or None
 
 
+def a2a_principal_for_user(user_context: Optional[UserContext]) -> Optional[str]:
+    """Expose the stable ownership key used by all A2A transports."""
+    return authenticated_principal(user_context)
+
+
 def _message_for_user_context(message: A2AMessage, user_context: Optional[UserContext]) -> A2AMessage:
     """Replace caller-supplied ownership metadata with authenticated identity."""
-    if not message.action.startswith("forma."):
+    principal = a2a_principal_for_user(user_context)
+    if not message.action.startswith("forma.") and principal is None:
         return message
 
     payload = dict(message.payload)
     payload.pop("owner_user_id", None)
+    payload.pop("_forma_a2a_principal", None)
     owner_user_id = _context_owner_user_id(user_context)
-    if owner_user_id:
+    if message.action.startswith("forma.") and owner_user_id:
         payload["owner_user_id"] = owner_user_id
+    if principal:
+        payload["_forma_a2a_principal"] = principal
     return message.model_copy(update={"payload": payload})
 
 
@@ -1172,16 +1262,91 @@ def _is_server_message(message: A2AMessage) -> bool:
     return message.recipient in SERVER_RECIPIENTS or message.action.startswith("forma.")
 
 
+def _normalize_message_agent_id(value: Any, field_name: str) -> str:
+    normalized = str(value or "").strip()
+    if not normalized:
+        raise ValueError(f"{field_name} is required.")
+    if len(normalized) > 200:
+        raise ValueError(f"{field_name} is too long.")
+    return normalized
+
+
+def _job_identity_matches(
+    job: Dict[str, Any],
+    message: A2AMessage,
+    principal: Optional[str],
+    owner_user_id: Optional[str],
+) -> bool:
+    if (
+        str(job.get("message_id") or "") != message.message_id
+        or str(job.get("action") or "") != message.action
+        or str(job.get("sender") or "") != message.sender
+        or str(job.get("recipient") or "") != message.recipient
+    ):
+        return False
+    payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+    stored_principal = str(payload.get("_forma_a2a_principal") or "").strip() or None
+    stored_owner = str(payload.get("owner_user_id") or "").strip() or None
+    return bool(
+        (principal and stored_principal == principal)
+        or (owner_user_id and stored_owner == owner_user_id)
+    )
+
+
+def _idempotent_job_ack(
+    message: A2AMessage,
+    existing_job: Dict[str, Any],
+    server_owned: bool,
+) -> A2AEvent:
+    return A2AEvent(
+        job_id=message.job_id,
+        message_id=message.message_id,
+        correlation_id=existing_job.get("correlation_id") or message.correlation_id,
+        type="ack",
+        action=message.action,
+        sender=FORMA_AGENT_ID,
+        recipient=message.sender,
+        payload={
+            "accepted": True,
+            "server_owned": server_owned,
+            "job_id": message.job_id,
+            "job": existing_job,
+            "idempotent": True,
+        },
+    )
+
+
 async def submit_a2a_message(
     message: A2AMessage,
     user_context: Optional[UserContext] = None,
 ) -> A2AEvent:
+    if user_context is None or not user_context.is_authenticated:
+        raise PermissionError("An authenticated context is required for A2A messages.")
+    message = message.model_copy(
+        update={
+            "job_id": _normalize_message_agent_id(message.job_id, "job_id"),
+            "message_id": _normalize_message_agent_id(message.message_id, "message_id"),
+            "sender": _normalize_message_agent_id(message.sender, "sender"),
+            "recipient": _normalize_message_agent_id(message.recipient, "recipient"),
+        }
+    )
     message = _message_for_user_context(message, user_context)
     message = message.model_copy(update={"correlation_id": message.correlation_id or new_error_correlation_id()})
     server_owned = _is_server_message(message)
     if server_owned and message.action.removeprefix("forma.") == "generate_project":
         ensure_hosted_chat_enabled()
-    await A2A_HUB.register(message.sender)
+    principal = a2a_principal_for_user(user_context)
+    owner_user_id = _context_owner_user_id(user_context)
+    await A2A_HUB.register(
+        message.sender,
+        principal=principal,
+        owner_user_id=owner_user_id,
+    )
+    if not server_owned and principal:
+        try:
+            await A2A_HUB.authorize(message.recipient, principal)
+        except KeyError as exc:
+            raise PermissionError("The recipient agent is not registered for this principal.") from exc
     project_id = message.payload.get("project_id")
     owner_user_id = _context_owner_user_id(user_context)
     if server_owned and project_id and not owner_user_id:
@@ -1193,17 +1358,41 @@ async def submit_a2a_message(
             message.action,
             require_workflow=message.action.removeprefix("forma.") == "generate_project",
         )
-    job = JOB_STORE.create_job(
-        job_id=message.job_id,
-        message_id=message.message_id,
-        correlation_id=message.correlation_id,
-        action=message.action,
-        sender=message.sender,
-        recipient=message.recipient,
-        payload=message.payload,
-        server_owned=server_owned,
-        status="queued" if server_owned else "accepted",
-    )
+    existing_job = JOB_STORE.get_job(message.job_id)
+    if existing_job:
+        if _job_identity_matches(existing_job, message, principal, owner_user_id):
+            ack = _idempotent_job_ack(message, existing_job, server_owned)
+            await A2A_HUB.publish(ack, principal=principal, owner_user_id=owner_user_id)
+            return ack
+        raise PermissionError("The A2A job id is already owned by another message.")
+    try:
+        job = JOB_STORE.create_job(
+            job_id=message.job_id,
+            message_id=message.message_id,
+            correlation_id=message.correlation_id,
+            action=message.action,
+            sender=message.sender,
+            recipient=message.recipient,
+            payload=message.payload,
+            server_owned=server_owned,
+            status="queued" if server_owned else "accepted",
+            replace_existing=False,
+        )
+    except Exception as create_error:
+        # A concurrent request may have won the unique job-id insert between
+        # the preflight lookup and creation. Reconcile only when the persisted
+        # record proves this is the same authenticated request.
+        try:
+            existing_job = JOB_STORE.get_job(message.job_id)
+        except Exception:
+            raise create_error
+        if existing_job is None:
+            raise create_error
+        if _job_identity_matches(existing_job, message, principal, owner_user_id):
+            ack = _idempotent_job_ack(message, existing_job, server_owned)
+            await A2A_HUB.publish(ack, principal=principal, owner_user_id=owner_user_id)
+            return ack
+        raise PermissionError("The A2A job id is already owned by another message.") from create_error
 
     ack = A2AEvent(
         job_id=message.job_id,
@@ -1215,7 +1404,7 @@ async def submit_a2a_message(
         recipient=message.sender,
         payload={"accepted": True, "server_owned": server_owned, "job_id": message.job_id, "job": job},
     )
-    await A2A_HUB.publish(ack)
+    await A2A_HUB.publish(ack, principal=principal, owner_user_id=owner_user_id)
 
     if server_owned:
         asyncio.create_task(_process_server_message(message, user_context))
@@ -1231,7 +1420,9 @@ async def submit_a2a_message(
                 sender=message.sender,
                 recipient=message.recipient,
                 payload=message.payload,
-            )
+            ),
+            principal=principal,
+            owner_user_id=owner_user_id,
         )
 
     return ack
@@ -1319,7 +1510,11 @@ async def _process_server_message(
             payload={"error": error_detail},
         )
 
-    await A2A_HUB.publish(event)
+    await A2A_HUB.publish(
+        event,
+        principal=a2a_principal_for_user(user_context),
+        owner_user_id=_context_owner_user_id(user_context),
+    )
 
 
 async def handle_a2a_websocket(
@@ -1327,10 +1522,26 @@ async def handle_a2a_websocket(
     agent_id: str,
     user_context: Optional[UserContext] = None,
 ) -> None:
-    await websocket.accept()
-    await A2A_HUB.register(agent_id, {"transports": ["websocket"]})
+    if user_context is None or not user_context.is_authenticated:
+        await websocket.close(code=4401, reason="Authentication is required for A2A transports.")
+        return
 
-    sender_task = asyncio.create_task(_websocket_sender(websocket, agent_id))
+    principal = a2a_principal_for_user(user_context)
+    owner_user_id = _context_owner_user_id(user_context)
+    try:
+        await A2A_HUB.register(
+            agent_id,
+            {"transports": ["websocket"]},
+            principal=principal,
+            owner_user_id=_context_owner_user_id(user_context),
+        )
+    except PermissionError:
+        await websocket.close(code=4403, reason="The agent is owned by another principal.")
+        return
+
+    await websocket.accept()
+
+    sender_task = asyncio.create_task(_websocket_sender(websocket, agent_id, principal))
     try:
         await A2A_HUB.publish(
             A2AEvent(
@@ -1339,20 +1550,55 @@ async def handle_a2a_websocket(
                 sender=FORMA_AGENT_ID,
                 recipient=agent_id,
                 payload=get_a2a_capabilities(),
-            )
+            ),
+            principal=principal,
+            owner_user_id=owner_user_id,
         )
         while True:
             raw_message = await websocket.receive_json()
             if isinstance(raw_message, dict) and raw_message.get("jsonrpc") == "2.0":
+                if not mcp_context_is_authorized(user_context):
+                    if "id" in raw_message:
+                        await websocket.send_json(
+                            _jsonrpc_error(
+                                raw_message.get("id"),
+                                -32003,
+                                "You are not authorized to use this MCP tool.",
+                                error_code="authorization_required",
+                            )
+                        )
+                    continue
                 response = await handle_mcp_json_rpc(raw_message, user_context)
                 if response is not None:
                     await websocket.send_json(response)
                 continue
 
-            raw_message = {**raw_message, "sender": raw_message.get("sender") or agent_id}
+            if not isinstance(raw_message, dict):
+                raise ValueError("A2A messages must be JSON objects.")
+            supplied_sender = raw_message.get("sender")
+            if supplied_sender and supplied_sender != agent_id:
+                raise PermissionError("The WebSocket sender must match its authenticated agent.")
+            raw_message = {**raw_message, "sender": agent_id}
             await submit_a2a_message(A2AMessage.model_validate(raw_message), user_context)
     except WebSocketDisconnect:
         logger.info("A2A websocket disconnected: %s", agent_id)
+    except PermissionError as exc:
+        correlation_id = new_error_correlation_id()
+        error_detail = api_error_detail(
+            code="authorization_required",
+            message="You are not authorized to use this A2A connection.",
+            correlation_id=correlation_id,
+            public=True,
+        )
+        log_exception(
+            logger,
+            "A2A WebSocket authorization failed",
+            exc,
+            correlation_id=correlation_id,
+            context={"agent_id": agent_id},
+            level=logging.WARNING,
+        )
+        await websocket.send_json({"type": "error", "error": error_detail})
     except Exception as exc:
         correlation_id = new_error_correlation_id()
         error_detail = api_error_detail(
@@ -1375,67 +1621,249 @@ async def handle_a2a_websocket(
             await sender_task
 
 
-async def _websocket_sender(websocket: WebSocket, agent_id: str) -> None:
+async def _websocket_sender(
+    websocket: WebSocket,
+    agent_id: str,
+    principal: Optional[str],
+) -> None:
     while True:
-        events = await A2A_HUB.poll(agent_id, timeout=30.0, limit=10)
+        events = await A2A_HUB.poll(
+            agent_id,
+            timeout=30.0,
+            limit=10,
+            principal=principal,
+            create_if_missing=False,
+        )
         for event in events:
             await websocket.send_json(event.model_dump())
 
 
 _tcp_server: Optional[asyncio.AbstractServer] = None
+_tcp_auth_policy: Optional[bool] = None
 
 
 async def start_a2a_tcp_server() -> Optional[asyncio.AbstractServer]:
-    global _tcp_server
+    global _tcp_auth_policy, _tcp_server
     if _tcp_server is not None or not _env_bool("A2A_SOCKET_ENABLED", default=False):
         return _tcp_server
 
-    host = config.get("A2A_SOCKET_HOST", "127.0.0.1")
+    host = config.get("A2A_SOCKET_HOST", "127.0.0.1") or "127.0.0.1"
     port = int(config.get("A2A_SOCKET_PORT", "8766"))
-    _tcp_server = await asyncio.start_server(_handle_tcp_client, host, port)
+    auth_required = _tcp_authentication_required(host)
+    if auth_required and not a2a_service_credentials_configured():
+        logger.error(
+            "A2A TCP JSONL transport is disabled because it is not bound to an "
+            "explicitly local loopback runtime and no A2A service credential is configured."
+        )
+        return None
+    _tcp_auth_policy = auth_required
+    try:
+        _tcp_server = await asyncio.start_server(
+            _handle_tcp_client,
+            host,
+            port,
+            limit=TCP_MAX_LINE_BYTES,
+        )
+    except Exception:
+        _tcp_auth_policy = None
+        raise
     logger.info("A2A TCP JSONL socket listening on %s:%s", host, port)
     return _tcp_server
 
 
 async def stop_a2a_tcp_server() -> None:
-    global _tcp_server
+    global _tcp_auth_policy, _tcp_server
     if _tcp_server is None:
+        _tcp_auth_policy = None
         return
     _tcp_server.close()
     await _tcp_server.wait_closed()
     _tcp_server = None
+    _tcp_auth_policy = None
+
+
+def _is_loopback_host(host: str) -> bool:
+    normalized = str(host or "").strip().lower().strip("[]")
+    return normalized in {"127.0.0.1", "localhost", "::1"}
+
+
+def _tcp_authentication_required(host: str) -> bool:
+    return not (a2a_local_development_allowed() and _is_loopback_host(host))
+
+
+async def _send_tcp_error(writer: asyncio.StreamWriter, code: str, message: str) -> None:
+    correlation_id = new_error_correlation_id()
+    error_detail = api_error_detail(
+        code=code,
+        message=message,
+        correlation_id=correlation_id,
+        public=True,
+    )
+    writer.write(json.dumps({"type": "error", "error": error_detail}).encode("utf-8") + b"\n")
+    with contextlib.suppress(Exception):
+        await writer.drain()
+
+
+async def _authenticate_tcp_client(
+    reader: asyncio.StreamReader,
+    writer: asyncio.StreamWriter,
+) -> Optional[Tuple[Optional[str], UserContext]]:
+    auth_required = _tcp_auth_policy
+    host = config.get("A2A_SOCKET_HOST", "127.0.0.1") or "127.0.0.1"
+    if auth_required is None:
+        auth_required = _tcp_authentication_required(host)
+    if not auth_required:
+        return (
+            None,
+            UserContext(
+                provider="local",
+                subject=LOCAL_USER_ID,
+                owner_user_id=LOCAL_USER_ID,
+                is_authenticated=True,
+                is_admin=True,
+            ),
+        )
+
+    try:
+        line = await asyncio.wait_for(reader.readline(), timeout=TCP_AUTH_TIMEOUT_SECONDS)
+    except (asyncio.TimeoutError, ValueError):
+        await _send_tcp_error(
+            writer,
+            "a2a_authentication_required",
+            "The first TCP message must authenticate the connection.",
+        )
+        return None
+    if not line:
+        return None
+    if len(line) > TCP_MAX_LINE_BYTES:
+        await _send_tcp_error(writer, "a2a_invalid_request", "The TCP message is too large.")
+        return None
+    try:
+        envelope = json.loads(line.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        await _send_tcp_error(
+            writer,
+            "a2a_authentication_required",
+            "The first TCP message must authenticate the connection.",
+        )
+        return None
+
+    if not isinstance(envelope, dict) or (
+        envelope.get("type") not in {"auth", "authenticate"}
+        and envelope.get("action") not in {"a2a.authenticate", "authenticate"}
+    ):
+        await _send_tcp_error(
+            writer,
+            "a2a_authentication_required",
+            "The first TCP message must authenticate the connection.",
+        )
+        return None
+
+    nested_payload = envelope.get("payload") if isinstance(envelope.get("payload"), dict) else {}
+    token = (
+        envelope.get("token")
+        or envelope.get("api_key")
+        or envelope.get("authorization")
+        or nested_payload.get("token")
+        or nested_payload.get("api_key")
+        or nested_payload.get("authorization")
+    )
+    context = resolve_a2a_service_context(token if isinstance(token, str) else None)
+    if context is None:
+        await _send_tcp_error(
+            writer,
+            "authorization_required",
+            "The TCP A2A credential is invalid or missing.",
+        )
+        return None
+
+    requested_agent_id = (
+        envelope.get("agent_id")
+        or envelope.get("agentId")
+        or nested_payload.get("agent_id")
+        or nested_payload.get("agentId")
+    )
+    agent_id = str(requested_agent_id or f"tcp_{uuid.uuid4().hex[:12]}").strip()
+    if not agent_id or len(agent_id) > TCP_MAX_AGENT_ID_LENGTH:
+        await _send_tcp_error(writer, "a2a_invalid_request", "The TCP agent id is invalid.")
+        return None
+    return agent_id, context
 
 
 async def _handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
     peer = writer.get_extra_info("peername")
-    agent_id = f"tcp_{uuid.uuid4().hex[:12]}"
-    await A2A_HUB.register(agent_id, {"transports": ["tcp_jsonl"], "metadata": {"peer": str(peer)}})
-    sender_task = asyncio.create_task(_tcp_sender(writer, agent_id))
+    authenticated = await _authenticate_tcp_client(reader, writer)
+    if authenticated is None:
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        return
+    agent_id, user_context = authenticated
+    principal = a2a_principal_for_user(user_context)
+    owner_user_id = _context_owner_user_id(user_context)
+    sender_task: Optional[asyncio.Task[None]] = None
 
-    await A2A_HUB.publish(
-        A2AEvent(
-            type="ready",
-            action="a2a.connected",
-            sender=FORMA_AGENT_ID,
-            recipient=agent_id,
-            payload={**get_a2a_capabilities(), "connection_agent_id": agent_id},
+    async def establish_agent(normalized_agent_id: str) -> None:
+        nonlocal agent_id, sender_task
+        await A2A_HUB.register(
+            normalized_agent_id,
+            {"transports": ["tcp_jsonl"], "metadata": {"peer": str(peer)}},
+            principal=principal,
+            owner_user_id=owner_user_id,
         )
-    )
+        agent_id = normalized_agent_id
+        sender_task = asyncio.create_task(_tcp_sender(writer, normalized_agent_id, principal))
+        await A2A_HUB.publish(
+            A2AEvent(
+                type="ready",
+                action="a2a.connected",
+                sender=FORMA_AGENT_ID,
+                recipient=normalized_agent_id,
+                payload={**get_a2a_capabilities(), "connection_agent_id": normalized_agent_id},
+            ),
+            principal=principal,
+            owner_user_id=owner_user_id,
+        )
 
     try:
+        if agent_id is not None:
+            try:
+                await establish_agent(agent_id)
+            except PermissionError:
+                await _send_tcp_error(writer, "authorization_required", "The agent is owned by another principal.")
+                return
         while not reader.at_eof():
-            line = await reader.readline()
+            try:
+                line = await reader.readline()
+            except ValueError:
+                await _send_tcp_error(writer, "a2a_invalid_request", "The TCP message is too large.")
+                break
             if not line:
                 break
             try:
                 raw_message = json.loads(line.decode("utf-8"))
-                raw_message = {**raw_message, "sender": raw_message.get("sender") or agent_id}
-                await submit_a2a_message(A2AMessage.model_validate(raw_message))
+                if not isinstance(raw_message, dict):
+                    raise ValueError("A2A messages must be JSON objects.")
+                supplied_sender = raw_message.get("sender")
+                if agent_id is None:
+                    await establish_agent(
+                        _normalize_message_agent_id(supplied_sender or "anonymous", "sender")
+                    )
+                elif supplied_sender and supplied_sender != agent_id:
+                    raise PermissionError("The TCP sender must match its authenticated agent.")
+                raw_message = {**raw_message, "sender": agent_id}
+                await submit_a2a_message(A2AMessage.model_validate(raw_message), user_context)
             except Exception as exc:
                 correlation_id = new_error_correlation_id()
+                error_code = "authorization_required" if isinstance(exc, PermissionError) else "a2a_protocol_error"
+                error_message = (
+                    "You are not authorized to use this A2A connection."
+                    if isinstance(exc, PermissionError)
+                    else "The A2A message could not be processed."
+                )
                 error_detail = api_error_detail(
-                    code="a2a_protocol_error",
-                    message="The A2A message could not be processed.",
+                    code=error_code,
+                    message=error_message,
                     correlation_id=correlation_id,
                     public=True,
                 )
@@ -1449,16 +1877,27 @@ async def _handle_tcp_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 writer.write(json.dumps({"type": "error", "error": error_detail}).encode("utf-8") + b"\n")
                 await writer.drain()
     finally:
-        sender_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await sender_task
+        if sender_task is not None:
+            sender_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sender_task
         writer.close()
         await writer.wait_closed()
 
 
-async def _tcp_sender(writer: asyncio.StreamWriter, agent_id: str) -> None:
+async def _tcp_sender(
+    writer: asyncio.StreamWriter,
+    agent_id: str,
+    principal: Optional[str],
+) -> None:
     while not writer.is_closing():
-        events = await A2A_HUB.poll(agent_id, timeout=30.0, limit=10)
+        events = await A2A_HUB.poll(
+            agent_id,
+            timeout=30.0,
+            limit=10,
+            principal=principal,
+            create_if_missing=False,
+        )
         for event in events:
             writer.write(json.dumps(event.model_dump()).encode("utf-8") + b"\n")
             await writer.drain()
@@ -1610,8 +2049,8 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                 "type": "object",
                 "properties": {
                     "agent_id": {"type": "string"},
-                    "timeout": {"type": "number", "default": 25},
-                    "limit": {"type": "integer", "default": 10},
+                    "timeout": {"type": "number", "minimum": 0, "maximum": 60, "default": 25},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 10},
                 },
                 "required": ["agent_id"],
             },
@@ -1883,6 +2322,54 @@ def _persist_mcp_compile(
     }
 
 
+def _require_mcp_a2a_principal(user_context: Optional[UserContext]) -> str:
+    if user_context is None or not user_context.is_authenticated:
+        raise PermissionError("An authenticated context is required for A2A tools.")
+    principal = a2a_principal_for_user(user_context)
+    if not principal:
+        raise PermissionError("An authenticated principal is required for A2A tools.")
+    return principal
+
+
+def _mcp_global_job_access(user_context: Optional[UserContext]) -> bool:
+    return bool(
+        user_context
+        and user_context.is_admin
+        and not user_context.provider.endswith("-api-key")
+    )
+
+
+def _mcp_job_is_accessible(
+    job: Dict[str, Any],
+    user_context: Optional[UserContext],
+    *,
+    principal: Optional[str] = None,
+) -> bool:
+    if _mcp_global_job_access(user_context):
+        return True
+    principal = principal or a2a_principal_for_user(user_context)
+    payload = job.get("payload") if isinstance(job, dict) else None
+    if not isinstance(payload, dict):
+        return False
+    owner_user_id = str(payload.get("owner_user_id") or "").strip()
+    if owner_user_id and user_context and owner_user_id == user_context.owner_user_id:
+        return True
+    return bool(principal and payload.get("_forma_a2a_principal") == principal)
+
+
+def _mcp_poll_bounds(arguments: Dict[str, Any]) -> Tuple[float, int]:
+    try:
+        timeout = float(arguments.get("timeout", 25))
+        limit = int(arguments.get("limit", 10))
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise TypeError("poll_events timeout and limit must be numeric.") from exc
+    if not math.isfinite(timeout) or timeout < 0 or timeout > 60:
+        raise TypeError("poll_events timeout must be between 0 and 60 seconds.")
+    if limit < 1 or limit > 100:
+        raise TypeError("poll_events limit must be between 1 and 100.")
+    return timeout, limit
+
+
 async def _call_mcp_tool(
     tool_name: str,
     arguments: Dict[str, Any],
@@ -1924,31 +2411,52 @@ async def _call_mcp_tool(
         }
 
     if tool_name == "forma.a2a.send_message":
+        _require_mcp_a2a_principal(user_context)
         ack = await submit_a2a_message(A2AMessage.model_validate(arguments), user_context)
         return ack.model_dump()
 
     if tool_name == "forma.a2a.poll_events":
-        events = await A2A_HUB.poll(
-            arguments["agent_id"],
-            timeout=float(arguments.get("timeout", 25)),
-            limit=int(arguments.get("limit", 10)),
-        )
+        principal = _require_mcp_a2a_principal(user_context)
+        timeout, limit = _mcp_poll_bounds(arguments)
+        try:
+            events = await A2A_HUB.poll(
+                arguments["agent_id"],
+                timeout=timeout,
+                limit=limit,
+                principal=principal,
+                create_if_missing=False,
+            )
+        except (KeyError, PermissionError) as exc:
+            raise PermissionError("You are not authorized to poll this agent queue.") from exc
         return {"events": [event.model_dump() for event in events]}
 
     if tool_name == "forma.a2a.get_job":
+        _require_mcp_a2a_principal(user_context)
         job = JOB_STORE.get_job(arguments["job_id"])
         if not job:
             raise ValueError("A2A job not found.")
+        if not _mcp_job_is_accessible(job, user_context):
+            raise PermissionError("You are not authorized to view this A2A job.")
         return job
 
     if tool_name == "forma.a2a.list_jobs":
-        return {
-            "jobs": JOB_STORE.list_jobs(
-                sender=arguments.get("sender"),
-                status=arguments.get("status"),
-                limit=int(arguments.get("limit", 50)),
-            )
-        }
+        principal = _require_mcp_a2a_principal(user_context)
+        requested_limit = int(arguments.get("limit", 50))
+        if requested_limit < 1 or requested_limit > 200:
+            raise ValueError("limit must be between 1 and 200.")
+        query_limit = requested_limit if _mcp_global_job_access(user_context) else 200
+        jobs = JOB_STORE.list_jobs(
+            sender=arguments.get("sender"),
+            status=arguments.get("status"),
+            limit=query_limit,
+        )
+        if not _mcp_global_job_access(user_context):
+            jobs = [
+                job
+                for job in jobs
+                if _mcp_job_is_accessible(job, user_context, principal=principal)
+            ]
+        return {"jobs": jobs[:requested_limit]}
 
     if tool_name == "forma.lattice.list_agents":
         registry = _lattice_registry()

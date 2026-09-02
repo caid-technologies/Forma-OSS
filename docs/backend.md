@@ -46,7 +46,7 @@ The orchestrator runs an **ADK-style 7-agent pipeline** (implemented in `forma_c
 Generation behavior is packaged under `forma_core` so the API server, CLI, smoke tests, workers, and future services all share one implementation. Use `forma_core.generation` for high-level generation, `forma_core.models` for Hardware IR schemas, `forma_core.validation` for electrical checks, `forma_core.llm` for provider resolution and structured generation, `forma_core.images` for image providers and visual prompt construction, `forma_core.runtime` for deployment gating, and `forma_core.selectors` for parsing `provider/model` selectors. The legacy backend core modules are compatibility wrappers.
 
 ## A2A layer
-The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`.
+The A2A layer exposes Forma to external agents as a tool server and lightweight broker. REST long-polling, WebSocket, and MCP-style JSON-RPC are always mounted and authenticated in hosted mode. Job metadata uses the primary application database, so local jobs share `SQLITE_DATABASE_URL` with projects and hosted jobs share the Supabase schema. The TCP JSONL listener is opt-in with `A2A_SOCKET_ENABLED=true`; it remains loopback/local-only without a service credential.
 
 LLM configuration behavior:
 

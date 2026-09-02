@@ -406,7 +406,7 @@ function formaBrowserProjectFromGalleryItem(item: ProjectGalleryItem): FormaProj
     remix_count: item.remixCount,
     saved: item.saved,
     can_chat: item.canChat,
-    image_url: item.image ? previewableImageSrc(item.image) : null,
+    image_url: item.image ? previewableImageSrc(item.image.src) : null,
   };
 }
 

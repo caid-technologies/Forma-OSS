@@ -463,7 +463,12 @@ function ProjectGalleryCard({
   const ageLabel = formatProjectAge(item.createdAt);
   const [saveBusy, setSaveBusy] = useState(false);
   const [remixBusy, setRemixBusy] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
   const interactive = Boolean(onToggleSave || onRemix);
+
+  useEffect(() => {
+    setImageFailed(false);
+  }, [item.image?.src]);
 
   const handleSave = async () => {
     if (!onToggleSave || saveBusy) return;
@@ -500,13 +505,14 @@ function ProjectGalleryCard({
       aria-label={`View project ${item.title}`}
     >
       <div className="aspect-square overflow-hidden border-b border-white/5 bg-[#0f1117] sm:aspect-[4/3]">
-        {item.image ? (
+        {item.image && !imageFailed ? (
           <img
             src={item.image.src}
             alt={`${item.title} preview`}
             className="h-full w-full object-contain p-2 transition duration-300 group-hover:scale-[1.015] sm:object-cover sm:p-0"
+            onError={() => setImageFailed(true)}
           />
-        ) : item.imageLoading ? (
+        ) : item.imageLoading && !imageFailed ? (
           <ProjectImageLoadingPanel />
         ) : (
           <ProjectGalleryPlaceholderThumb />

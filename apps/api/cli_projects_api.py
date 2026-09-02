@@ -13,7 +13,7 @@ from forma_core.database import (
     CliProjectConflictError,
     get_cli_project_revision,
     insert_cli_project_revision,
-    list_cli_projects,
+    list_project_identities,
 )
 from forma_core.persistence.project_artifacts import (
     ProjectArtifactStorage,
@@ -42,7 +42,7 @@ def _owner(user: UserContext) -> str:
 
 @router.get("")
 async def list_cli_projects_endpoint(user: UserContext = Depends(require_user_context)) -> dict[str, object]:
-    return {"items": list_cli_projects(_owner(user))}
+    return {"items": list_project_identities(_owner(user))}
 
 
 @router.post("/push")

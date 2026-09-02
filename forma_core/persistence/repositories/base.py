@@ -14,6 +14,10 @@ class ApplicationRepository(Protocol):
 
     def insert_component_template(self, record: Dict[str, Any]) -> None: ...
 
+    def upsert_project_identity(self, record: Dict[str, Any]) -> Any: ...
+
+    def list_project_identities(self, owner_user_id: str) -> List[Any]: ...
+
     def save_generated_project(
         self,
         record: Dict[str, Any],

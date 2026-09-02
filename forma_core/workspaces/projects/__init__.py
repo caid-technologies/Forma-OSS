@@ -19,6 +19,7 @@ from forma_core.workspaces.projects.manifest import (
     redact_project_secrets,
     write_project_manifest,
 )
+from forma_core.workspaces.projects.identity import ProjectCreationChannel, ProjectIdentity
 
 __all__ = [
     "PROJECT_REVISION_SCHEMA_VERSION",
@@ -36,4 +37,6 @@ __all__ = [
     "load_project_manifest",
     "redact_project_secrets",
     "write_project_manifest",
+    "ProjectCreationChannel",
+    "ProjectIdentity",
 ]

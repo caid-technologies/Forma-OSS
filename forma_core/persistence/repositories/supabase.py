@@ -49,18 +49,47 @@ class SupabaseRepository:
     def insert_component_template(self, record: Dict[str, Any]) -> None:
         self._client.table("component_templates").insert(record).execute()
 
+    def upsert_project_identity(self, record: Dict[str, Any]) -> Any:
+        rows = self._client.table("projects").upsert(record, on_conflict="project_id").execute().data or []
+        return _record(rows[0]) if rows else None
+
+    def list_project_identities(self, owner_user_id: str) -> List[Any]:
+        rows = (
+            self._client.table("projects")
+            .select("*")
+            .eq("owner_user_id", owner_user_id)
+            .eq("status", "active")
+            .order("updated_at", desc=True)
+            .execute()
+            .data
+            or []
+        )
+        return [_record(row) for row in rows]
+
     def save_generated_project(
         self,
         record: Dict[str, Any],
         chat_record: Optional[Dict[str, Any]],
     ) -> None:
+        self._client.table("projects").upsert({
+            "project_id": record["project_id"],
+            "owner_user_id": record.get("owner_user_id"),
+            "creation_channel": record.get("creation_channel", "hosted"),
+            "title": record.get("title", ""),
+            "prompt": record.get("prompt", ""),
+            "chat_id": record.get("chat_id"),
+            "visibility": record.get("visibility", "private"),
+            "status": record.get("status", "active"),
+            "created_at": record["created_at"],
+            "updated_at": record["created_at"],
+        }, on_conflict="project_id").execute()
         self._client.table("generated_projects").insert(record).execute()
         if chat_record:
             self.upsert_project_chat(chat_record)
 
     def list_generated_projects(self, owner_user_id: Optional[str]) -> List[Any]:
         query = self._client.table("generated_projects").select(
-            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
+            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,creation_channel,visibility,hardware_ir,status,"
             "deleted_at,deletion_requested_by,purge_after,purge_started_at,purge_completed_at,deletion_error"
         ).eq("status", "active")
         if owner_user_id:
@@ -78,7 +107,7 @@ class SupabaseRepository:
         search: Optional[str] = None,
     ) -> tuple[List[Any], int]:
         query = self._client.table("generated_projects").select(
-            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,visibility,hardware_ir,status,"
+            "id,project_id,chat_id,title,prompt,created_at,owner_user_id,creation_channel,visibility,hardware_ir,status,"
             "deleted_at,deletion_requested_by,purge_after,purge_started_at,purge_completed_at,deletion_error",
             count="exact",
         ).eq("status", "active")
@@ -457,6 +486,18 @@ class SupabaseRepository:
         ):
             return None
         try:
+            self._client.table("projects").upsert({
+                "project_id": project_record["project_id"],
+                "owner_user_id": project_record["owner_user_id"],
+                "creation_channel": "cli",
+                "title": project_record["title"],
+                "prompt": str((revision_record.get("manifest_json") or {}).get("prompt") or ""),
+                "workspace_id": project_record.get("workspace_id"),
+                "visibility": "private",
+                "status": "active",
+                "created_at": project_record["created_at"],
+                "updated_at": revision_record["created_at"],
+            }, on_conflict="project_id").execute()
             rows = self._client.table("cli_project_revisions").insert(revision_record).execute().data or []
             self._client.table("cli_projects").update({
                 "workspace_id": project_record["workspace_id"],

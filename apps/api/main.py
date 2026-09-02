@@ -92,6 +92,7 @@ from forma_core.database import (
     list_component_templates,
     list_generated_projects,
     list_generated_projects_page,
+    list_project_identities,
     list_latest_project_revisions,
     list_project_deletion_audits,
     list_project_generation_jobs,
@@ -1854,6 +1855,7 @@ def _project_summary_response(
     )
     return {
         "project_id": project.project_id,
+        "creation_channel": getattr(project, "creation_channel", "hosted"),
         "chat_id": getattr(project, "chat_id", None) if can_chat else None,
         "title": project.title,
         "prompt": project.prompt,
@@ -2066,6 +2068,16 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Dict[
     }
 
 
+def _list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
+    """Read the shared identity table, tolerating pre-migration local stores."""
+    try:
+        return list_project_identities(owner_user_id)
+    except Exception as exc:
+        if "no such table" in str(exc).lower() and "projects" in str(exc).lower():
+            return []
+        raise
+
+
 @app.get("/projects")
 def list_projects_endpoint(
     user: UserContext = Depends(optional_user_context),
@@ -2121,6 +2133,31 @@ def list_my_projects_endpoint(
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
+        identities = _list_project_identities(owner_user_id) if limit is None else []
+        if identities:
+            response: List[Dict[str, Any]] = []
+            for identity in identities:
+                project_id = str(identity["project_id"])
+                if identity.get("creation_channel") == "cli":
+                    project = _cli_project_response(project_id, owner_user_id)
+                    if project is not None:
+                        response.append(project)
+                    continue
+                project = get_generated_project(project_id)
+                if project is not None:
+                    response.append(_project_summary_response(project, current_user_id=owner_user_id))
+                    continue
+                try:
+                    revision = get_latest_project_revision(project_id, owner_user_id)
+                    brief = get_latest_design_brief(project_id, owner_user_id)
+                except (ProjectStateError, DesignBriefNotFoundError):
+                    continue
+                response.append(_canonical_project_summary_response(
+                    revision,
+                    brief,
+                    owner_user_id=owner_user_id,
+                ))
+            return _with_project_engagement(response, owner_user_id)
         if limit is not None:
             projects, total = list_generated_projects_page(
                 owner_user_id=owner_user_id,

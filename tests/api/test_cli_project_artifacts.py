@@ -53,6 +53,17 @@ def _request(content: bytes, media_type: str) -> Request:
 
 
 class CliProjectArtifactApiTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cli_project_list_reads_shared_project_identities(self) -> None:
+        identities = [
+            {"project_id": "hosted-project", "creation_channel": "hosted", "title": "Hosted project"},
+            {"project_id": "cli-project", "creation_channel": "cli", "title": "CLI project"},
+        ]
+        with patch.object(cli_projects_api, "list_project_identities", return_value=identities) as list_identities:
+            response = await cli_projects_api.list_cli_projects_endpoint(_user())
+
+        list_identities.assert_called_once_with("user-a")
+        self.assertEqual(identities, response["items"])
+
     def setUp(self) -> None:
         self.content = b"native cad bytes"
         self.sha256 = hashlib.sha256(self.content).hexdigest()

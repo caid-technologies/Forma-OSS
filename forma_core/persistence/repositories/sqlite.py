@@ -11,6 +11,7 @@ from forma_core.persistence.models import (
     DBComponentTemplate,
     DBDesignBrief,
     DBGeneratedProject,
+    DBProject,
     DBProjectContributionConsent,
     DBProjectContributionSnapshot,
     DBProjectChat,
@@ -58,12 +59,51 @@ class SqlAlchemyRepository:
         with self._session() as session, session.begin():
             session.add(DBComponentTemplate(**record))
 
+    def upsert_project_identity(self, record: Dict[str, Any]) -> Any:
+        with self._session() as session, session.begin():
+            project = session.query(DBProject).filter(DBProject.project_id == record["project_id"]).first()
+            if project is None:
+                project = DBProject(**record)
+                session.add(project)
+            else:
+                for key, value in record.items():
+                    if key != "project_id":
+                        setattr(project, key, value)
+            return project
+
+    def list_project_identities(self, owner_user_id: str) -> List[Any]:
+        with self._session() as session:
+            return session.query(DBProject).filter(
+                DBProject.owner_user_id == owner_user_id,
+                DBProject.status == "active",
+            ).order_by(DBProject.updated_at.desc()).all()
+
     def save_generated_project(
         self,
         record: Dict[str, Any],
         chat_record: Optional[Dict[str, Any]],
     ) -> None:
         with self._session() as session, session.begin():
+            identity = session.query(DBProject).filter(DBProject.project_id == record["project_id"]).first()
+            identity_record = {
+                "project_id": record["project_id"],
+                "owner_user_id": record.get("owner_user_id"),
+                "creation_channel": record.get("creation_channel", "hosted"),
+                "title": record.get("title", ""),
+                "prompt": record.get("prompt", ""),
+                "chat_id": record.get("chat_id"),
+                "workspace_id": None,
+                "visibility": record.get("visibility", "private"),
+                "status": record.get("status", "active"),
+                "created_at": record["created_at"],
+                "updated_at": record["created_at"],
+            }
+            if identity is None:
+                session.add(DBProject(**identity_record))
+            else:
+                for key, value in identity_record.items():
+                    if key != "project_id":
+                        setattr(identity, key, value)
             session.add(DBGeneratedProject(**record))
             if not chat_record:
                 return
@@ -475,6 +515,26 @@ class SqlAlchemyRepository:
                     or project.current_revision + 1 != revision_record["revision"]
                 ):
                     return None
+                identity = session.query(DBProject).filter(DBProject.project_id == project_record["project_id"]).first()
+                identity_record = {
+                    "project_id": project_record["project_id"],
+                    "owner_user_id": project_record["owner_user_id"],
+                    "creation_channel": "cli",
+                    "title": project_record["title"],
+                    "prompt": str((revision_record.get("manifest_json") or {}).get("prompt") or ""),
+                    "chat_id": None,
+                    "workspace_id": project_record.get("workspace_id"),
+                    "visibility": "private",
+                    "status": "active",
+                    "created_at": project_record["created_at"],
+                    "updated_at": revision_record["created_at"],
+                }
+                if identity is None:
+                    session.add(DBProject(**identity_record))
+                else:
+                    for key, value in identity_record.items():
+                        if key != "project_id":
+                            setattr(identity, key, value)
                 revision = DBCliProjectRevision(**revision_record)
                 session.add(revision)
                 project.workspace_id = project_record["workspace_id"]

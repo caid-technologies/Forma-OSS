@@ -31,6 +31,7 @@ class ProjectSummaryTests(unittest.TestCase):
                 "components": [],
                 "assembly_metadata": {
                     "product_image_url": "https://storage.example.test/product.png",
+                    "product_image_data": "inline-image-data",
                 },
             },
         )
@@ -42,6 +43,34 @@ class ProjectSummaryTests(unittest.TestCase):
 
         hydrate.assert_not_called()
         self.assertEqual("https://storage.example.test/product.png", summary["product_image_url"])
+        self.assertEqual("inline-image-data", summary["product_image_data"])
+
+    def test_project_summary_promotes_visual_sequence_data_for_gallery_cards(self) -> None:
+        project = SimpleNamespace(
+            project_id="fd54de37-2fbb-485a-92e4-8bfaf4a2f08c",
+            chat_id="chat_123",
+            title="Low Voltage Desk Lamp",
+            prompt="desk lamp",
+            created_at="2026-07-21T14:08:00Z",
+            owner_user_id="user_123",
+            hardware_ir={
+                "components": [],
+                "assembly_metadata": {
+                    "product_visual_sequence": [
+                        {"view_id": "case", "data": "inline-image-data"},
+                    ],
+                },
+            },
+        )
+
+        with patch.object(main, "creator_display_name", return_value="isayahc"), patch.object(
+            main, "hydrate_image_storage_metadata"
+        ) as hydrate:
+            summary = main._project_summary_response(project, hydrate_storage=False)
+
+        hydrate.assert_not_called()
+        self.assertTrue(summary["has_product_image"])
+        self.assertEqual("inline-image-data", summary["product_image_data"])
 
     def test_project_summary_includes_hydrated_product_image(self) -> None:
         project = SimpleNamespace(

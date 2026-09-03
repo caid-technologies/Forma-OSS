@@ -105,6 +105,23 @@ class ProjectReadResolverTests(unittest.TestCase):
         self.assertTrue(resolved.can_chat)
         self.assertFalse(resolved.legacy_fallback)
 
+    def test_canonical_revision_resolves_without_design_brief(self) -> None:
+        revision = _revision(_brief())
+        repository = Mock()
+        repository.get_generated_project.return_value = None
+        repository.get_latest_design_brief.return_value = None
+        repository.get_cli_project_revision.return_value = None
+        resolver = ProjectReadResolver(repository)
+        resolver._state.get_latest = Mock(return_value=revision)
+
+        resolved = resolver.resolve(PROJECT_ID, "owner-a")
+
+        self.assertEqual("canonical", resolved.source)
+        self.assertEqual("Resolver project", resolved.title)
+        self.assertEqual("A resolver test project.", resolved.prompt)
+        self.assertIsNone(resolved.chat_id)
+        self.assertFalse(resolved.can_chat)
+
     def test_cli_project_resolves_when_generated_projection_is_missing(self) -> None:
         repository = Mock()
         repository.get_generated_project.return_value = None

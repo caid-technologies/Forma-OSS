@@ -1822,12 +1822,20 @@ def _project_summary_response(
     *,
     hydrate_storage: bool = True,
     include_inline_images: bool = True,
+    image_metadata: Optional[Dict[str, Any]] = None,
 ) -> ProjectSummary:
     owner_user_id = _project_owner_user_id(project)
     can_chat = bool(current_user_id and owner_user_id == current_user_id)
     hardware_ir = getattr(project, "hardware_ir", None) if isinstance(getattr(project, "hardware_ir", None), dict) else {}
     components = hardware_ir.get("components") if isinstance(hardware_ir, dict) else []
-    metadata = hardware_ir.get("assembly_metadata") if isinstance(hardware_ir, dict) and isinstance(hardware_ir.get("assembly_metadata"), dict) else {}
+    project_metadata = (
+        hardware_ir.get("assembly_metadata")
+        if isinstance(hardware_ir, dict) and isinstance(hardware_ir.get("assembly_metadata"), dict)
+        else {}
+    )
+    # Resolved metadata is authoritative for cross-store project reads. The
+    # legacy project payload remains the fallback for callers without a resolver.
+    metadata = image_metadata if isinstance(image_metadata, dict) else project_metadata
     hydrated_metadata = (
         hydrate_image_storage_metadata(metadata, project.project_id)
         if metadata and hydrate_storage
@@ -2428,6 +2436,7 @@ def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depe
         summary = _project_summary_response(
             resolved.project,
             current_user_id=user.owner_user_id,
+            image_metadata=getattr(resolved, "image_metadata", None),
         ).model_dump(mode="json")
         summary["can_chat"] = resolved.can_chat
         summary["chat_id"] = resolved.chat_id if resolved.can_chat else None

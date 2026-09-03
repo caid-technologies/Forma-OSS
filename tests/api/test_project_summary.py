@@ -192,6 +192,63 @@ class ProjectSummaryTests(unittest.TestCase):
         self.assertFalse(summary["can_chat"])
         self.assertIsNone(summary["chat_id"])
 
+    def test_project_image_summary_uses_resolver_image_metadata(self) -> None:
+        project = SimpleNamespace(
+            project_id="canonical-only-project",
+            chat_id=None,
+            title="Canonical project",
+            prompt="Build a canonical project.",
+            created_at="2026-08-01T12:00:00Z",
+            owner_user_id="user_123",
+            hardware_ir={"components": [], "assembly_metadata": {}},
+        )
+
+        with patch.object(
+            main,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(
+                project=project,
+                image_metadata={"product_image_url": "https://storage.example.test/canonical.png"},
+                can_chat=False,
+                chat_id=None,
+            ),
+        ), patch.object(main, "creator_display_name", return_value="isayahc"), patch.object(
+            main, "project_engagement_for_ids", return_value={}
+        ):
+            summary = main.get_project_image_summary_endpoint(project.project_id, ANONYMOUS_USER)
+
+        self.assertTrue(summary["has_product_image"])
+        self.assertEqual("https://storage.example.test/canonical.png", summary["product_image_url"])
+
+    def test_project_image_summary_reports_missing_storage_without_404(self) -> None:
+        project = SimpleNamespace(
+            project_id="canonical-missing-image",
+            chat_id=None,
+            title="Canonical project without image",
+            prompt="Build a canonical project.",
+            created_at="2026-08-01T12:00:00Z",
+            owner_user_id="user_123",
+            hardware_ir={"components": [], "assembly_metadata": {}},
+        )
+
+        with patch.object(
+            main,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(
+                project=project,
+                image_metadata={"product_image_s3_key": "images/missing/product.png"},
+                can_chat=False,
+                chat_id=None,
+            ),
+        ), patch.object(main, "hydrate_image_storage_metadata", return_value={}), patch.object(
+            main, "creator_display_name", return_value="isayahc"
+        ), patch.object(main, "project_engagement_for_ids", return_value={}):
+            summary = main.get_project_image_summary_endpoint(project.project_id, ANONYMOUS_USER)
+
+        self.assertFalse(summary["has_product_image"])
+        self.assertIsNone(summary["product_image_url"])
+        self.assertIsNone(summary["product_image_data"])
+
 
 if __name__ == "__main__":
     unittest.main()

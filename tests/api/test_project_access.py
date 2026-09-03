@@ -259,6 +259,53 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertTrue(response[0]["can_chat"])
         self.assertTrue(response[0]["has_product_image"])
 
+    def test_owner_list_handles_typed_project_identity_records(self) -> None:
+        project = _project(
+            "identity-project",
+            owner_user_id="user-a",
+            visibility="private",
+        )
+        identity = SimpleNamespace(
+            project_id=project.project_id,
+            owner_user_id="user-a",
+            creation_channel="hosted",
+            title=project.title,
+            prompt=project.prompt,
+            chat_id=project.chat_id,
+            visibility=project.visibility,
+            status="active",
+        )
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_project_identities",
+            return_value=[identity],
+        ), patch.object(main, "get_generated_project", return_value=project):
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual([project.project_id], [item["project_id"] for item in response])
+        self.assertTrue(response[0]["can_chat"])
+
+    def test_owner_list_logs_and_returns_http_error_on_failure(self) -> None:
+        with patch.object(main, "list_project_identities", return_value=[]), patch.object(
+            main,
+            "get_cached_project_list",
+            return_value=(None, None),
+        ), patch.object(
+            main,
+            "list_generated_projects",
+            side_effect=RuntimeError("database unavailable"),
+        ), patch.object(main.logger, "exception") as log_exception:
+            with self.assertRaises(HTTPException) as raised:
+                main.list_my_projects_endpoint(_user_context("user-a"))
+
+        self.assertEqual(500, raised.exception.status_code)
+        self.assertEqual("database unavailable", raised.exception.detail)
+        log_exception.assert_called_once_with(
+            "My project list failed for owner_user_id=%s",
+            "user-a",
+        )
+
     def test_owner_list_uses_bounded_projection_page(self) -> None:
         page_projects = [
             _project("private-project-7", owner_user_id="user-a", visibility="private"),

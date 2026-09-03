@@ -2154,8 +2154,8 @@ def list_my_projects_endpoint(
         if identities:
             response: List[Dict[str, Any]] = []
             for identity in identities:
-                project_id = str(identity["project_id"])
-                if identity.get("creation_channel") == "cli":
+                project_id = str(identity.project_id)
+                if identity.creation_channel == "cli":
                     project = _cli_project_response(project_id, owner_user_id)
                     if project is not None:
                         response.append(project.model_dump(mode="json"))
@@ -2234,8 +2234,9 @@ def list_my_projects_endpoint(
         response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
         return _with_project_engagement(response, owner_user_id)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    except Exception as exc:
+        logger.exception("My project list failed for owner_user_id=%s", owner_user_id)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
 @app.get("/projects/{project_id}/image-summary")

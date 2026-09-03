@@ -221,19 +221,27 @@ class ProjectReadResolver:
     def _resolve_canonical_only(self, project_id: str, owner_user_id: str) -> Optional[ProjectReadResolution]:
         try:
             revision = self._state.get_latest(project_id, owner_user_id)
-            brief = _brief(self._repository, project_id, owner_user_id)
         except (ProjectStateError, ProjectReadNotFoundError, ValueError):
             return None
+        try:
+            brief = _brief(self._repository, project_id, owner_user_id)
+        except (ProjectReadNotFoundError, ValueError):
+            # A revision is sufficient for image-summary reads; design briefs are
+            # optional context and should not make a valid project look missing.
+            brief = None
         project_ir = revision.state.model_dump(mode="json")
         metadata = _project_ir_metadata(project_ir)
-        title = str(getattr(getattr(revision.state, "overview", None), "title", "") or brief.summary)
+        overview = getattr(revision.state, "overview", None)
+        title = str(getattr(overview, "title", "") or getattr(brief, "summary", "") or "Untitled project")
+        prompt = str(getattr(brief, "summary", "") or getattr(overview, "description", "") or "")
+        chat_id = getattr(brief, "conversation_id", None)
         project = SimpleNamespace(
             project_id=project_id,
             owner_user_id=owner_user_id,
             creation_channel="hosted",
-            chat_id=brief.conversation_id,
+            chat_id=chat_id,
             title=title,
-            prompt=brief.summary,
+            prompt=prompt,
             created_at=revision.created_at,
             updated_at=revision.created_at,
             visibility="private",
@@ -245,8 +253,8 @@ class ProjectReadResolver:
             creation_channel=ProjectCreationChannel.HOSTED,
             owner_user_id=owner_user_id,
             title=title,
-            prompt=brief.summary,
-            chat_id=brief.conversation_id,
+            prompt=prompt,
+            chat_id=chat_id,
             created_at=revision.created_at,
             updated_at=revision.created_at,
             visibility="private",
@@ -255,7 +263,7 @@ class ProjectReadResolver:
             revision_id=str(revision.revision_id),
             project_ir=project_ir,
             image_metadata=metadata,
-            can_chat=True,
+            can_chat=brief is not None,
             legacy_fallback=False,
             project=project,
             revision=revision,

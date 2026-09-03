@@ -35,6 +35,8 @@ class DBProject(Base):
     workspace_id = Column(String, nullable=True)
     visibility = Column(String, index=True, nullable=False, default="private")
     status = Column(String, index=True, nullable=False, default="active")
+    current_revision = Column(Integer, nullable=False, default=0)
+    current_revision_id = Column(String, nullable=True)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, index=True, nullable=False)
     deleted_at = Column(String, nullable=True)

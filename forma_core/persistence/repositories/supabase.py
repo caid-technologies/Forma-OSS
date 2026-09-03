@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 from collections import Counter
+import logging
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
+
+from forma_core.workspaces.projects.manifest import build_canonical_revision_record
+
+logger = logging.getLogger(__name__)
 
 
 def _record(row: Dict[str, Any]) -> SimpleNamespace:
@@ -535,17 +540,83 @@ class SupabaseRepository:
         revision_record: Dict[str, Any],
         expected_revision_id: Optional[str],
     ) -> Optional[Any]:
+        identity = self.get_project_identity(project_record["project_id"])
+        if identity is not None and getattr(identity, "status", "active") != "active":
+            logger.warning(
+                "cli_project_push_rejected_lifecycle project_id=%s status=%s",
+                project_record["project_id"],
+                getattr(identity, "status", None),
+            )
+            return None
         project = self.get_cli_project(project_record["project_id"], project_record["owner_user_id"])
+        latest = self.get_cli_project_revision(project_record["project_id"], project_record["owner_user_id"])
+        if (
+            latest is not None
+            and getattr(latest, "revision", None) == revision_record["revision"]
+            and getattr(latest, "parent_revision_id", None) == expected_revision_id
+            and getattr(latest, "manifest_json", None) == revision_record.get("manifest_json")
+        ):
+            try:
+                logger.info("cli_project_push_recovered project_id=%s revision_id=%s", project_record["project_id"], latest.revision_id)
+                self._ensure_canonical_cli_revision(
+                    project_record,
+                    {
+                        "revision_id": latest.revision_id,
+                        "revision": latest.revision,
+                        "manifest_json": latest.manifest_json,
+                        "created_at": latest.created_at,
+                    },
+                )
+                self._client.table("projects").upsert({
+                    "project_id": project_record["project_id"],
+                    "owner_user_id": project_record["owner_user_id"],
+                    "creation_channel": "cli",
+                    "title": project_record["title"],
+                    "prompt": str((revision_record.get("manifest_json") or {}).get("prompt") or ""),
+                    "workspace_id": project_record.get("workspace_id"),
+                    "visibility": "private",
+                    "status": "active",
+                    "current_revision": latest.revision,
+                    "current_revision_id": latest.revision_id,
+                    "created_at": project_record["created_at"],
+                    "updated_at": latest.created_at,
+                }, on_conflict="project_id").execute()
+                project_updates = {
+                    "workspace_id": project_record["workspace_id"],
+                    "title": project_record["title"],
+                    "current_revision": latest.revision,
+                    "current_revision_id": latest.revision_id,
+                    "updated_at": latest.created_at,
+                }
+                if project is None:
+                    self._client.table("cli_projects").insert({
+                        **project_record,
+                        **project_updates,
+                    }).execute()
+                else:
+                    self._client.table("cli_projects").update(project_updates).eq(
+                        "project_id", project_record["project_id"]
+                    ).eq("owner_user_id", project_record["owner_user_id"]).execute()
+            except Exception:
+                logger.exception("cli_project_push_recovery_failed project_id=%s revision_id=%s", project_record["project_id"], latest.revision_id)
+                return None
+            return latest
         if project is None:
             if expected_revision_id is not None:
                 return None
-            self._client.table("cli_projects").insert(project_record).execute()
+            try:
+                self._client.table("cli_projects").insert(project_record).execute()
+            except Exception:
+                logger.exception("cli_project_push_compatibility_create_failed project_id=%s", project_record["project_id"])
+                return None
         elif (
             getattr(project, "current_revision_id", None) != expected_revision_id
             or int(getattr(project, "current_revision", 0)) + 1 != revision_record["revision"]
         ):
             return None
         try:
+            rows = self._client.table("cli_project_revisions").insert(revision_record).execute().data or []
+            self._ensure_canonical_cli_revision(project_record, revision_record)
             self._client.table("projects").upsert({
                 "project_id": project_record["project_id"],
                 "owner_user_id": project_record["owner_user_id"],
@@ -555,10 +626,11 @@ class SupabaseRepository:
                 "workspace_id": project_record.get("workspace_id"),
                 "visibility": "private",
                 "status": "active",
+                "current_revision": revision_record["revision"],
+                "current_revision_id": revision_record["revision_id"],
                 "created_at": project_record["created_at"],
                 "updated_at": revision_record["created_at"],
             }, on_conflict="project_id").execute()
-            rows = self._client.table("cli_project_revisions").insert(revision_record).execute().data or []
             self._client.table("cli_projects").update({
                 "workspace_id": project_record["workspace_id"],
                 "title": project_record["title"],
@@ -569,8 +641,34 @@ class SupabaseRepository:
                 "owner_user_id", project_record["owner_user_id"]
             ).execute()
         except Exception:
+            logger.exception("cli_project_push_partial_write project_id=%s revision_id=%s", project_record["project_id"], revision_record["revision_id"])
             return None
         return _record(rows[0]) if rows else None
+
+    def _ensure_canonical_cli_revision(
+        self,
+        project_record: Dict[str, Any],
+        revision_record: Dict[str, Any],
+    ) -> None:
+        canonical = build_canonical_revision_record(project_record, revision_record)
+        if canonical is None:
+            logger.info(
+                "cli_project_canonical_revision_skipped project_id=%s reason=legacy_identifier_or_invalid_ir",
+                project_record["project_id"],
+            )
+            return
+        existing = (
+            self._client.table("project_revisions")
+            .select("id")
+            .eq("project_id", canonical["project_id"])
+            .eq("revision", canonical["revision"])
+            .limit(1)
+            .execute()
+            .data
+            or []
+        )
+        if not existing:
+            self._client.table("project_revisions").insert(canonical).execute()
 
     def get_cli_device_authorization(self, device_code_hash: Optional[str] = None, user_code_hash: Optional[str] = None) -> Optional[Any]:
         query = self._client.table("cli_device_authorizations").select("*")

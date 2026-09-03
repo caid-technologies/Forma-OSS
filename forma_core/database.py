@@ -705,6 +705,8 @@ def list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
             "workspace_id": getattr(record, "workspace_id", None),
             "visibility": getattr(record, "visibility", "private"),
             "status": getattr(record, "status", "active"),
+            "current_revision": getattr(record, "current_revision", 0),
+            "current_revision_id": getattr(record, "current_revision_id", None),
             "created_at": getattr(record, "created_at", None),
             "updated_at": getattr(record, "updated_at", None),
         }

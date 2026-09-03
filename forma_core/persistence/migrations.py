@@ -58,6 +58,8 @@ def migrate_sqlite_schema(engine: Engine, *, import_legacy_jobs: bool = True) ->
             for row in connection.exec_driver_sql("PRAGMA table_info(projects)").fetchall()
         }
         for column, column_type in (
+            ("current_revision", "INTEGER NOT NULL DEFAULT 0"),
+            ("current_revision_id", "VARCHAR"),
             ("deleted_at", "VARCHAR"),
             ("deletion_requested_by", "VARCHAR"),
             ("purge_after", "VARCHAR"),

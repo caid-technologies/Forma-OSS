@@ -140,7 +140,11 @@ class ProjectSummaryTests(unittest.TestCase):
             },
         )
 
-        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+        with patch.object(
+            main,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(project=project, can_chat=False, chat_id=None),
+        ), patch.object(
             main, "creator_display_name", return_value="isayahc"
         ), patch.object(
             main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata
@@ -152,6 +156,41 @@ class ProjectSummaryTests(unittest.TestCase):
         self.assertEqual(project.project_id, summary["project_id"])
         self.assertEqual("https://storage.example.test/product.png", summary["product_image_url"])
         self.assertTrue(summary["has_product_image"])
+
+    def test_cli_project_image_summary_does_not_enable_chat(self) -> None:
+        project = SimpleNamespace(
+            project_id="fd54de37-2fbb-485a-92e4-8bfaf4a2f08c",
+            chat_id=None,
+            title="CLI project",
+            prompt="Build a CLI project.",
+            created_at="2026-07-21T14:08:00Z",
+            owner_user_id="user_123",
+            creation_channel="cli",
+            visibility="private",
+            hardware_ir={"components": [], "assembly_metadata": {}},
+        )
+
+        with patch.object(
+            main,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(project=project, can_chat=False, chat_id=None),
+        ), patch.object(main, "creator_display_name", return_value="isayahc"), patch.object(
+            main, "project_engagement_for_ids", return_value={}
+        ):
+            summary = main.get_project_image_summary_endpoint(
+                project.project_id,
+                UserContext(
+                    provider="clerk",
+                    subject="user_123",
+                    owner_user_id="user_123",
+                    is_authenticated=True,
+                    is_admin=False,
+                    claims={},
+                ),
+            )
+
+        self.assertFalse(summary["can_chat"])
+        self.assertIsNone(summary["chat_id"])
 
 
 if __name__ == "__main__":

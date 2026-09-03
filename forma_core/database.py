@@ -13,6 +13,7 @@ from forma_core.project_list_cache import invalidate_project_lists
 from forma_core.workspaces.projects.objects import attach_project_object_metadata_to_dict
 from forma_core.workspaces.design_briefs import DesignBrief, DesignBriefCreate
 from forma_core.workspaces.projects import ProjectRevision, ProjectStateError, ProjectStateService
+from forma_core.workspaces.projects.resolver import ProjectReadResolution, ProjectReadResolver
 from forma_core.workspaces.readiness import (
     BuildInitiationOutcome,
     BuildMode,
@@ -494,6 +495,21 @@ def list_generated_projects_page(
 
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
     return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
+
+
+def resolve_project_for_read(
+    project_id: str,
+    owner_user_id: Optional[str] = None,
+    *,
+    include_deleted: bool = False,
+) -> ProjectReadResolution:
+    """Resolve one readable project across generated, canonical, and CLI stores."""
+
+    return ProjectReadResolver(_DATABASE_REPOSITORY).resolve(
+        project_id,
+        owner_user_id,
+        include_deleted=include_deleted,
+    )
 
 
 def list_cli_projects(owner_user_id: str) -> List[Dict[str, Any]]:

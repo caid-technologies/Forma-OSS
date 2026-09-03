@@ -37,6 +37,12 @@ class DBProject(Base):
     status = Column(String, index=True, nullable=False, default="active")
     created_at = Column(String, nullable=False)
     updated_at = Column(String, index=True, nullable=False)
+    deleted_at = Column(String, nullable=True)
+    deletion_requested_by = Column(String, nullable=True)
+    purge_after = Column(String, index=True, nullable=True)
+    purge_started_at = Column(String, nullable=True)
+    purge_completed_at = Column(String, nullable=True)
+    deletion_error = Column(Text, nullable=True)
 
 
 class DBGeneratedProject(Base):

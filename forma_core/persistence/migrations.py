@@ -53,6 +53,20 @@ def migrate_sqlite_schema(engine: Engine, *, import_legacy_jobs: bool = True) ->
         }
         if cli_columns and "creation_channel" not in cli_columns:
             connection.execute(text("ALTER TABLE cli_projects ADD COLUMN creation_channel VARCHAR NOT NULL DEFAULT 'cli'"))
+        identity_columns = {
+            row[1]
+            for row in connection.exec_driver_sql("PRAGMA table_info(projects)").fetchall()
+        }
+        for column, column_type in (
+            ("deleted_at", "VARCHAR"),
+            ("deletion_requested_by", "VARCHAR"),
+            ("purge_after", "VARCHAR"),
+            ("purge_started_at", "VARCHAR"),
+            ("purge_completed_at", "VARCHAR"),
+            ("deletion_error", "TEXT"),
+        ):
+            if column not in identity_columns:
+                connection.execute(text(f"ALTER TABLE projects ADD COLUMN {column} {column_type}"))
         connection.execute(text("""
             INSERT OR IGNORE INTO projects (
                 project_id, owner_user_id, creation_channel, title, prompt, chat_id, workspace_id,
@@ -83,6 +97,9 @@ def migrate_sqlite_schema(engine: Engine, *, import_legacy_jobs: bool = True) ->
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_generated_projects_purge_after ON generated_projects (purge_after)")
+        )
+        connection.execute(
+            text("CREATE INDEX IF NOT EXISTS ix_projects_purge_after ON projects (purge_after)")
         )
         connection.execute(
             text("CREATE INDEX IF NOT EXISTS ix_projects_gallery_status_visibility_updated "

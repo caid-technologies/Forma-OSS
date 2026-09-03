@@ -562,7 +562,13 @@ def persist_chat_project_revision(
     return revision
 
 
-def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> str:
+def publish_project_revision(
+    revision: ProjectRevision,
+    brief: DesignBrief,
+    owner_user_id: str,
+    *,
+    visibility: str = "public",
+) -> str:
     """Project canonical state into the public gallery's generated-project store."""
 
     project_id = _canonical_project_id(str(revision.project_id))
@@ -603,7 +609,7 @@ def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owne
         created_at=revision.created_at.isoformat().replace("+00:00", "Z"),
         chat_id=brief.conversation_id,
         owner_user_id=normalized_owner_user_id,
-        visibility="public",
+        visibility=visibility,
         # Context gathering already owns the chat and its messages. Publishing
         # the gallery projection must not replace that thread with an empty one.
         create_chat_record=False,
@@ -642,6 +648,10 @@ def list_generated_projects_page(
 
 def get_generated_project(project_id: str, *, include_deleted: bool = False) -> Optional[Any]:
     return _DATABASE_REPOSITORY.get_generated_project(project_id, include_deleted=include_deleted)
+
+
+def get_project_identity(project_id: str) -> Optional[Any]:
+    return _DATABASE_REPOSITORY.get_project_identity(_canonical_project_id(project_id))
 
 
 def resolve_project_for_read(

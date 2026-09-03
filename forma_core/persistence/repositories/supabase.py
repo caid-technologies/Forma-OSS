@@ -695,7 +695,23 @@ class SupabaseRepository:
         return _record(payload) if isinstance(payload, dict) else None
 
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
-        rows = (
+        canonical_rows = (
+            self._client.table("projects")
+            .select("*")
+            .in_("status", ["deletion_pending", "deletion_failed", "purging"])
+            .lte("purge_after", before)
+            .order("purge_after")
+            .limit(limit)
+            .execute()
+            .data
+            or []
+        )
+        canonical = [_record(row) for row in canonical_rows]
+        remaining = max(0, limit - len(canonical))
+        if not remaining:
+            return canonical
+        canonical_ids = {str(project.project_id) for project in canonical}
+        legacy_rows = (
             self._client.table("generated_projects")
             .select("*")
             .in_("status", ["deletion_pending", "deletion_failed", "purging"])
@@ -706,7 +722,7 @@ class SupabaseRepository:
             .data
             or []
         )
-        return [_record(row) for row in rows]
+        return [*canonical, *[_record(row) for row in legacy_rows if str(row.get("project_id")) not in canonical_ids][:remaining]]
 
     def update_project_deletion_state(
         self,
@@ -716,6 +732,36 @@ class SupabaseRepository:
         updates: Dict[str, Any],
         expected_purge_started_at: Optional[str] = None,
     ) -> Optional[Any]:
+        identity = self.get_project_identity(project_id)
+        if identity is not None:
+            identity_owner = getattr(identity, "owner_user_id", None) if not isinstance(identity, dict) else identity.get("owner_user_id")
+            identity_status = getattr(identity, "status", "active") if not isinstance(identity, dict) else identity.get("status", "active")
+            identity_purge_started_at = getattr(identity, "purge_started_at", None) if not isinstance(identity, dict) else identity.get("purge_started_at")
+            if owner_user_id and identity_owner != owner_user_id:
+                return None
+            if identity_status not in allowed_statuses:
+                return None
+            if expected_purge_started_at is not None and identity_purge_started_at != expected_purge_started_at:
+                return None
+            updated_identity = (
+                self._client.table("projects")
+                .update(updates)
+                .eq("project_id", project_id)
+                .in_("status", allowed_statuses)
+            )
+            if owner_user_id:
+                updated_identity = updated_identity.eq("owner_user_id", owner_user_id)
+            if expected_purge_started_at is not None:
+                updated_identity = updated_identity.eq("purge_started_at", expected_purge_started_at)
+            rows = updated_identity.execute().data or []
+            if not rows:
+                return None
+            projection_query = self._client.table("generated_projects").update(updates).eq("project_id", project_id)
+            if owner_user_id:
+                projection_query = projection_query.eq("owner_user_id", owner_user_id)
+            projection_query.execute()
+            return _record(rows[0])
+
         query = (
             self._client.table("generated_projects")
             .update(updates)
@@ -730,31 +776,50 @@ class SupabaseRepository:
         return _record(rows[0]) if rows else None
 
     def hard_purge_project(self, project_id: str, owner_user_id: Optional[str]) -> bool:
+        identity = self.get_project_identity(project_id)
         project = self.get_generated_project(project_id, include_deleted=True)
-        if not project or (owner_user_id and project.owner_user_id != owner_user_id):
+        cli_project = self.get_cli_project(project_id, owner_user_id) if owner_user_id else None
+        identity_owner = getattr(identity, "owner_user_id", None) if identity is not None else None
+        if owner_user_id and identity_owner and identity_owner != owner_user_id:
+            return False
+        if owner_user_id and project and project.owner_user_id not in (None, owner_user_id):
+            return False
+        if not identity and not project and not cli_project:
             return False
         query = self._client.table("generated_projects").delete().eq("project_id", project_id)
         if owner_user_id:
             query = query.eq("owner_user_id", owner_user_id)
-        deleted = bool(query.execute().data)
-        if deleted:
-            self._client.table("project_validation_reports").delete().eq("project_id", project_id).execute()
-            self._client.table("project_revisions").delete().eq("project_id", project_id).execute()
-            self._client.table("worker_execution_plans").delete().eq("project_id", project_id).execute()
-            self._client.table("project_builds").delete().eq("project_id", project_id).execute()
-            self._client.table("design_briefs").delete().eq("project_id", project_id).execute()
-            self._client.table("project_workflow_transitions").delete().eq("project_id", project_id).execute()
-            self._client.table("project_workflows").delete().eq("project_id", project_id).execute()
-            self._client.table("project_saves").delete().eq("project_id", project_id).execute()
+        deleted = bool(query.execute().data) if project else False
+        if cli_project:
+            self._client.table("cli_project_revisions").delete().eq("project_id", project_id).execute()
+            self._client.table("cli_projects").delete().eq("project_id", project_id).execute()
+        if identity or deleted:
+            for table in (
+                "project_validation_reports",
+                "project_revisions",
+                "worker_execution_plans",
+                "project_builds",
+                "design_briefs",
+                "project_workflow_transitions",
+                "project_workflows",
+                "project_saves",
+            ):
+                self._client.table(table).delete().eq("project_id", project_id).execute()
             self._client.table("project_remixes").delete().eq("remix_project_id", project_id).execute()
             self._client.table("project_remixes").delete().eq("source_project_id", project_id).execute()
-        if not deleted or not getattr(project, "chat_id", None) or not getattr(project, "owner_user_id", None):
-            return deleted
+            identity_query = self._client.table("projects").delete().eq("project_id", project_id)
+            if owner_user_id:
+                identity_query = identity_query.eq("owner_user_id", owner_user_id)
+            identity_query.execute()
+        chat_id = getattr(project, "chat_id", None) or (getattr(identity, "chat_id", None) if identity else None)
+        project_owner = getattr(project, "owner_user_id", None) or identity_owner
+        if not chat_id or not project_owner:
+            return bool(identity or deleted or cli_project)
         remaining = (
             self._client.table("generated_projects")
             .select("project_id")
-            .eq("chat_id", project.chat_id)
-            .eq("owner_user_id", project.owner_user_id)
+            .eq("chat_id", chat_id)
+            .eq("owner_user_id", project_owner)
             .limit(1)
             .execute()
             .data
@@ -764,12 +829,12 @@ class SupabaseRepository:
             (
                 self._client.table("project_chats")
                 .delete()
-                .eq("chat_id", project.chat_id)
-                .eq("owner_user_id", project.owner_user_id)
+                .eq("chat_id", chat_id)
+                .eq("owner_user_id", project_owner)
                 .execute()
             )
         else:
-            chat = self.get_project_chat(project.chat_id, project.owner_user_id)
+            chat = self.get_project_chat(chat_id, project_owner)
             if chat and isinstance(getattr(chat, "messages", None), list):
                 messages = [
                     message
@@ -779,11 +844,11 @@ class SupabaseRepository:
                 (
                     self._client.table("project_chats")
                     .update({"messages": messages})
-                    .eq("chat_id", project.chat_id)
-                    .eq("owner_user_id", project.owner_user_id)
+                    .eq("chat_id", chat_id)
+                    .eq("owner_user_id", project_owner)
                     .execute()
                 )
-        return True
+        return bool(identity or deleted or cli_project)
 
     def update_generated_project_hardware_ir(
         self,
@@ -1075,13 +1140,24 @@ class SupabaseRepository:
             .data
             or []
         )
-        by_chat: Dict[str, List[Dict[str, Any]]] = {}
+        canonical_projects = (
+            self._client.table("projects")
+            .select("project_id,chat_id,status")
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        by_chat: Dict[str, Dict[str, Dict[str, Any]]] = {}
         for project in projects:
             if project.get("chat_id"):
-                by_chat.setdefault(str(project["chat_id"]), []).append(project)
+                by_chat.setdefault(str(project["chat_id"]), {})[str(project["project_id"])] = project
+        for project in canonical_projects:
+            if project.get("chat_id"):
+                by_chat.setdefault(str(project["chat_id"]), {})[str(project["project_id"])] = project
         visible = []
         for row in rows:
-            linked = by_chat.get(str(row.get("chat_id") or ""), [])
+            linked = list(by_chat.get(str(row.get("chat_id") or ""), {}).values())
             if linked and not any(project.get("status") == "active" for project in linked):
                 continue
             hidden_ids = {str(project["project_id"]) for project in linked if project.get("status") != "active"}
@@ -1117,6 +1193,18 @@ class SupabaseRepository:
             .data
             or []
         )
+        canonical_projects = (
+            self._client.table("projects")
+            .select("project_id,status")
+            .eq("chat_id", chat_id)
+            .eq("owner_user_id", owner_user_id)
+            .execute()
+            .data
+            or []
+        )
+        linked_by_id = {str(project["project_id"]): project for project in projects}
+        linked_by_id.update({str(project["project_id"]): project for project in canonical_projects})
+        projects = list(linked_by_id.values())
         if projects and not any(project.get("status") == "active" for project in projects):
             return None
         hidden_ids = {str(project["project_id"]) for project in projects if project.get("status") != "active"}
@@ -1140,6 +1228,13 @@ class SupabaseRepository:
         if response.data:
             (
                 self._client.table("generated_projects")
+                .update({"chat_id": None})
+                .eq("chat_id", chat_id)
+                .eq("owner_user_id", owner_user_id)
+                .execute()
+            )
+            (
+                self._client.table("projects")
                 .update({"chat_id": None})
                 .eq("chat_id", chat_id)
                 .eq("owner_user_id", owner_user_id)

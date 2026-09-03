@@ -75,6 +75,19 @@ def _project_ir_metadata(project_ir: Any) -> dict[str, Any]:
     return deepcopy(metadata) if isinstance(metadata, dict) else {}
 
 
+def _identity_record(value: Any) -> Any:
+    """Ignore unconfigured mock repositories while accepting SQL records."""
+    if isinstance(value, dict) or type(value).__name__ == "SimpleNamespace":
+        return value
+    return None
+
+
+def _record_value(record: Any, name: str, default: Any = None) -> Any:
+    if isinstance(record, dict):
+        return record.get(name, default)
+    return getattr(record, name, default)
+
+
 def _brief(repository: ApplicationRepository, project_id: str, owner_user_id: str) -> DesignBrief:
     record = repository.get_latest_design_brief(project_id, owner_user_id)
     payload = getattr(record, "payload_json", None) if record is not None else None
@@ -102,6 +115,18 @@ class ProjectReadResolver:
         if not normalized_project_id:
             raise ProjectReadNotFoundError("Project not found.")
 
+        identity = _identity_record(self._repository.get_project_identity(normalized_project_id))
+        identity_owner = _owner(_record_value(identity, "owner_user_id"))
+        identity_status = str(_record_value(identity, "status", "active") or "active").strip().lower()
+        identity_visibility = str(_record_value(identity, "visibility", "private") or "private").strip().lower()
+        identity_channel = str(_record_value(identity, "creation_channel", "hosted") or "hosted").strip().lower()
+        if identity is not None:
+            is_owner = bool(normalized_owner and normalized_owner == identity_owner)
+            if identity_status != "active" and (not include_deleted or not is_owner):
+                raise ProjectReadNotFoundError("Project not found.")
+            if identity_status == "active" and not is_owner and identity_visibility != "public":
+                raise ProjectReadNotFoundError("Project not found.")
+
         generated = self._repository.get_generated_project(normalized_project_id, include_deleted=True)
         if generated is not None:
             return self._resolve_generated(
@@ -109,13 +134,21 @@ class ProjectReadResolver:
                 generated,
                 normalized_owner,
                 include_deleted=include_deleted,
+                identity=identity,
             )
 
-        if normalized_owner:
-            canonical = self._resolve_canonical_only(normalized_project_id, normalized_owner)
-            if canonical is not None:
-                return canonical
-            cli = self._resolve_cli(normalized_project_id, normalized_owner)
+        if normalized_owner or (identity is not None and identity_visibility == "public"):
+            revision_owner = normalized_owner or identity_owner
+            if identity_channel != "cli":
+                canonical = self._resolve_canonical_only(
+                    normalized_project_id,
+                    revision_owner,
+                    identity=identity,
+                    reader_owner_user_id=normalized_owner,
+                )
+                if canonical is not None:
+                    return canonical
+            cli = self._resolve_cli(normalized_project_id, normalized_owner or identity_owner, identity=identity)
             if cli is not None:
                 return cli
         raise ProjectReadNotFoundError("Project not found.")
@@ -127,11 +160,17 @@ class ProjectReadResolver:
         owner_user_id: Optional[str],
         *,
         include_deleted: bool,
+        identity: Any = None,
     ) -> ProjectReadResolution:
         status = str(getattr(generated, "status", "active") or "active").strip().lower()
         project_owner = _owner(getattr(generated, "owner_user_id", None))
+        if identity is not None:
+            project_owner = _owner(_record_value(identity, "owner_user_id")) or project_owner
+            status = str(_record_value(identity, "status", status) or status).strip().lower()
         is_owner = bool(owner_user_id and project_owner == owner_user_id)
         visibility = str(getattr(generated, "visibility", "public") or "public").strip().lower()
+        if identity is not None:
+            visibility = str(_record_value(identity, "visibility", visibility) or visibility).strip().lower()
 
         if status != "active":
             if not include_deleted or not is_owner:
@@ -218,7 +257,14 @@ class ProjectReadResolver:
             project=generated,
         )
 
-    def _resolve_canonical_only(self, project_id: str, owner_user_id: str) -> Optional[ProjectReadResolution]:
+    def _resolve_canonical_only(
+        self,
+        project_id: str,
+        owner_user_id: str,
+        *,
+        identity: Any = None,
+        reader_owner_user_id: Optional[str] = None,
+    ) -> Optional[ProjectReadResolution]:
         try:
             revision = self._state.get_latest(project_id, owner_user_id)
         except (ProjectStateError, ProjectReadNotFoundError, ValueError):
@@ -232,45 +278,60 @@ class ProjectReadResolver:
         project_ir = revision.state.model_dump(mode="json")
         metadata = _project_ir_metadata(project_ir)
         overview = getattr(revision.state, "overview", None)
-        title = str(getattr(overview, "title", "") or getattr(brief, "summary", "") or "Untitled project")
+        title = str(
+            _record_value(identity, "title", "")
+            or getattr(overview, "title", "")
+            or getattr(brief, "summary", "")
+            or "Untitled project"
+        )
         prompt = str(getattr(brief, "summary", "") or getattr(overview, "description", "") or "")
-        chat_id = getattr(brief, "conversation_id", None)
+        visibility = str(_record_value(identity, "visibility", "private") or "private")
+        status = str(_record_value(identity, "status", "active") or "active")
+        project_owner = _owner(_record_value(identity, "owner_user_id")) or owner_user_id
+        chat_id = getattr(brief, "conversation_id", None) if reader_owner_user_id == project_owner else None
         project = SimpleNamespace(
             project_id=project_id,
-            owner_user_id=owner_user_id,
+            owner_user_id=project_owner,
             creation_channel="hosted",
             chat_id=chat_id,
             title=title,
             prompt=prompt,
             created_at=revision.created_at,
             updated_at=revision.created_at,
-            visibility="private",
+            visibility=visibility,
+            status=status,
+            deleted_at=_record_value(identity, "deleted_at"),
+            deletion_requested_by=_record_value(identity, "deletion_requested_by"),
+            purge_after=_record_value(identity, "purge_after"),
+            purge_started_at=_record_value(identity, "purge_started_at"),
+            purge_completed_at=_record_value(identity, "purge_completed_at"),
+            deletion_error=_record_value(identity, "deletion_error"),
             hardware_ir=project_ir,
         )
         return ProjectReadResolution(
             project_id=project_id,
             source="canonical",
             creation_channel=ProjectCreationChannel.HOSTED,
-            owner_user_id=owner_user_id,
+            owner_user_id=project_owner,
             title=title,
             prompt=prompt,
             chat_id=chat_id,
             created_at=revision.created_at,
             updated_at=revision.created_at,
-            visibility="private",
-            status="active",
+            visibility=visibility,
+            status=status,
             current_revision=revision.revision,
             revision_id=str(revision.revision_id),
             project_ir=project_ir,
             image_metadata=metadata,
-            can_chat=brief is not None,
+            can_chat=brief is not None and reader_owner_user_id == project_owner,
             legacy_fallback=False,
             project=project,
             revision=revision,
             design_brief=brief,
         )
 
-    def _resolve_cli(self, project_id: str, owner_user_id: str) -> Optional[ProjectReadResolution]:
+    def _resolve_cli(self, project_id: str, owner_user_id: str, *, identity: Any = None) -> Optional[ProjectReadResolution]:
         record = self._repository.get_cli_project_revision(project_id, owner_user_id, None)
         if record is None:
             return None
@@ -296,6 +357,13 @@ class ProjectReadResolver:
             created_at=getattr(record, "created_at", None),
             updated_at=getattr(record, "created_at", None),
             visibility="private",
+            status=str(_record_value(identity, "status", "active") or "active") if identity else "active",
+            deleted_at=_record_value(identity, "deleted_at"),
+            deletion_requested_by=_record_value(identity, "deletion_requested_by"),
+            purge_after=_record_value(identity, "purge_after"),
+            purge_started_at=_record_value(identity, "purge_started_at"),
+            purge_completed_at=_record_value(identity, "purge_completed_at"),
+            deletion_error=_record_value(identity, "deletion_error"),
             hardware_ir=project_ir,
         )
         return ProjectReadResolution(

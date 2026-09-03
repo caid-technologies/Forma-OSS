@@ -16,7 +16,7 @@ from forma_core.user_integrations import UserIntegrationStore
 
 
 class A2AUserIntegrationTests(unittest.TestCase):
-    def test_persist_updated_project_ir_creates_missing_project_record(self) -> None:
+    def test_persist_updated_project_ir_skips_legacy_projection_for_authenticated_owner(self) -> None:
         project_id = "fd54de37-2fbb-485a-92e4-8bfaf4a2f08c"
 
         class FakeIR:
@@ -34,8 +34,8 @@ class A2AUserIntegrationTests(unittest.TestCase):
                     "components": [],
                 }
 
-        with patch.object(a2a, "update_generated_project_hardware_ir", return_value=False) as update_project, patch.object(
-            a2a, "save_generated_project"
+        with patch.object(a2a, "refresh_legacy_project_projection", return_value=False) as update_project, patch.object(
+            a2a, "persist_legacy_project_projection"
         ) as save_project:
             a2a._persist_updated_project_ir(
                 FakeIR(),
@@ -43,22 +43,14 @@ class A2AUserIntegrationTests(unittest.TestCase):
                 owner_user_id="user_123",
             )
 
-        update_project.assert_called_once()
-        self.assertEqual(project_id, update_project.call_args.args[0])
-        self.assertEqual("user_123", update_project.call_args.kwargs["owner_user_id"])
-        save_project.assert_called_once()
-        save_kwargs = save_project.call_args.kwargs
-        self.assertEqual(project_id, save_kwargs["project_id"])
-        self.assertEqual("Low Voltage Desk Lamp", save_kwargs["title"])
-        self.assertEqual("desk lamp", save_kwargs["prompt"])
-        self.assertEqual("chat_123", save_kwargs["chat_id"])
-        self.assertEqual("user_123", save_kwargs["owner_user_id"])
-        self.assertEqual("public", save_kwargs["visibility"])
+        update_project.assert_not_called()
+        save_project.assert_not_called()
 
     def test_generation_response_applies_owner_image_provider_before_images(self) -> None:
         observed: dict[str, object] = {}
 
         def fake_generate_project_with_workflow(*_args, **_kwargs):
+            self.assertFalse(_kwargs["persist_project"])
             return SimpleNamespace(
                 assembly_metadata={},
                 constraints=[],
@@ -128,6 +120,7 @@ class A2AUserIntegrationTests(unittest.TestCase):
         observed: dict[str, object] = {}
 
         def fake_generate_project_with_workflow(*_args, **_kwargs):
+            self.assertFalse(_kwargs["persist_project"])
             user_integrations.apply_user_integrations_to_environment()
             return SimpleNamespace(
                 assembly_metadata={},

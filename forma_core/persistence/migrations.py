@@ -165,8 +165,8 @@ def migrate_sqlite_schema(engine: Engine, *, import_legacy_jobs: bool = True) ->
                 g.project_id, g.owner_user_id, g.creation_channel, g.title, g.prompt, g.chat_id,
                 NULL AS workspace_id, g.visibility, g.status, g.created_at, g.created_at,
                 'legacy' AS source, NULL AS revision_id, NULL AS revision,
-                NULL AS revision_payload_json, NULL AS revision_created_at,
-                NULL AS legacy_hardware_ir, g.id AS legacy_id
+                 NULL AS revision_payload_json, NULL AS revision_created_at,
+                 g.hardware_ir AS legacy_hardware_ir, g.id AS legacy_id
             FROM generated_projects g
             WHERE g.status = 'active'
               AND NOT EXISTS (

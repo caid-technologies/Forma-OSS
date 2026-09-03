@@ -107,8 +107,8 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("nemoclaw", authoring_agents)
 
     async def test_compile_project_persists_public_project_and_returns_identity(self) -> None:
-        with patch("apps.api.a2a.get_generated_project", return_value=None), patch(
-            "apps.api.a2a.save_generated_project"
+        with patch("apps.api.a2a.get_project_identity", return_value=None), patch(
+            "apps.api.a2a.persist_legacy_project_projection"
         ) as save_project:
             response = await handle_mcp_json_rpc(
                 {
@@ -142,9 +142,9 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
             is_authenticated=True,
             is_admin=False,
         )
-        with patch("apps.api.a2a.get_generated_project", return_value=None), patch(
-            "apps.api.a2a.save_generated_project"
-        ) as save_project:
+        with patch("apps.api.a2a.get_project_identity", return_value=None), patch(
+            "apps.api.a2a.persist_chat_project_revision"
+        ) as persist_revision:
             response = await handle_mcp_json_rpc(
                 {
                     "jsonrpc": "2.0",
@@ -165,13 +165,14 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         compiled = response["result"]["structuredContent"]
         self.assertEqual("private", compiled["visibility"])
         self.assertIsNotNone(compiled["chat_id"])
-        self.assertEqual("agent-user", save_project.call_args.kwargs["owner_user_id"])
-        self.assertEqual("Build a private sensor enclosure", save_project.call_args.kwargs["prompt"])
+        self.assertEqual("agent-user", persist_revision.call_args.args[1])
+        self.assertEqual("Build a private sensor enclosure", persist_revision.call_args.kwargs["prompt"])
+        self.assertEqual("private", persist_revision.call_args.kwargs["visibility"])
 
     async def test_compile_project_persists_and_validates(self) -> None:
-        with patch("apps.api.a2a.get_generated_project", return_value=None), patch(
-            "apps.api.a2a.save_generated_project"
-        ):
+        with patch("apps.api.a2a.get_project_identity", return_value=None), patch(
+            "apps.api.a2a.persist_legacy_project_projection"
+        ), patch("apps.api.a2a.persist_chat_project_revision"):
             response = await handle_mcp_json_rpc(
                 {
                     "jsonrpc": "2.0",
@@ -196,16 +197,15 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
     async def test_compile_project_cannot_update_another_owner(self) -> None:
         project_id = "12345678-1234-4234-8234-123456789012"
         with patch(
-            "apps.api.a2a.get_generated_project",
-            return_value=SimpleNamespace(
-                owner_user_id="different-user",
-                status="active",
-                hardware_ir={},
-                chat_id=None,
-                created_at="2026-01-01T00:00:00Z",
-                visibility="private",
-            ),
-        ), patch("apps.api.a2a.update_generated_project_hardware_ir") as update_project:
+            "apps.api.a2a.get_project_identity",
+            return_value={
+                "owner_user_id": "different-user",
+                "status": "active",
+                "chat_id": None,
+                "created_at": "2026-01-01T00:00:00Z",
+                "visibility": "private",
+            },
+        ), patch("apps.api.a2a.refresh_legacy_project_projection") as update_project:
             response = await handle_mcp_json_rpc(
                 {
                     "jsonrpc": "2.0",

@@ -137,10 +137,10 @@ class HostedChatMaintenanceApiTests(unittest.IsolatedAsyncioTestCase):
                 _user(),
             )
 
-            with patch.object(a2a, "get_generated_project", return_value=None), patch.object(
+            with patch.object(a2a, "get_project_identity", return_value=None), patch.object(
                 a2a,
-                "save_generated_project",
-            ) as save_project:
+                "persist_chat_project_revision",
+            ) as persist_revision:
                 compile_response = await handle_mcp_json_rpc(
                     {
                         "jsonrpc": "2.0",
@@ -158,7 +158,7 @@ class HostedChatMaintenanceApiTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(HOSTED_CHAT_UNAVAILABLE_MESSAGE, generation_response["error"]["message"])
         self.assertEqual("hosted_chat_unavailable", generation_response["error"]["data"]["code"])
         self.assertTrue(compile_response["result"]["structuredContent"]["persisted"])
-        save_project.assert_called_once()
+        persist_revision.assert_called_once()
 
 
 if __name__ == "__main__":

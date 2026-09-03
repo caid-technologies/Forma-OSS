@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from forma_core.database import (
     claim_unowned_generated_project,
+    persist_chat_project_revision,
+    persist_legacy_project_projection,
     init_db,
-    save_generated_project,
-    update_generated_project_hardware_ir,
+    refresh_legacy_project_projection,
 )
 from forma_core.images import build_image_provider, build_project_visual_spec
 from forma_core.persistence.images import get_image_storage_config, upload_image_to_supabase_s3
@@ -378,13 +380,22 @@ def persist_project_output(ir: Any, *, prompt_text: str = "", owner_user_id: Opt
     if not project_id:
         raise ValueError("Project output cannot be persisted without assembly_metadata.project_id.")
     hardware_ir = ir.model_dump(mode="json")
-    if update_generated_project_hardware_ir(project_id, hardware_ir, owner_user_id=owner_user_id):
+    if owner_user_id:
+        claim_unowned_generated_project(project_id, hardware_ir, owner_user_id)
+        persist_chat_project_revision(
+            project_id,
+            owner_user_id,
+            ir,
+            source_job_id=f"project-output-{uuid.uuid4().hex}",
+            prompt=prompt_text.strip(),
+            chat_id=metadata.get("chat_id"),
+        )
         return project_id
-    if owner_user_id and claim_unowned_generated_project(project_id, hardware_ir, owner_user_id):
+    if refresh_legacy_project_projection(project_id, hardware_ir, owner_user_id=owner_user_id):
         return project_id
     title = getattr(getattr(ir, "overview", None), "title", None) or prompt_text.strip() or "Untitled Forma Project"
     created_at = metadata.get("created_at") or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-    save_generated_project(
+    persist_legacy_project_projection(
         project_id=project_id,
         title=title,
         prompt=prompt_text.strip(),

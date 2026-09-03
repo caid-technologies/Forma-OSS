@@ -11,10 +11,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from forma_core.database import (
-    delete_generated_project,
     get_component_template_by_part_number,
     list_component_templates,
-    save_generated_project,
+    persist_chat_project_revision,
+    persist_legacy_project_projection,
+    update_project_deletion_state,
 )
 from forma_core.llm import (
     LLMProviderConfigError,
@@ -2228,22 +2229,42 @@ class HardwarePipelineOrchestrator:
         if not self.persist_project:
             return project_id
         try:
-            save_generated_project(
-                project_id=project_id,
-                title=ir.overview.title if ir.overview else "Untitled Forma Project",
-                prompt=str(generation_metadata.get("project_prompt") or prompt),
-                hardware_ir=ir.model_dump(),
-                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                chat_id=generation_metadata.get("chat_id"),
-                owner_user_id=generation_metadata.get("owner_user_id"),
-                visibility="public",
-            )
+            owner_user_id = generation_metadata.get("owner_user_id")
+            if owner_user_id:
+                persist_chat_project_revision(
+                    project_id,
+                    owner_user_id,
+                    ir,
+                    source_job_id=str(generation_metadata.get("frontend_job_id") or f"generation-{uuid.uuid4().hex}"),
+                    prompt=str(generation_metadata.get("project_prompt") or prompt),
+                    chat_id=generation_metadata.get("chat_id"),
+                )
+            else:
+                persist_legacy_project_projection(
+                    project_id=project_id,
+                    title=ir.overview.title if ir.overview else "Untitled Forma Project",
+                    prompt=str(generation_metadata.get("project_prompt") or prompt),
+                    hardware_ir=ir.model_dump(),
+                    created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    chat_id=generation_metadata.get("chat_id"),
+                    owner_user_id=None,
+                    visibility="public",
+                )
             try:
                 ensure_agent_pipeline_active()
             except PipelineCancelledError:
                 owner_user_id = generation_metadata.get("owner_user_id")
                 if owner_user_id:
-                    delete_generated_project(project_id, owner_user_id)
+                    update_project_deletion_state(
+                        project_id,
+                        owner_user_id=owner_user_id,
+                        allowed_statuses=["active"],
+                        updates={
+                            "status": "deletion_pending",
+                            "deleted_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "deletion_requested_by": owner_user_id,
+                        },
+                    )
                 raise
             logger.info(f"Project saved to database with ID: {project_id}")
             return project_id

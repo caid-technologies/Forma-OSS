@@ -38,7 +38,6 @@ from forma_core.persistence.models import (
     Base,
     DBAlphaSignup,
     DBComponentTemplate,
-    DBGeneratedProject,
     DBProjectChat,
     DBUserIntegrationConfig,
     DBUserSettings,
@@ -415,6 +414,33 @@ def save_generated_project(
     invalidate_project_lists()
 
 
+def persist_legacy_project_projection(
+    *,
+    project_id: str,
+    title: str,
+    prompt: str,
+    hardware_ir: Dict[str, Any],
+    created_at: str,
+    chat_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+    visibility: Optional[str] = "public",
+    create_chat_record: bool = True,
+) -> None:
+    """Write the retained generated-project compatibility projection."""
+
+    save_generated_project(
+        project_id=project_id,
+        title=title,
+        prompt=prompt,
+        hardware_ir=hardware_ir,
+        created_at=created_at,
+        chat_id=chat_id,
+        owner_user_id=owner_user_id,
+        visibility=visibility,
+        create_chat_record=create_chat_record,
+    )
+
+
 def ensure_project_identity(
     project_id: str,
     owner_user_id: str,
@@ -461,6 +487,35 @@ def ensure_project_identity(
     return record
 
 
+def update_project_identity(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    title: Optional[str] = None,
+    prompt: Optional[str] = None,
+    visibility: Optional[str] = None,
+) -> bool:
+    """Update canonical project metadata; compatibility projections are rebuilt separately."""
+    canonical_project_id = _canonical_project_id(project_id)
+    owner = _normalize_user_id(owner_user_id)
+    identity = _DATABASE_REPOSITORY.get_project_identity(canonical_project_id)
+    if not owner or identity is None or _normalize_user_id(identity.get("owner_user_id")) != owner:
+        return False
+    if identity.get("status", "active") != "active":
+        return False
+    record = dict(identity)
+    if title is not None:
+        record["title"] = title.strip() or "Untitled Forma Project"
+    if prompt is not None:
+        record["prompt"] = prompt.strip()
+    if visibility is not None:
+        record["visibility"] = _normalize_visibility(visibility)
+    record["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    _DATABASE_REPOSITORY.upsert_project_identity(record)
+    invalidate_project_lists()
+    return True
+
+
 def ensure_chat_project(
     project_id: str,
     owner_user_id: str,
@@ -475,23 +530,37 @@ def ensure_chat_project(
     owner = _normalize_user_id(owner_user_id)
     if not owner:
         raise ValueError("owner_user_id is required.")
-    existing = get_generated_project(canonical_project_id, include_deleted=True)
+    existing_identity = get_project_identity(canonical_project_id)
+    existing_legacy = None
+    if existing_identity is None:
+        # Pre-migration local databases still need to bootstrap into the
+        # canonical identity/revision model without making the legacy row the
+        # ongoing source of truth.
+        existing_legacy = get_generated_project(canonical_project_id, include_deleted=True)
+    existing = existing_identity or existing_legacy
     if existing is not None:
-        existing_owner = _normalize_user_id(getattr(existing, "owner_user_id", None))
+        existing_owner = _normalize_user_id(
+            existing.get("owner_user_id") if isinstance(existing, dict) else getattr(existing, "owner_user_id", None)
+        )
         if existing_owner != owner:
             raise DesignBriefAccessError("Project is not owned by the current user.")
-        if getattr(existing, "status", "active") != "active":
+        existing_status = existing.get("status", "active") if isinstance(existing, dict) else getattr(existing, "status", "active")
+        if existing_status != "active":
             raise DesignBriefAccessError("Cannot initialize a deleted project.")
 
     summary = str(prompt or "").strip() or str(title or "Untitled Forma Project").strip()
+    existing_title = existing.get("title") if isinstance(existing, dict) else getattr(existing, "title", None)
+    existing_prompt = existing.get("prompt") if isinstance(existing, dict) else getattr(existing, "prompt", None)
+    existing_created_at = existing.get("created_at") if isinstance(existing, dict) else getattr(existing, "created_at", None)
+    existing_visibility = existing.get("visibility") if isinstance(existing, dict) else getattr(existing, "visibility", "private")
     identity = ensure_project_identity(
         canonical_project_id,
         owner,
-        title=(title or (getattr(existing, "title", None) if existing is not None else None) or summary),
-        prompt=(getattr(existing, "prompt", None) if existing is not None else None) or summary,
+        title=(title or existing_title or summary),
+        prompt=existing_prompt or summary,
         chat_id=chat_id,
-        created_at=getattr(existing, "created_at", None) if existing is not None else None,
-        visibility=getattr(existing, "visibility", "private") if existing is not None else "private",
+        created_at=existing_created_at,
+        visibility=existing_visibility or "private",
     )
     canonical_chat_id = identity.get("chat_id") or _normalize_chat_id(chat_id)
 
@@ -519,6 +588,7 @@ def persist_chat_project_revision(
     source_job_id: str,
     prompt: str,
     chat_id: Optional[str] = None,
+    visibility: Optional[str] = None,
 ) -> ProjectRevision:
     """Commit generated chat output canonically, then refresh its gallery projection."""
 
@@ -532,6 +602,13 @@ def persist_chat_project_revision(
         prompt=prompt,
         chat_id=chat_id,
     )
+    if visibility is not None:
+        if not update_project_identity(
+            canonical_project_id,
+            owner_user_id,
+            visibility=visibility,
+        ):
+            raise ValueError("Could not update the canonical project visibility.")
     service = ProjectStateService(_DATABASE_REPOSITORY)
     candidate = HardwareIR.model_validate(state)
     try:
@@ -567,7 +644,7 @@ def publish_project_revision(
     brief: DesignBrief,
     owner_user_id: str,
     *,
-    visibility: str = "public",
+    visibility: Optional[str] = None,
 ) -> str:
     """Project canonical state into the public gallery's generated-project store."""
 
@@ -599,6 +676,12 @@ def publish_project_revision(
             owner_user_id=normalized_owner_user_id,
         ):
             raise RuntimeError("Could not refresh the generated-project gallery projection.")
+        if visibility is not None and not update_generated_project_metadata(
+            project_id,
+            owner_user_id=normalized_owner_user_id,
+            visibility=visibility,
+        ):
+            raise RuntimeError("Could not refresh the generated-project gallery visibility.")
         return project_id
 
     save_generated_project(
@@ -609,7 +692,7 @@ def publish_project_revision(
         created_at=revision.created_at.isoformat().replace("+00:00", "Z"),
         chat_id=brief.conversation_id,
         owner_user_id=normalized_owner_user_id,
-        visibility=visibility,
+        visibility=visibility or "public",
         # Context gathering already owns the chat and its messages. Publishing
         # the gallery projection must not replace that thread with an empty one.
         create_chat_record=False,
@@ -1604,6 +1687,21 @@ def update_generated_project_hardware_ir(
     return updated
 
 
+def refresh_legacy_project_projection(
+    project_id: str,
+    hardware_ir: Dict[str, Any],
+    *,
+    owner_user_id: Optional[str] = None,
+) -> bool:
+    """Refresh the retained legacy projection during compatibility reads."""
+
+    return update_generated_project_hardware_ir(
+        project_id,
+        hardware_ir,
+        owner_user_id=owner_user_id,
+    )
+
+
 def claim_unowned_generated_project(
     project_id: str,
     hardware_ir: Dict[str, Any],
@@ -1616,15 +1714,28 @@ def claim_unowned_generated_project(
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_owner_user_id:
         return False
+    identity_claimed = False
+    identity = _DATABASE_REPOSITORY.get_project_identity(project_id)
+    if identity is not None and not _normalize_user_id(identity.get("owner_user_id")):
+        if identity.get("status", "active") != "active":
+            return False
+        identity_record = dict(identity)
+        identity_record["owner_user_id"] = normalized_owner_user_id
+        if chat_id:
+            identity_record["chat_id"] = chat_id
+        identity_record["updated_at"] = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        _DATABASE_REPOSITORY.upsert_project_identity(identity_record)
+        invalidate_project_lists()
+        identity_claimed = True
     claimed = _DATABASE_REPOSITORY.claim_unowned_generated_project(
         project_id,
         hardware_ir,
         chat_id,
         normalized_owner_user_id,
     )
-    if claimed:
+    if claimed or identity_claimed:
         invalidate_project_lists()
-    return claimed
+    return claimed or identity_claimed
 
 
 def _hardware_ir_with_overview_title(hardware_ir: Any, title: str) -> Optional[Dict[str, Any]]:

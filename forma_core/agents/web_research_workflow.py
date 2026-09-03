@@ -4,6 +4,7 @@ import json
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -21,7 +22,7 @@ from forma_core.agents.system_architecture import (
     compact_net_context,
     system_context,
 )
-from forma_core.database import delete_generated_project, save_generated_project
+from forma_core.database import persist_chat_project_revision, persist_legacy_project_projection, update_project_deletion_state
 from forma_core.jobs.source_usage import source_usage_for_workflow
 from forma_core.llm import (
     LLMProviderConfigError,
@@ -1178,22 +1179,42 @@ class WebResearchHardwarePipeline:
         if not self.persist_project:
             return project_id
         try:
-            save_generated_project(
-                project_id=project_id,
-                title=ir.overview.title if ir.overview else "Untitled Forma Project",
-                prompt=str(generation_metadata.get("project_prompt") or prompt),
-                hardware_ir=ir.model_dump(),
-                created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
-                chat_id=generation_metadata.get("chat_id"),
-                owner_user_id=generation_metadata.get("owner_user_id"),
-                visibility="public",
-            )
+            owner_user_id = generation_metadata.get("owner_user_id")
+            if owner_user_id:
+                persist_chat_project_revision(
+                    project_id,
+                    owner_user_id,
+                    ir,
+                    source_job_id=str(generation_metadata.get("frontend_job_id") or f"web-research-{uuid4().hex}"),
+                    prompt=str(generation_metadata.get("project_prompt") or prompt),
+                    chat_id=generation_metadata.get("chat_id"),
+                )
+            else:
+                persist_legacy_project_projection(
+                    project_id=project_id,
+                    title=ir.overview.title if ir.overview else "Untitled Forma Project",
+                    prompt=str(generation_metadata.get("project_prompt") or prompt),
+                    hardware_ir=ir.model_dump(),
+                    created_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                    chat_id=generation_metadata.get("chat_id"),
+                    owner_user_id=None,
+                    visibility="public",
+                )
             try:
                 ensure_agent_pipeline_active()
             except PipelineCancelledError:
                 owner_user_id = generation_metadata.get("owner_user_id")
                 if owner_user_id:
-                    delete_generated_project(project_id, owner_user_id)
+                    update_project_deletion_state(
+                        project_id,
+                        owner_user_id=owner_user_id,
+                        allowed_statuses=["active"],
+                        updates={
+                            "status": "deletion_pending",
+                            "deleted_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                            "deletion_requested_by": owner_user_id,
+                        },
+                    )
                 raise
             logger.info("Web research workflow project saved to database with ID: %s", project_id)
             return project_id

@@ -4,6 +4,7 @@ import sqlite3
 import tempfile
 import unittest
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
@@ -195,6 +196,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
             finally:
                 database._DATABASE_PROVIDER = original_provider
                 database._DATABASE_REPOSITORY = original_repository
+                provider.engine.dispose()
 
         self.assertEqual(job_id, stored_job_id)
         self.assertEqual("primary", store.get_config()["scope"])
@@ -230,6 +232,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 project_after_chat_delete = database.get_generated_project(project_id)
             finally:
                 database._DATABASE_REPOSITORY = original_repository
+                provider.engine.dispose()
 
         self.assertIsNotNone(project)
         self.assertEqual("private", project.visibility)
@@ -288,6 +291,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 ])
 
             revisions = repository.list_latest_project_revisions("user-a")
+            provider.engine.dispose()
 
         self.assertEqual(
             [("project-a", 2), ("project-b", 1)],
@@ -551,6 +555,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 limit=2,
                 offset=1,
             )
+            provider.engine.dispose()
 
         self.assertEqual(4, total)
         self.assertEqual(["project-4", "project-2"], [project.project_id for project in projects])
@@ -603,6 +608,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 offset=0,
                 search="motor",
             )
+            provider.engine.dispose()
 
         self.assertEqual(2, total)
         self.assertEqual(
@@ -681,6 +687,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 row = connection.exec_driver_sql(
                     "SELECT status, payload_json FROM a2a_jobs WHERE job_id = 'job_legacy'"
                 ).one()
+            provider.engine.dispose()
 
         self.assertEqual(1, imported_first)
         self.assertEqual(0, imported_second)
@@ -714,6 +721,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 opted_out_ids = database.list_model_training_opt_out_user_ids()
             finally:
                 database._DATABASE_REPOSITORY = original_repository
+                provider.engine.dispose()
 
         self.assertIsNone(default_settings)
         self.assertTrue(opted_out.model_training_opt_out)
@@ -759,6 +767,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 after_unsave = database.project_engagement_for_ids([source_id], "user-b")
             finally:
                 database._DATABASE_REPOSITORY = original_repository
+                provider.engine.dispose()
 
         self.assertTrue(first_save["saved"])
         self.assertEqual(1, first_save["save_count"])
@@ -779,7 +788,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
 
     @staticmethod
     def _create_legacy_job_database(path: Path) -> None:
-        with sqlite3.connect(path) as connection:
+        with closing(sqlite3.connect(path)) as connection:
             connection.execute(
                 """
                 CREATE TABLE a2a_jobs (
@@ -821,6 +830,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                     '{"prompt":"legacy"}',
                 ),
             )
+            connection.commit()
 
 
 class _SchemaResponse:

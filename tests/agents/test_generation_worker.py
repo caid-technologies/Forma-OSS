@@ -209,13 +209,13 @@ class RetryableStagedGenerationEngine(HardwareIRGenerationEngine):
 class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
-        provider = create_sqlite_provider(
+        self.provider = create_sqlite_provider(
             source="generation worker test",
             url=f"sqlite:///{Path(self.directory.name) / 'forma.db'}",
             import_legacy_jobs=False,
         )
-        provider.initialize()
-        self.repository = SqlAlchemyRepository(provider.session_factory)
+        self.provider.initialize()
+        self.repository = SqlAlchemyRepository(self.provider.session_factory)
         self.state = ProjectStateService(self.repository)
         self.workflow = ProjectWorkflowService(self.repository)
         self.project_id = uuid.uuid4()
@@ -430,6 +430,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def tearDown(self) -> None:
+        self.provider.engine.dispose()
         self.directory.cleanup()
 
     def _persist_brief(self, project_id: uuid.UUID) -> DesignBrief:
@@ -784,10 +785,10 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(engine.received))
 
     @patch("forma_core.agents.orchestrator.ensure_agent_pipeline_active")
-    @patch("forma_core.agents.orchestrator.save_generated_project")
+    @patch("forma_core.agents.orchestrator.persist_legacy_project_projection")
     def test_generation_engine_mode_disables_legacy_direct_project_write(
         self,
-        save_generated_project: Any,
+        persist_legacy_project_projection: Any,
         _ensure_pipeline: Any,
     ) -> None:
         pipeline = HardwarePipelineOrchestrator.__new__(HardwarePipelineOrchestrator)
@@ -806,7 +807,7 @@ class GenerationWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(str(self.project_id), project_id)
         self.assertEqual(str(self.project_id), state.assembly_metadata["project_id"])
-        save_generated_project.assert_not_called()
+        persist_legacy_project_projection.assert_not_called()
 
 
 if __name__ == "__main__":

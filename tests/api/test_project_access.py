@@ -22,6 +22,7 @@ from forma_core.workspaces.projects.models import (
     MechanicalSource,
     ProjectOverview,
 )
+from forma_core.workspaces.projects.state import ProjectStateError
 
 
 def _request() -> Request:
@@ -178,11 +179,10 @@ class ProjectReadAccessTests(unittest.TestCase):
             main,
             "list_project_gallery_inventory_page",
             return_value=([_legacy_inventory(project) for project in page_projects], 14),
-        ) as list_page, patch.object(main, "list_generated_projects") as list_all:
+        ) as list_page:
             response = main.list_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
 
         list_page.assert_called_once_with(owner_user_id=None, visibility="public", limit=2, offset=6, search=None)
-        list_all.assert_not_called()
         self.assertEqual(14, response["total"])
         self.assertEqual(2, response["limit"])
         self.assertEqual(6, response["offset"])
@@ -231,14 +231,13 @@ class ProjectReadAccessTests(unittest.TestCase):
             main,
             "get_cached_project_list",
             return_value=([cached_record], "3"),
-        ) as get_cached, patch.object(main, "list_generated_projects") as list_projects, patch.object(
+        ) as get_cached, patch.object(
             main, "project_engagement_for_ids", return_value={}
         ):
             owner_response = main.list_projects_endpoint(_user_context("user-a"))
             other_response = main.list_projects_endpoint(_user_context("user-b"))
 
         get_cached.assert_has_calls([call("public", None), call("public", None)])
-        list_projects.assert_not_called()
         self.assertTrue(owner_response[0]["can_chat"])
         self.assertEqual("chat-public-project", owner_response[0]["chat_id"])
         self.assertFalse(other_response[0]["can_chat"])
@@ -272,23 +271,29 @@ class ProjectReadAccessTests(unittest.TestCase):
             conversation_id="chat-canonical-controller",
             summary="Build a canonical controller.",
         )
+        identity = SimpleNamespace(
+            project_id=project_id,
+            owner_user_id="user-a",
+            creation_channel="hosted",
+            title="Canonical controller",
+            prompt="Build a canonical controller.",
+            chat_id="chat-canonical-controller",
+            visibility="private",
+            status="active",
+        )
 
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects",
-            return_value=[],
+            "list_project_identities",
+            return_value=[identity],
         ), patch.object(
             main,
-            "list_latest_project_revisions",
-            return_value=[revision],
+            "get_latest_project_revision",
+            return_value=revision,
         ), patch.object(
             main,
             "get_latest_design_brief",
             return_value=brief,
-        ), patch.object(
-            main,
-            "get_generated_project",
-            return_value=None,
         ):
             response = main.list_my_projects_endpoint(_user_context("user-a"))
 
@@ -314,12 +319,31 @@ class ProjectReadAccessTests(unittest.TestCase):
             visibility=project.visibility,
             status="active",
         )
+        revision = SimpleNamespace(
+            project_id=project.project_id,
+            owner_user_id="user-a",
+            revision=1,
+            created_at=project.created_at,
+            state=HardwareIR.model_validate(project.hardware_ir),
+        )
+        brief = SimpleNamespace(
+            conversation_id=project.chat_id,
+            summary=project.prompt,
+        )
 
         with self._summary_dependencies(), patch.object(
             main,
             "list_project_identities",
             return_value=[identity],
-        ), patch.object(main, "get_generated_project", return_value=project):
+        ), patch.object(
+            main,
+            "get_latest_project_revision",
+            return_value=revision,
+        ), patch.object(
+            main,
+            "get_latest_design_brief",
+            return_value=brief,
+        ):
             response = main.list_my_projects_endpoint(_user_context("user-a"))
 
         self.assertEqual([project.project_id], [item["project_id"] for item in response])
@@ -332,7 +356,7 @@ class ProjectReadAccessTests(unittest.TestCase):
             return_value=(None, None),
         ), patch.object(
             main,
-            "list_generated_projects",
+            "list_project_gallery_inventory_page",
             side_effect=RuntimeError("database unavailable"),
         ), patch.object(main.logger, "exception") as log_exception:
             with self.assertRaises(HTTPException) as raised:
@@ -400,14 +424,11 @@ class ProjectReadAccessTests(unittest.TestCase):
             main,
             "list_project_gallery_inventory_page",
             return_value=([revision], 1),
-        ) as list_page, patch.object(main, "get_latest_design_brief") as get_brief, patch.object(
-            main, "get_generated_project"
-        ) as get_legacy, patch.object(main.logger, "info") as log_info:
+        ) as list_page, patch.object(main, "get_latest_design_brief") as get_brief, patch.object(main.logger, "info") as log_info:
             response = main.list_projects_endpoint(_anonymous_context(), limit=1, offset=0)
 
         list_page.assert_called_once()
         get_brief.assert_not_called()
-        get_legacy.assert_not_called()
         log_info.assert_any_call("project_gallery_legacy_fallback endpoint=%s count=%d", "public", 0)
         self.assertEqual("Current canonical title", response["items"][0]["title"])
         self.assertIsNone(response["items"][0]["chat_id"])
@@ -461,44 +482,56 @@ class ProjectReadAccessTests(unittest.TestCase):
             owner_user_id="user-a",
             visibility="private",
         )
-        revision = SimpleNamespace(project_id=project_id)
-
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects",
-            return_value=[legacy_project],
-        ), patch.object(
-            main,
-            "list_latest_project_revisions",
-            return_value=[revision],
-        ), patch.object(main, "get_latest_design_brief") as get_brief:
+            "list_project_gallery_inventory_page",
+            return_value=([_legacy_inventory(legacy_project)], 1),
+        ):
             response = main.list_my_projects_endpoint(_user_context("user-a"))
 
         self.assertEqual([project_id], [item["project_id"] for item in response])
-        get_brief.assert_not_called()
 
     def test_owner_list_does_not_resurrect_soft_deleted_legacy_project(self) -> None:
         project_id = "deleted-legacy-project"
-        revision = SimpleNamespace(project_id=project_id)
-        deleted_project = SimpleNamespace(project_id=project_id, status="pending_purge")
-
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects",
-            return_value=[],
-        ), patch.object(
-            main,
-            "list_latest_project_revisions",
-            return_value=[revision],
-        ), patch.object(
-            main,
-            "get_generated_project",
-            return_value=deleted_project,
-        ), patch.object(main, "get_latest_design_brief") as get_brief:
+            "list_project_gallery_inventory_page",
+            return_value=([], 0),
+        ):
             response = main.list_my_projects_endpoint(_user_context("user-a"))
 
         self.assertEqual([], response)
-        get_brief.assert_not_called()
+
+    def test_owner_list_keeps_legacy_projection_when_identity_has_no_revision(self) -> None:
+        project_id = "legacy-identity-without-revision"
+        identity = SimpleNamespace(
+            project_id=project_id,
+            owner_user_id="user-a",
+            creation_channel="hosted",
+            title="Legacy identity",
+            prompt="Build a legacy project.",
+            chat_id="legacy-chat",
+            visibility="private",
+            status="active",
+        )
+        legacy = _legacy_inventory(_project(project_id, owner_user_id="user-a", visibility="private"))
+        with self._summary_dependencies(), patch.object(
+            main, "_list_project_identities", return_value=[identity]
+        ), patch.object(
+            main,
+            "get_latest_project_revision",
+            side_effect=ProjectStateError("project_revision_not_found", "No project revision found."),
+        ), patch.object(
+            main,
+            "list_project_gallery_inventory_page",
+            return_value=([legacy], 1),
+        ) as list_page:
+            response = main.list_my_projects_endpoint(_user_context("user-a"))
+
+        list_page.assert_called_once_with(
+            owner_user_id="user-a", visibility=None, limit=50, offset=0
+        )
+        self.assertEqual([project_id], [item["project_id"] for item in response])
 
     def test_owner_can_read_own_private_project(self) -> None:
         private_project = _project(
@@ -541,11 +574,17 @@ class ProjectReadAccessTests(unittest.TestCase):
             "created_at": "2026-07-25T12:00:00Z",
         }
 
-        with patch.object(main, "resolve_project_for_read", return_value=SimpleNamespace(source="cli")), patch.object(
-            main,
-            "get_cli_project_revision",
-            return_value=cli_revision,
-        ):
+        cli_resolution = SimpleNamespace(
+            source="cli",
+            project_id=project_id,
+            project_ir=cli_revision["manifest"]["project_ir"],
+            title="CLI project",
+            prompt="Build a CLI project.",
+            current_revision=1,
+            revision_id="cli-revision-1",
+            created_at=cli_revision["created_at"],
+        )
+        with patch.object(main, "resolve_project_for_read", return_value=cli_resolution):
             response = main.get_project_endpoint(project_id, _user_context("user-a"))
 
         self.assertEqual(project_id, response["project_id"])
@@ -583,9 +622,9 @@ class ProjectReadAccessTests(unittest.TestCase):
     def test_owner_can_update_project_title(self) -> None:
         project = _project("owned-project", owner_user_id="user-a", visibility="public")
 
-        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+        with patch.object(main, "resolve_project_for_read", return_value=SimpleNamespace(project=project)), patch.object(
             main,
-            "update_generated_project_metadata",
+            "update_project_identity",
             return_value=True,
         ) as update_meta:
             response = main.update_project_endpoint(
@@ -606,9 +645,9 @@ class ProjectReadAccessTests(unittest.TestCase):
     def test_community_member_cannot_update_project_title(self) -> None:
         project = _project("public-project", owner_user_id="user-b", visibility="public")
 
-        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+        with patch.object(main, "resolve_project_for_read", return_value=SimpleNamespace(project=project)), patch.object(
             main,
-            "update_generated_project_metadata",
+            "update_project_identity",
         ) as update_meta:
             with self.assertRaises(HTTPException) as raised:
                 main.update_project_endpoint(
@@ -623,9 +662,9 @@ class ProjectReadAccessTests(unittest.TestCase):
     def test_anonymous_user_cannot_update_project_title(self) -> None:
         project = _project("public-project", owner_user_id="user-b", visibility="public")
 
-        with patch.object(main, "get_generated_project", return_value=project), patch.object(
+        with patch.object(main, "resolve_project_for_read", return_value=SimpleNamespace(project=project)), patch.object(
             main,
-            "update_generated_project_metadata",
+            "update_project_identity",
         ) as update_meta:
             with self.assertRaises(HTTPException) as raised:
                 main.update_project_endpoint(
@@ -861,7 +900,6 @@ class ProjectGenerationAccessTests(unittest.TestCase):
             patch.object(main, "ensure_chat_project"),
             patch.object(main, "build_generation_response", return_value=generated_response),
             patch.object(main, "_attach_generation_timing_metadata", side_effect=lambda response, _job: response),
-            patch.object(main, "update_generated_project_hardware_ir"),
         ):
             response = asyncio.run(
                 main.generate_project_endpoint(
@@ -890,13 +928,13 @@ class ProjectIterationAccessTests(unittest.TestCase):
         with (
             patch.object(main, "require_hosted_chat_enabled"),
             patch.object(main, "_apply_user_integrations"),
-            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "resolve_project_for_read", return_value=SimpleNamespace(project=project)),
             patch.object(main, "get_latest_project_revision", side_effect=main.ProjectStateError("project_revision_not_found", "not found")),
             patch.object(main, "ensure_project_action_allowed"),
             patch.object(main, "ProjectIterator", return_value=iterator),
             patch.object(main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata),
             patch.object(main, "append_project_revision", return_value=persisted) as append_revision,
-            patch.object(main, "update_generated_project_hardware_ir", return_value=True) as update_projection,
+            patch.object(main, "refresh_legacy_project_projection", return_value=True) as update_projection,
             patch.object(main, "generate_mermaid_chart", return_value=""),
             patch.object(main, "generate_svg_schematic", return_value=""),
         ):

@@ -30,6 +30,7 @@ from forma_core.agents.workflows import (
 from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
 from forma_core.database import (
     ensure_project_action_allowed,
+    persist_chat_project_revision,
     get_generated_project,
     save_generated_project,
     update_generated_project_metadata,
@@ -1131,6 +1132,16 @@ def build_generation_response(
                     details={"image_output_status": image_status},
                 )
             ensure_agent_pipeline_active()
+            if owner_user_id and (ir.assembly_metadata or {}).get("project_id"):
+                persisted_revision = persist_chat_project_revision(
+                    str((ir.assembly_metadata or {}).get("project_id")),
+                    owner_user_id,
+                    ir,
+                    source_job_id=f"generation-{frontend_job_id or uuid.uuid4().hex}",
+                    prompt=prompt_text,
+                    chat_id=chat_id,
+                )
+                ir = persisted_revision.state
             _persist_updated_project_ir(ir, prompt_text=prompt_text, owner_user_id=owner_user_id)
 
             response = {
@@ -1178,6 +1189,7 @@ async def call_forma_action(
     action: str,
     payload: Dict[str, Any],
     user_context: Optional[UserContext] = None,
+    job_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     normalized = action.removeprefix("forma.")
     if normalized == "generate_project":
@@ -1218,7 +1230,7 @@ async def call_forma_action(
             payload.get("external_source_provider"),
             payload.get("chat_id"),
             payload.get("source_project_id"),
-            payload.get("client_job_id") or payload.get("frontend_job_id"),
+            payload.get("client_job_id") or payload.get("frontend_job_id") or job_id,
             owner_user_id,
             data_sources,
             past_job_context,
@@ -1438,7 +1450,7 @@ async def _process_server_message(
             lambda event: JOB_STORE.append_progress_event(message.job_id, event.as_dict()),
             cancellation_check=lambda: JOB_STORE.is_cancelled(message.job_id),
         ):
-            result = await call_forma_action(message.action, message.payload, user_context)
+            result = await call_forma_action(message.action, message.payload, user_context, message.job_id)
         generation_status = str(result.get("generation_status") or "succeeded").lower()
         if generation_status == "partial":
             JOB_STORE.mark_partial(message.job_id, result)

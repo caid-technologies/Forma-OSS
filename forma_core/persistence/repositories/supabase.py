@@ -53,6 +53,10 @@ class SupabaseRepository:
         rows = self._client.table("projects").upsert(record, on_conflict="project_id").execute().data or []
         return _record(rows[0]) if rows else None
 
+    def get_project_identity(self, project_id: str) -> Optional[Any]:
+        rows = self._client.table("projects").select("*").eq("project_id", project_id).limit(1).execute().data or []
+        return _record(rows[0]) if rows else None
+
     def list_project_identities(self, owner_user_id: str) -> List[Any]:
         rows = (
             self._client.table("projects")

@@ -71,6 +71,14 @@ class SqlAlchemyRepository:
                         setattr(project, key, value)
             return project
 
+    def get_project_identity(self, project_id: str) -> Optional[Any]:
+        with self._session() as session:
+            project = session.query(DBProject).filter(DBProject.project_id == project_id).first()
+            return {
+                column.name: getattr(project, column.name)
+                for column in DBProject.__table__.columns
+            } if project is not None else None
+
     def list_project_identities(self, owner_user_id: str) -> List[Any]:
         with self._session() as session:
             return session.query(DBProject).filter(

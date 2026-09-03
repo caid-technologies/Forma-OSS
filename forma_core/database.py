@@ -415,6 +415,153 @@ def save_generated_project(
     invalidate_project_lists()
 
 
+def ensure_project_identity(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    title: str = "Untitled Forma Project",
+    prompt: str = "",
+    chat_id: Optional[str] = None,
+    created_at: Optional[str] = None,
+    visibility: str = "private",
+) -> Dict[str, Any]:
+    """Create the canonical identity needed before a chat project can build."""
+
+    canonical_project_id = _canonical_project_id(project_id)
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        raise ValueError("owner_user_id is required.")
+    existing_identity = _DATABASE_REPOSITORY.get_project_identity(canonical_project_id)
+    if existing_identity is not None:
+        existing_owner = _normalize_user_id(existing_identity.get("owner_user_id"))
+        if existing_owner != owner:
+            raise DesignBriefAccessError("Project is not owned by the current user.")
+        if existing_identity.get("status", "active") != "active":
+            raise DesignBriefAccessError("Cannot initialize a deleted project.")
+        title = existing_identity.get("title") or title
+        prompt = existing_identity.get("prompt") or prompt
+        chat_id = existing_identity.get("chat_id") or chat_id
+        created_at = existing_identity.get("created_at") or created_at
+        visibility = existing_identity.get("visibility") or visibility
+    timestamp = created_at or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    record = {
+        "project_id": canonical_project_id,
+        "owner_user_id": owner,
+        "creation_channel": "hosted",
+        "title": str(title or "Untitled Forma Project").strip() or "Untitled Forma Project",
+        "prompt": str(prompt or "").strip(),
+        "chat_id": _normalize_chat_id(chat_id),
+        "workspace_id": None,
+        "visibility": _normalize_visibility(visibility),
+        "status": "active",
+        "created_at": timestamp,
+        "updated_at": timestamp,
+    }
+    _DATABASE_REPOSITORY.upsert_project_identity(record)
+    return record
+
+
+def ensure_chat_project(
+    project_id: str,
+    owner_user_id: str,
+    *,
+    prompt: str,
+    chat_id: Optional[str] = None,
+    title: Optional[str] = None,
+) -> DesignBrief:
+    """Bootstrap a chat project's canonical identity and first frozen brief."""
+
+    canonical_project_id = _canonical_project_id(project_id)
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        raise ValueError("owner_user_id is required.")
+    existing = get_generated_project(canonical_project_id, include_deleted=True)
+    if existing is not None:
+        existing_owner = _normalize_user_id(getattr(existing, "owner_user_id", None))
+        if existing_owner != owner:
+            raise DesignBriefAccessError("Project is not owned by the current user.")
+        if getattr(existing, "status", "active") != "active":
+            raise DesignBriefAccessError("Cannot initialize a deleted project.")
+
+    summary = str(prompt or "").strip() or str(title or "Untitled Forma Project").strip()
+    identity = ensure_project_identity(
+        canonical_project_id,
+        owner,
+        title=(title or (getattr(existing, "title", None) if existing is not None else None) or summary),
+        prompt=(getattr(existing, "prompt", None) if existing is not None else None) or summary,
+        chat_id=chat_id,
+        created_at=getattr(existing, "created_at", None) if existing is not None else None,
+        visibility=getattr(existing, "visibility", "private") if existing is not None else "private",
+    )
+    canonical_chat_id = identity.get("chat_id") or _normalize_chat_id(chat_id)
+
+    try:
+        brief = get_latest_design_brief(canonical_project_id, owner)
+    except DesignBriefNotFoundError:
+        brief = create_design_brief_version(
+            canonical_project_id,
+            owner,
+            DesignBriefCreate(
+                schema_version="1.0",
+                conversation_id=canonical_chat_id or f"project-{canonical_project_id}",
+                intent=summary,
+                summary=summary,
+            ),
+        )
+    return brief
+
+
+def persist_chat_project_revision(
+    project_id: str,
+    owner_user_id: str,
+    state: Any,
+    *,
+    source_job_id: str,
+    prompt: str,
+    chat_id: Optional[str] = None,
+) -> ProjectRevision:
+    """Commit generated chat output canonically, then refresh its gallery projection."""
+
+    from forma_core.workers.generation import build_generation_draft
+    from forma_core.workspaces.projects.models import HardwareIR
+
+    canonical_project_id = _canonical_project_id(project_id)
+    brief = ensure_chat_project(
+        canonical_project_id,
+        owner_user_id,
+        prompt=prompt,
+        chat_id=chat_id,
+    )
+    service = ProjectStateService(_DATABASE_REPOSITORY)
+    candidate = HardwareIR.model_validate(state)
+    try:
+        service.get_latest(canonical_project_id, owner_user_id)
+    except ProjectStateError as exc:
+        if exc.code != "project_revision_not_found":
+            raise
+        metadata = dict(candidate.assembly_metadata or {})
+        metadata["project_id"] = canonical_project_id
+        metadata.pop("revision", None)
+        candidate.assembly_metadata = metadata
+        revision = service.create_initial_revision(
+            build_generation_draft(brief, candidate),
+            project_id=canonical_project_id,
+            owner_user_id=owner_user_id,
+            design_brief_id=brief.design_brief_id,
+            design_brief_version=brief.brief_version,
+            source_job_id=source_job_id,
+        ).revision
+    else:
+        revision = service.create_revision(
+            build_generation_draft(brief, candidate),
+            project_id=canonical_project_id,
+            owner_user_id=owner_user_id,
+            source_job_id=source_job_id,
+        ).revision
+    publish_project_revision(revision, brief, owner_user_id)
+    return revision
+
+
 def publish_project_revision(revision: ProjectRevision, brief: DesignBrief, owner_user_id: str) -> str:
     """Project canonical state into the public gallery's generated-project store."""
 
@@ -938,14 +1085,26 @@ def initialize_project_workflow(
     actor_type: WorkflowActorType = WorkflowActorType.SYSTEM,
     actor_id: Optional[str] = None,
     reason: str = "Project workflow initialized.",
+    chat_id: Optional[str] = None,
+    title: Optional[str] = None,
+    prompt: Optional[str] = None,
 ) -> WorkflowTransitionOutcome:
-    return ProjectWorkflowService(_DATABASE_REPOSITORY).initialize(
+    outcome = ProjectWorkflowService(_DATABASE_REPOSITORY).initialize(
         project_id,
         owner_user_id,
         actor_type=actor_type,
         actor_id=actor_id,
         reason=reason,
     )
+    if chat_id or title or prompt:
+        ensure_project_identity(
+            project_id,
+            owner_user_id,
+            title=title or "Untitled Forma Project",
+            prompt=prompt or "",
+            chat_id=chat_id,
+        )
+    return outcome
 
 
 def get_project_workflow(project_id: str, owner_user_id: str) -> ProjectWorkflow:

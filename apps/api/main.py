@@ -74,6 +74,7 @@ configure_backend_logging()
 
 from forma_core.database import (
     append_project_revision,
+    DesignBriefAccessError,
     DesignBriefNotFoundError,
     count_component_templates,
     delete_generated_project,
@@ -97,6 +98,8 @@ from forma_core.database import (
     list_project_deletion_audits,
     list_project_generation_jobs,
     project_engagement_for_ids,
+    ensure_chat_project,
+    persist_chat_project_revision,
     resolve_project_for_read,
     remix_generated_project,
     save_alpha_signup,
@@ -710,6 +713,17 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         )
         raise HTTPException(status_code=400, detail=detail)
 
+    project_id = request.project_id or str(uuid4())
+    try:
+        ensure_chat_project(
+            project_id,
+            owner_user_id,
+            prompt=request.prompt,
+            chat_id=request.chat_id,
+        )
+    except (ValueError, DesignBriefAccessError) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
     job_id = request.client_job_id or f"job_frontend_{uuid4().hex}"
     message_id = f"msg_{uuid4().hex}"
     correlation_id = new_error_correlation_id()
@@ -720,7 +734,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         _require_project_chat_owner(source_project, user)
     payload = {
         "prompt": request.prompt,
-        "project_id": request.project_id,
+        "project_id": project_id,
         "retry_stage": request.retry_stage,
         "workflow": request.workflow,
         "image_data": request.image_data,
@@ -776,7 +790,7 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
                 owner_user_id=owner_user_id,
                 data_sources=request.data_sources,
                 past_job_context=past_job_context,
-                project_id=request.project_id,
+                project_id=project_id,
                 retry_stage=request.retry_stage,
             )
         if JOB_STORE.is_cancelled(job_id):

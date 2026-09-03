@@ -166,6 +166,9 @@ def gather_project_context_endpoint(
                         actor_type=WorkflowActorType.USER,
                         actor_id=owner,
                         reason="Build request supplied initial project context.",
+                        chat_id=request.conversation_id,
+                        title=(request.text or "Hardware project")[:100],
+                        prompt=request.text,
                     ).workflow
                 except WorkflowStateError as exc:
                     raise _workflow_error(exc) from exc
@@ -190,6 +193,9 @@ def gather_project_context_endpoint(
                 actor_type=WorkflowActorType.USER,
                 actor_id=owner,
                 reason="Build request resumed existing project context.",
+                chat_id=request.conversation_id,
+                title=(request.text or "Hardware project")[:100],
+                prompt=request.text,
             ).workflow
         except WorkflowStateError as exc:
             raise _workflow_error(exc) from exc
@@ -203,6 +209,9 @@ def gather_project_context_endpoint(
                     actor_type=WorkflowActorType.USER,
                     actor_id=owner,
                     reason="Conversation supplied project context.",
+                    chat_id=request.conversation_id,
+                    title=(request.text or "Hardware project")[:100],
+                    prompt=request.text,
                 ).workflow
             except WorkflowStateError as exc:
                 raise _workflow_error(exc) from exc

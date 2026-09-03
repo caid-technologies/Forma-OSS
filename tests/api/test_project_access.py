@@ -735,6 +735,7 @@ class ProjectGenerationAccessTests(unittest.TestCase):
             patch.object(main, "_deployment_runtime_config", return_value={"alpha_generation_gate_active": False}),
             patch.object(main, "JOB_STORE", job_store),
             patch.object(main, "observe_agent_pipeline", return_value=nullcontext()),
+            patch.object(main, "ensure_chat_project"),
             patch.object(main, "build_generation_response", return_value=generated_response),
             patch.object(main, "_attach_generation_timing_metadata", side_effect=lambda response, _job: response),
             patch.object(main, "update_generated_project_hardware_ir"),

@@ -2947,7 +2947,11 @@ export function FormaWorkspace({
     setMyProjectHistoryLoaded(false);
     setMyProjectHistoryError(null);
     try {
-      const res = await fetch(`${API_URL}/my/projects`, {
+      const params = new URLSearchParams({
+        limit: String(PROJECT_GALLERY_PAGE_SIZE),
+        offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
+      });
+      const res = await fetch(`${API_URL}/my/projects?${params.toString()}`, {
         headers: await generationRequestHeaders(),
       });
       if (myProjectHistoryRequestIdRef.current !== requestId) return;
@@ -5498,6 +5502,9 @@ export function FormaWorkspace({
                   return item ? handleRemixProject(item) : undefined;
                 } : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
+                totalItems={myProjectHistoryTotal}
+                currentPage={myProjectHistoryPage}
+                onPageChange={handleMyProjectHistoryPageChange}
                 error={myProjectHistoryError}
               />
           ) : homeView === "jobs" ? (

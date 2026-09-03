@@ -2717,6 +2717,18 @@ def iterate_project_endpoint(
         project_chat_id = getattr(project, "chat_id", None)
         project_created_at = project.created_at
         can_chat = _user_owns_project(project, user)
+        if save_owner_user_id:
+            try:
+                canonical_revision = get_latest_project_revision(project_id, save_owner_user_id)
+                canonical_brief = get_latest_design_brief(project_id, save_owner_user_id)
+            except (ProjectStateError, DesignBriefNotFoundError):
+                canonical_revision = None
+                canonical_brief = None
+            else:
+                current_ir = canonical_revision.state
+                project_prompt = canonical_brief.summary
+                project_chat_id = canonical_brief.conversation_id
+                project_created_at = canonical_revision.created_at
     else:
         save_owner_user_id = _require_authenticated_user(user)
         try:
@@ -2747,15 +2759,14 @@ def iterate_project_endpoint(
         )
         revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project_id)
         if request.save:
-            if canonical_revision is not None:
-                persisted_revision = append_project_revision(
-                    project_id,
-                    save_owner_user_id,
-                    revised_ir,
-                    source_job_id=f"iteration-{uuid4().hex}",
-                )
-                revised_ir = persisted_revision.state
-            else:
+            persisted_revision = append_project_revision(
+                project_id,
+                save_owner_user_id,
+                revised_ir,
+                source_job_id=f"iteration-{request.idempotency_key or uuid4().hex}",
+            )
+            revised_ir = persisted_revision.state
+            if project is not None:
                 saved = update_generated_project_hardware_ir(
                     project_id,
                     revised_ir.model_dump(mode="json"),
@@ -2783,6 +2794,11 @@ def iterate_project_endpoint(
         raise HTTPException(
             status_code=400,
             detail=runtime_safe_error_message(str(e), provider=request.provider, model=request.model),
+        ) from e
+    except ProjectStateError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT if e.retryable or e.code.endswith("conflict") else 404,
+            detail=e.as_dict(),
         ) from e
     except LLMProviderConfigError as e:
         raise HTTPException(
@@ -2928,6 +2944,13 @@ def video_self_correct_project_endpoint(
         )
         revised_ir.assembly_metadata = hydrate_image_storage_metadata(revised_ir.assembly_metadata, project.project_id)
         if request.save:
+            persisted_revision = append_project_revision(
+                project.project_id,
+                owner_user_id,
+                revised_ir,
+                source_job_id=f"video-correction-{request.idempotency_key or uuid4().hex}",
+            )
+            revised_ir = persisted_revision.state
             saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"), owner_user_id=owner_user_id)
             if not saved:
                 raise HTTPException(status_code=404, detail="Project not found.")

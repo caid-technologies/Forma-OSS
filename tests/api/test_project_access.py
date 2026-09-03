@@ -17,6 +17,7 @@ from forma_core.workspaces.projects.models import (
     FunctionalRequirements,
     GenerateProjectRequest,
     HardwareIR,
+    IterateProjectRequest,
     MechanicalNotes,
     MechanicalSource,
     ProjectOverview,
@@ -718,6 +719,47 @@ class ProjectGenerationAccessTests(unittest.TestCase):
         self.assertTrue(response["can_chat"])
         self.assertEqual("generated-project", response["project_id"])
         self.assertEqual("generated-chat", response["chat_id"])
+
+
+class ProjectIterationAccessTests(unittest.TestCase):
+    def test_saved_legacy_iteration_appends_revision_and_refreshes_projection(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        project = _project(project_id, owner_user_id="user-a", visibility="private")
+        current = HardwareIR.model_validate(project.hardware_ir)
+        revised = current.model_copy(deep=True)
+        revised.assembly_metadata["revision"] = 2
+        revised.assembly_metadata["last_iteration"] = "enclosure"
+        persisted = SimpleNamespace(state=revised)
+
+        iterator = MagicMock()
+        iterator.iterate_project.return_value = revised
+        with (
+            patch.object(main, "require_hosted_chat_enabled"),
+            patch.object(main, "_apply_user_integrations"),
+            patch.object(main, "get_generated_project", return_value=project),
+            patch.object(main, "get_latest_project_revision", side_effect=main.ProjectStateError("project_revision_not_found", "not found")),
+            patch.object(main, "ensure_project_action_allowed"),
+            patch.object(main, "ProjectIterator", return_value=iterator),
+            patch.object(main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata),
+            patch.object(main, "append_project_revision", return_value=persisted) as append_revision,
+            patch.object(main, "update_generated_project_hardware_ir", return_value=True) as update_projection,
+            patch.object(main, "generate_mermaid_chart", return_value=""),
+            patch.object(main, "generate_svg_schematic", return_value=""),
+        ):
+            response = main.iterate_project_endpoint(
+                project_id,
+                IterateProjectRequest(instruction="Add an enclosure", idempotency_key="chat-message-1"),
+                _user_context("user-a"),
+            )
+
+        append_revision.assert_called_once_with(
+            project_id,
+            "user-a",
+            revised,
+            source_job_id="iteration-chat-message-1",
+        )
+        update_projection.assert_called_once()
+        self.assertEqual(2, response["project_ir"]["assembly_metadata"]["revision"])
 
 
 if __name__ == "__main__":

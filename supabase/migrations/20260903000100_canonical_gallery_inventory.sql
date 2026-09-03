@@ -45,7 +45,7 @@ select
   r.revision,
   r.revision_payload_json,
   r.revision_created_at,
-  null::jsonb as legacy_hardware_ir,
+   null::jsonb as legacy_hardware_ir,
   null::integer as legacy_id
 from public.projects p
 join hosted_latest r on r.project_id = p.project_id
@@ -69,7 +69,7 @@ select
   r.revision,
   r.revision_payload_json,
   r.revision_created_at,
-  null::jsonb as legacy_hardware_ir,
+   null::jsonb as legacy_hardware_ir,
   null::integer as legacy_id
 from public.projects p
 join public.cli_projects cp on cp.project_id = p.project_id

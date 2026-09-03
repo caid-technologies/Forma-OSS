@@ -30,11 +30,12 @@ from forma_core.agents.workflows import (
 from forma_core.agents.orchestrator import HardwarePipelineOrchestrator
 from forma_core.database import (
     ensure_project_action_allowed,
+    get_latest_project_revision,
+    get_project_identity,
     persist_chat_project_revision,
-    get_generated_project,
-    save_generated_project,
-    update_generated_project_metadata,
-    update_generated_project_hardware_ir,
+    persist_legacy_project_projection,
+    refresh_legacy_project_projection,
+    resolve_project_for_read,
 )
 from forma_core.images import build_image_provider, build_project_visual_spec, get_image_output_debug_config
 from apps.api.auth_mode import clerk_auth_required
@@ -863,9 +864,13 @@ def _persist_updated_project_ir(
     if not project_id:
         return
 
+    if owner_user_id:
+        # Authenticated generation is committed canonically by the caller.
+        return
+
     try:
         hardware_ir = ir.model_dump()
-        updated = update_generated_project_hardware_ir(
+        updated = refresh_legacy_project_projection(
             project_id,
             hardware_ir,
             owner_user_id=owner_user_id,
@@ -879,7 +884,7 @@ def _persist_updated_project_ir(
             or "Untitled Forma Project"
         )
         created_at = metadata.get("created_at") if isinstance(metadata.get("created_at"), str) else _utc_now()
-        save_generated_project(
+        persist_legacy_project_projection(
             project_id=project_id,
             title=title,
             prompt=(prompt_text or metadata.get("source_prompt") or "").strip(),
@@ -960,12 +965,17 @@ def build_generation_response(
             raise ValueError("Named generation-stage retry is not supported by this workflow.")
         if not project_id:
             raise ValueError("project_id is required when retry_stage is provided.")
-        existing_project = get_generated_project(project_id)
-        if existing_project is None:
+        if not owner_user_id:
+            raise ValueError("owner_user_id is required when retry_stage is provided.")
+        try:
+            existing_revision = get_latest_project_revision(project_id, owner_user_id)
+        except Exception as exc:
+            raise ValueError("The project containing the failed generation stage was not found.") from exc
+        if existing_revision is None:
             raise ValueError("The project containing the failed generation stage was not found.")
-        if owner_user_id and str(getattr(existing_project, "owner_user_id", "") or "") != str(owner_user_id):
+        if str(getattr(existing_revision, "owner_user_id", "") or "") != str(owner_user_id):
             raise ValueError("The failed generation stage is not owned by the requesting user.")
-        existing_ir = getattr(existing_project, "hardware_ir", None)
+        existing_ir = existing_revision.state
         if hasattr(existing_ir, "model_dump"):
             existing_ir = existing_ir.model_dump(mode="json")
         existing_ir = existing_ir if isinstance(existing_ir, dict) else {}
@@ -1077,6 +1087,7 @@ def build_generation_response(
                     "retry_stage_replay": retry_stage_replay,
                     "cad_required": cad_required,
                 },
+                persist_project=False,
             )
             ensure_agent_pipeline_active()
             ir.assembly_metadata = {
@@ -1213,7 +1224,13 @@ async def call_forma_action(
         data_sources = normalize_generation_data_sources(payload.get("data_sources") or [])
         past_job_context = None
         if PAST_JOBS_DATA_SOURCE in data_sources:
-            past_job_context = await PastJobContextSource(JOB_STORE, get_generated_project).retrieve(
+            def load_project_for_context(context_project_id: str) -> Any:
+                try:
+                    return resolve_project_for_read(context_project_id, owner_user_id).project
+                except Exception:
+                    return None
+
+            past_job_context = await PastJobContextSource(JOB_STORE, load_project_for_context).retrieve(
                 str(payload.get("prompt") or ""),
                 owner_user_id=owner_user_id if isinstance(owner_user_id, str) else None,
                 limit=int(payload.get("past_jobs_limit") or 3),
@@ -2260,18 +2277,19 @@ def _persist_mcp_compile(
         raise ValueError("project_id must be a UUID when supplied.") from exc
 
     owner_user_id = _context_owner_user_id(user_context)
-    existing = get_generated_project(project_id, include_deleted=True)
+    existing = get_project_identity(project_id)
     if existing is not None:
-        if getattr(existing, "status", "active") != "active":
+        if existing.get("status", "active") != "active":
             raise ValueError("A deleted compiled project cannot be restored by recompiling.")
-        existing_owner = str(getattr(existing, "owner_user_id", "") or "").strip()
+        existing_owner = str(existing.get("owner_user_id") or "").strip()
         if not owner_user_id or existing_owner != owner_user_id:
             raise ValueError("An existing compiled project can only be updated by its owner.")
-        chat_id = str(getattr(existing, "chat_id", "") or "").strip() or None
-        existing_ir = getattr(existing, "hardware_ir", {})
+        chat_id = str(existing.get("chat_id") or "").strip() or None
+        existing_revision = get_latest_project_revision(project_id, owner_user_id)
+        existing_ir = existing_revision.state.model_dump(mode="json") if existing_revision is not None else {}
         existing_metadata = existing_ir.get("assembly_metadata", {}) if isinstance(existing_ir, dict) else {}
         revision = int(existing_metadata.get("compile_revision") or 1) + 1
-        created_at = str(getattr(existing, "created_at", "") or _utc_now())
+        created_at = str(existing.get("created_at") or _utc_now())
     else:
         chat_id = str(uuid.uuid4()) if owner_user_id else None
         revision = 1
@@ -2281,7 +2299,7 @@ def _persist_mcp_compile(
     prompt = str(arguments.get("prompt") or metadata.get("source_prompt") or title).strip()
     visibility = str(
         arguments.get("visibility")
-        or (getattr(existing, "visibility", None) if existing is not None else None)
+        or (existing.get("visibility") if isinstance(existing, dict) else None)
         or "public"
     ).strip().lower()
     if visibility not in {"public", "private"}:
@@ -2301,22 +2319,29 @@ def _persist_mcp_compile(
     }
     hardware_ir = project.model_dump(mode="json")
     if existing is not None:
-        if not update_generated_project_hardware_ir(
+        if not owner_user_id:
+            raise ValueError("An authenticated owner is required to update a compiled project.")
+        persist_chat_project_revision(
             project_id,
-            hardware_ir,
-            owner_user_id=owner_user_id,
-        ):
-            raise RuntimeError("Could not update the persisted compiled project.")
-        if not update_generated_project_metadata(
-            project_id,
-            owner_user_id=owner_user_id,
-            title=title,
+            owner_user_id,
+            project,
+            source_job_id=f"compile-{uuid.uuid4().hex}",
             prompt=prompt,
+            chat_id=chat_id,
             visibility=visibility,
-        ):
-            raise RuntimeError("Could not update the compiled project metadata.")
+        )
+    elif owner_user_id:
+        persist_chat_project_revision(
+            project_id,
+            owner_user_id,
+            project,
+            source_job_id=f"compile-{uuid.uuid4().hex}",
+            prompt=prompt,
+            chat_id=chat_id,
+            visibility=visibility,
+        )
     else:
-        save_generated_project(
+        persist_legacy_project_projection(
             project_id=project_id,
             title=title,
             prompt=prompt,

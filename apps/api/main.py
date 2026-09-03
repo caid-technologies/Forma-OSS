@@ -77,12 +77,9 @@ from forma_core.database import (
     DesignBriefAccessError,
     DesignBriefNotFoundError,
     count_component_templates,
-    delete_generated_project,
     delete_project_chat,
     ensure_project_action_allowed,
-    get_cli_project_revision,
     get_database_config,
-    get_generated_project,
     get_latest_design_brief,
     get_latest_project_revision,
     get_latest_project_deletion_audit,
@@ -92,14 +89,16 @@ from forma_core.database import (
     init_db,
     list_project_chats,
     list_component_templates,
-    list_generated_projects,
     list_project_gallery_inventory,
     list_project_gallery_inventory_page,
     list_project_identities,
     list_latest_project_revisions,
+    update_project_deletion_state,
+    update_project_identity,
     list_project_deletion_audits,
     list_project_generation_jobs,
     project_engagement_for_ids,
+    refresh_legacy_project_projection,
     ensure_chat_project,
     persist_chat_project_revision,
     resolve_project_for_read,
@@ -107,8 +106,7 @@ from forma_core.database import (
     save_alpha_signup,
     save_project_for_user,
     unsave_project_for_user,
-    update_generated_project_metadata,
-    update_generated_project_hardware_ir,
+    publish_project_revision,
     upsert_project_chat,
 )
 from forma_core.project_list_cache import (
@@ -463,17 +461,27 @@ def _delete_cancelled_generation_projects(job_id: str, job: Optional[Dict[str, A
     if not owner_user_id:
         return
     deleted_chats: List[tuple[str, str]] = []
-    for project in list_generated_projects(owner_user_id=owner_user_id):
-        hardware_ir = getattr(project, "hardware_ir", None)
-        project_id = getattr(project, "project_id", None)
+    for revision in list_latest_project_revisions(owner_user_id):
+        project_id = str(revision.project_id)
+        hardware_ir = revision.state.model_dump(mode="json")
         if not isinstance(hardware_ir, dict) or not isinstance(project_id, str):
             continue
         metadata = hardware_ir.get("assembly_metadata")
         if not isinstance(metadata, dict) or metadata.get("frontend_job_id") != job_id:
             continue
-        if delete_generated_project(project_id, owner_user_id):
-            chat_id = getattr(project, "chat_id", None)
-            title = getattr(project, "title", None)
+        deleted = update_project_deletion_state(
+            project_id,
+            owner_user_id=owner_user_id,
+            allowed_statuses=["active"],
+            updates={
+                "status": "deletion_pending",
+                "deleted_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                "deletion_requested_by": owner_user_id,
+            },
+        )
+        if deleted:
+            chat_id = getattr(deleted, "chat_id", None)
+            title = getattr(deleted, "title", None)
             if isinstance(chat_id, str) and isinstance(title, str):
                 deleted_chats.append((chat_id, title))
             logger.info("Removed project %s created after cancelled job %s.", project_id, job_id)
@@ -730,9 +738,10 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     message_id = f"msg_{uuid4().hex}"
     correlation_id = new_error_correlation_id()
     if request.source_project_id:
-        source_project = get_generated_project(request.source_project_id)
-        if not source_project:
-            raise HTTPException(status_code=404, detail="Source project not found.")
+        try:
+            source_project = resolve_project_for_read(request.source_project_id, owner_user_id).project
+        except ProjectReadError as exc:
+            raise HTTPException(status_code=404, detail="Source project not found.") from exc
         _require_project_chat_owner(source_project, user)
     payload = {
         "prompt": request.prompt,
@@ -767,7 +776,13 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
     try:
         past_job_context = None
         if PAST_JOBS_DATA_SOURCE in request.data_sources:
-            past_job_context = await PastJobContextSource(JOB_STORE, get_generated_project).retrieve(
+            def load_project_for_context(project_id: str) -> Any:
+                try:
+                    return resolve_project_for_read(project_id, owner_user_id).project
+                except ProjectReadError:
+                    return None
+
+            past_job_context = await PastJobContextSource(JOB_STORE, load_project_for_context).retrieve(
                 request.prompt,
                 owner_user_id=owner_user_id,
                 limit=request.past_jobs_limit,
@@ -815,11 +830,6 @@ async def generate_project_endpoint(request: GenerateProjectRequest, user: UserC
         response = _attach_generation_timing_metadata(response, job)
         metadata = (response.get("project_ir", {}).get("assembly_metadata") or {})
         project_id = metadata.get("project_id")
-        if project_id and isinstance(response.get("project_ir"), dict):
-            try:
-                update_generated_project_hardware_ir(project_id, response["project_ir"])
-            except Exception:
-                logger.warning("Failed to persist generation timing metadata for project_id=%s", project_id, exc_info=debug_mode_enabled())
         return {
             **response,
             "project_id": project_id,
@@ -1113,6 +1123,26 @@ def _require_project_owner(project: Any, user: UserContext) -> str:
     return user_id
 
 
+def _resolve_project_owner(project_id: str, user: UserContext, *, include_deleted: bool = False) -> Any:
+    """Resolve project state through the canonical read boundary before access checks."""
+    try:
+        resolved = resolve_project_for_read(project_id, user.owner_user_id, include_deleted=include_deleted)
+    except ProjectReadError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.") from exc
+    _require_project_owner(resolved.project, user)
+    return resolved.project
+
+
+def _resolve_project_reader(project_id: str, user: UserContext, *, include_deleted: bool = False) -> Any:
+    """Resolve one project through the canonical boundary for read access."""
+    try:
+        resolved = resolve_project_for_read(project_id, user.owner_user_id, include_deleted=include_deleted)
+    except ProjectReadError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.") from exc
+    _require_project_reader(resolved.project, user)
+    return resolved.project
+
+
 def _require_project_chat_owner(project: Any, user: UserContext) -> str:
     user_id = _require_authenticated_user(user)
     owner_user_id = _project_owner_user_id(project)
@@ -1217,10 +1247,7 @@ def list_video_models_endpoint():
 def list_project_videos_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Lists videos saved for one project from configured backend storage."""
     project_id = _require_non_empty(project_id, "projectId is required.")
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, user)
+    project = _resolve_project_owner(project_id, user)
     try:
         videos = list_project_videos(project_id)
         return {
@@ -1237,10 +1264,7 @@ def create_image_to_video_endpoint(request: VideoImageToVideoRequest, user: User
     """Queues a backend-only GMI Cloud image-to-video generation request."""
     require_hosted_chat_enabled()
     project_id = _require_non_empty(request.projectId, "projectId is required.")
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, user)
+    project = _resolve_project_owner(project_id, user)
     image = _require_non_empty(request.image, "image is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_IMAGE_TO_VIDEO)
@@ -1297,10 +1321,7 @@ def create_video_to_video_endpoint(request: VideoToVideoRequest, user: UserConte
     """Queues a backend-only GMI Cloud video-to-video generation request."""
     require_hosted_chat_enabled()
     project_id = _require_non_empty(request.projectId, "projectId is required.")
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, user)
+    project = _resolve_project_owner(project_id, user)
     video = _require_non_empty(request.video, "video is required.")
     prompt = _require_non_empty(request.prompt, "prompt is required.")
     model = _normalize_video_model(request.model, VIDEO_MODE_VIDEO_TO_VIDEO)
@@ -1366,10 +1387,7 @@ def get_image_to_video_status_endpoint(
     """Polls GMI Cloud for a project-scoped video request and stores completed videos in S3."""
     request_id = _require_non_empty(request_id, "requestId is required.")
     project_id = _require_non_empty(projectId, "projectId is required.")
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, user)
+    project = _resolve_project_owner(project_id, user)
     normalized_mode = normalize_video_mode(mode)
     model = _normalize_video_model(model, normalized_mode)
     aspect_ratio = _normalize_video_request_aspect_ratio(aspectRatio) if aspectRatio else None
@@ -1982,8 +2000,6 @@ def _gallery_inventory_summary(record: Any, *, current_user_id: Optional[str]) -
         elif hasattr(record, "hardware_ir"):
             legacy_project = record
         if legacy_project is None:
-            legacy_project = get_generated_project(project_id, include_deleted=False)
-        if legacy_project is None:
             return None
         project = types.SimpleNamespace(
             project_id=project_id,
@@ -2188,30 +2204,32 @@ def _without_downloadable_project_assets(hardware_ir: Dict[str, Any]) -> Dict[st
 
 
 def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[ProjectDetail]:
-    """Adapt an authenticated CLI revision to the web project's response shape."""
-    revision = get_cli_project_revision(project_id, owner_user_id)
-    if revision is None:
+    """Adapt an authenticated CLI resolution to the web project's response shape."""
+    try:
+        resolved = resolve_project_for_read(project_id, owner_user_id)
+    except ProjectReadError:
+        return None
+    if resolved.source != "cli":
         return None
 
-    manifest = ProjectManifest.from_document(revision.get("manifest") or {})
-    project_ir = json.loads(json.dumps(manifest.project_ir))
+    project_ir = json.loads(json.dumps(resolved.project_ir))
     metadata = project_ir.get("assembly_metadata")
     metadata = dict(metadata) if isinstance(metadata, dict) else {}
     metadata.update(
         {
-            "project_id": str(revision["project_id"]),
+            "project_id": str(resolved.project_id),
             "chat_id": None,
             "can_chat": False,
-            "project_revision": revision.get("revision"),
-            "cloud_revision_id": revision.get("revision_id"),
-            "source_prompt": manifest.prompt,
+            "project_revision": resolved.current_revision,
+            "cloud_revision_id": resolved.revision_id,
+            "source_prompt": resolved.prompt,
             "project_source": "cli",
         }
     )
     project_ir["assembly_metadata"] = metadata
     overview = project_ir.get("overview") if isinstance(project_ir.get("overview"), dict) else {}
     components = project_ir.get("components") if isinstance(project_ir.get("components"), list) else []
-    title = str(manifest.title or overview.get("title") or "Untitled project")
+    title = str(resolved.title or overview.get("title") or "Untitled project")
     product_image_url = metadata.get("product_image_url") or metadata.get("product_case_image_url")
     product_image_data = metadata.get("product_image_data")
 
@@ -2229,11 +2247,11 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Proje
         pass
 
     return ProjectDetail(
-        project_id=str(revision["project_id"]),
+        project_id=str(resolved.project_id),
         creation_channel="cli",
         title=title,
-        prompt=manifest.prompt,
-        created_at=revision.get("created_at"),
+        prompt=resolved.prompt,
+        created_at=resolved.created_at,
         visibility="private",
         creator_display=creator_display_name(owner_user_id),
         creator_username=creator_display_name(owner_user_id),
@@ -2351,6 +2369,7 @@ def list_my_projects_endpoint(
         identities = _list_project_identities(owner_user_id)
         if identities:
             response: List[Dict[str, Any]] = []
+            fallback_projects: Optional[dict[str, Any]] = None
             for identity in identities:
                 project_id = str(identity.project_id)
                 if identity.creation_channel == "cli":
@@ -2358,20 +2377,23 @@ def list_my_projects_endpoint(
                     if project is not None:
                         response.append(project.model_dump(mode="json"))
                     continue
-                project = get_generated_project(project_id)
-                if project is not None:
-                    response.append(
-                        _project_summary_response(
-                            project,
-                            current_user_id=owner_user_id,
-                            include_inline_images=False,
-                        ).model_dump(mode="json")
-                    )
-                    continue
                 try:
                     revision = get_latest_project_revision(project_id, owner_user_id)
                     brief = get_latest_design_brief(project_id, owner_user_id)
                 except (ProjectStateError, DesignBriefNotFoundError):
+                    if fallback_projects is None:
+                        fallback_rows, _ = list_project_gallery_inventory_page(
+                            owner_user_id=owner_user_id,
+                            visibility=None,
+                            limit=50,
+                            offset=0,
+                        )
+                        fallback_projects = {str(row.project_id): row for row in fallback_rows}
+                    fallback = fallback_projects.get(project_id)
+                    if fallback is not None:
+                        summary = _gallery_inventory_summary(fallback, current_user_id=owner_user_id)
+                        if summary is not None:
+                            response.append(summary.model_dump(mode="json"))
                     continue
                 response.append(_canonical_project_summary_response(
                     revision,
@@ -2383,39 +2405,18 @@ def list_my_projects_endpoint(
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
             return _with_project_engagement(cached, owner_user_id)
-        projects = list_generated_projects(owner_user_id=owner_user_id)
-        response = [
-            _project_summary_response(
-                project,
-                current_user_id=owner_user_id,
-                include_inline_images=False,
-            ).model_dump(mode="json")
-            for project in projects
-        ]
-        legacy_project_ids = {str(project.project_id) for project in projects}
-        for revision in list_latest_project_revisions(owner_user_id):
-            project_id = str(revision.project_id)
-            if project_id in legacy_project_ids:
-                continue
-            legacy_record = get_generated_project(project_id, include_deleted=True)
-            if legacy_record is not None:
-                continue
-            try:
-                brief = get_latest_design_brief(project_id, owner_user_id)
-            except DesignBriefNotFoundError:
-                logger.warning(
-                    "Skipping canonical project without a design brief in owner listing: project_id=%s",
-                    project_id,
-                )
-                continue
-            response.append(
-                _canonical_project_summary_response(
-                    revision,
-                    brief,
-                    owner_user_id=owner_user_id,
-                    hydrate_storage=False,
-                ).model_dump(mode="json")
-            )
+        projects, total = list_project_gallery_inventory_page(
+            owner_user_id=owner_user_id,
+            visibility=None,
+            limit=50,
+            offset=0,
+        )
+        response = []
+        for project in projects:
+            summary = _gallery_inventory_summary(project, current_user_id=owner_user_id)
+            if summary is not None:
+                response.append(summary.model_dump(mode="json"))
+        response = _with_project_engagement(response, owner_user_id)
         response.sort(key=lambda item: str(item.get("created_at") or ""), reverse=True)
         response = jsonable_encoder(response)
         cache_project_list("mine", owner_user_id, response, generation)
@@ -2583,11 +2584,9 @@ def update_project_endpoint(
 ):
     """Updates owner-managed project metadata, including public/private visibility."""
     require_hosted_chat_enabled()
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    owner_user_id = _require_project_owner(project, user)
-    saved = update_generated_project_metadata(
+    project = _resolve_project_owner(project_id, user)
+    owner_user_id = user.owner_user_id
+    saved = update_project_identity(
         project.project_id,
         owner_user_id=owner_user_id,
         title=request.title,
@@ -2602,10 +2601,7 @@ def update_project_endpoint(
 @app.post("/projects/{project_id}/save")
 def save_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Save a readable project for the signed-in user."""
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_reader(project, user)
+    project = _resolve_project_reader(project_id, user)
     owner_user_id = _require_authenticated_user(user)
     try:
         return {"ok": True, "project_id": project.project_id, **save_project_for_user(project.project_id, owner_user_id)}
@@ -2616,10 +2612,7 @@ def save_project_endpoint(project_id: str, user: UserContext = Depends(require_u
 @app.delete("/projects/{project_id}/save")
 def unsave_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Remove a previously saved project for the signed-in user."""
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_reader(project, user)
+    project = _resolve_project_reader(project_id, user)
     owner_user_id = _require_authenticated_user(user)
     try:
         return {"ok": True, "project_id": project.project_id, **unsave_project_for_user(project.project_id, owner_user_id)}
@@ -2631,10 +2624,7 @@ def unsave_project_endpoint(project_id: str, user: UserContext = Depends(require
 def remix_project_endpoint(project_id: str, user: UserContext = Depends(require_user_context)):
     """Copy a readable project into a new owned project the signed-in user can edit."""
     require_hosted_chat_enabled()
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_reader(project, user)
+    project = _resolve_project_reader(project_id, user)
     owner_user_id = _require_authenticated_user(user)
     try:
         remixed = remix_generated_project(project.project_id, owner_user_id)
@@ -2725,12 +2715,11 @@ def get_project_contribution_consent_endpoint(
 ):
     owner_user_id = _require_authenticated_user(user)
     try:
-        project = get_generated_project(project_id, include_deleted=True)
+        project = _resolve_project_owner(project_id, user, include_deleted=True)
+    except HTTPException:
+        raise
     except ValueError:
-        project = None
-    if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, user)
     consent = get_project_contribution_consent(project_id, owner_user_id)
     return {
         "project_id": project_id,
@@ -2779,12 +2768,11 @@ def withdraw_project_contribution_consent_endpoint(
 ):
     owner_user_id = _require_authenticated_user(user)
     try:
-        project = get_generated_project(project_id, include_deleted=True)
+        project = _resolve_project_owner(project_id, user, include_deleted=True)
+    except HTTPException:
+        raise
     except ValueError:
-        project = None
-    if not project:
         raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_owner(project, user)
     withdrawn = withdraw_contribution(project_id, owner_user_id)
     return {"ok": True, "project_id": project_id, "granted": False, "withdrawn": bool(withdrawn)}
 
@@ -2880,10 +2868,7 @@ def delete_chat_endpoint(chat_id: str, user: UserContext = Depends(require_user_
 def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Builds an image-to-video prompt from Forma project namespaces."""
     require_hosted_chat_enabled()
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_reader(project, user)
+    project = _resolve_project_reader(project_id, user)
 
     try:
         ir = HardwareIR(**project.hardware_ir)
@@ -2907,7 +2892,10 @@ def iterate_project_endpoint(
     """Applies an iteration instruction to an existing project through forma_core."""
     require_hosted_chat_enabled()
     _apply_user_integrations(user)
-    project = get_generated_project(project_id)
+    try:
+        project = resolve_project_for_read(project_id, user.owner_user_id).project
+    except ProjectReadError:
+        project = None
     canonical_revision = None
     canonical_brief = None
     if project is not None:
@@ -2968,13 +2956,14 @@ def iterate_project_endpoint(
             )
             revised_ir = persisted_revision.state
             if project is not None:
-                saved = update_generated_project_hardware_ir(
-                    project_id,
-                    revised_ir.model_dump(mode="json"),
-                    owner_user_id=save_owner_user_id,
-                )
-                if not saved:
-                    raise HTTPException(status_code=404, detail="Project not found.")
+                if canonical_brief is not None:
+                    publish_project_revision(persisted_revision, canonical_brief, save_owner_user_id)
+                else:
+                    refresh_legacy_project_projection(
+                        project_id,
+                        revised_ir.model_dump(mode="json"),
+                        owner_user_id=save_owner_user_id,
+                    )
 
         return {
             "project_id": project_id,
@@ -3124,10 +3113,12 @@ def video_self_correct_project_endpoint(
     """Reviews a generated project video with a Fireworks native video model and applies a corrective iteration."""
     require_hosted_chat_enabled()
     _apply_user_integrations(user)
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    owner_user_id = _require_project_owner(project, user)
+    project = _resolve_project_owner(project_id, user)
+    owner_user_id = user.owner_user_id
+    try:
+        canonical_brief = get_latest_design_brief(project_id, owner_user_id)
+    except DesignBriefNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Project brief not found.") from exc
 
     try:
         current_ir = HardwareIR(**project.hardware_ir)
@@ -3152,9 +3143,14 @@ def video_self_correct_project_endpoint(
                 source_job_id=f"video-correction-{request.idempotency_key or uuid4().hex}",
             )
             revised_ir = persisted_revision.state
-            saved = update_generated_project_hardware_ir(project.project_id, revised_ir.model_dump(mode="json"), owner_user_id=owner_user_id)
-            if not saved:
-                raise HTTPException(status_code=404, detail="Project not found.")
+            if canonical_brief is None:
+                refresh_legacy_project_projection(
+                    project.project_id,
+                    revised_ir.model_dump(mode="json"),
+                    owner_user_id=owner_user_id,
+                )
+            else:
+                publish_project_revision(persisted_revision, canonical_brief, owner_user_id)
 
         target_namespace = (revised_ir.assembly_metadata or {}).get("iteration_target_namespace") or request.namespace
         return {

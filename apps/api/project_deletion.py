@@ -16,7 +16,6 @@ from forma_core.database import (
     add_project_deletion_audit,
     anonymize_project_contribution_consent,
     anonymize_project_contribution_snapshot,
-    get_generated_project,
     get_project_identity,
     get_project_contribution_consent,
     get_user_settings,
@@ -156,7 +155,10 @@ def grant_contribution_consent(
     permitted_purposes: Iterable[str],
     workspace_id: Optional[str] = None,
 ) -> Any:
-    project = get_generated_project(project_id)
+    try:
+        project = resolve_project_for_read(project_id, user_id).project
+    except LookupError as exc:
+        raise LookupError("Project not found.") from exc
     if not project or _attr(project, "owner_user_id") != user_id:
         raise LookupError("Project not found.")
     purposes = sorted(set(permitted_purposes))
@@ -232,7 +234,7 @@ def request_project_deletion(project_id: str, user_id: str) -> Any:
         },
     )
     if not updated:
-        return get_generated_project(project_id, include_deleted=True)
+        return get_project_identity(project_id)
 
     try:
         matched_jobs = JOB_STORE.cancel_project_jobs(project_id)
@@ -381,7 +383,7 @@ def purge_project(project_id: str) -> Dict[str, Any]:
         resolved = resolve_project_for_read(project_id, lifecycle_owner, include_deleted=True)
     except LookupError:
         resolved = None
-    project = resolved.project if resolved is not None else (identity or get_generated_project(project_id, include_deleted=True))
+    project = resolved.project if resolved is not None else identity
     if not project:
         return {"project_id": project_id, "status": "purged", "already_absent": True}
     owner_user_id = _attr(project, "owner_user_id") or (resolved.owner_user_id if resolved else None)

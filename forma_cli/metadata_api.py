@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlparse
 
-from forma_core.database import get_generated_project
+from forma_core.database import get_project_identity
 
 from forma_cli.local import project_root, read_project, status_project
 
@@ -47,12 +47,12 @@ def project_metadata(path: str | Path | None = None) -> dict[str, Any]:
     project_id = manifest.project_id
 
     try:
-        stored = get_generated_project(project_id)
+        stored = get_project_identity(project_id)
         database = {
             "present": stored is not None,
-            "owner_user_id": stored.owner_user_id if stored else None,
-            "status": stored.status if stored else None,
-            "visibility": stored.visibility if stored else None,
+            "owner_user_id": stored.get("owner_user_id") if stored else None,
+            "status": stored.get("status") if stored else None,
+            "visibility": stored.get("visibility") if stored else None,
         }
     except Exception as exc:
         stored = None

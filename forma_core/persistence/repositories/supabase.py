@@ -70,6 +70,62 @@ class SupabaseRepository:
         )
         return [_record(row) for row in rows]
 
+    def list_project_gallery_inventory_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]:
+        """Read one bounded page from the canonical gallery inventory view."""
+        query = self._client.table("project_gallery_inventory").select(
+            "project_id,owner_user_id,creation_channel,title,prompt,chat_id,workspace_id,visibility,status,"
+            "created_at,updated_at,source,revision_id,revision,revision_payload_json,revision_created_at,"
+            "legacy_hardware_ir,legacy_id",
+            count="exact",
+        ).eq("status", "active")
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        if visibility:
+            query = query.eq("visibility", visibility)
+        if search:
+            pattern = _postgrest_ilike_pattern(search)
+            query = query.or_(f"title.ilike.{pattern},prompt.ilike.{pattern}")
+        response = (
+            query.order("updated_at", desc=True)
+            .order("project_id", desc=True)
+            .range(max(0, int(offset)), max(0, int(offset)) + max(1, int(limit)) - 1)
+            .execute()
+        )
+        rows = response.data or []
+        response_count = getattr(response, "count", None)
+        total = response_count if isinstance(response_count, int) else len(rows)
+        return [_record(row) for row in rows], total
+
+    def list_project_gallery_inventory(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        search: Optional[str] = None,
+    ) -> List[Any]:
+        query = self._client.table("project_gallery_inventory").select(
+            "project_id,owner_user_id,creation_channel,title,prompt,chat_id,workspace_id,visibility,status,"
+            "created_at,updated_at,source,revision_id,revision,revision_payload_json,revision_created_at,"
+            "legacy_hardware_ir,legacy_id"
+        ).eq("status", "active")
+        if owner_user_id:
+            query = query.eq("owner_user_id", owner_user_id)
+        if visibility:
+            query = query.eq("visibility", visibility)
+        if search:
+            pattern = _postgrest_ilike_pattern(search)
+            query = query.or_(f"title.ilike.{pattern},prompt.ilike.{pattern}")
+        rows = query.order("updated_at", desc=True).order("project_id", desc=True).execute().data or []
+        return [_record(row) for row in rows]
+
     def save_generated_project(
         self,
         record: Dict[str, Any],

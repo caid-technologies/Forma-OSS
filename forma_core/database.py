@@ -702,6 +702,50 @@ def list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
     ]
 
 
+def list_project_gallery_inventory_page(
+    owner_user_id: Optional[str] = None,
+    *,
+    visibility: Optional[str] = None,
+    limit: int = 6,
+    offset: int = 0,
+    search: Optional[str] = None,
+) -> tuple[List[Any], int]:
+    """Return a bounded page of canonical identities and current revisions."""
+    owner = _normalize_user_id(owner_user_id)
+    normalized_visibility = str(visibility or "").strip().lower() or None
+    if normalized_visibility not in {None, "public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    normalized_limit = max(1, min(int(limit), 50))
+    normalized_offset = max(0, int(offset))
+    normalized_search = " ".join(str(search or "").split())[:100] or None
+    return _DATABASE_REPOSITORY.list_project_gallery_inventory_page(
+        owner,
+        visibility=normalized_visibility,
+        limit=normalized_limit,
+        offset=normalized_offset,
+        search=normalized_search,
+    )
+
+
+def list_project_gallery_inventory(
+    owner_user_id: Optional[str] = None,
+    *,
+    visibility: Optional[str] = None,
+    search: Optional[str] = None,
+) -> List[Any]:
+    """Return the compatibility no-limit gallery inventory from the same source."""
+    owner = _normalize_user_id(owner_user_id)
+    normalized_visibility = str(visibility or "").strip().lower() or None
+    if normalized_visibility not in {None, "public", "private"}:
+        raise ValueError("visibility must be public or private.")
+    normalized_search = " ".join(str(search or "").split())[:100] or None
+    return _DATABASE_REPOSITORY.list_project_gallery_inventory(
+        owner,
+        visibility=normalized_visibility,
+        search=normalized_search,
+    )
+
+
 def get_cli_project_revision(
     project_id: str,
     owner_user_id: str,

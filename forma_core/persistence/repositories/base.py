@@ -20,6 +20,24 @@ class ApplicationRepository(Protocol):
 
     def list_project_identities(self, owner_user_id: str) -> List[Any]: ...
 
+    def list_project_gallery_inventory_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]: ...
+
+    def list_project_gallery_inventory(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        search: Optional[str] = None,
+    ) -> List[Any]: ...
+
     def save_generated_project(
         self,
         record: Dict[str, Any],

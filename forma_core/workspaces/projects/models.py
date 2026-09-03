@@ -882,6 +882,10 @@ class IterateProjectRequest(BaseModel):
         description="Optional runtime model override for the iteration.",
     )
     save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Optional stable key used to replay a saved iteration without creating another revision.",
+    )
 
     @field_validator("instruction", mode="before")
     @classmethod
@@ -890,7 +894,7 @@ class IterateProjectRequest(BaseModel):
             return value.strip()
         return value
 
-    @field_validator("namespace", "provider", "model", mode="before")
+    @field_validator("namespace", "provider", "model", "idempotency_key", mode="before")
     @classmethod
     def strip_optional_iteration_selector(cls, value: Any) -> Any:
         if isinstance(value, str):
@@ -922,6 +926,10 @@ class VideoSelfCorrectRequest(BaseModel):
         description="Optional Fireworks review model override. Defaults to kimi-k2p6 frame review unless native video deployment routing is configured.",
     )
     save: bool = Field(True, description="When true, persist the revised HardwareIR over the existing project record.")
+    idempotency_key: Optional[str] = Field(
+        None,
+        description="Optional stable key used to replay a saved correction without creating another revision.",
+    )
 
     @field_validator("video_url", mode="before")
     @classmethod
@@ -930,7 +938,7 @@ class VideoSelfCorrectRequest(BaseModel):
             return value.strip()
         return value
 
-    @field_validator("video_key", "namespace", "provider", "model", "review_model", mode="before")
+    @field_validator("video_key", "namespace", "provider", "model", "review_model", "idempotency_key", mode="before")
     @classmethod
     def strip_optional_video_review_selector(cls, value: Any) -> Any:
         if isinstance(value, str):

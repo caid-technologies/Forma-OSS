@@ -980,7 +980,59 @@ def append_project_revision(
     from forma_core.workspaces.projects.models import HardwareIR
 
     service = ProjectStateService(_DATABASE_REPOSITORY)
-    parent = service.get_latest(project_id, owner_user_id)
+    try:
+        parent = service.get_latest(project_id, owner_user_id)
+    except ProjectStateError as exc:
+        if exc.code != "project_revision_not_found":
+            raise
+
+        # Legacy generated_projects rows have no immutable history. Migrate the
+        # current projection once before appending the requested iteration.
+        legacy = get_generated_project(project_id, include_deleted=True)
+        if legacy is None or getattr(legacy, "status", "active") != "active":
+            raise
+        if str(getattr(legacy, "owner_user_id", "") or "").strip() != str(owner_user_id or "").strip():
+            raise ProjectStateError("project_revision_not_found", "Project revision not found.")
+
+        project_uuid = _canonical_project_id(project_id)
+        try:
+            brief = get_latest_design_brief(project_id, owner_user_id)
+        except DesignBriefNotFoundError:
+            prompt = str(getattr(legacy, "prompt", "") or "").strip()
+            title = str(getattr(legacy, "title", "") or "").strip()
+            brief = create_design_brief_version(
+                project_uuid,
+                owner_user_id,
+                DesignBriefCreate(
+                    schema_version="1.0",
+                    conversation_id=str(getattr(legacy, "chat_id", "") or "").strip()
+                    or f"project-{project_uuid}",
+                    intent=prompt or title or "Update an existing hardware project.",
+                    summary=prompt or title or "Update an existing hardware project.",
+                ),
+            )
+
+        baseline = HardwareIR.model_validate(getattr(legacy, "hardware_ir", {}))
+        baseline.assembly_metadata = {
+            **(baseline.assembly_metadata or {}),
+            "project_id": str(project_uuid),
+            "revision": 1,
+        }
+        baseline_draft = build_generation_draft(brief, baseline)
+        try:
+            service.create_initial_revision(
+                baseline_draft,
+                project_id=project_uuid,
+                owner_user_id=owner_user_id,
+                design_brief_id=brief.design_brief_id,
+                design_brief_version=brief.brief_version,
+                source_job_id=f"legacy-migration-{project_uuid}",
+            )
+        except ProjectStateError as migration_exc:
+            if migration_exc.code != "initial_project_revision_exists":
+                raise
+        parent = service.get_latest(project_id, owner_user_id)
+
     brief = service.get_frozen_design_brief(
         project_id,
         owner_user_id,

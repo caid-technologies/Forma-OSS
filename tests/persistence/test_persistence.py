@@ -72,6 +72,66 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertEqual("conversation-publication", saved["chat_id"])
         self.assertEqual("conversation-publication", saved["hardware_ir"]["assembly_metadata"]["chat_id"])
 
+    def test_legacy_project_iteration_bootstraps_one_canonical_revision_then_appends(self) -> None:
+        project_id = str(uuid.uuid4())
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Legacy Sensor",
+                description="A legacy sensor.",
+                difficulty="Beginner",
+                category="Sensors",
+            ),
+            assembly_metadata={"project_id": project_id},
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test legacy migration",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            original_repository = database._DATABASE_REPOSITORY
+            try:
+                database._DATABASE_REPOSITORY = repository
+                database.save_generated_project(
+                    project_id=project_id,
+                    title="Legacy Sensor",
+                    prompt="Build a legacy sensor.",
+                    hardware_ir=state.model_dump(mode="json"),
+                    created_at="2026-08-08T12:00:00Z",
+                    chat_id="legacy-chat",
+                    owner_user_id="legacy-owner",
+                    visibility="private",
+                )
+
+                revised = state.model_copy(deep=True)
+                revised.overview.description = "Revised legacy sensor."
+                first = database.append_project_revision(
+                    project_id,
+                    "legacy-owner",
+                    revised,
+                    source_job_id="iteration-legacy-1",
+                )
+                replay = database.append_project_revision(
+                    project_id,
+                    "legacy-owner",
+                    revised,
+                    source_job_id="iteration-legacy-1",
+                )
+                latest = database.get_latest_project_revision(project_id, "legacy-owner")
+                briefs = database.list_design_brief_versions(project_id, "legacy-owner")
+            finally:
+                database._DATABASE_REPOSITORY = original_repository
+                provider.engine.dispose()
+
+        self.assertEqual(2, first.revision)
+        self.assertEqual(1, first.parent_revision)
+        self.assertEqual(first.revision_id, replay.revision_id)
+        self.assertEqual(2, latest.revision)
+        self.assertEqual(1, len(briefs))
+
     def test_supabase_provider_checks_complete_schema_contract(self) -> None:
         client = _SchemaClient()
         provider = SupabaseProvider(source="test", url="https://example.supabase.co", client=client)

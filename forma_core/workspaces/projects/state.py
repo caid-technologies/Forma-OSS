@@ -367,13 +367,15 @@ class ProjectStateService:
             "created_at": revision.created_at.isoformat(),
         }
         overview = getattr(state, "overview", None)
+        brief_payload = getattr(brief_record, "payload_json", None)
+        brief_payload = brief_payload if isinstance(brief_payload, dict) else {}
         self._repository.upsert_project_identity({
             "project_id": project,
             "owner_user_id": owner,
             "creation_channel": "hosted",
             "title": str(getattr(overview, "title", "") or "Untitled project"),
-            "prompt": str(getattr(brief, "summary", "") or ""),
-            "chat_id": getattr(brief, "conversation_id", None),
+            "prompt": str(brief_payload.get("summary") or ""),
+            "chat_id": brief_payload.get("conversation_id"),
             "workspace_id": None,
             "visibility": "private",
             "status": "active",

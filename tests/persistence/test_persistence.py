@@ -462,6 +462,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 )
 
                 project = repository.get_cli_project("cli-summary", "user-a")
+                identity = repository.get_project_identity("cli-summary")
             finally:
                 assert provider.engine is not None
                 provider.engine.dispose()
@@ -470,6 +471,54 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertEqual("workspace-b", project.workspace_id)
         self.assertEqual("Updated title", project.title)
         self.assertEqual(2, project.current_revision)
+        self.assertEqual(2, identity["current_revision"])
+        self.assertEqual("cli-summary-r2", identity["current_revision_id"])
+
+    def test_uuid_cli_revision_is_also_written_to_canonical_revision_store(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test primary",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            project_id = str(uuid.uuid4())
+            revision_id = str(uuid.uuid4())
+            try:
+                saved = repository.insert_cli_project_revision(
+                    {
+                        "project_id": project_id,
+                        "workspace_id": None,
+                        "owner_user_id": "user-a",
+                        "title": "Canonical CLI project",
+                        "current_revision": 0,
+                        "current_revision_id": None,
+                        "created_at": "2026-08-31T12:00:00Z",
+                        "updated_at": "2026-08-31T12:00:00Z",
+                    },
+                    {
+                        "revision_id": revision_id,
+                        "project_id": project_id,
+                        "owner_user_id": "user-a",
+                        "revision": 1,
+                        "parent_revision_id": None,
+                        "manifest_json": {
+                            "project_id": project_id,
+                            "project_ir": {},
+                        },
+                        "created_at": "2026-08-31T12:00:00Z",
+                    },
+                    None,
+                )
+                canonical = repository.get_latest_project_revision(project_id, "user-a")
+            finally:
+                provider.engine.dispose()
+
+        self.assertIsNotNone(saved)
+        self.assertIsNotNone(canonical)
+        self.assertEqual(revision_id, str(canonical.id))
 
     def test_sqlite_repository_pages_filtered_projects_before_loading_records(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

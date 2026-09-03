@@ -680,6 +680,8 @@ class ProjectIdentityResponse(BaseModel):
     workspace_id: str | None = None
     visibility: str = "private"
     status: str = "active"
+    current_revision: int = 0
+    current_revision_id: str | None = None
     created_at: str | datetime | None = None
     updated_at: str | datetime | None = None
 

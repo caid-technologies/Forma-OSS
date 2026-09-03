@@ -8,7 +8,7 @@ import mimetypes
 from pathlib import Path
 import re
 from typing import Any, Mapping
-from uuid import uuid4
+from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -253,6 +253,73 @@ class ProjectManifest(BaseModel):
         return redact_project_secrets(self.model_dump(mode="json"))
 
 
+def build_canonical_revision_record(
+    project_record: Mapping[str, Any],
+    revision_record: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Build a unified revision when a CLI identifier and IR are canonicalizable."""
+    try:
+        project_id = UUID(str(project_record["project_id"]).strip())
+        revision_id = UUID(str(revision_record["revision_id"]).strip())
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+    manifest = revision_record.get("manifest_json")
+    if not isinstance(manifest, Mapping):
+        return None
+    try:
+        from forma_core.workspaces.projects.models import HardwareIR
+        from forma_core.workspaces.projects.state import ProjectRevision
+
+        state = HardwareIR.model_validate(manifest.get("project_ir") or {})
+        artifacts = []
+        for item in validate_artifact_references(manifest.get("artifacts"), require_integrity=False):
+            path = str(item["path"])
+            artifact = {
+                "artifact_id": str(item.get("sha256") or path),
+                "kind": "file",
+                "uri": path,
+                "media_type": item.get("media_type"),
+                "checksum": item.get("sha256"),
+                "metadata": {"size_bytes": item.get("size_bytes")} if item.get("size_bytes") is not None else {},
+            }
+            artifacts.append(artifact)
+        payload = {
+            "schema_version": "1.0",
+            "revision_id": str(revision_id),
+            "project_id": str(project_id),
+            "owner_user_id": str(project_record["owner_user_id"]),
+            "revision": int(revision_record["revision"]),
+            "parent_revision": max(1, int(revision_record["revision"]) - 1)
+            if int(revision_record["revision"]) > 1
+            else None,
+            "design_brief_id": str(uuid5(NAMESPACE_URL, f"forma-cli-brief:{project_id}")),
+            "design_brief_version": 1,
+            "source_job_id": f"cli:{revision_id}",
+            "created_at": revision_record["created_at"],
+            "state": state.model_dump(mode="json"),
+            "components": [item.model_dump(mode="json") for item in state.components],
+            "systems": [],
+            "artifacts": artifacts,
+            "assumptions": [],
+        }
+        ProjectRevision.model_validate(payload)
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "id": str(revision_id),
+        "project_id": str(project_id),
+        "owner_user_id": str(project_record["owner_user_id"]),
+        "revision": int(revision_record["revision"]),
+        "parent_revision": payload["parent_revision"],
+        "design_brief_id": payload["design_brief_id"],
+        "design_brief_version": 1,
+        "source_job_id": payload["source_job_id"],
+        "payload_json": payload,
+        "created_at": revision_record["created_at"],
+    }
+
+
 def load_project_manifest(path: str | Path) -> ProjectManifest:
     project_path = Path(path)
     with project_path.open(encoding="utf-8") as file:
@@ -279,6 +346,7 @@ __all__ = [
     "PROJECT_MANIFEST_VERSION",
     "ProjectArtifactReference",
     "ProjectManifest",
+    "build_canonical_revision_record",
     "infer_artifact_media_type",
     "load_project_manifest",
     "normalize_artifact_media_type",

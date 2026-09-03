@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
@@ -31,6 +32,10 @@ from forma_core.persistence.models import (
     DBWorkerExecutionPlan,
     DBUserSettings,
 )
+from forma_core.workspaces.projects.manifest import build_canonical_revision_record
+
+
+logger = logging.getLogger(__name__)
 
 
 class SqlAlchemyRepository:
@@ -585,6 +590,11 @@ class SqlAlchemyRepository:
     ) -> Optional[Any]:
         try:
             with self._session() as session, session.begin():
+                identity = session.query(DBProject).filter(
+                    DBProject.project_id == project_record["project_id"],
+                ).first()
+                if identity is not None and identity.status != "active":
+                    return None
                 project = session.query(DBCliProject).filter(
                     DBCliProject.project_id == project_record["project_id"],
                 ).first()
@@ -599,7 +609,6 @@ class SqlAlchemyRepository:
                     or project.current_revision + 1 != revision_record["revision"]
                 ):
                     return None
-                identity = session.query(DBProject).filter(DBProject.project_id == project_record["project_id"]).first()
                 identity_record = {
                     "project_id": project_record["project_id"],
                     "owner_user_id": project_record["owner_user_id"],
@@ -610,6 +619,8 @@ class SqlAlchemyRepository:
                     "workspace_id": project_record.get("workspace_id"),
                     "visibility": "private",
                     "status": "active",
+                    "current_revision": revision_record["revision"],
+                    "current_revision_id": revision_record["revision_id"],
                     "created_at": project_record["created_at"],
                     "updated_at": revision_record["created_at"],
                 }
@@ -621,6 +632,14 @@ class SqlAlchemyRepository:
                             setattr(identity, key, value)
                 revision = DBCliProjectRevision(**revision_record)
                 session.add(revision)
+                canonical_revision = build_canonical_revision_record(project_record, revision_record)
+                if canonical_revision is not None:
+                    session.add(DBProjectRevision(**canonical_revision))
+                else:
+                    logger.info(
+                        "cli_project_canonical_revision_skipped project_id=%s reason=legacy_identifier_or_invalid_ir",
+                        project_record["project_id"],
+                    )
                 project.workspace_id = project_record["workspace_id"]
                 project.title = project_record["title"]
                 project.current_revision = revision_record["revision"]

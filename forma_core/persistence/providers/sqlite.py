@@ -65,6 +65,11 @@ class SQLiteProvider(DatabaseProvider):
         connection.driver_connection.row_factory = sqlite3.Row
         return connection
 
+    def dispose(self) -> None:
+        """Release pooled SQLite connections owned by this provider."""
+
+        self.engine.dispose()
+
     def describe(self) -> dict[str, Any]:
         config = super().describe()
         config.update({"client": "sqlite/sqlalchemy", "database": make_url(self.url).database})

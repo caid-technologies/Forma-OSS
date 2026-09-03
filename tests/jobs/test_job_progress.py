@@ -37,8 +37,7 @@ class JobProgressTests(unittest.TestCase):
                 )
                 job = store.get_job("job_frontend_progress")
             finally:
-                assert store._provider is not None
-                store._provider.engine.dispose()
+                store.close()
 
         self.assertIsNotNone(job)
         assert job is not None
@@ -92,8 +91,7 @@ class JobProgressTests(unittest.TestCase):
                 store.mark_failed("job_frontend_cancelled", "late failure")
                 final_job = store.get_job("job_frontend_cancelled")
             finally:
-                assert store._provider is not None
-                store._provider.engine.dispose()
+                store.close()
 
         self.assertIsNotNone(final_job)
         assert final_job is not None
@@ -152,8 +150,7 @@ class JobProgressTests(unittest.TestCase):
 
             job = store.get_job("job_atomic")
         finally:
-            assert store._provider is not None
-            store._provider.engine.dispose()
+            store.close()
 
         self.assertIsNotNone(job)
         assert job is not None

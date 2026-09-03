@@ -120,7 +120,7 @@ class ReverseEngineeringWorkerIntegrationTests(unittest.IsolatedAsyncioTestCase)
         )
 
     def tearDown(self) -> None:
-        self.provider.engine.dispose()
+        self.provider.dispose()
         self.directory.cleanup()
 
     def _persist_brief(self) -> DesignBrief:

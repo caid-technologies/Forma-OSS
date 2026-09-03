@@ -805,17 +805,34 @@ class SqlAlchemyRepository:
 
     def list_due_project_purges(self, before: str, limit: int) -> List[Any]:
         with self._session() as session:
-            return (
+            canonical = (
+                session.query(DBProject)
+                .filter(
+                    DBProject.status.in_(("deletion_pending", "deletion_failed", "purging")),
+                    DBProject.purge_after.isnot(None),
+                    DBProject.purge_after <= before,
+                )
+                .order_by(DBProject.purge_after.asc())
+                .limit(limit)
+                .all()
+            )
+            canonical_ids = {str(project.project_id) for project in canonical}
+            remaining = max(0, limit - len(canonical))
+            legacy = (
                 session.query(DBGeneratedProject)
                 .filter(
+                    DBGeneratedProject.project_id.notin_(canonical_ids or ["__none__"]),
                     DBGeneratedProject.status.in_(("deletion_pending", "deletion_failed", "purging")),
                     DBGeneratedProject.purge_after.isnot(None),
                     DBGeneratedProject.purge_after <= before,
                 )
                 .order_by(DBGeneratedProject.purge_after.asc())
-                .limit(limit)
+                .limit(remaining)
                 .all()
+                if remaining
+                else []
             )
+            return [*canonical, *legacy]
 
     def update_project_deletion_state(
         self,
@@ -826,6 +843,30 @@ class SqlAlchemyRepository:
         expected_purge_started_at: Optional[str] = None,
     ) -> Optional[Any]:
         with self._session() as session, session.begin():
+            identity_query = session.query(DBProject).filter(
+                DBProject.project_id == project_id,
+                DBProject.status.in_(allowed_statuses),
+            )
+            if owner_user_id:
+                identity_query = identity_query.filter(DBProject.owner_user_id == owner_user_id)
+            if expected_purge_started_at is not None:
+                identity_query = identity_query.filter(DBProject.purge_started_at == expected_purge_started_at)
+            identity = identity_query.first()
+            if identity is not None:
+                for key, value in updates.items():
+                    setattr(identity, key, value)
+                projection = session.query(DBGeneratedProject).filter(
+                    DBGeneratedProject.project_id == project_id,
+                ).first()
+                if projection is not None:
+                    for key, value in updates.items():
+                        if hasattr(projection, key):
+                            setattr(projection, key, value)
+                session.flush()
+                session.refresh(identity)
+                session.expunge(identity)
+                return identity
+
             query = session.query(DBGeneratedProject).filter(
                 DBGeneratedProject.project_id == project_id,
                 DBGeneratedProject.status.in_(allowed_statuses),
@@ -846,14 +887,24 @@ class SqlAlchemyRepository:
 
     def hard_purge_project(self, project_id: str, owner_user_id: Optional[str]) -> bool:
         with self._session() as session, session.begin():
-            query = session.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id)
-            if owner_user_id:
-                query = query.filter(DBGeneratedProject.owner_user_id == owner_user_id)
-            project = query.first()
-            if not project:
+            identity = session.query(DBProject).filter(DBProject.project_id == project_id).first()
+            if identity is not None and owner_user_id and identity.owner_user_id != owner_user_id:
                 return False
-            chat_id = project.chat_id
-            project_owner_user_id = project.owner_user_id
+            project = session.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id).first()
+            cli_project = session.query(DBCliProject).filter(DBCliProject.project_id == project_id).first()
+            if identity is None and project is None and cli_project is None:
+                return False
+            if owner_user_id:
+                if project is not None and project.owner_user_id not in (None, owner_user_id):
+                    return False
+                if cli_project is not None and cli_project.owner_user_id != owner_user_id:
+                    return False
+            chat_id = getattr(project, "chat_id", None) or getattr(identity, "chat_id", None)
+            project_owner_user_id = (
+                getattr(identity, "owner_user_id", None)
+                or getattr(project, "owner_user_id", None)
+                or getattr(cli_project, "owner_user_id", None)
+            )
             session.query(DBProjectValidationReport).filter(
                 DBProjectValidationReport.project_id == project_id
             ).delete(synchronize_session=False)
@@ -884,7 +935,18 @@ class SqlAlchemyRepository:
                     DBProjectRemix.source_project_id == project_id,
                 )
             ).delete(synchronize_session=False)
-            session.delete(project)
+            session.query(DBGeneratedProject).filter(DBGeneratedProject.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBCliProjectRevision).filter(DBCliProjectRevision.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBCliProject).filter(DBCliProject.project_id == project_id).delete(
+                synchronize_session=False
+            )
+            session.query(DBProject).filter(DBProject.project_id == project_id).delete(
+                synchronize_session=False
+            )
             session.flush()
             if chat_id and project_owner_user_id:
                 remaining = session.query(DBGeneratedProject).filter(
@@ -1174,12 +1236,18 @@ class SqlAlchemyRepository:
                 DBGeneratedProject.owner_user_id == owner_user_id,
                 DBGeneratedProject.chat_id.isnot(None),
             ).all()
-            by_chat: Dict[str, List[Any]] = {}
+            canonical_projects = session.query(DBProject).filter(
+                DBProject.owner_user_id == owner_user_id,
+                DBProject.chat_id.isnot(None),
+            ).all()
+            by_chat: Dict[str, Dict[str, Any]] = {}
             for project in projects:
-                by_chat.setdefault(str(project.chat_id), []).append(project)
+                by_chat.setdefault(str(project.chat_id), {})[str(project.project_id)] = project
+            for project in canonical_projects:
+                by_chat.setdefault(str(project.chat_id), {})[str(project.project_id)] = project
             visible = []
             for chat in chats:
-                linked = by_chat.get(chat.chat_id, [])
+                linked = list(by_chat.get(chat.chat_id, {}).values())
                 if linked and not any(project.status == "active" for project in linked):
                     continue
                 hidden_ids = {project.project_id for project in linked if project.status != "active"}
@@ -1205,6 +1273,13 @@ class SqlAlchemyRepository:
                 DBGeneratedProject.chat_id == chat_id,
                 DBGeneratedProject.owner_user_id == owner_user_id,
             ).all()
+            canonical = session.query(DBProject).filter(
+                DBProject.chat_id == chat_id,
+                DBProject.owner_user_id == owner_user_id,
+            ).all()
+            linked_by_id = {str(project.project_id): project for project in linked}
+            linked_by_id.update({str(project.project_id): project for project in canonical})
+            linked = list(linked_by_id.values())
             if linked and not any(project.status == "active" for project in linked):
                 return None
             hidden_ids = {project.project_id for project in linked if project.status != "active"}
@@ -1229,6 +1304,10 @@ class SqlAlchemyRepository:
             session.query(DBGeneratedProject).filter(
                 DBGeneratedProject.chat_id == chat_id,
                 DBGeneratedProject.owner_user_id == owner_user_id,
+            ).update({"chat_id": None})
+            session.query(DBProject).filter(
+                DBProject.chat_id == chat_id,
+                DBProject.owner_user_id == owner_user_id,
             ).update({"chat_id": None})
             return True
 

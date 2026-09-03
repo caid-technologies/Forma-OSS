@@ -17,12 +17,15 @@ from forma_core.database import (
     anonymize_project_contribution_consent,
     anonymize_project_contribution_snapshot,
     get_generated_project,
+    get_project_identity,
     get_project_contribution_consent,
     get_user_settings,
     hard_purge_generated_project,
     list_project_deletion_audits,
     list_due_project_purges,
+    publish_project_revision,
     purge_project_contribution_snapshots,
+    resolve_project_for_read,
     update_project_deletion_state,
     upsert_project_contribution_consent,
     upsert_project_contribution_snapshot,
@@ -196,7 +199,16 @@ def withdraw_contribution(project_id: str, user_id: str) -> Optional[Any]:
 
 
 def request_project_deletion(project_id: str, user_id: str) -> Any:
-    project = get_generated_project(project_id, include_deleted=True)
+    try:
+        resolved = resolve_project_for_read(project_id, user_id, include_deleted=True)
+    except LookupError as exc:
+        identity = get_project_identity(project_id)
+        if not identity or _attr(identity, "owner_user_id") != user_id:
+            raise LookupError("Project not found.") from exc
+        resolved = None
+        project = identity
+    else:
+        project = resolved.project
     if not project or _attr(project, "owner_user_id") != user_id:
         raise LookupError("Project not found.")
     if _attr(project, "status") != "active":
@@ -289,7 +301,16 @@ def request_project_deletion(project_id: str, user_id: str) -> Any:
 
 
 def restore_project(project_id: str, user_id: str) -> Any:
-    project = get_generated_project(project_id, include_deleted=True)
+    try:
+        resolved = resolve_project_for_read(project_id, user_id, include_deleted=True)
+    except LookupError as exc:
+        identity = get_project_identity(project_id)
+        if not identity or _attr(identity, "owner_user_id") != user_id:
+            raise LookupError("Project not found.") from exc
+        resolved = None
+        project = identity
+    else:
+        project = resolved.project
     if not project or _attr(project, "owner_user_id") != user_id:
         raise LookupError("Project not found.")
     status = _attr(project, "status")
@@ -323,6 +344,29 @@ def restore_project(project_id: str, user_id: str) -> Any:
     )
     if not restored:
         raise RuntimeError("Project could not be restored because its deletion state changed.")
+    if resolved is not None and resolved.source == "canonical" and resolved.revision is not None and resolved.design_brief is not None:
+        try:
+            publish_project_revision(
+                resolved.revision,
+                resolved.design_brief,
+                user_id,
+                visibility=resolved.visibility,
+            )
+        except Exception as exc:
+            logger.exception("Project projection rebuild failed for project_id=%s", project_id)
+            update_project_deletion_state(
+                project_id,
+                owner_user_id=user_id,
+                allowed_statuses=["active"],
+                updates={
+                    "status": "deletion_pending",
+                    "deleted_at": _attr(project, "deleted_at"),
+                    "deletion_requested_by": user_id,
+                    "purge_after": _attr(project, "purge_after"),
+                    "deletion_error": type(exc).__name__,
+                },
+            )
+            raise RuntimeError("Project could not rebuild its gallery projection.") from exc
     consent = get_project_contribution_consent(project_id, user_id)
     if consent:
         purge_project_contribution_snapshots(str(_attr(consent, "id")), iso_timestamp())
@@ -331,11 +375,17 @@ def restore_project(project_id: str, user_id: str) -> Any:
 
 
 def purge_project(project_id: str) -> Dict[str, Any]:
-    project = get_generated_project(project_id, include_deleted=True)
+    identity = get_project_identity(project_id)
+    lifecycle_owner = _attr(identity, "owner_user_id") if identity else None
+    try:
+        resolved = resolve_project_for_read(project_id, lifecycle_owner, include_deleted=True)
+    except LookupError:
+        resolved = None
+    project = resolved.project if resolved is not None else (identity or get_generated_project(project_id, include_deleted=True))
     if not project:
         return {"project_id": project_id, "status": "purged", "already_absent": True}
-    owner_user_id = _attr(project, "owner_user_id")
-    status = _attr(project, "status")
+    owner_user_id = _attr(project, "owner_user_id") or (resolved.owner_user_id if resolved else None)
+    status = _attr(project, "status") or (resolved.status if resolved else None)
     if status not in {"deletion_pending", "deletion_failed", "purging"}:
         raise RuntimeError("Project is not scheduled for deletion.")
 

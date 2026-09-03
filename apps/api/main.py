@@ -88,6 +88,7 @@ from forma_core.database import (
     get_latest_project_deletion_audit,
     get_project_contribution_consent,
     get_project_chat,
+    get_project_identity,
     init_db,
     list_project_chats,
     list_component_templates,
@@ -1070,14 +1071,14 @@ def _require_authenticated_user(user: UserContext) -> str:
 
 
 def _project_owner_user_id(project: Any) -> Optional[str]:
-    value = getattr(project, "owner_user_id", None)
+    value = project.get("owner_user_id") if isinstance(project, dict) else getattr(project, "owner_user_id", None)
     if isinstance(value, str) and value.strip():
         return value.strip()
     return None
 
 
 def _project_visibility(project: Any) -> str:
-    value = getattr(project, "visibility", "public")
+    value = project.get("visibility", "public") if isinstance(project, dict) else getattr(project, "visibility", "public")
     normalized = str(value or "public").strip().lower()
     return normalized if normalized in {"public", "private"} else "public"
 
@@ -2664,7 +2665,11 @@ def delete_project_endpoint(
     require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
     try:
-        project = get_generated_project(project_id, include_deleted=True)
+        try:
+            resolved = resolve_project_for_read(project_id, owner_user_id, include_deleted=True)
+            project = resolved.project
+        except ProjectReadError:
+            project = get_project_identity(project_id)
         if not project:
             audit = get_latest_project_deletion_audit(project_id)
             if (

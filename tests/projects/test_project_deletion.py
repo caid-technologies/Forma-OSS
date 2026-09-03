@@ -94,6 +94,7 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
 
         self.assertEqual("deletion_pending", first.status)
         self.assertEqual(first.purge_after, second.purge_after)
+        self.assertEqual("deletion_pending", database.get_project_identity(self.project_id)["status"])
         self.assertIsNone(database.get_generated_project(self.project_id))
         self.assertEqual([], database.list_generated_projects(self.owner_id))
         self.assertIsNone(database.get_project_chat("chat-delete-test", self.owner_id))
@@ -101,6 +102,7 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
 
         restored = project_deletion.restore_project(self.project_id, self.owner_id)
         self.assertEqual("active", restored.status)
+        self.assertEqual("active", database.get_project_identity(self.project_id)["status"])
         self.assertIsNotNone(database.get_generated_project(self.project_id))
         self.assertIsNotNone(database.get_project_chat("chat-delete-test", self.owner_id))
 
@@ -141,6 +143,37 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "retention window"):
             project_deletion.restore_project(self.project_id, self.owner_id)
 
+    def test_canonical_identity_lifecycle_does_not_require_generated_projection(self) -> None:
+        project_id = str(uuid.uuid4())
+        database.ensure_project_identity(
+            project_id,
+            self.owner_id,
+            title="Canonical-only project",
+            prompt="Created without a legacy projection.",
+        )
+
+        with patch.object(project_deletion.JOB_STORE, "cancel_project_jobs", return_value=0):
+            deleted = project_deletion.request_project_deletion(project_id, self.owner_id)
+
+        self.assertEqual("deletion_pending", deleted.status)
+        self.assertEqual("deletion_pending", database.get_project_identity(project_id)["status"])
+        self.assertIsNone(database.get_generated_project(project_id, include_deleted=True))
+
+        restored = project_deletion.restore_project(project_id, self.owner_id)
+        self.assertEqual("active", restored["status"] if isinstance(restored, dict) else restored.status)
+
+        with (
+            patch.object(project_deletion, "delete_project_images", return_value=0),
+            patch.object(project_deletion, "delete_project_videos", return_value=0),
+            patch.object(project_deletion.JOB_STORE, "cancel_project_jobs", return_value=0),
+            patch.object(project_deletion.JOB_STORE, "delete_project_jobs", return_value=0),
+        ):
+            project_deletion.request_project_deletion(project_id, self.owner_id)
+            result = project_deletion.purge_project(project_id)
+
+        self.assertEqual("purged", result["status"])
+        self.assertIsNone(database.get_project_identity(project_id))
+
     def test_account_wide_opt_out_blocks_new_contribution_consent(self) -> None:
         database.set_user_model_training_preference(
             self.owner_id,
@@ -179,6 +212,7 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
             result = project_deletion.purge_project(self.project_id)
 
         self.assertEqual("purged", result["status"])
+        self.assertIsNone(database.get_project_identity(self.project_id))
         self.assertIsNone(database.get_generated_project(self.project_id, include_deleted=True))
         latest = database.get_latest_project_deletion_audit(self.project_id)
         self.assertEqual("purge_completed", latest.action)

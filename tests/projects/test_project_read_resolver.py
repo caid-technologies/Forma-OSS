@@ -164,6 +164,33 @@ class ProjectReadResolverTests(unittest.TestCase):
             with self.assertRaises(ProjectReadNotFoundError):
                 resolver.resolve(PROJECT_ID, "owner-b", include_deleted=include_deleted)
 
+    def test_canonical_lifecycle_hides_deleted_projection_and_allows_owner_recovery_read(self) -> None:
+        project = SimpleNamespace(
+            project_id=PROJECT_ID,
+            owner_user_id="owner-a",
+            creation_channel="hosted",
+            visibility="public",
+            status="active",
+            hardware_ir=_ir().model_dump(mode="json"),
+        )
+        repository = Mock()
+        repository.get_project_identity.return_value = {
+            "project_id": PROJECT_ID,
+            "owner_user_id": "owner-a",
+            "visibility": "public",
+            "status": "deletion_pending",
+        }
+        repository.get_generated_project.return_value = project
+        resolver = ProjectReadResolver(repository)
+
+        with self.assertRaises(ProjectReadNotFoundError):
+            resolver.resolve(PROJECT_ID, "owner-a")
+
+        resolved = resolver.resolve(PROJECT_ID, "owner-a", include_deleted=True)
+
+        self.assertEqual("deletion_pending", resolved.status)
+        self.assertEqual("owner-a", resolved.owner_user_id)
+
     def test_owner_can_resolve_deleted_lifecycle_state_when_requested(self) -> None:
         project = SimpleNamespace(
             project_id=PROJECT_ID,

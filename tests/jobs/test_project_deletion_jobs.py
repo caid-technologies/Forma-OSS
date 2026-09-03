@@ -44,8 +44,7 @@ class ProjectDeletionJobTests(unittest.TestCase):
             self.assertTrue(all(store.get_job(job_id) is None for job_id in matching_ids))
             self.assertIsNotNone(store.get_job("job-2"))
         finally:
-            assert store._provider is not None
-            store._provider.engine.dispose()
+            store.close()
 
 
 if __name__ == "__main__":

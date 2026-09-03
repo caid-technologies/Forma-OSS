@@ -184,7 +184,7 @@ class WorkerOrchestratorIntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.workflow = ProjectWorkflowService(self.repository)
 
     def tearDown(self) -> None:
-        self.provider.engine.dispose()
+        self.provider.dispose()
         self.directory.cleanup()
 
     def enter_building(self) -> None:

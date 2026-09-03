@@ -28,8 +28,7 @@ class JobMetricsTests(unittest.TestCase):
 
             metrics = store.get_metrics(days=7, hours=24)
         finally:
-            assert store._provider is not None
-            store._provider.engine.dispose()
+            store.close()
 
         self.assertEqual(3, metrics["jobs_today"])
         self.assertEqual(3, metrics["jobs_last_hour"])
@@ -63,8 +62,7 @@ class JobMetricsTests(unittest.TestCase):
                 ],
             )
         finally:
-            assert store._provider is not None
-            store._provider.engine.dispose()
+            store.close()
 
         self.assertEqual(2, metrics["jobs_today"])
         self.assertEqual(2, metrics["completed_jobs"])

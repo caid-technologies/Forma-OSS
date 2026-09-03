@@ -59,7 +59,7 @@ class ProjectReconciliationTests(unittest.TestCase):
             with provider.session_factory() as session:
                 self.assertEqual(1, session.query(DBGeneratedProject).count())
                 self.assertEqual(1, session.query(DBGeneratedProject).filter_by(project_id=project_id).count())
-            provider.engine.dispose()
+            provider.dispose()
 
     def test_cli_backfill_rebuilds_all_compatibility_revisions(self) -> None:
         project_id = str(uuid4())
@@ -101,7 +101,7 @@ class ProjectReconciliationTests(unittest.TestCase):
             with provider.session_factory() as session:
                 self.assertEqual(2, session.query(DBCliProjectRevision).filter_by(project_id=project_id).count())
                 self.assertEqual(2, session.query(DBProjectRevision).filter_by(project_id=project_id).count())
-            provider.engine.dispose()
+            provider.dispose()
 
     def test_canonical_only_projects_rebuild_missing_compatibility_projection(self) -> None:
         project_id = uuid4()
@@ -158,7 +158,7 @@ class ProjectReconciliationTests(unittest.TestCase):
             self.assertEqual(1, report.scanned)
             with provider.session_factory() as session:
                 self.assertEqual(1, session.query(DBGeneratedProject).filter_by(project_id=str(project_id)).count())
-            provider.engine.dispose()
+            provider.dispose()
 
 
 if __name__ == "__main__":

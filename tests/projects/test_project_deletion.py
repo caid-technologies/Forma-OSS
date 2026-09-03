@@ -85,7 +85,7 @@ class ProjectDeletionLifecycleTests(unittest.TestCase):
     def tearDown(self) -> None:
         database._DATABASE_PROVIDER = self.original_provider
         database._DATABASE_REPOSITORY = self.original_repository
-        self.provider.engine.dispose()
+        self.provider.dispose()
         self.directory.cleanup()
 
     def test_delete_is_immediate_idempotent_and_restorable(self) -> None:

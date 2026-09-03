@@ -22,6 +22,21 @@ from forma_core.workspaces.projects.models import HardwareIR, ProjectOverview
 
 
 class PersistenceArchitectureTests(unittest.TestCase):
+    def test_disposing_sqlite_provider_releases_database_file(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database_path = Path(directory) / "forma.db"
+            provider = create_sqlite_provider(
+                source="test provider lifecycle",
+                url=f"sqlite:///{database_path}",
+                import_legacy_jobs=False,
+            )
+            provider.initialize()
+            provider.dispose()
+
+            database_path.unlink()
+
+        self.assertFalse(database_path.exists())
+
     def test_canonical_revision_publication_creates_public_gallery_projection_without_replacing_chat(self) -> None:
         project_id = uuid.uuid4()
         design_brief_id = uuid.uuid4()
@@ -125,7 +140,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 briefs = database.list_design_brief_versions(project_id, "legacy-owner")
             finally:
                 database._DATABASE_REPOSITORY = original_repository
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertEqual(2, first.revision)
         self.assertEqual(1, first.parent_revision)
@@ -196,7 +211,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
             finally:
                 database._DATABASE_PROVIDER = original_provider
                 database._DATABASE_REPOSITORY = original_repository
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertEqual(job_id, stored_job_id)
         self.assertEqual("primary", store.get_config()["scope"])
@@ -232,7 +247,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 project_after_chat_delete = database.get_generated_project(project_id)
             finally:
                 database._DATABASE_REPOSITORY = original_repository
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertIsNotNone(project)
         self.assertEqual("private", project.visibility)
@@ -291,7 +306,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 ])
 
             revisions = repository.list_latest_project_revisions("user-a")
-            provider.engine.dispose()
+            provider.dispose()
 
         self.assertEqual(
             [("project-a", 2), ("project-b", 1)],
@@ -414,7 +429,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
             rows, total = repository.list_project_gallery_inventory_page(
                 "user-a", visibility="public", limit=10, offset=0
             )
-            provider.engine.dispose()
+            provider.dispose()
 
         self.assertEqual(2, total)
         self.assertEqual(["legacy", "canonical"], [row.source for row in rows])
@@ -469,7 +484,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 identity = repository.get_project_identity("cli-summary")
             finally:
                 assert provider.engine is not None
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertIsNotNone(project)
         self.assertEqual("workspace-b", project.workspace_id)
@@ -518,7 +533,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 )
                 canonical = repository.get_latest_project_revision(project_id, "user-a")
             finally:
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertIsNotNone(saved)
         self.assertIsNotNone(canonical)
@@ -555,7 +570,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 limit=2,
                 offset=1,
             )
-            provider.engine.dispose()
+            provider.dispose()
 
         self.assertEqual(4, total)
         self.assertEqual(["project-4", "project-2"], [project.project_id for project in projects])
@@ -608,7 +623,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 offset=0,
                 search="motor",
             )
-            provider.engine.dispose()
+            provider.dispose()
 
         self.assertEqual(2, total)
         self.assertEqual(
@@ -687,7 +702,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 row = connection.exec_driver_sql(
                     "SELECT status, payload_json FROM a2a_jobs WHERE job_id = 'job_legacy'"
                 ).one()
-            provider.engine.dispose()
+            provider.dispose()
 
         self.assertEqual(1, imported_first)
         self.assertEqual(0, imported_second)
@@ -721,7 +736,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 opted_out_ids = database.list_model_training_opt_out_user_ids()
             finally:
                 database._DATABASE_REPOSITORY = original_repository
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertIsNone(default_settings)
         self.assertTrue(opted_out.model_training_opt_out)
@@ -767,7 +782,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
                 after_unsave = database.project_engagement_for_ids([source_id], "user-b")
             finally:
                 database._DATABASE_REPOSITORY = original_repository
-                provider.engine.dispose()
+                provider.dispose()
 
         self.assertTrue(first_save["saved"])
         self.assertEqual(1, first_save["save_count"])

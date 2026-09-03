@@ -226,6 +226,12 @@ class JobMetadataStore:
         config.update({"table": "a2a_jobs", "scope": "standalone" if self._standalone else "primary"})
         return config
 
+    def close(self) -> None:
+        """Release a standalone SQLite provider owned by this store."""
+
+        if self._standalone and isinstance(self._provider, SQLiteProvider):
+            self._provider.dispose()
+
     def init_db(self) -> None:
         if self._initialized:
             return

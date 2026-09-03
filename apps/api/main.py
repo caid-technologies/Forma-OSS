@@ -92,7 +92,8 @@ from forma_core.database import (
     list_project_chats,
     list_component_templates,
     list_generated_projects,
-    list_generated_projects_page,
+    list_project_gallery_inventory,
+    list_project_gallery_inventory_page,
     list_project_identities,
     list_latest_project_revisions,
     list_project_deletion_audits,
@@ -123,7 +124,7 @@ from forma_core.workspaces.projects.models import (
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectDetail, ProjectIdentityResponse, ProjectUpdateRequest, ProjectSummary, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
-from forma_core.workspaces.projects import ProjectReadError, ProjectStateError
+from forma_core.workspaces.projects import ProjectReadError, ProjectRevision, ProjectStateError
 from forma_core.workspaces.projects.manifest import ProjectManifest
 from forma_core.workspaces.workflow import WorkflowStateError
 from forma_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
@@ -1820,6 +1821,7 @@ def _project_summary_response(
     current_user_id: Optional[str] = None,
     *,
     hydrate_storage: bool = True,
+    include_inline_images: bool = True,
 ) -> ProjectSummary:
     owner_user_id = _project_owner_user_id(project)
     can_chat = bool(current_user_id and owner_user_id == current_user_id)
@@ -1855,6 +1857,14 @@ def _project_summary_response(
     product_image_data = hydrated_metadata.get("product_image_data")
     if not product_image_data and isinstance(first_sequence_image, dict):
         product_image_data = first_sequence_image.get("data")
+    has_product_image = bool(product_image_url or product_image_data)
+    if not include_inline_images:
+        product_image_data = None
+        sequence = [
+            {key: value for key, value in item.items() if key not in {"data", "image_data"}}
+            for item in sequence[:12]
+            if isinstance(item, dict)
+        ] if isinstance(sequence, list) else []
     stored_creator_display = metadata.get("creator_display") or metadata.get("creator_username")
     creator_display = (
         stored_creator_display.strip()
@@ -1884,7 +1894,7 @@ def _project_summary_response(
         save_count=0,
         remix_count=0,
         saved=False,
-        has_product_image=bool(product_image_url or product_image_data),
+        has_product_image=has_product_image,
         product_image_url=product_image_url,
         product_image_data=product_image_data,
         product_image_content_type=product_image_content_type,
@@ -1925,6 +1935,134 @@ def _canonical_project_summary_response(
     )
 
 
+def _json_object(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            decoded = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+    return {}
+
+
+def _gallery_inventory_summary(record: Any, *, current_user_id: Optional[str]) -> Optional[ProjectSummary]:
+    """Adapt one inventory row without loading chat or DesignBrief history."""
+    source_value = str(getattr(record, "source", "") or "").strip().lower()
+    source = source_value or ("legacy" if hasattr(record, "hardware_ir") else "canonical")
+    project_id = str(getattr(record, "project_id", "") or "").strip()
+    if not project_id:
+        return None
+    if source == "legacy":
+        legacy_hardware_ir = _json_object(getattr(record, "legacy_hardware_ir", None))
+        legacy_project = None
+        if legacy_hardware_ir:
+            legacy_project = types.SimpleNamespace(
+                project_id=project_id,
+                owner_user_id=getattr(record, "owner_user_id", None),
+                creation_channel=getattr(record, "creation_channel", "hosted"),
+                chat_id=getattr(record, "chat_id", None),
+                visibility=getattr(record, "visibility", "public"),
+                title=getattr(record, "title", ""),
+                prompt=getattr(record, "prompt", ""),
+                created_at=getattr(record, "created_at", None),
+                updated_at=getattr(record, "updated_at", None),
+                hardware_ir=legacy_hardware_ir,
+            )
+        elif hasattr(record, "hardware_ir"):
+            legacy_project = record
+        if legacy_project is None:
+            legacy_project = get_generated_project(project_id, include_deleted=False)
+        if legacy_project is None:
+            return None
+        project = types.SimpleNamespace(
+            project_id=project_id,
+            owner_user_id=getattr(legacy_project, "owner_user_id", getattr(record, "owner_user_id", None)),
+            creation_channel=getattr(legacy_project, "creation_channel", getattr(record, "creation_channel", "hosted")),
+            chat_id=getattr(legacy_project, "chat_id", getattr(record, "chat_id", None)),
+            visibility=getattr(legacy_project, "visibility", getattr(record, "visibility", "public")),
+            title=getattr(legacy_project, "title", getattr(record, "title", "")),
+            prompt=getattr(legacy_project, "prompt", getattr(record, "prompt", "")),
+            created_at=getattr(legacy_project, "created_at", getattr(record, "created_at", None)),
+            updated_at=getattr(legacy_project, "updated_at", getattr(record, "updated_at", None)),
+            hardware_ir=getattr(legacy_project, "hardware_ir", {}),
+        )
+        return _project_summary_response(
+            project,
+            current_user_id=current_user_id,
+            hydrate_storage=False,
+            include_inline_images=False,
+        )
+
+    identity = {
+        "project_id": project_id,
+        "owner_user_id": getattr(record, "owner_user_id", None),
+        "creation_channel": getattr(record, "creation_channel", "hosted"),
+        "chat_id": getattr(record, "chat_id", None),
+        "visibility": getattr(record, "visibility", "private"),
+        "title": getattr(record, "title", ""),
+        "prompt": getattr(record, "prompt", ""),
+        "created_at": getattr(record, "created_at", None),
+        "updated_at": getattr(record, "updated_at", None),
+    }
+    if str(identity["creation_channel"]).strip().lower() == "cli":
+        try:
+            manifest = ProjectManifest.from_document(_json_object(getattr(record, "revision_payload_json", None)))
+        except (TypeError, ValueError):
+            logger.warning("Skipping invalid CLI project in gallery inventory: project_id=%s", project_id)
+            return None
+        project = types.SimpleNamespace(**identity, hardware_ir=manifest.project_ir)
+        return _project_summary_response(
+            project,
+            current_user_id=current_user_id,
+            hydrate_storage=False,
+            include_inline_images=False,
+        )
+
+    try:
+        revision = ProjectRevision.model_validate(_json_object(getattr(record, "revision_payload_json", None)))
+    except (TypeError, ValueError):
+        logger.warning("Skipping invalid canonical project in gallery inventory: project_id=%s", project_id)
+        return None
+    project_ir = revision.state.model_dump(mode="json")
+    metadata = project_ir.get("assembly_metadata")
+    metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    metadata.update({
+        "project_id": project_id,
+        "project_revision": revision.revision,
+        "canonical_revision_id": str(revision.revision_id),
+    })
+    project_ir["assembly_metadata"] = metadata
+    overview = getattr(revision.state, "overview", None)
+    identity["title"] = str(getattr(overview, "title", "") or identity["title"] or "Untitled project")
+    project = types.SimpleNamespace(
+        **identity,
+        hardware_ir=project_ir,
+    )
+    return _project_summary_response(
+        project,
+        current_user_id=current_user_id,
+        hydrate_storage=False,
+        include_inline_images=False,
+    )
+
+
+def _gallery_inventory_cache_record(record: Any) -> Optional[Dict[str, Any]]:
+    summary = _gallery_inventory_summary(record, current_user_id=None)
+    if summary is None:
+        return None
+    cached = summary.model_dump(mode="json")
+    cached[_CACHE_OWNER_DIGEST_FIELD] = _project_owner_digest(getattr(record, "owner_user_id", None))
+    cached[_CACHE_OWNER_CHAT_FIELD] = getattr(record, "chat_id", None)
+    return cached
+
+
+def _log_gallery_legacy_fallback(endpoint: str, records: List[Any]) -> None:
+    count = sum(1 for record in records if str(getattr(record, "source", "") or "").lower() == "legacy")
+    logger.info("project_gallery_legacy_fallback endpoint=%s count=%d", endpoint, count)
+
+
 def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
     if not isinstance(owner_user_id, str) or not owner_user_id.strip():
         return None
@@ -1933,7 +2071,12 @@ def _project_owner_digest(owner_user_id: Optional[str]) -> Optional[str]:
 
 def _public_project_cache_record(project: Any) -> Dict[str, Any]:
     """Build one shared gallery record with non-response ownership hints."""
-    summary = _project_summary_response(project, current_user_id=None, hydrate_storage=False).model_dump(mode="json")
+    summary = _project_summary_response(
+        project,
+        current_user_id=None,
+        hydrate_storage=False,
+        include_inline_images=False,
+    ).model_dump(mode="json")
     summary[_CACHE_OWNER_DIGEST_FIELD] = _project_owner_digest(_project_owner_user_id(project))
     summary[_CACHE_OWNER_CHAT_FIELD] = getattr(project, "chat_id", None)
     return summary
@@ -2120,13 +2263,19 @@ def list_projects_endpoint(
     """Lists public compiled hardware projects."""
     try:
         if limit is not None:
-            projects, total = list_generated_projects_page(
+            projects, total = list_project_gallery_inventory_page(
+                owner_user_id=None,
                 visibility="public",
                 limit=limit,
                 offset=offset,
                 search=q,
             )
-            items = [_public_project_cache_record(project) for project in projects]
+            _log_gallery_legacy_fallback("public", projects)
+            items = [
+                cached
+                for project in projects
+                if (cached := _gallery_inventory_cache_record(project)) is not None
+            ]
             return {
                 "items": _with_project_engagement(
                     _personalize_public_project_records(items, user.owner_user_id),
@@ -2143,10 +2292,15 @@ def list_projects_endpoint(
                 _personalize_public_project_records(cached, user.owner_user_id),
                 user.owner_user_id,
             )
-        projects = [project for project in list_generated_projects() if _project_visibility(project) == "public"]
+        projects = list_project_gallery_inventory(visibility="public")
         cache_records = jsonable_encoder(
-            [_public_project_cache_record(project) for project in projects]
+            [
+                cached
+                for project in projects
+                if (cached := _gallery_inventory_cache_record(project)) is not None
+            ]
         )
+        _log_gallery_legacy_fallback("public", projects)
         cache_project_list("public", None, cache_records, generation)
         return _with_project_engagement(
             _personalize_public_project_records(cache_records, user.owner_user_id),
@@ -2165,7 +2319,27 @@ def list_my_projects_endpoint(
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
-        identities = _list_project_identities(owner_user_id) if limit is None else []
+        if limit is not None:
+            projects, total = list_project_gallery_inventory_page(
+                owner_user_id=owner_user_id,
+                visibility=None,
+                limit=limit,
+                offset=offset,
+            )
+            _log_gallery_legacy_fallback("mine", projects)
+            items = [
+                summary.model_dump(mode="json")
+                for project in projects
+                if (summary := _gallery_inventory_summary(project, current_user_id=owner_user_id)) is not None
+            ]
+            return {
+                "items": _with_project_engagement(items, owner_user_id),
+                "total": total,
+                "limit": max(1, min(int(limit), 50)),
+                "offset": max(0, int(offset)),
+                "has_more": max(0, int(offset)) + len(items) < total,
+            }
+        identities = _list_project_identities(owner_user_id)
         if identities:
             response: List[Dict[str, Any]] = []
             for identity in identities:
@@ -2177,7 +2351,13 @@ def list_my_projects_endpoint(
                     continue
                 project = get_generated_project(project_id)
                 if project is not None:
-                    response.append(_project_summary_response(project, current_user_id=owner_user_id).model_dump(mode="json"))
+                    response.append(
+                        _project_summary_response(
+                            project,
+                            current_user_id=owner_user_id,
+                            include_inline_images=False,
+                        ).model_dump(mode="json")
+                    )
                     continue
                 try:
                     revision = get_latest_project_revision(project_id, owner_user_id)
@@ -2188,35 +2368,19 @@ def list_my_projects_endpoint(
                     revision,
                     brief,
                     owner_user_id=owner_user_id,
+                    hydrate_storage=False,
                 ).model_dump(mode="json"))
             return _with_project_engagement(response, owner_user_id)
-        if limit is not None:
-            projects, total = list_generated_projects_page(
-                owner_user_id=owner_user_id,
-                limit=limit,
-                offset=offset,
-            )
-            items = [
-                    _project_summary_response(
-                        project,
-                        current_user_id=owner_user_id,
-                        hydrate_storage=False,
-                    ).model_dump(mode="json")
-                for project in projects
-            ]
-            return {
-                "items": _with_project_engagement(items, owner_user_id),
-                "total": total,
-                "limit": max(1, min(int(limit), 50)),
-                "offset": max(0, int(offset)),
-                "has_more": max(0, int(offset)) + len(items) < total,
-            }
         cached, generation = get_cached_project_list("mine", owner_user_id)
         if cached is not None:
             return _with_project_engagement(cached, owner_user_id)
         projects = list_generated_projects(owner_user_id=owner_user_id)
         response = [
-                _project_summary_response(project, current_user_id=owner_user_id).model_dump(mode="json")
+            _project_summary_response(
+                project,
+                current_user_id=owner_user_id,
+                include_inline_images=False,
+            ).model_dump(mode="json")
             for project in projects
         ]
         legacy_project_ids = {str(project.project_id) for project in projects}
@@ -2226,8 +2390,6 @@ def list_my_projects_endpoint(
                 continue
             legacy_record = get_generated_project(project_id, include_deleted=True)
             if legacy_record is not None:
-                # A soft-deleted legacy projection must not be resurrected by
-                # its retained canonical revisions during the recovery window.
                 continue
             try:
                 brief = get_latest_design_brief(project_id, owner_user_id)

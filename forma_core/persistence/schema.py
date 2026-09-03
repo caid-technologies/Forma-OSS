@@ -22,6 +22,14 @@ APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
         ),
     ),
     TableContract(
+        "project_gallery_inventory",
+        (
+            "project_id", "owner_user_id", "creation_channel", "title", "prompt", "chat_id", "workspace_id",
+            "visibility", "status", "created_at", "updated_at", "source", "revision_id", "revision",
+            "revision_payload_json", "revision_created_at", "legacy_hardware_ir", "legacy_id",
+        ),
+    ),
+    TableContract(
         "generated_projects",
         (
             "id", "project_id", "chat_id", "owner_user_id", "creation_channel", "visibility", "title", "prompt", "hardware_ir", "created_at",

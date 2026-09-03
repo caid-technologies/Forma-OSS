@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -85,6 +86,81 @@ class SqlAlchemyRepository:
                 DBProject.owner_user_id == owner_user_id,
                 DBProject.status == "active",
             ).order_by(DBProject.updated_at.desc()).all()
+
+    def list_project_gallery_inventory_page(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        limit: int,
+        offset: int,
+        search: Optional[str] = None,
+    ) -> tuple[List[Any], int]:
+        """Read one bounded, privacy-filtered canonical gallery page."""
+        filters = ["status = :status"]
+        parameters: Dict[str, Any] = {
+            "status": "active",
+            "limit": max(1, int(limit)),
+            "offset": max(0, int(offset)),
+        }
+        if owner_user_id:
+            filters.append("owner_user_id = :owner_user_id")
+            parameters["owner_user_id"] = owner_user_id
+        if visibility:
+            filters.append("visibility = :visibility")
+            parameters["visibility"] = visibility
+        if search:
+            filters.append("(lower(title) like lower(:search) or lower(prompt) like lower(:search))")
+            parameters["search"] = f"%{search}%"
+        where = " AND ".join(filters)
+        with self._session() as session:
+            total = session.execute(
+                text(f"SELECT COUNT(*) FROM project_gallery_inventory WHERE {where}"),
+                parameters,
+            ).scalar_one()
+            rows = session.execute(
+                text(
+                    "SELECT project_id, owner_user_id, creation_channel, title, prompt, chat_id, "
+                    "workspace_id, visibility, status, created_at, updated_at, source, revision_id, "
+                    "revision, revision_payload_json, revision_created_at, legacy_hardware_ir, legacy_id "
+                    f"FROM project_gallery_inventory WHERE {where} "
+                    "ORDER BY updated_at DESC, project_id DESC LIMIT :limit OFFSET :offset"
+                ),
+                parameters,
+            ).mappings().all()
+            return [SimpleNamespace(**dict(row)) for row in rows], int(total or 0)
+
+    def list_project_gallery_inventory(
+        self,
+        owner_user_id: Optional[str],
+        *,
+        visibility: Optional[str],
+        search: Optional[str] = None,
+    ) -> List[Any]:
+        filters = ["status = :status"]
+        parameters: Dict[str, Any] = {"status": "active"}
+        if owner_user_id:
+            filters.append("owner_user_id = :owner_user_id")
+            parameters["owner_user_id"] = owner_user_id
+        if visibility:
+            filters.append("visibility = :visibility")
+            parameters["visibility"] = visibility
+        if search:
+            filters.append("(lower(title) like lower(:search) or lower(prompt) like lower(:search))")
+            parameters["search"] = f"%{search}%"
+        where = " AND ".join(filters)
+        with self._session() as session:
+            rows = session.execute(
+                text(
+                    "SELECT project_id, owner_user_id, creation_channel, title, prompt, chat_id, "
+                    "workspace_id, visibility, status, created_at, updated_at, source, revision_id, "
+                    "revision, revision_payload_json, revision_created_at, legacy_hardware_ir, legacy_id "
+                    f"FROM project_gallery_inventory WHERE {where} "
+                    "ORDER BY updated_at DESC, project_id DESC"
+                ),
+                parameters,
+            ).mappings().all()
+            return [SimpleNamespace(**dict(row)) for row in rows]
 
     def save_generated_project(
         self,

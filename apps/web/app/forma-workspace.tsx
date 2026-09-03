@@ -3163,10 +3163,7 @@ export function FormaWorkspace({
     const visibleProjectIds = new Set(visibleProjectGalleryIds);
     if (!visibleProjectIds.size) return;
 
-    const imageProjects = mergeProjectRecords(
-      mergeProjectRecords(projectHistory, myProjectHistory),
-      projectRecordsFromChatItems(chatListItems)
-    ).filter((project: any) => {
+    const imageProjects = mergeProjectRecords(projectHistory, myProjectHistory).filter((project: any) => {
       const projectId = project?.project_id ? String(project.project_id) : "";
       return projectId && visibleProjectIds.has(projectId);
     });
@@ -6009,26 +6006,6 @@ function mergeProjectRecords(primary: any[], secondary: any[]): any[] {
 
 function sameStringList(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
-function projectRecordsFromChatItems(chatItems: ChatListItem[]): any[] {
-  return chatItems
-    .filter((item) => item.projectId)
-    .map((item) => ({
-      project_id: item.projectId,
-      chat_id: item.chatId,
-      title: item.title || "Untitled project",
-      prompt: item.title || "",
-      created_at: item.createdAt || chatTimestamp(),
-      can_chat: true,
-      creator_display: "unknown",
-      creator_username: "unknown",
-      creator_image_url: null,
-      parts_count: 0,
-      save_count: 0,
-      remix_count: 0,
-      saved: false,
-    }));
 }
 
 function WorkspaceChromeIdentity({

@@ -80,6 +80,43 @@ def _project(
     )
 
 
+def _legacy_inventory(project: SimpleNamespace) -> SimpleNamespace:
+    return SimpleNamespace(
+        source="legacy",
+        legacy_id=1,
+        legacy_hardware_ir=project.hardware_ir,
+        project_id=project.project_id,
+        owner_user_id=project.owner_user_id,
+        creation_channel=project.creation_channel if hasattr(project, "creation_channel") else "hosted",
+        chat_id=project.chat_id,
+        visibility=project.visibility,
+        title=project.title,
+        prompt=project.prompt,
+        created_at=project.created_at,
+        updated_at=project.created_at,
+    )
+
+
+def _canonical_revision_payload(project_id: str, state: HardwareIR, revision: int = 1) -> dict:
+    return {
+        "schema_version": "1.0",
+        "state": state.model_dump(mode="json"),
+        "components": [],
+        "systems": [],
+        "artifacts": [],
+        "assumptions": [],
+        "revision_id": f"22222222-2222-4222-8222-{revision:012d}",
+        "project_id": project_id,
+        "owner_user_id": "user-a",
+        "revision": revision,
+        "parent_revision": revision - 1 if revision > 1 else None,
+        "design_brief_id": "33333333-3333-4333-8333-333333333333",
+        "design_brief_version": 1,
+        "source_job_id": f"gallery-job-{revision}",
+        "created_at": "2026-08-07T12:00:00Z",
+    }
+
+
 class LocalProjectIdentityTests(unittest.IsolatedAsyncioTestCase):
     async def test_local_user_context_owns_local_dev_user_projects(self) -> None:
         with patch.dict(os.environ, {"FORMA_AUTH_MODE": "local"}, clear=False):
@@ -122,8 +159,8 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects",
-            return_value=[private_project, public_project],
+            "list_project_gallery_inventory",
+            return_value=[public_project],
         ):
             response = main.list_projects_endpoint(_user_context("user-a"))
 
@@ -139,12 +176,12 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects_page",
-            return_value=(page_projects, 14),
+            "list_project_gallery_inventory_page",
+            return_value=([_legacy_inventory(project) for project in page_projects], 14),
         ) as list_page, patch.object(main, "list_generated_projects") as list_all:
             response = main.list_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
 
-        list_page.assert_called_once_with(visibility="public", limit=2, offset=6, search=None)
+        list_page.assert_called_once_with(owner_user_id=None, visibility="public", limit=2, offset=6, search=None)
         list_all.assert_not_called()
         self.assertEqual(14, response["total"])
         self.assertEqual(2, response["limit"])
@@ -160,7 +197,7 @@ class ProjectReadAccessTests(unittest.TestCase):
     def test_public_list_passes_search_to_the_paginated_query(self) -> None:
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects_page",
+            "list_project_gallery_inventory_page",
             return_value=([], 0),
         ) as list_page:
             response = main.list_projects_endpoint(
@@ -171,6 +208,7 @@ class ProjectReadAccessTests(unittest.TestCase):
             )
 
         list_page.assert_called_once_with(
+            owner_user_id=None,
             visibility="public",
             limit=6,
             offset=0,
@@ -315,12 +353,12 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         with self._summary_dependencies(), patch.object(
             main,
-            "list_generated_projects_page",
-            return_value=(page_projects, 9),
+            "list_project_gallery_inventory_page",
+            return_value=([_legacy_inventory(project) for project in page_projects], 9),
         ) as list_page, patch.object(main, "list_latest_project_revisions") as list_revisions:
             response = main.list_my_projects_endpoint(_user_context("user-a"), limit=2, offset=6)
 
-        list_page.assert_called_once_with(owner_user_id="user-a", limit=2, offset=6)
+        list_page.assert_called_once_with(owner_user_id="user-a", visibility=None, limit=2, offset=6)
         list_revisions.assert_not_called()
         self.assertEqual(9, response["total"])
         self.assertEqual(2, response["limit"])
@@ -330,6 +368,91 @@ class ProjectReadAccessTests(unittest.TestCase):
             ["private-project-7", "private-project-8"],
             [item["project_id"] for item in response["items"]],
         )
+
+    def test_public_paginated_list_uses_current_canonical_revision_without_brief_or_legacy_reads(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Current canonical title",
+                description="Current state",
+                difficulty="Beginner",
+                category="Automation",
+            ),
+            assembly_metadata={"project_id": project_id},
+        )
+        revision = SimpleNamespace(
+            source="canonical",
+            project_id=project_id,
+            owner_user_id="user-a",
+            creation_channel="hosted",
+            title="Stale identity title",
+            prompt="Canonical prompt",
+            chat_id="canonical-chat",
+            visibility="public",
+            created_at="2026-08-07T12:00:00Z",
+            updated_at="2026-08-07T12:01:00Z",
+            revision_payload_json=_canonical_revision_payload(project_id, state, revision=2),
+            revision_id="revision-2",
+            revision=2,
+        )
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_project_gallery_inventory_page",
+            return_value=([revision], 1),
+        ) as list_page, patch.object(main, "get_latest_design_brief") as get_brief, patch.object(
+            main, "get_generated_project"
+        ) as get_legacy, patch.object(main.logger, "info") as log_info:
+            response = main.list_projects_endpoint(_anonymous_context(), limit=1, offset=0)
+
+        list_page.assert_called_once()
+        get_brief.assert_not_called()
+        get_legacy.assert_not_called()
+        log_info.assert_any_call("project_gallery_legacy_fallback endpoint=%s count=%d", "public", 0)
+        self.assertEqual("Current canonical title", response["items"][0]["title"])
+        self.assertIsNone(response["items"][0]["chat_id"])
+        self.assertFalse(response["items"][0]["can_chat"])
+
+    def test_my_paginated_list_uses_identity_and_legacy_fallback_rows_without_chat_history(self) -> None:
+        canonical_id = "11111111-1111-4111-8111-111111111111"
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Canonical project",
+                description="Canonical state",
+                difficulty="Beginner",
+                category="Automation",
+            ),
+            assembly_metadata={"project_id": canonical_id},
+        )
+        canonical = SimpleNamespace(
+            source="canonical",
+            project_id=canonical_id,
+            owner_user_id="user-a",
+            creation_channel="hosted",
+            title="Canonical project",
+            prompt="Canonical prompt",
+            chat_id="canonical-chat",
+            visibility="private",
+            created_at="2026-08-07T12:00:00Z",
+            updated_at="2026-08-07T12:00:00Z",
+            revision_payload_json=_canonical_revision_payload(canonical_id, state),
+            revision_id="revision-1",
+            revision=1,
+        )
+        legacy = _legacy_inventory(_project("legacy-id", owner_user_id="user-a", visibility="private"))
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_project_gallery_inventory_page",
+            return_value=([canonical, legacy], 2),
+        ) as list_page, patch.object(main, "get_latest_design_brief") as get_brief:
+            response = main.list_my_projects_endpoint(_user_context("user-a"), limit=2)
+
+        list_page.assert_called_once_with(
+            owner_user_id="user-a", visibility=None, limit=2, offset=0
+        )
+        get_brief.assert_not_called()
+        self.assertEqual([canonical_id, "legacy-id"], [item["project_id"] for item in response["items"]])
 
     def test_owner_list_deduplicates_legacy_and_canonical_project_records(self) -> None:
         project_id = "legacy-and-canonical"

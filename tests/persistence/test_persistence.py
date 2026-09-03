@@ -11,7 +11,7 @@ from unittest.mock import patch
 from forma_core.jobs.store import JobMetadataStore
 from forma_core import database
 from forma_core.persistence import APPLICATION_SCHEMA
-from forma_core.persistence.models import DBGeneratedProject, DBProjectRevision
+from forma_core.persistence.models import DBGeneratedProject, DBProject, DBProjectRevision
 from forma_core.jobs.migrations import import_legacy_job_database
 from forma_core.persistence.providers import SupabaseProvider, create_sqlite_provider
 from forma_core.persistence.repositories import SqlAlchemyRepository, SupabaseRepository
@@ -294,6 +294,130 @@ class PersistenceArchitectureTests(unittest.TestCase):
             [(revision.project_id, revision.revision) for revision in revisions],
         )
 
+    def test_sqlite_gallery_inventory_prefers_identity_and_current_revision_with_legacy_fallback(self) -> None:
+        canonical_id = str(uuid.uuid4())
+        legacy_id = str(uuid.uuid4())
+        deleted_id = str(uuid.uuid4())
+        state = HardwareIR(
+            overview=ProjectOverview(
+                title="Current canonical title",
+                description="Canonical state",
+                difficulty="Beginner",
+                category="Automation",
+            ),
+            assembly_metadata={"project_id": canonical_id},
+        )
+
+        def revision_record(revision: int) -> DBProjectRevision:
+            return DBProjectRevision(
+                id=f"gallery-revision-{revision}",
+                project_id=canonical_id,
+                owner_user_id="user-a",
+                revision=revision,
+                parent_revision=revision - 1 if revision > 1 else None,
+                design_brief_id="brief-gallery",
+                design_brief_version=1,
+                source_job_id=f"gallery-job-{revision}",
+                payload_json={
+                    "schema_version": "1.0",
+                    "state": state.model_dump(mode="json"),
+                    "components": [],
+                    "systems": [],
+                    "artifacts": [],
+                    "assumptions": [],
+                    "revision_id": str(uuid.uuid4()),
+                    "project_id": canonical_id,
+                    "owner_user_id": "user-a",
+                    "revision": revision,
+                    "parent_revision": revision - 1 if revision > 1 else None,
+                    "design_brief_id": str(uuid.uuid4()),
+                    "design_brief_version": 1,
+                    "source_job_id": f"gallery-job-{revision}",
+                    "created_at": f"2026-08-0{revision}T12:00:00Z",
+                },
+                created_at=f"2026-08-0{revision}T12:00:00Z",
+            )
+
+        with tempfile.TemporaryDirectory() as directory:
+            provider = create_sqlite_provider(
+                source="test gallery inventory",
+                url=f"sqlite:///{Path(directory) / 'forma.db'}",
+                import_legacy_jobs=False,
+            )
+            assert provider.session_factory is not None
+            provider.initialize()
+            repository = SqlAlchemyRepository(provider.session_factory)
+            with provider.session_factory() as session, session.begin():
+                session.add_all([
+                    DBProject(
+                        project_id=canonical_id,
+                        owner_user_id="user-a",
+                        creation_channel="hosted",
+                        title="Identity title",
+                        prompt="Canonical prompt",
+                        chat_id="canonical-chat",
+                        visibility="public",
+                        status="active",
+                        created_at="2026-08-01T12:00:00Z",
+                        updated_at="2026-08-02T12:00:00Z",
+                    ),
+                    DBProject(
+                        project_id=deleted_id,
+                        owner_user_id="user-a",
+                        creation_channel="hosted",
+                        title="Deleted project",
+                        prompt="Deleted",
+                        visibility="public",
+                        status="pending_purge",
+                        created_at="2026-08-01T12:00:00Z",
+                        updated_at="2026-08-03T12:00:00Z",
+                    ),
+                    revision_record(1),
+                    revision_record(2),
+                    DBGeneratedProject(
+                        project_id=canonical_id,
+                        owner_user_id="user-a",
+                        visibility="public",
+                        title="Stale generated projection",
+                        prompt="Stale",
+                        hardware_ir={"assembly_metadata": {"project_id": canonical_id}},
+                        created_at="2026-08-04T12:00:00Z",
+                        status="active",
+                    ),
+                    DBGeneratedProject(
+                        project_id=legacy_id,
+                        owner_user_id="user-a",
+                        visibility="public",
+                        title="Legacy fallback",
+                        prompt="Legacy",
+                        hardware_ir={"assembly_metadata": {"project_id": legacy_id}},
+                        created_at="2026-08-05T12:00:00Z",
+                        status="active",
+                    ),
+                    DBProject(
+                        project_id=legacy_id,
+                        owner_user_id="user-a",
+                        creation_channel="hosted",
+                        title="Legacy identity",
+                        prompt="Legacy identity prompt",
+                        visibility="public",
+                        status="active",
+                        created_at="2026-08-05T12:00:00Z",
+                        updated_at="2026-08-05T12:00:00Z",
+                    ),
+                ])
+
+            rows, total = repository.list_project_gallery_inventory_page(
+                "user-a", visibility="public", limit=10, offset=0
+            )
+            provider.engine.dispose()
+
+        self.assertEqual(2, total)
+        self.assertEqual(["legacy", "canonical"], [row.source for row in rows])
+        canonical = next(row for row in rows if row.project_id == canonical_id)
+        self.assertEqual(2, canonical.revision)
+        self.assertEqual("Identity title", canonical.title)
+
     def test_cli_revision_push_updates_project_summary_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             provider = create_sqlite_provider(
@@ -455,6 +579,21 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertIn(("status", "active"), client.query.filters)
         self.assertIn(("owner_user_id", "user-a"), client.query.filters)
         self.assertIn(("visibility", "public"), client.query.filters)
+
+    def test_supabase_gallery_inventory_requests_an_exact_bounded_page(self) -> None:
+        client = _GalleryInventoryClient()
+        repository = SupabaseRepository(client)
+
+        rows, total = repository.list_project_gallery_inventory_page(
+            "user-a", visibility=None, limit=6, offset=12
+        )
+
+        self.assertEqual(37, total)
+        self.assertEqual(["project-13", "project-14"], [row.project_id for row in rows])
+        self.assertEqual("exact", client.query.count_mode)
+        self.assertEqual((12, 17), client.query.requested_range)
+        self.assertIn(("status", "active"), client.query.filters)
+        self.assertIn(("owner_user_id", "user-a"), client.query.filters)
 
     def test_supabase_repository_searches_titles_and_prompts(self) -> None:
         client = _ProjectPageClient()
@@ -715,6 +854,15 @@ class _ProjectPageClient:
 
     def table(self, table: str) -> _ProjectPageQuery:
         assert table == "generated_projects"
+        return self.query
+
+
+class _GalleryInventoryClient:
+    def __init__(self) -> None:
+        self.query = _ProjectPageQuery()
+
+    def table(self, table: str) -> _ProjectPageQuery:
+        assert table == "project_gallery_inventory"
         return self.query
 
 

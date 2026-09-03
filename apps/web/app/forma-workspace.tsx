@@ -1729,6 +1729,7 @@ export function FormaWorkspace({
   const [myProjectHistoryTotal, setMyProjectHistoryTotal] = useState(0);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
   const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
+  const [myProjectHistoryError, setMyProjectHistoryError] = useState<Error | null>(null);
   const [projectSearchInput, setProjectSearchInput] = useState("");
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
@@ -2938,11 +2939,13 @@ export function FormaWorkspace({
     if (authRequired && !isSignedIn) {
       setMyProjectHistory([]);
       setMyProjectHistoryTotal(0);
+      setMyProjectHistoryError(new Error("Sign in to view your projects."));
       setMyProjectHistoryLoaded(true);
       return;
     }
 
     setMyProjectHistoryLoaded(false);
+    setMyProjectHistoryError(null);
     try {
       const res = await fetch(`${API_URL}/my/projects`, {
         headers: await generationRequestHeaders(),
@@ -2953,15 +2956,19 @@ export function FormaWorkspace({
         if (myProjectHistoryRequestIdRef.current !== requestId) return;
         setMyProjectHistory(result.items);
         setMyProjectHistoryTotal(result.total);
+        setMyProjectHistoryError(null);
         setAuthSecurityError(false);
       } else if (isAuthOrSecurityHttpStatus(res.status)) {
         if (isSignedIn) setAuthSecurityError(true);
         setMyProjectHistory([]);
         setMyProjectHistoryTotal(0);
+        setMyProjectHistoryError(new Error("Sign in to view your projects."));
       } else {
         throw new Error(await readApiErrorMessage(res));
       }
     } catch (e) {
+      if (myProjectHistoryRequestIdRef.current !== requestId) return;
+      setMyProjectHistoryError(e instanceof Error ? e : new Error("Projects could not be loaded."));
       console.error("Error fetching my project history", e);
     } finally {
       if (myProjectHistoryRequestIdRef.current === requestId) setMyProjectHistoryLoaded(true);
@@ -5491,6 +5498,7 @@ export function FormaWorkspace({
                   return item ? handleRemixProject(item) : undefined;
                 } : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
+                error={myProjectHistoryError}
               />
           ) : homeView === "jobs" ? (
             <>

@@ -386,8 +386,8 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         with self._summary_dependencies(), patch.object(
             main,
-            "get_generated_project",
-            return_value=private_project,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(project=private_project, source="generated", can_chat=True),
         ):
             response = main.get_project_endpoint(
                 private_project.project_id,
@@ -418,11 +418,11 @@ class ProjectReadAccessTests(unittest.TestCase):
             "created_at": "2026-07-25T12:00:00Z",
         }
 
-        with patch.object(main, "get_generated_project", return_value=None), patch.object(
+        with patch.object(main, "resolve_project_for_read", return_value=SimpleNamespace(source="cli")), patch.object(
             main,
-            "get_latest_project_revision",
-            side_effect=main.ProjectStateError("project_not_found", "Project not found."),
-        ), patch.object(main, "get_cli_project_revision", return_value=cli_revision):
+            "get_cli_project_revision",
+            return_value=cli_revision,
+        ):
             response = main.get_project_endpoint(project_id, _user_context("user-a"))
 
         self.assertEqual(project_id, response["project_id"])
@@ -430,6 +430,32 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(response["chat_id"])
         self.assertEqual("cli", response["project_ir"]["assembly_metadata"]["project_source"])
         self.assertEqual("cli-revision-1", response["project_ir"]["assembly_metadata"]["cloud_revision_id"])
+
+    def test_owner_can_read_canonical_only_project_through_project_endpoint(self) -> None:
+        project_id = "11111111-1111-4111-8111-111111111111"
+        state = HardwareIR.model_validate(_project(project_id, owner_user_id="user-a", visibility="private").hardware_ir)
+        revision = SimpleNamespace(
+            project_id=project_id,
+            state=state,
+            revision=2,
+            design_brief_version=1,
+            created_at="2026-08-01T12:00:00Z",
+        )
+        brief = SimpleNamespace(conversation_id="canonical-chat", summary="Build a canonical project.")
+
+        with patch.object(
+            main,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(source="canonical", revision=revision, design_brief=brief),
+        ), patch.object(main, "generate_mermaid_chart", return_value=""), patch.object(
+            main, "generate_svg_schematic", return_value=""
+        ):
+            response = main.get_project_endpoint(project_id, _user_context("user-a"))
+
+        self.assertEqual(project_id, response["project_id"])
+        self.assertEqual("canonical-chat", response["chat_id"])
+        self.assertTrue(response["can_chat"])
+        self.assertEqual(2, response["project_ir"]["assembly_metadata"]["project_revision"])
 
     def test_owner_can_update_project_title(self) -> None:
         project = _project("owned-project", owner_user_id="user-a", visibility="public")
@@ -495,7 +521,11 @@ class ProjectReadAccessTests(unittest.TestCase):
             visibility="private",
         )
 
-        with patch.object(main, "get_generated_project", return_value=private_project):
+        with patch.object(
+            main,
+            "resolve_project_for_read",
+            side_effect=main.ProjectReadError("Project not found."),
+        ):
             with self.assertRaises(HTTPException) as raised:
                 main.get_project_endpoint(
                     private_project.project_id,
@@ -544,8 +574,8 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         with self._summary_dependencies(), patch.object(
             main,
-            "get_generated_project",
-            return_value=public_project,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(project=public_project, source="generated", can_chat=False),
         ):
             response = main.get_project_endpoint(
                 public_project.project_id,
@@ -604,8 +634,8 @@ class ProjectReadAccessTests(unittest.TestCase):
 
         with self._summary_dependencies(), patch.object(
             main,
-            "get_generated_project",
-            return_value=public_project,
+            "resolve_project_for_read",
+            return_value=SimpleNamespace(project=public_project, source="generated", can_chat=False),
         ):
             response = main.get_project_endpoint(public_project.project_id, _anonymous_context())
 

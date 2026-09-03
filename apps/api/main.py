@@ -97,6 +97,7 @@ from forma_core.database import (
     list_project_deletion_audits,
     list_project_generation_jobs,
     project_engagement_for_ids,
+    resolve_project_for_read,
     remix_generated_project,
     save_alpha_signup,
     save_project_for_user,
@@ -119,7 +120,7 @@ from forma_core.workspaces.projects.models import (
     ConnectionNet, GenerateProjectRequest, HardwareIR, IterateProjectRequest,
     ProjectContributionConsentRequest, ProjectDetail, ProjectIdentityResponse, ProjectUpdateRequest, ProjectSummary, ValidationIssue, ValidationReport, VideoSelfCorrectRequest,
 )
-from forma_core.workspaces.projects import ProjectStateError
+from forma_core.workspaces.projects import ProjectReadError, ProjectStateError
 from forma_core.workspaces.projects.manifest import ProjectManifest
 from forma_core.workspaces.workflow import WorkflowStateError
 from forma_core.signups.models import AlphaSignupRequest, AlphaSignupResponse
@@ -2242,14 +2243,20 @@ def list_my_projects_endpoint(
 @app.get("/projects/{project_id}/image-summary")
 def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Returns gallery-safe project metadata without validating or expanding the full hardware IR."""
-    project = get_generated_project(project_id)
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found.")
-    _require_project_reader(project, user)
+    try:
+        resolved = resolve_project_for_read(project_id, user.owner_user_id)
+    except ProjectReadError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
 
     try:
+        summary = _project_summary_response(
+            resolved.project,
+            current_user_id=user.owner_user_id,
+        ).model_dump(mode="json")
+        summary["can_chat"] = resolved.can_chat
+        summary["chat_id"] = resolved.chat_id if resolved.can_chat else None
         summaries = _with_project_engagement(
-            [_project_summary_response(project, current_user_id=user.owner_user_id).model_dump(mode="json")],
+            [summary],
             user.owner_user_id,
         )
         return summaries[0]
@@ -2260,19 +2267,23 @@ def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depe
 @app.get("/projects/{project_id}")
 def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
     """Retrieves a specific hardware design and its corresponding schematics."""
-    project = get_generated_project(project_id)
-    if not project:
+    try:
+        resolved = resolve_project_for_read(project_id, user.owner_user_id)
+    except ProjectReadError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+
+    if resolved.source == "cli":
         owner_user_id = str(user.owner_user_id or "").strip()
-        if not owner_user_id:
+        cli_response = _cli_project_response(project_id, owner_user_id)
+        if cli_response is not None:
+            return cli_response
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    if resolved.source == "canonical":
+        revision = resolved.revision
+        brief = resolved.design_brief
+        if revision is None or brief is None:
             raise HTTPException(status_code=404, detail="Project not found.")
-        try:
-            revision = get_latest_project_revision(project_id, owner_user_id)
-            brief = get_latest_design_brief(project_id, owner_user_id)
-        except (ProjectStateError, DesignBriefNotFoundError) as exc:
-            cli_response = _cli_project_response(project_id, owner_user_id)
-            if cli_response is not None:
-                return cli_response
-            raise HTTPException(status_code=404, detail="Project not found.") from exc
         ir = revision.state.model_copy(deep=True)
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
@@ -2296,9 +2307,9 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
             "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
-    _require_project_reader(project, user)
+    project = resolved.project
 
-    can_chat = _user_owns_project(project, user)
+    can_chat = resolved.can_chat
     stored_hardware_ir = json.loads(json.dumps(project.hardware_ir or {}))
     try:
         ir = HardwareIR(**stored_hardware_ir)

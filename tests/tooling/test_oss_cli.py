@@ -69,7 +69,7 @@ class OssCliTests(unittest.TestCase):
         self.assertEqual(
             {
                 "login", "logout", "whoami", "init", "build", "import", "metadata", "metadata-api",
-                "status", "render", "projects", "keys",
+                "status", "render", "projects", "keys", "version", "doctor",
             },
             set(parser._subparsers._group_actions[0].choices),
         )
@@ -301,6 +301,12 @@ class OssCliTests(unittest.TestCase):
         with patch(
             "forma_cli.sdk.urlopen",
             side_effect=[
+                Response({
+                    "latest_version": "0.3.4",
+                    "minimum_supported_version": "0.3.4",
+                    "protocol_version": 1,
+                    "hardware_ir_version": "0.2",
+                }),
                 Response({"status": "uploaded", "sha256": sha256}),
                 BinaryResponse(
                     content,
@@ -315,7 +321,7 @@ class OssCliTests(unittest.TestCase):
             uploaded = client.upload_project_artifact("project/a", "revision-1", sha256, content, "model/step")
             downloaded = client.download_project_artifact("project/a", "revision-1", sha256)
 
-        upload_request = urlopen.call_args_list[0].args[0]
+        upload_request = urlopen.call_args_list[1].args[0]
         self.assertEqual(content, upload_request.data)
         self.assertEqual("model/step", upload_request.get_header("Content-type"))
         self.assertEqual("uploaded", uploaded["status"])

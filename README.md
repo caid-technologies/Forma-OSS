@@ -167,6 +167,8 @@ uploads.
 
 ```bash
 forma-oss --help
+forma-oss version
+forma-oss doctor
 forma-oss init ./my-project
 forma-oss status --path ./my-project
 forma-oss render --path ./my-project --output ./my-project/mechanical-render.png
@@ -180,6 +182,14 @@ forma-oss login
 forma-oss projects push --path ./my-project
 forma-oss projects pull --path ./my-project
 ```
+
+Hosted CLI operations check the package and hosted protocol contract. A
+supported older client continues with an upgrade notice; a client below the
+hosted minimum is rejected before a cloud mutation or upload. Local generation,
+validation, rendering, and offline project work do not require the hosted
+compatibility endpoint. `forma-oss version` always reports the installed CLI
+version, while `forma-oss doctor` reports compatibility and authentication
+status when available.
 
 `projects push` validates and uploads every file declared in the local
 manifest. `projects pull` verifies downloaded bytes, restores them beneath the
@@ -426,6 +436,10 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `FORMA_CLI_ARTIFACT_STORAGE_BACKEND`: Optional `supabase`, `s3-compatible`, or `local` override for CLI artifacts. Supabase-primary hosted deployments use Supabase by default; SQLite/local deployments use the local API storage directory by default.
 - `FORMA_CLI_ARTIFACT_STORAGE_DIR`: Local artifact directory when the CLI artifact backend is `local` (default: `./.forma/cli-artifacts`).
 - `FORMA_CLI_ARTIFACT_MAX_BYTES`: Maximum size of one transferred artifact (default: `52428800`).
+- `FORMA_HOSTED_LATEST_VERSION`: Hosted package version advertised by `/forma/version` (defaults to the installed core version).
+- `FORMA_HOSTED_MINIMUM_SUPPORTED_VERSION`: Oldest package version accepted by hosted CLI requests (defaults to the installed core version).
+- `FORMA_HOSTED_PROTOCOL_VERSION`: Hosted CLI/API protocol version (default: `1`).
+- `FORMA_SUPPORTED_HARDWARE_IR_VERSIONS`: Comma-separated Hardware IR schemas accepted by hosted uploads (default: `0.2`).
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `forma`.
 - `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.

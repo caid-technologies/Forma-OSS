@@ -50,6 +50,7 @@ from forma_core.debug import (
     get_debug_mode_config,
     runtime_safe_error_message,
 )
+from forma_core._version import __version__
 from fastapi import Body, Depends, FastAPI, HTTPException, Query, Request, WebSocket, status
 from fastapi.encoders import jsonable_encoder
 from fastapi.exception_handlers import request_validation_exception_handler
@@ -164,6 +165,8 @@ from apps.api.user_settings_api import router as user_settings_router
 from apps.api.cli_auth_api import router as cli_auth_router
 from apps.api.cli_projects_api import router as cli_projects_router
 from apps.api.cli_credentials_api import router as cli_credentials_router
+from apps.api.compatibility import require_client_compatibility
+from apps.api.version_api import router as version_router
 from apps.api.hosted_chat import require_hosted_chat_enabled
 from apps.api.auth import (
     UserContext,
@@ -273,7 +276,7 @@ def _attach_generation_timing_metadata(response: Dict[str, Any], job: Optional[D
 app = FastAPI(
     title="Forma Open-Source API",
     description="AI-native prompt-to-hardware compilation, validation, and design generation platform.",
-    version="1.0.0",
+    version=__version__,
     docs_url="/docs",
     redoc_url="/redoc",
     openapi_url="/openapi.json",
@@ -357,9 +360,10 @@ app.include_router(readiness_router)
 app.include_router(worker_plans_router)
 app.include_router(user_integrations_router)
 app.include_router(user_settings_router)
-app.include_router(cli_auth_router)
-app.include_router(cli_projects_router)
-app.include_router(cli_credentials_router)
+app.include_router(cli_auth_router, dependencies=[Depends(require_client_compatibility)])
+app.include_router(cli_projects_router, dependencies=[Depends(require_client_compatibility)])
+app.include_router(cli_credentials_router, dependencies=[Depends(require_client_compatibility)])
+app.include_router(version_router)
 
 
 def _deployment_runtime_config(llm_config: Dict[str, Any]) -> Dict[str, Any]:
@@ -547,7 +551,7 @@ def read_root():
     return {
         "status": "online",
         "service": "Forma Open-Source Hardware Compiler",
-        "version": "1.0.0",
+        "version": __version__,
         "docs_url": "/api/docs"
     }
 

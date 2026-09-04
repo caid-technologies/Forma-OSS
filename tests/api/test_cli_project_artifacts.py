@@ -182,6 +182,22 @@ class CliProjectArtifactApiTests(unittest.IsolatedAsyncioTestCase):
             await cli_projects_api.push_cli_project(request, _user())
         self.assertEqual(400, raised.exception.status_code)
 
+    async def test_push_rejects_unsupported_hardware_ir_before_persisting(self) -> None:
+        request = cli_projects_api.ProjectPushRequest(
+            manifest={
+                "format": "forma-project",
+                "project_id": "project-a",
+                "project_ir": {"hardware_ir_version": "9.0"},
+            }
+        )
+        with patch.object(cli_projects_api, "insert_cli_project_revision") as insert:
+            with self.assertRaises(HTTPException) as raised:
+                await cli_projects_api.push_cli_project(request, _user())
+
+        self.assertEqual(426, raised.exception.status_code)
+        self.assertEqual("UNSUPPORTED_HARDWARE_IR_VERSION", raised.exception.detail["code"])
+        insert.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -9,6 +9,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from apps.api.auth import UserContext, require_user_context
+from forma_core.config.compatibility import (
+    UnsupportedHardwareIRVersion,
+    ensure_supported_hardware_ir_version,
+    hosted_compatibility_metadata,
+)
 from forma_core.database import (
     CliProjectConflictError,
     get_cli_project_revision,
@@ -57,6 +62,11 @@ async def push_cli_project(
 ) -> dict[str, Any]:
     owner = _owner(user)
     try:
+        compatibility = hosted_compatibility_metadata()
+        ensure_supported_hardware_ir_version(
+            request.manifest,
+            supported_versions=compatibility.supported_hardware_ir_versions,
+        )
         manifest = ProjectManifest.from_document(request.manifest)
         payload = manifest.upload_payload()
         payload["artifacts"] = validate_artifact_references(payload.get("artifacts"), require_integrity=True)
@@ -72,6 +82,15 @@ async def push_cli_project(
         )
     except CliProjectConflictError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except UnsupportedHardwareIRVersion as exc:
+        raise HTTPException(
+            status_code=status.HTTP_426_UPGRADE_REQUIRED,
+            detail={
+                "code": "UNSUPPORTED_HARDWARE_IR_VERSION",
+                "message": str(exc),
+                "hardware_ir_version": exc.version,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 

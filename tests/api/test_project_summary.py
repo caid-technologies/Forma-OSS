@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import hashlib
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -121,6 +123,43 @@ class ProjectSummaryTests(unittest.TestCase):
         self.assertEqual("openai/gpt-image-2", summary["product_image_model"])
         self.assertEqual("succeeded", summary["image_output_status"])
         self.assertEqual("https://storage.example.test/signed-product-case.png", summary["product_visual_sequence"][0]["url"])
+
+    def test_project_summary_hydrates_owner_cli_image_artifact(self) -> None:
+        content = b"cli image bytes"
+        sha256 = hashlib.sha256(content).hexdigest()
+        project = SimpleNamespace(
+            project_id="cli-image-project",
+            chat_id=None,
+            title="CLI image project",
+            prompt="Build a CLI project.",
+            created_at="2026-08-01T12:00:00Z",
+            owner_user_id="user_123",
+            creation_channel="cli",
+            hardware_ir={
+                "components": [],
+                "assembly_metadata": {
+                    "product_image_artifact": {
+                        "path": "project-render.png",
+                        "sha256": sha256,
+                        "media_type": "image/png",
+                        "size_bytes": len(content),
+                    },
+                },
+            },
+        )
+
+        with patch.object(main, "creator_display_name", return_value="isayahc"), patch.object(
+            main,
+            "ProjectArtifactStorage",
+            return_value=SimpleNamespace(
+                get=lambda *_args: SimpleNamespace(content=content, media_type="image/png")
+            ),
+        ), patch.object(main, "hydrate_image_storage_metadata", side_effect=lambda metadata, _project_id: metadata):
+            summary = main._project_summary_response(project, current_user_id="user_123")
+
+        self.assertTrue(summary["has_product_image"])
+        self.assertEqual("image/png", summary["product_image_content_type"])
+        self.assertEqual(base64.b64encode(content).decode("ascii"), summary["product_image_data"])
 
     def test_project_image_summary_endpoint_does_not_validate_full_ir(self) -> None:
         project = SimpleNamespace(

@@ -148,6 +148,49 @@ class ProjectReadResolverTests(unittest.TestCase):
         self.assertEqual(1, resolved.current_revision)
         self.assertFalse(resolved.can_chat)
 
+    def test_cli_project_projects_image_artifact_into_product_image_metadata(self) -> None:
+        image_sha256 = "a" * 64
+        repository = Mock()
+        repository.get_generated_project.return_value = None
+        repository.get_cli_project_revision.return_value = SimpleNamespace(
+            revision_id="cli-revision-image",
+            revision=1,
+            created_at="2026-08-02T12:00:00Z",
+            manifest_json={
+                "format": "forma-project",
+                "version": 1,
+                "project_id": PROJECT_ID,
+                "title": "CLI image project",
+                "project_ir": {"components": [], "assembly_metadata": {}},
+                "artifacts": [
+                    {
+                        "path": "project-render.png",
+                        "sha256": image_sha256,
+                        "media_type": "image/png",
+                        "size_bytes": 12,
+                    }
+                ],
+            },
+        )
+        resolver = ProjectReadResolver(repository)
+        resolver._state.get_latest = Mock(side_effect=ProjectStateError("project_revision_not_found", "missing"))
+
+        resolved = resolver.resolve(PROJECT_ID, "owner-a")
+
+        self.assertEqual(
+            {
+                "path": "project-render.png",
+                "sha256": image_sha256,
+                "media_type": "image/png",
+                "size_bytes": 12,
+            },
+            resolved.image_metadata["product_image_artifact"],
+        )
+        self.assertEqual(
+            resolved.image_metadata["product_image_artifact"],
+            resolved.project_ir["assembly_metadata"]["product_image_artifact"],
+        )
+
     def test_private_and_deleted_projects_are_hidden_without_owner_access(self) -> None:
         for status, include_deleted in (("active", False), ("deletion_pending", True)):
             project = SimpleNamespace(

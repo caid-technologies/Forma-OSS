@@ -568,7 +568,11 @@ class ProjectReadAccessTests(unittest.TestCase):
                 "prompt": "Build a CLI project.",
                 "project_ir": {
                     "components": [],
-                    "assembly_metadata": {"project_id": project_id},
+                    "assembly_metadata": {
+                        "project_id": project_id,
+                        "product_image_data": "inline-cli-image",
+                        "product_image_content_type": "image/jpeg",
+                    },
                 },
             },
             "created_at": "2026-07-25T12:00:00Z",
@@ -592,6 +596,7 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(response["chat_id"])
         self.assertEqual("cli", response["project_ir"]["assembly_metadata"]["project_source"])
         self.assertEqual("cli-revision-1", response["project_ir"]["assembly_metadata"]["cloud_revision_id"])
+        self.assertEqual("image/jpeg", response["product_image_content_type"])
 
     def test_owner_can_read_canonical_only_project_through_project_endpoint(self) -> None:
         project_id = "11111111-1111-4111-8111-111111111111"

@@ -1,6 +1,7 @@
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import asyncio
+import base64
 from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import json
@@ -203,6 +204,7 @@ from forma_core.runtime import (
 )
 from forma_core.config.runtime import forma_dev_mode_enabled, validate_runtime_configuration
 from apps.api.storage import get_image_storage_config, hydrate_image_storage_metadata
+from forma_core.persistence.project_artifacts import ProjectArtifactStorage, ProjectArtifactStorageError
 from forma_core.validation import validate_circuit
 from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
 from apps.api.video_providers import (
@@ -1839,6 +1841,33 @@ async def a2a_mcp_endpoint(payload: Any = Body(...), _user: UserContext = Depend
     return response
 
 
+def _hydrate_cli_product_image_artifact(metadata: Dict[str, Any], project_id: str) -> Dict[str, Any]:
+    """Load one owner-scoped CLI image artifact into the existing image contract."""
+    hydrated = dict(metadata or {})
+    if hydrated.get("product_image_url") or hydrated.get("product_image_data"):
+        return hydrated
+    reference = hydrated.get("product_image_artifact")
+    if not isinstance(reference, dict):
+        return hydrated
+    sha256 = str(reference.get("sha256") or "").strip().lower()
+    media_type = str(reference.get("media_type") or "").strip().lower()
+    if not sha256 or not media_type.startswith("image/"):
+        return hydrated
+    try:
+        stored = ProjectArtifactStorage().get(project_id, sha256, media_type)
+        content = stored.content or b""
+        if hashlib.sha256(content).hexdigest() != sha256:
+            return hydrated
+        if reference.get("size_bytes") is not None and len(content) != reference["size_bytes"]:
+            return hydrated
+    except (FileNotFoundError, OSError, ProjectArtifactStorageError, ValueError):
+        return hydrated
+    hydrated["product_image_data"] = base64.b64encode(content).decode("ascii")
+    hydrated["product_image_content_type"] = stored.media_type
+    hydrated["product_image_storage_method"] = "cli-artifact"
+    return hydrated
+
+
 def _project_summary_response(
     project: Any,
     current_user_id: Optional[str] = None,
@@ -1859,6 +1888,8 @@ def _project_summary_response(
     # Resolved metadata is authoritative for cross-store project reads. The
     # legacy project payload remains the fallback for callers without a resolver.
     metadata = image_metadata if isinstance(image_metadata, dict) else project_metadata
+    if metadata and hydrate_storage and can_chat and getattr(project, "creation_channel", "") == "cli":
+        metadata = _hydrate_cli_product_image_artifact(metadata, project.project_id)
     hydrated_metadata = (
         hydrate_image_storage_metadata(metadata, project.project_id)
         if metadata and hydrate_storage
@@ -2230,6 +2261,7 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Proje
             "project_source": "cli",
         }
     )
+    metadata = _hydrate_cli_product_image_artifact(metadata, str(resolved.project_id))
     project_ir["assembly_metadata"] = metadata
     overview = project_ir.get("overview") if isinstance(project_ir.get("overview"), dict) else {}
     components = project_ir.get("components") if isinstance(project_ir.get("components"), list) else []
@@ -2263,6 +2295,7 @@ def _cli_project_response(project_id: str, owner_user_id: str) -> Optional[Proje
         has_product_image=bool(product_image_url or product_image_data),
         product_image_url=product_image_url,
         product_image_data=product_image_data,
+        product_image_content_type=metadata.get("product_image_content_type"),
         product_visual_sequence=metadata.get("product_visual_sequence") or [],
         project_ir=project_ir,
         project_object=project_object,

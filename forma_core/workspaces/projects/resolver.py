@@ -11,7 +11,7 @@ from typing import Any, Optional
 from forma_core.persistence.repositories.base import ApplicationRepository
 from forma_core.workspaces.design_briefs import DesignBrief
 from forma_core.workspaces.projects.identity import ProjectCreationChannel
-from forma_core.workspaces.projects.manifest import ProjectManifest
+from forma_core.workspaces.projects.manifest import ProjectManifest, validate_artifact_references
 from forma_core.workspaces.projects.state import ProjectRevision, ProjectStateError, ProjectStateService
 
 
@@ -73,6 +73,38 @@ def _project_ir_metadata(project_ir: Any) -> dict[str, Any]:
         return {}
     metadata = project_ir.get("assembly_metadata")
     return deepcopy(metadata) if isinstance(metadata, dict) else {}
+
+
+def _cli_product_image_artifact(manifest: ProjectManifest) -> dict[str, Any]:
+    """Expose a declared image artifact as product-image metadata."""
+    try:
+        artifacts = validate_artifact_references(manifest.artifacts, require_integrity=False)
+    except ValueError:
+        return {}
+
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    for artifact in artifacts:
+        media_type = str(artifact.get("media_type") or "").strip().lower()
+        sha256 = str(artifact.get("sha256") or "").strip().lower()
+        if not media_type.startswith("image/") or not sha256:
+            continue
+        role = str(artifact.get("role") or artifact.get("kind") or "").strip().lower().replace("-", "_")
+        if role in {"hardware_reference", "reference_image", "input_image"}:
+            continue
+        priority = 0 if role in {"product_image", "product_render", "render", "preview"} else 1
+        candidates.append((priority, artifact))
+
+    if not candidates:
+        return {}
+    artifact = min(candidates, key=lambda item: item[0])[1]
+    reference = {
+        "path": artifact["path"],
+        "sha256": artifact["sha256"],
+        "media_type": artifact["media_type"],
+    }
+    if artifact.get("size_bytes") is not None:
+        reference["size_bytes"] = artifact["size_bytes"]
+    return {"product_image_artifact": reference}
 
 
 def _identity_record(value: Any) -> Any:
@@ -345,6 +377,7 @@ class ProjectReadResolver:
             return None
         project_ir = deepcopy(manifest.project_ir)
         metadata = _project_ir_metadata(project_ir)
+        metadata.update(_cli_product_image_artifact(manifest))
         metadata.update({"project_id": project_id, "chat_id": None, "project_source": "cli"})
         project_ir["assembly_metadata"] = metadata
         project = SimpleNamespace(

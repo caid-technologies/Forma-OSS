@@ -28,6 +28,15 @@ from forma_core.workspaces.projects.resolver import (
     ProjectReadResolver,
 )
 from forma_core.workspaces.projects.models import ProjectDetail, ProjectIdentityResponse, ProjectSummary
+from forma_core.workspaces.projects.fabrication import (
+    PrinterProfileReference,
+    PrinterRegistry,
+    SliceProfile,
+    SliceRequest,
+    SliceResult,
+    SliceValidationResult,
+    UserPrinterConfig,
+)
 
 __all__ = [
     "PROJECT_REVISION_SCHEMA_VERSION",
@@ -55,4 +64,11 @@ __all__ = [
     "ProjectReadNotFoundError",
     "ProjectReadResolution",
     "ProjectReadResolver",
+    "PrinterProfileReference",
+    "PrinterRegistry",
+    "SliceProfile",
+    "SliceRequest",
+    "SliceResult",
+    "SliceValidationResult",
+    "UserPrinterConfig",
 ]

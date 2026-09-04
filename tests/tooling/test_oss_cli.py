@@ -69,7 +69,7 @@ class OssCliTests(unittest.TestCase):
         self.assertEqual(
             {
                 "login", "logout", "whoami", "init", "build", "import", "metadata", "metadata-api",
-                "status", "render", "projects", "keys", "version", "doctor",
+                "status", "render", "projects", "project", "printer", "keys", "version", "doctor",
             },
             set(parser._subparsers._group_actions[0].choices),
         )

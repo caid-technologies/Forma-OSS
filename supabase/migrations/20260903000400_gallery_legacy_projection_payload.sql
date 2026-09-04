@@ -3,7 +3,7 @@
 create or replace view public.project_gallery_inventory as
 with hosted_latest as (
   select distinct on (project_id)
-    id as revision_id,
+    revision_id,
     project_id,
     owner_user_id,
     revision,
@@ -13,7 +13,7 @@ with hosted_latest as (
   order by project_id, revision desc
 ), cli_latest as (
   select distinct on (project_id)
-    id as revision_id,
+    revision_id,
     project_id,
     owner_user_id,
     revision,

@@ -664,7 +664,7 @@ export function AssemblyPanel({
                     <h3 className="text-sm font-semibold text-[var(--forma-text-strong)]">{step.title}</h3>
                     <p className="mt-3 break-words text-sm leading-7 text-[var(--forma-text-body)]">{step.description}</p>
                     {step.danger_flag && (
-                      <div className="mt-4 flex gap-2 rounded-lg border border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.1)] p-3 text-sm leading-6 text-[rgb(var(--forma-red-rgb))]">
+                      <div className="mt-4 flex gap-2 rounded-lg border border-[rgb(var(--forma-yellow-rgb)/0.35)] bg-[rgb(var(--forma-yellow-rgb)/0.1)] p-3 text-sm leading-6 text-[rgb(var(--forma-yellow-rgb))]">
                         <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                         <span className="min-w-0 break-words">{step.danger_message || "Pay close attention to safety constraints during this stage."}</span>
                       </div>

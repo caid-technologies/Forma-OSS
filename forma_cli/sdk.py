@@ -3,16 +3,26 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Mapping
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from forma_cli.config import api_url
 from forma_cli.credentials import CredentialStore, SESSION_KEY
+from forma_core._version import __version__
+from forma_core.config.compatibility import (
+    CURRENT_PROTOCOL_VERSION,
+    CompatibilityMetadata,
+    CompatibilityResult,
+    CompatibilityStatus,
+    ensure_supported_hardware_ir_version,
+    evaluate_compatibility,
+    unavailable_result,
+)
 
 
 class FormaAPIError(RuntimeError):
@@ -118,6 +128,8 @@ class FormaAPIClient:
     base_url: str | None = None
     credential_store: CredentialStore | None = None
     timeout_seconds: float = 30.0
+    _compatibility_result: CompatibilityResult | None = field(default=None, init=False, repr=False)
+    _compatibility_notice_emitted: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         self.base_url = (self.base_url or api_url()).rstrip("/")
@@ -136,6 +148,44 @@ class FormaAPIClient:
         self._store.set_json(SESSION_KEY, tokens.model_dump(mode="json"))
         return tokens
 
+    @staticmethod
+    def _is_local_endpoint(base_url: str) -> bool:
+        host = (urlparse(base_url).hostname or "").lower()
+        return host in {"localhost", "127.0.0.1", "::1"} or host.endswith(".localhost")
+
+    def check_compatibility(self, *, force: bool = False) -> CompatibilityResult:
+        """Fetch and cache hosted compatibility metadata for this client."""
+        if self._compatibility_result is not None and not force:
+            return self._compatibility_result
+        if self._is_local_endpoint(self.base_url or ""):
+            result = unavailable_result(__version__)
+        else:
+            try:
+                raw, _headers = self._request_wire(
+                    "/forma/version",
+                    authenticated=False,
+                    retry_refresh=False,
+                    _skip_compatibility=True,
+                )
+                metadata = CompatibilityMetadata.model_validate(self._decode_json(raw))
+                result = evaluate_compatibility(
+                    __version__,
+                    metadata,
+                    client_protocol_version=CURRENT_PROTOCOL_VERSION,
+                )
+            except (FormaAPIError, ValueError):
+                result = unavailable_result(__version__)
+        self._compatibility_result = result
+        return result
+
+    def compatibility_notice(self) -> str | None:
+        """Return the update notice once per client instance."""
+        result = self.check_compatibility()
+        if result.status != CompatibilityStatus.UPDATE_AVAILABLE or self._compatibility_notice_emitted:
+            return None
+        self._compatibility_notice_emitted = True
+        return f"WARNING: {result.message}"
+
     def _request_wire(
         self,
         path: str,
@@ -147,12 +197,19 @@ class FormaAPIClient:
         accept: str = "application/json",
         authenticated: bool = False,
         retry_refresh: bool = True,
+        _skip_compatibility: bool = False,
     ) -> tuple[bytes, dict[str, str]]:
         if payload is not None and body is not None:
             raise ValueError("A Forma API request cannot contain both JSON and binary payloads.")
+        if not _skip_compatibility:
+            result = self.check_compatibility()
+            if result.is_blocking:
+                raise FormaAPIError(result.message, status_code=426, detail=result.model_dump(mode="json"))
         headers = {
             "Accept": accept,
-            "User-Agent": "forma-oss-cli/0.1",
+            "User-Agent": f"forma-oss-cli/{__version__}",
+            "X-Forma-Client-Version": __version__,
+            "X-Forma-Protocol-Version": str(CURRENT_PROTOCOL_VERSION),
         }
         tokens = self._saved_tokens() if authenticated else None
         if authenticated:
@@ -188,6 +245,7 @@ class FormaAPIClient:
                         accept=accept,
                         authenticated=authenticated,
                         retry_refresh=False,
+                        _skip_compatibility=_skip_compatibility,
                     )
             raise FormaAPIError(
                 self._error_message(detail, fallback=f"Forma API request failed ({exc.code})."),
@@ -260,7 +318,8 @@ class FormaAPIClient:
     @staticmethod
     def _error_message(detail: Any, *, fallback: str) -> str:
         if isinstance(detail, dict):
-            message = detail.get("message") or detail.get("detail")
+            nested = detail.get("detail") if isinstance(detail.get("detail"), dict) else detail
+            message = nested.get("message") or nested.get("detail")
             if isinstance(message, str) and message.strip():
                 return message.strip()
         if isinstance(detail, str) and detail.strip():
@@ -322,6 +381,7 @@ class FormaAPIClient:
         *,
         parent_revision_id: str | None = None,
     ) -> CloudProjectRevision:
+        ensure_supported_hardware_ir_version(manifest)
         payload = self._request(
             "/cli/projects/push",
             method="POST",
@@ -393,6 +453,9 @@ __all__ = [
     "AccountIdentity",
     "CloudProjectRevision",
     "CloudProjectSummary",
+    "CompatibilityMetadata",
+    "CompatibilityResult",
+    "CompatibilityStatus",
     "DeviceAuthorization",
     "DevicePollResult",
     "FormaAPIClient",

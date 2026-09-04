@@ -37,6 +37,7 @@ from forma_cli.project_artifacts import (
     prepare_project_upload,
 )
 from forma_cli.sdk import FormaAPIClient, FormaAPIError, ProjectArtifactDownload
+from forma_core.config.compatibility import CompatibilityStatus
 from forma_core.workspaces.projects.manifest import (
     ProjectManifest,
     normalize_artifact_media_type,
@@ -51,7 +52,73 @@ def _print_json(value: Any) -> None:
 
 
 def _client(args: argparse.Namespace) -> FormaAPIClient:
-    return FormaAPIClient(base_url=args.api_url if getattr(args, "api_url", None) else None)
+    client = FormaAPIClient(base_url=args.api_url if getattr(args, "api_url", None) else None)
+    notice = client.compatibility_notice()
+    if notice:
+        print(notice, file=sys.stderr)
+    return client
+
+
+def cmd_version(args: argparse.Namespace) -> int:
+    result = _client(args).check_compatibility()
+    payload = {
+        "cli_version": __version__,
+        "status": result.status.value,
+        "latest_version": result.latest_version,
+        "minimum_supported_version": result.minimum_supported_version,
+        "protocol_version": result.protocol_version,
+        "hardware_ir_version": result.hardware_ir_version,
+        "message": result.message,
+        "upgrade_command": result.upgrade_command,
+    }
+    if args.json:
+        _print_json(payload)
+    else:
+        print("Forma-OSS")
+        print(f"CLI:            {payload['cli_version']}")
+        print(f"Latest:         {payload['latest_version'] or 'unavailable'}")
+        print(f"Minimum:        {payload['minimum_supported_version'] or 'unavailable'}")
+        print(f"Protocol:       {payload['protocol_version'] or 'unavailable'}")
+        print(f"Hardware IR:    {payload['hardware_ir_version'] or 'unavailable'}")
+        print(f"Status:         {payload['status']}")
+        if result.status == CompatibilityStatus.UPDATE_AVAILABLE:
+            print(f"Upgrade:        {result.upgrade_command}")
+        elif result.status == CompatibilityStatus.REMOTE_VERSION_UNAVAILABLE:
+            print(result.message)
+    return 0
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    client = _client(args)
+    compatibility = client.check_compatibility()
+    checks: list[dict[str, str]] = [
+        {
+            "name": "Forma version",
+            "status": "ok" if not compatibility.is_blocking else "fail",
+            "message": compatibility.message,
+        },
+        {
+            "name": "Hosted compatibility endpoint",
+            "status": "ok" if compatibility.status != CompatibilityStatus.REMOTE_VERSION_UNAVAILABLE else "unavailable",
+            "message": compatibility.status.value,
+        },
+    ]
+    if client._saved_tokens():
+        try:
+            identity = client.whoami()
+        except FormaAPIError as exc:
+            checks.append({"name": "Authentication", "status": "fail", "message": str(exc)})
+        else:
+            checks.append({"name": "Authentication", "status": "ok", "message": identity.subject})
+    else:
+        checks.append({"name": "Authentication", "status": "not configured", "message": "Run `forma-oss login`."})
+    if args.json:
+        _print_json({"cli_version": __version__, "checks": checks})
+    else:
+        print("Forma-OSS doctor")
+        for check in checks:
+            print(f"{check['status'].upper():14} {check['name']}: {check['message']}")
+    return 1 if any(check["status"] == "fail" for check in checks) else 0
 
 
 def cmd_login(args: argparse.Namespace) -> int:
@@ -627,6 +694,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-url", default=None, help="Forma API endpoint; defaults to local config or FORMA_API_URL.")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    version = subparsers.add_parser("version", help="Show local and hosted compatibility information.")
+    version.add_argument("--json", action="store_true")
+    version.set_defaults(func=cmd_version)
+    doctor = subparsers.add_parser("doctor", help="Check local, hosted, and authentication compatibility.")
+    doctor.add_argument("--json", action="store_true")
+    doctor.set_defaults(func=cmd_doctor)
 
     login = subparsers.add_parser("login", help="Authenticate with browser/device authorization.")
     login.add_argument("--no-browser", action="store_true", help="Print the approval URL without opening a browser.")

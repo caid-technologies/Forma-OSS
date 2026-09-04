@@ -443,9 +443,32 @@ def cad_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifac
     )
 
 
+def mesh_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifact | None:
+    """Return the printable STL preview as a downstream fabrication input."""
+    cad = project.cad_model
+    if not isinstance(cad, dict):
+        return None
+    path = str(cad.get("preview_path") or "").strip()
+    if not path:
+        return None
+    checksum = ""
+    preview = Path(path)
+    if preview.is_file():
+        checksum = hashlib.sha256(preview.read_bytes()).hexdigest()
+    return ProjectArtifact(
+        artifact_id="native-cad-mesh",
+        kind="mesh.stl",
+        uri=str(preview),
+        media_type="model/stl",
+        checksum=f"sha256:{checksum}" if checksum else None,
+        metadata={"path": str(preview), "source_project_id": project_id, "format": "stl"},
+    )
+
+
 __all__ = [
     "CAD_ADAPTER_NAME",
     "CadGenerationError",
     "cad_project_artifact",
     "ensure_native_cad_model",
+    "mesh_project_artifact",
 ]

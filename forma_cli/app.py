@@ -26,6 +26,7 @@ from forma_cli.local import (
     init_project,
     project_root,
     read_project,
+    slice_local_project,
     status_project,
     update_linkage,
 )
@@ -260,6 +261,138 @@ def cmd_render(args: argparse.Namespace) -> int:
         ),
     )
     print(f"Rendered {manifest.title or manifest.project_id} at {output}")
+    return 0
+
+
+def _printer_registry():
+    from forma_core.workspaces.projects.fabrication import load_printer_registry
+
+    return load_printer_registry()
+
+
+def cmd_printer_list(args: argparse.Namespace) -> int:
+    registry = _printer_registry()
+    rows = [
+        {
+            "printer_id": printer.printer_id,
+            "display_name": printer.display_name,
+            "backend": printer.backend,
+            "default_profile": printer.default_profile,
+            "default": registry.default_printer == printer.printer_id,
+            "profiles": sorted(printer.profiles),
+        }
+        for printer in sorted(registry.printers.values(), key=lambda item: item.printer_id)
+    ]
+    if args.json:
+        _print_json(rows)
+    else:
+        for row in rows:
+            marker = "*" if row["default"] else " "
+            print(f"{marker} {row['printer_id']}\t{row['backend']}\t{row['default_profile']}\t{row['display_name']}")
+    return 0
+
+
+def cmd_printer_show(args: argparse.Namespace) -> int:
+    registry = _printer_registry()
+    printer = registry.printers.get(args.printer_id)
+    if printer is None:
+        raise ValueError(f"Printer configuration not found: {args.printer_id}")
+    payload = printer.model_dump(mode="json")
+    payload["default"] = registry.default_printer == printer.printer_id
+    if args.json:
+        _print_json(payload)
+    else:
+        print(f"{printer.display_name} ({printer.printer_id})")
+        print(f"Backend: {printer.backend}")
+        print(f"Default profile: {printer.default_profile}")
+        for name, profile in sorted(printer.profiles.items()):
+            print(f"Profile {name}: {profile.native_config}")
+    return 0
+
+
+def cmd_printer_add(args: argparse.Namespace) -> int:
+    from forma_core.workspaces.projects.fabrication import (
+        PrinterProfileReference,
+        UserPrinterConfig,
+        save_printer_registry,
+    )
+
+    registry = _printer_registry()
+    if args.printer_id in registry.printers:
+        raise ValueError(f"Printer configuration already exists: {args.printer_id}")
+    if not args.profiles:
+        raise ValueError("At least one --profile NAME=PATH is required.")
+    profiles = {}
+    for value in args.profiles:
+        name, separator, native_config = value.partition("=")
+        if not separator or not name.strip() or not native_config.strip():
+            raise ValueError("Profiles must use NAME=PATH format.")
+        profiles[name.strip()] = PrinterProfileReference(native_config=native_config.strip())
+    printer = UserPrinterConfig(
+        printer_id=args.printer_id,
+        display_name=args.display_name or args.printer_id,
+        backend=args.backend,
+        default_profile=args.default_profile or next(iter(profiles)),
+        profiles=profiles,
+    )
+    registry.printers[printer.printer_id] = printer
+    if args.set_default or registry.default_printer is None:
+        registry.default_printer = printer.printer_id
+    save_printer_registry(registry)
+    print(f"Added printer {printer.printer_id}")
+    return 0
+
+
+def cmd_printer_set_default(args: argparse.Namespace) -> int:
+    from forma_core.workspaces.projects.fabrication import save_printer_registry
+
+    registry = _printer_registry()
+    if args.printer_id not in registry.printers:
+        raise ValueError(f"Printer configuration not found: {args.printer_id}")
+    registry.default_printer = args.printer_id
+    save_printer_registry(registry)
+    print(f"Default printer: {args.printer_id}")
+    return 0
+
+
+def cmd_printer_remove(args: argparse.Namespace) -> int:
+    from forma_core.workspaces.projects.fabrication import save_printer_registry
+
+    registry = _printer_registry()
+    if args.printer_id not in registry.printers:
+        raise ValueError(f"Printer configuration not found: {args.printer_id}")
+    del registry.printers[args.printer_id]
+    if registry.default_printer == args.printer_id:
+        registry.default_printer = next(iter(sorted(registry.printers)), None)
+    save_printer_registry(registry)
+    print(f"Removed printer {args.printer_id}")
+    return 0
+
+
+def cmd_project_slice(args: argparse.Namespace) -> int:
+    if args.project_id:
+        project_id = read_project(args.path).project_id
+        if args.project_id != project_id:
+            raise ValueError(f"Project ID mismatch: manifest contains {project_id}, requested {args.project_id}.")
+    manifest = slice_local_project(
+        args.path,
+        printer_id=args.printer,
+        backend=args.backend,
+        profile=args.profile,
+        profile_name=args.profile_name,
+        output_name=args.output_name,
+    )
+    result = {
+        "project_id": manifest.project_id,
+        "operation": "slice",
+        "artifacts": [artifact.model_dump(mode="json") for artifact in manifest.artifacts if artifact.path.startswith("fabrication/")],
+    }
+    if args.json:
+        _print_json(result)
+    else:
+        print(f"Sliced project {manifest.project_id}")
+        for artifact in result["artifacts"]:
+            print(f"Wrote {artifact['path']}")
     return 0
 
 
@@ -757,6 +890,43 @@ def build_parser() -> argparse.ArgumentParser:
     render.add_argument("--height", type=int, default=900)
     render.add_argument("--yaw", type=float, default=0.0)
     render.set_defaults(func=cmd_render)
+
+    printer = subparsers.add_parser("printer", help="Manage the local user printer registry.")
+    printer_commands = printer.add_subparsers(dest="printer_command", required=True)
+    printer_add = printer_commands.add_parser("add", help="Register a printer and native slicing profile.")
+    printer_add.add_argument("printer_id")
+    printer_add.add_argument("--backend", required=True)
+    printer_add.add_argument("--profile", dest="profiles", action="append", required=True, metavar="NAME=PATH")
+    printer_add.add_argument("--display-name")
+    printer_add.add_argument("--default-profile")
+    printer_add.add_argument("--set-default", action="store_true")
+    printer_add.set_defaults(func=cmd_printer_add)
+    printer_list = printer_commands.add_parser("list", help="List registered printers.")
+    printer_list.add_argument("--json", action="store_true")
+    printer_list.set_defaults(func=cmd_printer_list)
+    printer_show = printer_commands.add_parser("show", help="Show a registered printer.")
+    printer_show.add_argument("printer_id")
+    printer_show.add_argument("--json", action="store_true")
+    printer_show.set_defaults(func=cmd_printer_show)
+    printer_default = printer_commands.add_parser("set-default", help="Select the default printer.")
+    printer_default.add_argument("printer_id")
+    printer_default.set_defaults(func=cmd_printer_set_default)
+    printer_remove = printer_commands.add_parser("remove", help="Remove a registered printer.")
+    printer_remove.add_argument("printer_id")
+    printer_remove.set_defaults(func=cmd_printer_remove)
+
+    project = subparsers.add_parser("project", help="Run operations on a local Forma project.")
+    project_commands = project.add_subparsers(dest="project_command", required=True)
+    project_slice = project_commands.add_parser("slice", help="Slice an existing project mesh into validated G-code.")
+    project_slice.add_argument("project_id", nargs="?")
+    project_slice.add_argument("--path", default=".")
+    project_slice.add_argument("--printer")
+    project_slice.add_argument("--backend")
+    project_slice.add_argument("--profile", help="Native slicer profile/config path.")
+    project_slice.add_argument("--profile-name")
+    project_slice.add_argument("--output-name")
+    project_slice.add_argument("--json", action="store_true")
+    project_slice.set_defaults(func=cmd_project_slice)
 
     projects = subparsers.add_parser("projects", help="Manage explicit cloud project synchronization.")
     project_commands = projects.add_subparsers(dest="projects_command", required=True)

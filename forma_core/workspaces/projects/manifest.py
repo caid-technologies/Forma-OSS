@@ -83,6 +83,8 @@ def infer_artifact_media_type(path: str) -> str:
         return "model/stl"
     if suffix == ".3mf":
         return "model/3mf"
+    if suffix in {".gcode", ".gc", ".gco"}:
+        return "text/x-gcode"
     return mimetypes.guess_type(path)[0] or "application/octet-stream"
 
 

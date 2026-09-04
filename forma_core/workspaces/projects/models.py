@@ -640,7 +640,7 @@ class ProjectSummary(BaseModel):
     prompt: str = ""
     created_at: str | None = None
     updated_at: str | None = None
-    visibility: str = "private"
+    visibility: str = "public"
     can_chat: bool = False
     creator_display: str = "unknown"
     creator_username: str | None = None
@@ -678,7 +678,7 @@ class ProjectIdentityResponse(BaseModel):
     prompt: str = ""
     chat_id: str | None = None
     workspace_id: str | None = None
-    visibility: str = "private"
+    visibility: str = "public"
     status: str = "active"
     current_revision: int = 0
     current_revision_id: str | None = None

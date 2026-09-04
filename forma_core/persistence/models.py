@@ -33,7 +33,7 @@ class DBProject(Base):
     prompt = Column(Text, nullable=False, default="")
     chat_id = Column(String, index=True, nullable=True)
     workspace_id = Column(String, nullable=True)
-    visibility = Column(String, index=True, nullable=False, default="private")
+    visibility = Column(String, index=True, nullable=False, default="public")
     status = Column(String, index=True, nullable=False, default="active")
     current_revision = Column(Integer, nullable=False, default=0)
     current_revision_id = Column(String, nullable=True)

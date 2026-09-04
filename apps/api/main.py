@@ -2021,7 +2021,7 @@ def _gallery_inventory_summary(record: Any, *, current_user_id: Optional[str]) -
             project,
             current_user_id=current_user_id,
             hydrate_storage=False,
-            include_inline_images=False,
+            include_inline_images=True,
         )
 
     identity = {

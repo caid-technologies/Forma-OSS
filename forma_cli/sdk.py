@@ -79,7 +79,7 @@ class CloudProjectSummary(BaseModel):
     creation_channel: str = "cli"
     title: str = ""
     prompt: str = ""
-    visibility: str = "private"
+    visibility: str = "public"
     status: str = "active"
     revision_id: str | None = None
     revision: int | None = None

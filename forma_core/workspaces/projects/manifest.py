@@ -212,6 +212,7 @@ class ProjectManifest(BaseModel):
     workspace_id: str | None = None
     title: str = ""
     prompt: str = ""
+    visibility: str = "public"
     project_ir: dict[str, Any] = Field(default_factory=dict)
     artifacts: list[ProjectArtifactReference] = Field(default_factory=list)
 
@@ -244,6 +245,7 @@ class ProjectManifest(BaseModel):
             workspace_id=str(raw["workspace_id"]) if raw.get("workspace_id") else None,
             title=str(title),
             prompt=str(prompt),
+            visibility=str(raw.get("visibility") or "public").strip().lower(),
             project_ir=project_ir,
             artifacts=[ProjectArtifactReference.model_validate(item) for item in artifact_values],
         )

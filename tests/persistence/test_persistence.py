@@ -492,6 +492,7 @@ class PersistenceArchitectureTests(unittest.TestCase):
         self.assertEqual(2, project.current_revision)
         self.assertEqual(2, identity["current_revision"])
         self.assertEqual("cli-summary-r2", identity["current_revision_id"])
+        self.assertEqual("public", identity["visibility"])
 
     def test_uuid_cli_revision_is_also_written_to_canonical_revision_store(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

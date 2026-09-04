@@ -148,6 +148,34 @@ class ProjectReadResolverTests(unittest.TestCase):
         self.assertEqual(1, resolved.current_revision)
         self.assertFalse(resolved.can_chat)
 
+    def test_cli_project_defaults_to_public_visibility(self) -> None:
+        repository = Mock()
+        repository.get_project_identity.return_value = {
+            "project_id": PROJECT_ID,
+            "owner_user_id": "owner-a",
+            "creation_channel": "cli",
+            "visibility": "public",
+            "status": "active",
+        }
+        repository.get_generated_project.return_value = None
+        repository.get_cli_project_revision.return_value = SimpleNamespace(
+            revision_id="cli-revision-public",
+            revision=1,
+            created_at="2026-08-02T12:00:00Z",
+            manifest_json={
+                "format": "forma-project",
+                "version": 1,
+                "project_id": PROJECT_ID,
+                "title": "Public CLI project",
+                "prompt": "Build a public CLI project.",
+                "project_ir": _ir().model_dump(mode="json"),
+            },
+        )
+
+        resolved = ProjectReadResolver(repository).resolve(PROJECT_ID)
+
+        self.assertEqual("public", resolved.visibility)
+
     def test_private_and_deleted_projects_are_hidden_without_owner_access(self) -> None:
         for status, include_deleted in (("active", False), ("deletion_pending", True)):
             project = SimpleNamespace(

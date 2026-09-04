@@ -377,7 +377,7 @@ class ProjectStateService:
             "prompt": str(brief_payload.get("summary") or ""),
             "chat_id": brief_payload.get("conversation_id"),
             "workspace_id": None,
-            "visibility": "private",
+            "visibility": "public",
             "status": "active",
             "created_at": revision.created_at.isoformat(),
             "updated_at": revision.created_at.isoformat(),

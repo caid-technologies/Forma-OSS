@@ -118,7 +118,7 @@ class ProjectReadResolver:
         identity = _identity_record(self._repository.get_project_identity(normalized_project_id))
         identity_owner = _owner(_record_value(identity, "owner_user_id"))
         identity_status = str(_record_value(identity, "status", "active") or "active").strip().lower()
-        identity_visibility = str(_record_value(identity, "visibility", "private") or "private").strip().lower()
+        identity_visibility = str(_record_value(identity, "visibility", "public") or "public").strip().lower()
         identity_channel = str(_record_value(identity, "creation_channel", "hosted") or "hosted").strip().lower()
         if identity is not None:
             is_owner = bool(normalized_owner and normalized_owner == identity_owner)
@@ -285,7 +285,7 @@ class ProjectReadResolver:
             or "Untitled project"
         )
         prompt = str(getattr(brief, "summary", "") or getattr(overview, "description", "") or "")
-        visibility = str(_record_value(identity, "visibility", "private") or "private")
+        visibility = str(_record_value(identity, "visibility", "public") or "public")
         status = str(_record_value(identity, "status", "active") or "active")
         project_owner = _owner(_record_value(identity, "owner_user_id")) or owner_user_id
         chat_id = getattr(brief, "conversation_id", None) if reader_owner_user_id == project_owner else None
@@ -356,7 +356,7 @@ class ProjectReadResolver:
             prompt=manifest.prompt,
             created_at=getattr(record, "created_at", None),
             updated_at=getattr(record, "created_at", None),
-            visibility="private",
+            visibility=str(_record_value(identity, "visibility", "public") or "public"),
             status=str(_record_value(identity, "status", "active") or "active") if identity else "active",
             deleted_at=_record_value(identity, "deleted_at"),
             deletion_requested_by=_record_value(identity, "deletion_requested_by"),
@@ -376,7 +376,7 @@ class ProjectReadResolver:
             chat_id=None,
             created_at=project.created_at,
             updated_at=project.updated_at,
-            visibility="private",
+            visibility=str(_record_value(identity, "visibility", "public") or "public"),
             status="active",
             current_revision=int(getattr(record, "revision", 0) or 0) or None,
             revision_id=str(getattr(record, "revision_id", "") or "") or None,

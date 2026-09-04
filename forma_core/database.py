@@ -449,7 +449,7 @@ def ensure_project_identity(
     prompt: str = "",
     chat_id: Optional[str] = None,
     created_at: Optional[str] = None,
-    visibility: str = "private",
+    visibility: str = "public",
 ) -> Dict[str, Any]:
     """Create the canonical identity needed before a chat project can build."""
 
@@ -552,7 +552,7 @@ def ensure_chat_project(
     existing_title = existing.get("title") if isinstance(existing, dict) else getattr(existing, "title", None)
     existing_prompt = existing.get("prompt") if isinstance(existing, dict) else getattr(existing, "prompt", None)
     existing_created_at = existing.get("created_at") if isinstance(existing, dict) else getattr(existing, "created_at", None)
-    existing_visibility = existing.get("visibility") if isinstance(existing, dict) else getattr(existing, "visibility", "private")
+    existing_visibility = existing.get("visibility") if isinstance(existing, dict) else getattr(existing, "visibility", "public")
     identity = ensure_project_identity(
         canonical_project_id,
         owner,
@@ -560,7 +560,7 @@ def ensure_chat_project(
         prompt=existing_prompt or summary,
         chat_id=chat_id,
         created_at=existing_created_at,
-        visibility=existing_visibility or "private",
+        visibility=existing_visibility or "public",
     )
     canonical_chat_id = identity.get("chat_id") or _normalize_chat_id(chat_id)
 
@@ -786,7 +786,7 @@ def list_project_identities(owner_user_id: str) -> List[Dict[str, Any]]:
             "prompt": getattr(record, "prompt", ""),
             "chat_id": getattr(record, "chat_id", None),
             "workspace_id": getattr(record, "workspace_id", None),
-            "visibility": getattr(record, "visibility", "private"),
+            "visibility": getattr(record, "visibility", "public"),
             "status": getattr(record, "status", "active"),
             "current_revision": getattr(record, "current_revision", 0),
             "current_revision_id": getattr(record, "current_revision_id", None),
@@ -869,12 +869,20 @@ def insert_cli_project_revision(
     *,
     expected_revision_id: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Create one private project revision with compare-and-swap ancestry."""
+    """Create one public-by-default project revision with compare-and-swap ancestry."""
     owner = _normalize_user_id(owner_user_id)
     project_id = str(manifest.get("project_id") or "").strip()
     if not owner or not project_id:
         raise ValueError("A project_id and authenticated owner are required.")
     existing = _DATABASE_REPOSITORY.get_cli_project(project_id, owner)
+    existing_identity = _DATABASE_REPOSITORY.get_project_identity(project_id)
+    requested_visibility = manifest.get("visibility") or "public"
+    if existing_identity is not None:
+        requested_visibility = (
+            getattr(existing_identity, "visibility", None)
+            or (existing_identity.get("visibility") if isinstance(existing_identity, dict) else None)
+            or requested_visibility
+        )
     next_revision = int(getattr(existing, "current_revision", 0)) + 1 if existing else 1
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
     revision_id = str(uuid.uuid4())
@@ -892,6 +900,7 @@ def insert_cli_project_revision(
         "workspace_id": manifest.get("workspace_id"),
         "owner_user_id": owner,
         "creation_channel": "cli",
+        "visibility": _normalize_visibility(str(requested_visibility)),
         "title": str(manifest.get("title") or "Untitled Forma Project"),
         "current_revision": 0,
         "current_revision_id": None,

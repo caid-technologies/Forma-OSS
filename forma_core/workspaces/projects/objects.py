@@ -630,6 +630,8 @@ def _namespace_names_for_ir(ir: HardwareIR, target_namespace: Optional[str] = No
 
 
 def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: Optional[str] = None) -> FormaProjectObject:
+    from forma_core.workspaces.projects.context_governance import DEFAULT_CONTEXT_GOVERNANCE_POLICY
+
     hardware_ir = coerce_hardware_ir(ir)
     namespace_names = _namespace_names_for_ir(hardware_ir, target_namespace=target_namespace)
     versions = _namespace_versions(hardware_ir, namespace_names)
@@ -659,6 +661,7 @@ def build_project_object(ir: HardwareIR | dict[str, Any], *, target_namespace: O
             "revision": project_object_version(hardware_ir),
             "updated_at": metadata.get("iterated_at") or metadata.get("generated_at") or utc_now(),
             "namespace_versions": versions,
+            "context_governance": DEFAULT_CONTEXT_GOVERNANCE_POLICY.model_dump(mode="json"),
         },
     )
 

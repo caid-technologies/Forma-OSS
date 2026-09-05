@@ -93,3 +93,4 @@ flowchart LR
 - Prompt context is projected by ownership: only wiring and electrical validation receive physical pins; architecture, mechanical, and assembly agents receive compact system-level views.
 - Dependency-aware concurrent execution and restart recovery are documented in `docs/worker-orchestration.md`.
 - Frozen-brief generation and canonical revision persistence are documented in `docs/generation-worker.md`.
+- Domain-scoped context sharing, field allowlists, and handoff receipts are documented in `docs/context-governance.md`.

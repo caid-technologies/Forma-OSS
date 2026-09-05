@@ -1732,6 +1732,8 @@ export function FormaWorkspace({
   const [myProjectHistoryError, setMyProjectHistoryError] = useState<Error | null>(null);
   const [projectSearchInput, setProjectSearchInput] = useState("");
   const [projectSearchQuery, setProjectSearchQuery] = useState("");
+  const [myProjectSearchInput, setMyProjectSearchInput] = useState("");
+  const [myProjectSearchQuery, setMyProjectSearchQuery] = useState("");
   const [localChatItems, setLocalChatItems] = useState<ChatListItem[]>([]);
   const [privateChatItems, setPrivateChatItems] = useState<ChatListItem[]>([]);
   const [privateChatsLoaded, setPrivateChatsLoaded] = useState(false);
@@ -2689,6 +2691,18 @@ export function FormaWorkspace({
     return () => window.clearTimeout(timeout);
   }, [projectSearchInput, projectSearchQuery]);
 
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const nextQuery = myProjectSearchInput.trim();
+      if (nextQuery === myProjectSearchQuery) return;
+      setMyProjectHistoryLoaded(false);
+      setVisibleProjectGalleryIds([]);
+      setMyProjectHistoryPage(0);
+      setMyProjectSearchQuery(nextQuery);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [myProjectSearchInput, myProjectSearchQuery]);
+
   useDeferredTask(() => {
     if (!projectHistoryLoaded) void fetchProjectHistory(projectHistoryPage, projectSearchQuery);
   }, {
@@ -2747,7 +2761,7 @@ export function FormaWorkspace({
     }
     void fetchMyProjectHistory(myProjectHistoryPage);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authIdentityKey, authLoaded, authRequired, isSignedIn, myProjectHistoryPage]);
+  }, [authIdentityKey, authLoaded, authRequired, isSignedIn, myProjectHistoryPage, myProjectSearchQuery]);
 
   useDeferredTask(() => {
     void fetchAgentPipelineSteps(generationWorkflow);
@@ -2929,7 +2943,10 @@ export function FormaWorkspace({
     }
   };
 
-  const fetchMyProjectHistory = async (page: number = myProjectHistoryPage) => {
+  const fetchMyProjectHistory = async (
+    page: number = myProjectHistoryPage,
+    search: string = myProjectSearchQuery,
+  ) => {
     const requestId = myProjectHistoryRequestIdRef.current + 1;
     myProjectHistoryRequestIdRef.current = requestId;
     if (authRequired && !authLoaded) {
@@ -2951,6 +2968,8 @@ export function FormaWorkspace({
         limit: String(PROJECT_GALLERY_PAGE_SIZE),
         offset: String(Math.max(0, page) * PROJECT_GALLERY_PAGE_SIZE),
       });
+      const normalizedSearch = search.trim();
+      if (normalizedSearch) params.set("q", normalizedSearch);
       const res = await fetch(`${API_URL}/my/projects?${params.toString()}`, {
         headers: await generationRequestHeaders(),
       });
@@ -5466,6 +5485,7 @@ export function FormaWorkspace({
                 sectionRef={projectsSectionRef}
                 projects={projectBrowserItems}
                 title="Community"
+                pageSize={PROJECT_GALLERY_PAGE_SIZE}
                 loading={projectsPageLoading}
                 onOpenProject={(projectId) => router.push(projectRoute(projectId))}
                 onToggleSave={canInteractWithGallery ? (project) => {
@@ -5488,6 +5508,7 @@ export function FormaWorkspace({
                 sectionRef={projectsSectionRef}
                 projects={myProjectBrowserItems}
                 title="My projects"
+                pageSize={PROJECT_GALLERY_PAGE_SIZE}
                 loading={myProjectsPageLoading}
                 onOpenProject={(projectId) => router.push(projectRoute(projectId))}
                 onToggleSave={canInteractWithGallery ? (project) => {
@@ -5502,6 +5523,8 @@ export function FormaWorkspace({
                 totalItems={myProjectHistoryTotal}
                 currentPage={myProjectHistoryPage}
                 onPageChange={handleMyProjectHistoryPageChange}
+                searchValue={myProjectSearchInput}
+                onSearchValueChange={setMyProjectSearchInput}
                 error={myProjectHistoryError}
               />
           ) : homeView === "jobs" ? (

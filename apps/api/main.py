@@ -8,7 +8,7 @@ import logging
 import sys
 import types
 import urllib.parse
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from uuid import uuid4
 
 
@@ -2087,6 +2087,52 @@ def _gallery_inventory_cache_record(record: Any) -> Optional[Dict[str, Any]]:
     return cached
 
 
+def _paginated_gallery_summaries(
+    *,
+    owner_user_id: Optional[str],
+    visibility: Optional[str],
+    limit: int,
+    offset: int,
+    search: Optional[str],
+    summary_builder: Callable[[Any], Optional[Dict[str, Any]]],
+    on_page_records: Optional[Callable[[List[Any]], None]] = None,
+    include_search_in_page_call: bool = False,
+) -> tuple[List[Dict[str, Any]], int]:
+    """Return a page of valid summaries without letting bad rows consume slots."""
+    page_kwargs: Dict[str, Any] = {
+        "owner_user_id": owner_user_id,
+        "visibility": visibility,
+        "limit": limit,
+        "offset": offset,
+    }
+    if include_search_in_page_call or search is not None:
+        page_kwargs["search"] = search
+    records, total = list_project_gallery_inventory_page(
+        **page_kwargs,
+    )
+    if on_page_records:
+        on_page_records(records)
+    page_items = [
+        summary
+        for record in records
+        if (summary := summary_builder(record)) is not None
+    ]
+    if len(page_items) == len(records) and (records or total == 0):
+        return page_items, total
+
+    all_records = list_project_gallery_inventory(
+        owner_user_id=owner_user_id,
+        visibility=visibility,
+        search=search,
+    )
+    valid_items = [
+        summary
+        for record in all_records
+        if (summary := summary_builder(record)) is not None
+    ]
+    return valid_items[offset:offset + limit], len(valid_items)
+
+
 def _log_gallery_legacy_fallback(endpoint: str, records: List[Any]) -> None:
     count = sum(1 for record in records if str(getattr(record, "source", "") or "").lower() == "legacy")
     logger.info("project_gallery_legacy_fallback endpoint=%s count=%d", endpoint, count)
@@ -2294,19 +2340,16 @@ def list_projects_endpoint(
     """Lists public compiled hardware projects."""
     try:
         if limit is not None:
-            projects, total = list_project_gallery_inventory_page(
+            items, total = _paginated_gallery_summaries(
                 owner_user_id=None,
                 visibility="public",
                 limit=limit,
                 offset=offset,
                 search=q,
+                summary_builder=_gallery_inventory_cache_record,
+                on_page_records=lambda records: _log_gallery_legacy_fallback("public", records),
+                include_search_in_page_call=True,
             )
-            _log_gallery_legacy_fallback("public", projects)
-            items = [
-                cached
-                for project in projects
-                if (cached := _gallery_inventory_cache_record(project)) is not None
-            ]
             return {
                 "items": _with_project_engagement(
                     _personalize_public_project_records(items, user.owner_user_id),
@@ -2346,23 +2389,25 @@ def list_my_projects_endpoint(
     user: UserContext = Depends(require_user_context),
     limit: Optional[int] = None,
     offset: int = 0,
+    q: Optional[str] = None,
 ):
     """Lists projects owned by the signed-in user."""
     owner_user_id = _require_authenticated_user(user)
     try:
         if limit is not None:
-            projects, total = list_project_gallery_inventory_page(
+            items, total = _paginated_gallery_summaries(
                 owner_user_id=owner_user_id,
                 visibility=None,
                 limit=limit,
                 offset=offset,
+                search=q,
+                summary_builder=lambda project: (
+                    summary.model_dump(mode="json")
+                    if (summary := _gallery_inventory_summary(project, current_user_id=owner_user_id)) is not None
+                    else None
+                ),
+                on_page_records=lambda records: _log_gallery_legacy_fallback("mine", records),
             )
-            _log_gallery_legacy_fallback("mine", projects)
-            items = [
-                summary.model_dump(mode="json")
-                for project in projects
-                if (summary := _gallery_inventory_summary(project, current_user_id=owner_user_id)) is not None
-            ]
             return {
                 "items": _with_project_engagement(items, owner_user_id),
                 "total": total,

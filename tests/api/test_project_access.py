@@ -194,6 +194,48 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertFalse(response["items"][0]["can_chat"])
         self.assertTrue(response["items"][1]["can_chat"])
 
+    def test_public_list_repaginates_when_invalid_rows_would_underfill_page(self) -> None:
+        invalid = SimpleNamespace(
+            source="legacy",
+            project_id="invalid-project",
+            owner_user_id="user-b",
+            creation_channel="hosted",
+            chat_id=None,
+            visibility="public",
+            title="Invalid project",
+            prompt="",
+            created_at="2026-07-25T12:00:00Z",
+            updated_at="2026-07-25T12:00:00Z",
+            legacy_hardware_ir={},
+        )
+        valid_projects = [
+            _legacy_inventory(_project(f"public-project-{index}", owner_user_id="user-b", visibility="public"))
+            for index in range(1, 7)
+        ]
+
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_project_gallery_inventory_page",
+            return_value=([invalid, valid_projects[0], valid_projects[1]], 7),
+        ) as list_page, patch.object(
+            main,
+            "list_project_gallery_inventory",
+            return_value=[invalid, *valid_projects],
+        ) as list_all:
+            response = main.list_projects_endpoint(_anonymous_context(), limit=6, offset=0)
+
+        list_page.assert_called_once_with(
+            owner_user_id=None,
+            visibility="public",
+            limit=6,
+            offset=0,
+            search=None,
+        )
+        list_all.assert_called_once_with(owner_user_id=None, visibility="public", search=None)
+        self.assertEqual(6, len(response["items"]))
+        self.assertEqual(6, response["total"])
+        self.assertFalse(response["has_more"])
+
     def test_public_list_passes_search_to_the_paginated_query(self) -> None:
         with self._summary_dependencies(), patch.object(
             main,
@@ -213,6 +255,29 @@ class ProjectReadAccessTests(unittest.TestCase):
             limit=6,
             offset=0,
             search="motor controller",
+        )
+        self.assertEqual([], response["items"])
+        self.assertEqual(0, response["total"])
+
+    def test_owner_list_passes_search_to_the_paginated_query(self) -> None:
+        with self._summary_dependencies(), patch.object(
+            main,
+            "list_project_gallery_inventory_page",
+            return_value=([], 0),
+        ) as list_page:
+            response = main.list_my_projects_endpoint(
+                _user_context("user-a"),
+                limit=6,
+                offset=0,
+                q="controller",
+            )
+
+        list_page.assert_called_once_with(
+            owner_user_id="user-a",
+            visibility=None,
+            limit=6,
+            offset=0,
+            search="controller",
         )
         self.assertEqual([], response["items"])
         self.assertEqual(0, response["total"])

@@ -20,6 +20,14 @@ from forma_core.workspaces.projects.manifest import (
     write_project_manifest,
 )
 from forma_core.workspaces.projects.identity import ProjectCreationChannel, ProjectIdentity
+from forma_core.workspaces.projects.context_governance import (
+    CONTEXT_GOVERNANCE_SCHEMA_VERSION,
+    ContextGovernancePolicy,
+    ContextProjection,
+    ContextShareRule,
+    DEFAULT_CONTEXT_GOVERNANCE_POLICY,
+    project_context_for_agent,
+)
 from forma_core.workspaces.projects.resolver import (
     ProjectReadAccessError,
     ProjectReadError,
@@ -59,6 +67,12 @@ __all__ = [
     "write_project_manifest",
     "ProjectCreationChannel",
     "ProjectIdentity",
+    "CONTEXT_GOVERNANCE_SCHEMA_VERSION",
+    "ContextGovernancePolicy",
+    "ContextProjection",
+    "ContextShareRule",
+    "DEFAULT_CONTEXT_GOVERNANCE_POLICY",
+    "project_context_for_agent",
     "ProjectReadAccessError",
     "ProjectReadError",
     "ProjectReadNotFoundError",

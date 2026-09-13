@@ -18,6 +18,9 @@ class CapabilityError(PermissionError):
     """The connector capability is invalid, expired, or out of scope."""
 
 
+CONNECTOR_CAPABILITY_TTL_SECONDS = 20 * 60
+
+
 @dataclass(frozen=True, slots=True)
 class ConnectorCapability:
     connector_id: str
@@ -43,9 +46,9 @@ def issue_capability(
     project_id: str,
     owner_user_id: str,
     scopes: FrozenSet[str],
-    ttl_seconds: int = 300,
+    ttl_seconds: int = CONNECTOR_CAPABILITY_TTL_SECONDS,
 ) -> str:
-    expires_at = int(time.time()) + max(30, min(ttl_seconds, 900))
+    expires_at = int(time.time()) + max(30, min(ttl_seconds, CONNECTOR_CAPABILITY_TTL_SECONDS))
     payload = {
         "connector_id": connector_id,
         "session_id": session_id,

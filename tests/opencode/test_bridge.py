@@ -88,6 +88,21 @@ class OpenCodeBridgeTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(CapabilityError):
                 verify_capability(token[:-1] + ("A" if token[-1] != "A" else "B"), session_id="session_a", scope="poll")
 
+    def test_capability_defaults_to_a_twenty_minute_lifetime(self) -> None:
+        with patch.dict(os.environ, {"FORMA_OPENCODE_CAPABILITY_SECRET": "s" * 32}, clear=True), patch(
+            "forma_core.opencode.capabilities.time.time", return_value=1_000,
+        ):
+            token = issue_capability(
+                connector_id="mini",
+                session_id="session_a",
+                project_id="project_a",
+                owner_user_id="user_a",
+                scopes=frozenset({"poll"}),
+            )
+            capability = verify_capability(token, session_id="session_a", scope="poll")
+
+        self.assertEqual(1_000 + 20 * 60, capability.expires_at)
+
     def test_event_projection_removes_internal_payloads_and_raw_errors(self) -> None:
         project_id = uuid4()
         event = ConnectorEventInput.model_validate({

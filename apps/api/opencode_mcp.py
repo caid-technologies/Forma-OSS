@@ -123,7 +123,7 @@ async def _call_tool(name: str, arguments: McpToolArguments, capability: Connect
         if revision is None:
             raise ValueError("The session project has not been created.")
         project = revision.state
-        return _tool_result(project, project_id, str(getattr(revision, "id", "")) or None)
+        return _tool_result(project, project_id, _revision_identifier(revision))
     if arguments.project_ir is None:
         raise ValueError("project_ir is required")
     project = arguments.project_ir
@@ -148,14 +148,21 @@ def _compile(project: HardwareIR, project_id: str, user_context: UserContext) ->
     ).hexdigest()[:32]
     existing = get_project_revision_by_source_job(project_id, user_context.owner_user_id or "", source_job_id)
     if existing is not None:
-        return _tool_result(existing.state, project_id, str(getattr(existing, "id", "")) or None)
+        return _tool_result(existing.state, project_id, _revision_identifier(existing))
     _persist_mcp_compile(
         project,
         {"project_id": project_id, "prompt": "OpenCode project", "visibility": "private", "authoring_agent": "opencode", "source_job_id": source_job_id},
         user_context,
     )
     revision = get_latest_project_revision(project_id, user_context.owner_user_id or "")
-    return _tool_result(project, project_id, str(getattr(revision, "id", "")) or None if revision else None)
+    return _tool_result(project, project_id, _revision_identifier(revision))
+
+
+def _revision_identifier(revision: object | None) -> str | None:
+    if revision is None:
+        return None
+    value = getattr(revision, "revision_id", None) or getattr(revision, "id", None)
+    return str(value) if value else None
 
 
 def _tool_result(project: HardwareIR, project_id: str, revision_id: str | None) -> dict[str, object]:

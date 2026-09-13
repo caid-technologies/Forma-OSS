@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from apps.api.opencode_api import router
-from apps.api.opencode_mcp import opencode_mcp_tools
+from apps.api.opencode_mcp import _revision_identifier, opencode_mcp_tools
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import (
     McpInitializeParams,
@@ -22,6 +22,11 @@ from forma_core.opencode.models import (
 
 
 class OpenCodeMcpModelTests(unittest.TestCase):
+    def test_revision_identifier_uses_canonical_revision_id(self) -> None:
+        revision = type("Revision", (), {"revision_id": "revision-1"})()
+
+        self.assertEqual("revision-1", _revision_identifier(revision))
+
     def test_model_validate_retains_typed_variants_and_wire_aliases(self) -> None:
         for method, params, expected_type in (
             ("initialize", {

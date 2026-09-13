@@ -60,7 +60,8 @@ class SupabaseRepository:
 
     def get_project_identity(self, project_id: str) -> Optional[Any]:
         rows = self._client.table("projects").select("*").eq("project_id", project_id).limit(1).execute().data or []
-        return _record(rows[0]) if rows else None
+        # Project identity callers use mapping access, matching the SQLite repository.
+        return rows[0] if rows else None
 
     def list_project_identities(self, owner_user_id: str) -> List[Any]:
         rows = (

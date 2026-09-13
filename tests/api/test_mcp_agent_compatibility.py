@@ -9,9 +9,11 @@ from unittest.mock import AsyncMock, patch
 from fastapi.testclient import TestClient
 
 from apps.api import a2a
-from apps.api.a2a import A2AMessage, MCP_DEFAULT_PROTOCOL_VERSION, handle_mcp_json_rpc
+from apps.api.a2a import A2AMessage, MCP_DEFAULT_PROTOCOL_VERSION, _persist_mcp_compile, handle_mcp_json_rpc
 from apps.api.auth import UserContext
 from apps.api.main import app
+from forma_core.workspaces.projects import ProjectStateError
+from forma_core.workspaces.projects.models import HardwareIR
 
 
 class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
@@ -168,6 +170,41 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("agent-user", persist_revision.call_args.args[1])
         self.assertEqual("Build a private sensor enclosure", persist_revision.call_args.kwargs["prompt"])
         self.assertEqual("private", persist_revision.call_args.kwargs["visibility"])
+
+    def test_compile_recovers_a_partial_identity_without_a_revision(self) -> None:
+        project_id = "12345678-1234-4234-8234-123456789012"
+        project = HardwareIR.model_validate({"components": [], "nets": []})
+        with (
+            patch(
+                "apps.api.a2a.get_project_identity",
+                return_value={
+                    "owner_user_id": "agent-user",
+                    "status": "active",
+                    "chat_id": "chat-1",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "visibility": "public",
+                },
+            ),
+            patch(
+                "apps.api.a2a.get_latest_project_revision",
+                side_effect=ProjectStateError("project_revision_not_found", "missing"),
+            ),
+            patch("apps.api.a2a.persist_chat_project_revision") as persist_revision,
+        ):
+            result = _persist_mcp_compile(
+                project,
+                {
+                    "project_id": project_id,
+                    "prompt": "OpenCode project",
+                    "visibility": "private",
+                    "authoring_agent": "opencode",
+                },
+                self._user(),
+            )
+
+        self.assertEqual(project_id, result["project_id"])
+        self.assertEqual("private", result["visibility"])
+        persist_revision.assert_called_once()
 
     async def test_compile_project_persists_and_validates(self) -> None:
         with patch("apps.api.a2a.get_project_identity", return_value=None), patch(

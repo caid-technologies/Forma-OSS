@@ -1101,6 +1101,30 @@ class _ProjectPageClient:
         return self.query
 
 
+class _ProjectIdentityResponse:
+    data = [{"project_id": "project-a", "visibility": "private"}]
+
+
+class _ProjectIdentityQuery:
+    def select(self, _projection: str) -> "_ProjectIdentityQuery":
+        return self
+
+    def eq(self, _field: str, _value: str) -> "_ProjectIdentityQuery":
+        return self
+
+    def limit(self, _limit: int) -> "_ProjectIdentityQuery":
+        return self
+
+    def execute(self) -> _ProjectIdentityResponse:
+        return _ProjectIdentityResponse()
+
+
+class _ProjectIdentityClient:
+    def table(self, table: str) -> _ProjectIdentityQuery:
+        assert table == "projects"
+        return _ProjectIdentityQuery()
+
+
 class _GalleryInventoryClient:
     def __init__(self) -> None:
         self.query = _ProjectPageQuery()

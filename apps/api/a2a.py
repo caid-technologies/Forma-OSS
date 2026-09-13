@@ -54,6 +54,7 @@ from forma_core.workspaces.projects.models import (
     ConnectionNet,
     HardwareIR,
 )
+from forma_core.workspaces.projects import ProjectStateError
 from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
 from forma_core.observability import (
     get_langfuse_debug_config,
@@ -2295,7 +2296,12 @@ def _persist_mcp_compile(
         if not owner_user_id or existing_owner != owner_user_id:
             raise ValueError("An existing compiled project can only be updated by its owner.")
         chat_id = str(existing.get("chat_id") or "").strip() or None
-        existing_revision = get_latest_project_revision(project_id, owner_user_id)
+        try:
+            existing_revision = get_latest_project_revision(project_id, owner_user_id)
+        except ProjectStateError as exc:
+            if exc.code != "project_revision_not_found":
+                raise
+            existing_revision = None
         existing_ir = existing_revision.state.model_dump(mode="json") if existing_revision is not None else {}
         existing_metadata = existing_ir.get("assembly_metadata", {}) if isinstance(existing_ir, dict) else {}
         revision = int(existing_metadata.get("compile_revision") or 1) + 1

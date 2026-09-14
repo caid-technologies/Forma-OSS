@@ -264,6 +264,58 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
         self.assertEqual({"is_valid": True, "issues": []}, response.json()["result"]["structuredContent"])
         validate.assert_called_once()
 
+    def test_empty_draft_creation_remains_saveable(self) -> None:
+        with patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
+             patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
+             patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
+             patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+            response = self.client.post("/api/opencode/mcp", json={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "forma.opencode.create_project", "arguments": {}},
+            })
+            self.assertEqual(200, response.status_code, response.text)
+            result = response.json()["result"]["structuredContent"]
+            self.assertEqual([], result["project_ir"]["components"])
+            self.assertEqual([], result["project_ir"]["nets"])
+            self.assertEqual({"is_valid": True, "issues": []}, result["validation"])
+            persist.assert_called_once()
+
+    def test_pinless_saved_shape_is_invalid_through_validate_update_and_compile(self) -> None:
+        project_ir = {
+            "part_definitions": [{
+                "part_definition_id": "module", "part_number": "MODULE", "name": "Controller module",
+                "category": "Microcontroller", "pins": [],
+            }],
+            "components": [{"ref_des": f"U{index}", "part_definition_id": "module", "rationale": "Control"}
+                           for index in range(1, 10)],
+            "nets": [],
+            "power_rails": [{"rail_id": f"rail-{index}", "voltage": voltage,
+                             "max_current_capacity_ma": 500, "source_component": "U1"}
+                            for index, voltage in enumerate((3.3, 5, 12))],
+            "buses": [],
+            "pin_mappings": [],
+            "is_valid": True,
+            "validation": {"critical": [], "warning": [], "info": []},
+        }
+        for operation in ("validate", "update", "compile"):
+            with self.subTest(operation=operation), \
+                 patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
+                 patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
+                 patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
+                 patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+                response = self.client.post("/api/opencode/mcp", json={
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": f"forma.opencode.{operation}_project", "arguments": {"project_ir": project_ir}},
+                })
+                self.assertEqual(200, response.status_code, response.text)
+                result = response.json()["result"]["structuredContent"]
+                validation = result if operation == "validate" else result["validation"]
+                self.assertFalse(validation["is_valid"])
+                self.assertEqual(10, len(validation["issues"]))
+                if operation != "validate":
+                    self.assertFalse(result["project_ir"]["is_valid"])
+                    self.assertFalse(persist.call_args.args[0].is_valid)
+
     def test_initialize_cannot_bypass_capability_authorization(self) -> None:
         self.authorize.side_effect = HTTPException(status_code=403, detail="test denial")
         response = self.client.post("/api/opencode/mcp", json={

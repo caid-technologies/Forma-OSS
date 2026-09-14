@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 
 from forma_core.external_sources import ExternalSourceLibrary, build_external_source_provider
 from forma_core.agents.orchestrator import (
@@ -94,6 +94,11 @@ class WebComponentSelection(BaseModel):
     components: List[ComponentInstance]
     sourcing_notes: List[str] = Field(default_factory=list)
     rejected_options: List[str] = Field(default_factory=list)
+
+    @field_serializer("components")
+    def serialize_components(self, components: List[ComponentInstance]) -> list[dict[str, object]]:
+        # Stage snapshots have no shared part_definitions to hydrate from.
+        return [component_detail_payload(component) for component in components]
 
 
 class WiringWrapper(BaseModel):

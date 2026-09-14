@@ -34,10 +34,12 @@ from forma_core.opencode.models import (
     SessionResponse,
     SubmitCommandRequest,
     McpJsonRpcRequest,
+    ValidationSummary,
 )
 from forma_core.opencode.public_events import project_public_event
 from forma_core.opencode.store import OpenCodeStore, StoredCommand, StoredSession
-from forma_core.database import get_project_identity
+from forma_core.database import get_project_identity, get_latest_project_revision
+from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 
 
 router = APIRouter(prefix="/opencode", tags=["opencode"])
@@ -325,6 +327,19 @@ def _store_event(session: StoredSession, event: ConnectorEventInput) -> PublicEv
         session_id=session.session_id,
         project_id=UUID(session.project_id),
     )
+    if public_event.kind == OpenCodeEventKind.COMPLETED:
+        # The gateway, not the worker's HTTP result, owns saved-output evidence.
+        revision = get_latest_project_revision(session.project_id, session.owner_user_id)
+        public_event.revision_id = str(revision.revision_id) if revision else None
+        public_event.artifact_ids = tuple(item.artifact_id for item in revision.artifacts) if revision else ()
+        public_event.validation = None
+        if revision:
+            outcome = evaluate_design_outcome(revision.state)
+            public_event.design_outcome = outcome
+            public_event.validation = ValidationSummary(
+                is_valid=outcome.is_valid, critical_count=outcome.critical_count,
+                warning_count=outcome.warning_count,
+            )
     return OPENCODE_STORE.add_event(public_event)
 
 

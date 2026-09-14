@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import logging
 import re
 from uuid import UUID, uuid4
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -23,6 +24,7 @@ from forma_core.database import (
     upsert_project_chat,
 )
 from forma_core.llm import build_llm_provider
+from forma_core.config import config
 from forma_core.user_integrations import UserIntegrationStore, resolve_user_integration_settings
 from forma_core.workspaces.context import (
     ContextBuildExecution,
@@ -113,11 +115,18 @@ def gather_project_context_endpoint(
     try:
         agent = context_gathering_agent(user)
     except Exception as exc:
+        supabase_host = urlparse(
+            config.get("SUPABASE_URL") or ""
+        ).hostname
+
         logger.exception(
-            "Context gathering agent initialization failed: project_id=%s user_id=%s",
+            "Context gathering agent initialization failed: "
+            "project_id=%s user_id=%s supabase_host=%s",
             project_id,
             user.owner_user_id,
+            supabase_host,
         )
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -125,6 +134,7 @@ def gather_project_context_endpoint(
                 "message": "Could not initialize the context gathering agent.",
                 "error_type": type(exc).__name__,
                 "error": str(exc),
+                "supabase_host": supabase_host,
             },
         ) from exc
     owner = _owner(user)

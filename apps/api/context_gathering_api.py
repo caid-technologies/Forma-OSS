@@ -22,6 +22,9 @@ from forma_core.database import (
     initialize_project_workflow,
     transition_project_workflow,
     upsert_project_chat,
+    DATABASE_BACKEND,
+    DATABASE_SOURCE,
+    DATABASE_URL,
 )
 from forma_core.llm import build_llm_provider
 from forma_core.config import config
@@ -102,7 +105,11 @@ def context_gathering_agent(
     return ContextGatheringAgent(llm_provider=build_llm_provider(settings=settings))
 
 
-@router.post("/messages", response_model=ContextGatheringResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/messages",
+    response_model=ContextGatheringResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def gather_project_context_endpoint(
     project_id: UUID,
     request: ContextGatheringRequest,
@@ -111,20 +118,35 @@ def gather_project_context_endpoint(
 ) -> ContextGatheringResponse:
     """Route one natural conversation turn and mutate context only when appropriate."""
 
+    from urllib.parse import urlparse
+
+    from forma_core.database import (
+        DATABASE_BACKEND,
+        DATABASE_SOURCE,
+        DATABASE_URL,
+    )
+    from forma_core.user_integrations import UserIntegrationStore
+
     require_hosted_chat_enabled(user)
+
     try:
         agent = context_gathering_agent(user)
     except Exception as exc:
-        supabase_host = urlparse(
-            config.get("SUPABASE_URL") or ""
-        ).hostname
+        store = UserIntegrationStore.for_user(user.owner_user_id)
+        database_host = urlparse(DATABASE_URL).hostname
 
         logger.exception(
             "Context gathering agent initialization failed: "
-            "project_id=%s user_id=%s supabase_host=%s",
+            "project_id=%s user_id=%s database_backend=%s "
+            "database_source=%s database_host=%s "
+            "integration_store=%s integration_storage=%s",
             project_id,
             user.owner_user_id,
-            supabase_host,
+            DATABASE_BACKEND,
+            DATABASE_SOURCE,
+            database_host,
+            type(store).__name__,
+            getattr(store, "storage_label", None),
         )
 
         raise HTTPException(
@@ -134,23 +156,36 @@ def gather_project_context_endpoint(
                 "message": "Could not initialize the context gathering agent.",
                 "error_type": type(exc).__name__,
                 "error": str(exc),
-                "supabase_host": supabase_host,
+                "database_backend": DATABASE_BACKEND,
+                "database_source": DATABASE_SOURCE,
+                "database_host": database_host,
+                "integration_store": type(store).__name__,
+                "integration_storage": getattr(
+                    store,
+                    "storage_label",
+                    None,
+                ),
             },
         ) from exc
+
     owner = _owner(user)
     existing_chat = get_project_chat(request.conversation_id, owner)
     existing_messages = list(getattr(existing_chat, "messages", None) or [])
+
     try:
         previous = get_latest_design_brief(str(project_id), owner)
     except DesignBriefNotFoundError:
         previous = None
+
     if previous and previous.conversation_id != request.conversation_id:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail={
                 "code": "context_conversation_mismatch",
                 "message": "This project is already associated with a different conversation.",
-                "context": {"conversation_id": previous.conversation_id},
+                "context": {
+                    "conversation_id": previous.conversation_id,
+                },
             },
         )
 
@@ -179,10 +214,19 @@ def gather_project_context_endpoint(
 
     brief = previous
     questions: list[str] = []
-    suggestions = list(decision.suggestions) if decision.tool_name == "ask_question" else []
+    suggestions = (
+        list(decision.suggestions)
+        if decision.tool_name == "ask_question"
+        else []
+    )
     build_execution: ContextBuildExecution | None = None
+
     if decision.tool_name == "build_project" and brief is None:
-        bootstrap_request = _bootstrap_context_request(request, existing_messages)
+        bootstrap_request = _bootstrap_context_request(
+            request,
+            existing_messages,
+        )
+
         if bootstrap_request is not None:
             if workflow is None:
                 try:
@@ -198,19 +242,34 @@ def gather_project_context_endpoint(
                     ).workflow
                 except WorkflowStateError as exc:
                     raise _workflow_error(exc) from exc
-            brief_create, _, questions, _ = agent.update(bootstrap_request, None)
+
+            brief_create, _, questions, _ = agent.update(
+                bootstrap_request,
+                None,
+            )
+
             try:
-                brief = create_design_brief_version(str(project_id), owner, brief_create)
+                brief = create_design_brief_version(
+                    str(project_id),
+                    owner,
+                    brief_create,
+                )
             except DesignBriefAccessError as exc:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
-                    detail={"code": "project_not_found", "message": "Project not found."},
+                    detail={
+                        "code": "project_not_found",
+                        "message": "Project not found.",
+                    },
                 ) from exc
+
             logger.info(
-                "Bootstrapped DesignBrief from first-turn build request: project_id=%s conversation_id=%s",
+                "Bootstrapped DesignBrief from first-turn build request: "
+                "project_id=%s conversation_id=%s",
                 project_id,
                 request.conversation_id,
             )
+
     elif decision.tool_name == "build_project" and workflow is None:
         try:
             workflow = initialize_project_workflow(
@@ -241,6 +300,7 @@ def gather_project_context_endpoint(
                 ).workflow
             except WorkflowStateError as exc:
                 raise _workflow_error(exc) from exc
+
         elif workflow.state == ProjectWorkflowState.READY_TO_BUILD:
             try:
                 workflow = transition_project_workflow(
@@ -249,29 +309,48 @@ def gather_project_context_endpoint(
                     ProjectWorkflowState.GATHERING_CONTEXT,
                     actor_type=WorkflowActorType.USER,
                     actor_id=owner,
-                    reason="User added project context after the previous handoff.",
+                    reason=(
+                        "User added project context after the previous handoff."
+                    ),
                 ).workflow
             except WorkflowStateError as exc:
                 raise _workflow_error(exc) from exc
+
         if workflow.state != ProjectWorkflowState.GATHERING_CONTEXT:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail={
                     "code": "context_update_not_allowed",
-                    "message": f"Project context cannot be changed while the workflow is {workflow.state.value}.",
+                    "message": (
+                        "Project context cannot be changed while the workflow "
+                        f"is {workflow.state.value}."
+                    ),
                 },
             )
 
-        brief_create, _, questions, generated_suggestions = agent.update(request, previous)
+        brief_create, _, questions, generated_suggestions = agent.update(
+            request,
+            previous,
+        )
+
         if not suggestions:
             suggestions = generated_suggestions
+
         try:
-            brief = create_design_brief_version(str(project_id), owner, brief_create)
+            brief = create_design_brief_version(
+                str(project_id),
+                owner,
+                brief_create,
+            )
         except DesignBriefAccessError as exc:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail={"code": "project_not_found", "message": "Project not found."},
+                detail={
+                    "code": "project_not_found",
+                    "message": "Project not found.",
+                },
             ) from exc
+
     elif decision.tool_name == "build_project" and workflow is not None:
         if workflow.state == ProjectWorkflowState.GATHERING_CONTEXT:
             try:
@@ -281,11 +360,16 @@ def gather_project_context_endpoint(
                     ProjectWorkflowState.READY_TO_BUILD,
                     actor_type=WorkflowActorType.USER,
                     actor_id=owner,
-                    reason="Conversational agent handed the brief to the next stage.",
-                    idempotency_key=f"conversation-proceed:{request.conversation_id}",
+                    reason=(
+                        "Conversational agent handed the brief to the next stage."
+                    ),
+                    idempotency_key=(
+                        f"conversation-proceed:{request.conversation_id}"
+                    ),
                 ).workflow
             except WorkflowStateError as exc:
                 raise _workflow_error(exc) from exc
+
         if brief is not None and build_dispatcher is not None:
             try:
                 build_execution, workflow = build_dispatcher.start(
@@ -293,31 +377,57 @@ def gather_project_context_endpoint(
                     owner,
                     request.conversation_id,
                 )
+
                 execution_messages = {
                     "planned": (
-                        "I’ve started the design. The build agents are generating the system architecture, "
-                        "electronics, mechanics, and build artifacts now."
+                        "I’ve started the design. The build agents are generating "
+                        "the system architecture, electronics, mechanics, and "
+                        "build artifacts now."
                     ),
-                    "running": "The design build is already running; I’ll keep the existing agents working on it.",
-                    "succeeded": "The first design revision is ready for review.",
-                    "failed": "The design build stopped after an agent failure. The brief and build record are preserved.",
+                    "running": (
+                        "The design build is already running; I’ll keep the "
+                        "existing agents working on it."
+                    ),
+                    "succeeded": (
+                        "The first design revision is ready for review."
+                    ),
+                    "failed": (
+                        "The design build stopped after an agent failure. "
+                        "The brief and build record are preserved."
+                    ),
                 }
-                decision = decision.model_copy(update={
-                    "assistant_message": execution_messages.get(
-                        build_execution.status,
-                        "The design build has been handed to the build agents.",
-                    ),
-                })
+
+                decision = decision.model_copy(
+                    update={
+                        "assistant_message": execution_messages.get(
+                            build_execution.status,
+                            "The design build has been handed to the build agents.",
+                        ),
+                    }
+                )
+
             except ReadinessError as exc:
-                logger.exception("Conversational build readiness failed for project_id=%s", project_id)
-                decision = decision.model_copy(update={
-                    "assistant_message": (
-                        "I couldn’t start the build automatically. The brief is preserved, so you can try again "
-                        "without re-entering the project details."
-                    ),
-                })
+                logger.exception(
+                    "Conversational build readiness failed for project_id=%s",
+                    project_id,
+                )
+
+                decision = decision.model_copy(
+                    update={
+                        "assistant_message": (
+                            "I couldn’t start the build automatically. "
+                            "The brief is preserved, so you can try again "
+                            "without re-entering the project details."
+                        ),
+                    }
+                )
+
             except Exception:
-                logger.exception("Could not dispatch conversational build for project_id=%s", project_id)
+                logger.exception(
+                    "Could not dispatch conversational build for project_id=%s",
+                    project_id,
+                )
+
                 try:
                     workflow = transition_project_workflow(
                         str(project_id),
@@ -325,30 +435,49 @@ def gather_project_context_endpoint(
                         ProjectWorkflowState.FAILED,
                         actor_type=WorkflowActorType.SYSTEM,
                         actor_id="context-build-dispatcher",
-                        reason="The conversational build could not be dispatched.",
-                        idempotency_key=f"conversation-build-dispatch-failed:{request.conversation_id}",
+                        reason=(
+                            "The conversational build could not be dispatched."
+                        ),
+                        idempotency_key=(
+                            "conversation-build-dispatch-failed:"
+                            f"{request.conversation_id}"
+                        ),
                     ).workflow
                 except WorkflowStateError:
                     logger.warning(
-                        "Could not mark failed conversational build for project_id=%s",
+                        "Could not mark failed conversational build "
+                        "for project_id=%s",
                         project_id,
                         exc_info=True,
                     )
-                decision = decision.model_copy(update={
-                    "assistant_message": (
-                        "I couldn’t start the build. The brief is preserved, so you can try again without "
-                        "re-entering the project details."
-                    ),
-                })
-    if decision.tool_name == "build_project" and (workflow is None or brief is None):
-        decision = decision.model_copy(update={
-            "turn_kind": "clarification",
-            "tool_name": "ask_question",
-            "save_context": False,
-            "assistant_message": "Tell me what you want to build first, and I’ll help shape it and start the design.",
-        })
+
+                decision = decision.model_copy(
+                    update={
+                        "assistant_message": (
+                            "I couldn’t start the build. The brief is preserved, "
+                            "so you can try again without re-entering the "
+                            "project details."
+                        ),
+                    }
+                )
+
+    if decision.tool_name == "build_project" and (
+        workflow is None or brief is None
+    ):
+        decision = decision.model_copy(
+            update={
+                "turn_kind": "clarification",
+                "tool_name": "ask_question",
+                "save_context": False,
+                "assistant_message": (
+                    "Tell me what you want to build first, and I’ll help shape "
+                    "it and start the design."
+                ),
+            }
+        )
 
     now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
     attachments = [
         {
             "attachmentId": item.attachment_id,
@@ -361,45 +490,76 @@ def gather_project_context_endpoint(
         }
         for item in request.attachments
     ]
-    context_project_id = str(project_id) if workflow is not None or brief is not None else None
-    image_preview = next((item.data_url for item in request.attachments if item.kind == "image" and item.data_url), None)
+
+    context_project_id = (
+        str(project_id)
+        if workflow is not None or brief is not None
+        else None
+    )
+
+    image_preview = next(
+        (
+            item.data_url
+            for item in request.attachments
+            if item.kind == "image" and item.data_url
+        ),
+        None,
+    )
+
     user_message = {
-            "id": f"context-user-{uuid4().hex}",
-            "role": "user",
-            "content": request.text or "Shared a project reference.",
-            "status": "complete",
-            "timestamp": now,
-            "attachments": attachments,
-        }
+        "id": f"context-user-{uuid4().hex}",
+        "role": "user",
+        "content": request.text or "Shared a project reference.",
+        "status": "complete",
+        "timestamp": now,
+        "attachments": attachments,
+    }
+
     if image_preview:
         user_message["imagePreview"] = image_preview
+
     assistant_message_record = {
-            "id": f"context-assistant-{uuid4().hex}",
-            "role": "assistant",
-            "content": decision.assistant_message,
-            "status": "complete",
-            "timestamp": now,
-            "questions": questions,
-            "suggestions": suggestions,
-            "turnKind": decision.turn_kind,
-            "toolName": decision.tool_name,
-        }
+        "id": f"context-assistant-{uuid4().hex}",
+        "role": "assistant",
+        "content": decision.assistant_message,
+        "status": "complete",
+        "timestamp": now,
+        "questions": questions,
+        "suggestions": suggestions,
+        "turnKind": decision.turn_kind,
+        "toolName": decision.tool_name,
+    }
+
     if context_project_id:
         user_message["contextProjectId"] = context_project_id
         assistant_message_record["contextProjectId"] = context_project_id
+
     if workflow is not None:
         assistant_message_record["workflowState"] = workflow.state.value
+
     if brief is not None:
         assistant_message_record["designBriefVersion"] = brief.brief_version
+
     if build_execution is not None:
-        assistant_message_record["buildExecution"] = build_execution.model_dump(mode="json")
+        assistant_message_record["buildExecution"] = (
+            build_execution.model_dump(mode="json")
+        )
+
     if request.requested_tool is None:
         existing_messages.append(user_message)
+
     existing_messages.append(assistant_message_record)
+
     title = str(getattr(existing_chat, "title", "") or "").strip()
+
     if not title:
-        title = (request.text or (brief.summary if brief is not None else "Hardware project"))[:100]
+        title = (
+            request.text
+            or (brief.summary if brief is not None else "Hardware project")
+        )[:100]
+
     created_at = str(getattr(existing_chat, "created_at", "") or now)
+
     upsert_project_chat(
         chat_id=request.conversation_id,
         owner_user_id=owner,
@@ -408,6 +568,7 @@ def gather_project_context_endpoint(
         created_at=created_at,
         updated_at=now,
     )
+
     return ContextGatheringResponse(
         turn_kind=decision.turn_kind,
         tool_name=decision.tool_name,

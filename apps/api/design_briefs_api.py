@@ -47,7 +47,7 @@ def create_design_brief_endpoint(
     request: DesignBriefCreate,
     user_context: UserContext = Depends(require_user_context),
 ) -> DesignBrief:
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user_context)
     try:
         return create_design_brief_version(
             str(project_id),

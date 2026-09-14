@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from typing import List, Optional, Dict, Any, Iterable, Mapping
 from datetime import datetime
 import re
+from forma_core.workspaces.projects.solid_cad import CadOperation
 
 # ==========================================
 # 1. Base / Seed Component Database Schemas
@@ -198,6 +199,15 @@ class MechanicalSpatialRelationship(BaseModel):
     notes: Optional[str] = Field(None, description="Additional placement or clearance rationale")
 
 class MechanicalNotes(BaseModel):
+    cad_operations: List[CadOperation] = Field(default_factory=list, max_length=32, description="Explicit solid CAD in millimeters, applied in order; first operation must add. Use for standalone solids (components/nets may be empty). An empty list retains the legacy enclosure generator.")
+
+    @field_validator("cad_operations")
+    @classmethod
+    def first_cad_operation_adds(cls, operations):
+        if operations and operations[0].operation != "add":
+            raise ValueError("The first CAD operation must add a solid.")
+        return operations
+
     physical_form: str = Field(
         "Unspecified",
         description=(

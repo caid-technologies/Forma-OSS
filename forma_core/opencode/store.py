@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from forma_core.database import get_database_provider
 from forma_core.opencode.models import (
+    CommandContext,
     ConnectorCommand,
     OpenCodeCommandStatus,
     OpenCodeOperation,
@@ -358,7 +359,7 @@ class OpenCodeStore:
                     if message is None:
                         self.cancel_command(updated_command)
                         continue
-                    return _connector_command(updated_command, lease_token, message)
+                    return self._with_context(updated_command, lease_token, message)
             return None
         with self._connection(begin_immediate=True) as connection:
             row = connection.execute(
@@ -383,7 +384,43 @@ class OpenCodeStore:
         if message is None:
             self.cancel_command(command)
             return self.claim_next(connector_id=connector_id, session_id=session_id, lease_seconds=lease_seconds)
-        return _connector_command(command, lease_token, message)
+        return self._with_context(command, lease_token, message)
+
+    def _with_context(self, command: StoredCommand, lease_token: str, message: str) -> ConnectorCommand:
+        """Rehydrate earlier user requests from encrypted storage, scoped to this conversation.
+
+        Include the original brief plus the 15 most recent requests. Cancelled attempts
+        still contain requirements; queued future commands must never enter this prompt.
+        Nothing is written back as plaintext or added to public events.
+        """
+        provider = self._ensure_provider()
+        if isinstance(provider, SupabaseProvider):
+            def query():
+                return (provider.client.table("opencode_commands").select("*")
+                        .eq("session_id", command.session_id).eq("project_id", command.project_id)
+                        .eq("owner_user_id", command.owner_user_id).eq("connector_id", command.connector_id)
+                        .eq("operation", OpenCodeOperation.PROJECT_MESSAGE.value)
+                        .lt("created_at", command.created_at))
+            first = query().order("created_at").limit(1).execute().data or []
+            recent = query().order("created_at", desc=True).limit(15).execute().data or []
+        else:
+            sql = ("SELECT * FROM opencode_commands WHERE session_id = ? AND project_id = ? "
+                   "AND owner_user_id = ? AND connector_id = ? AND operation = ? AND created_at < ? ")
+            params = (command.session_id, command.project_id, command.owner_user_id, command.connector_id,
+                      OpenCodeOperation.PROJECT_MESSAGE.value, command.created_at)
+            with closing(provider.connect_dbapi()) as connection:
+                first = [dict(row) for row in connection.execute(sql + "ORDER BY created_at LIMIT 1", params).fetchall()]
+                recent = [dict(row) for row in connection.execute(sql + "ORDER BY created_at DESC LIMIT 15", params).fetchall()]
+        rows = {row["command_id"]: row for row in [*first, *recent]}
+        context = []
+        for row in sorted(rows.values(), key=lambda item: item["created_at"]):
+            previous = _command_from_record(row)
+            text = self._command_message(previous)
+            if text:
+                context.append(CommandContext(message=text, status=previous.status))
+        result = _connector_command(command, lease_token, message)
+        result.conversation_context = tuple(context)
+        return result
 
     def heartbeat(self, command: StoredCommand, lease_token: str) -> StoredCommand:
         self._require_lease(command, lease_token)

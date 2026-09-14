@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import hashlib
 from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
@@ -45,6 +46,37 @@ from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 router = APIRouter(prefix="/opencode", tags=["opencode"])
 OPENCODE_STORE = OpenCodeStore()
 OPENCODE_SESSION_DISCOVERY_IDLE_SECONDS = 15 * 60
+
+
+@router.get("/projects/{project_id}/cad/{sha256}")
+def download_opencode_cad(
+    project_id: UUID,
+    sha256: str,
+    user: UserContext = Depends(require_opencode_authoring_access),
+) -> Response:
+    from forma_core.persistence.project_artifacts import ProjectArtifactStorage, ProjectArtifactStorageError
+    from forma_core.workspaces.projects.state import ProjectStateError
+    owner = _owner(user)
+    _require_owned_project(str(project_id), owner)
+    try:
+        revision = get_latest_project_revision(str(project_id), owner)
+    except ProjectStateError:
+        raise _http_error(404, "cad_not_found", "The project has no saved STEP artifact.")
+    cad = revision.state.cad_model if revision else None
+    if not isinstance(cad, dict) or cad.get("stored_sha256") != sha256 or len(sha256) != 64:
+        raise _http_error(404, "cad_not_found", "The requested STEP artifact is not attached to this project.")
+    try:
+        stored = ProjectArtifactStorage().get(str(project_id), sha256, "model/step")
+    except FileNotFoundError:
+        raise _http_error(404, "cad_not_found", "The STEP artifact is missing.")
+    except (ProjectArtifactStorageError, OSError, ValueError):
+        raise _http_error(503, "cad_storage_unavailable", "The STEP artifact could not be retrieved.")
+    content = stored.content or b""
+    if hashlib.sha256(content).hexdigest() != sha256:
+        raise _http_error(503, "cad_integrity_failed", "The STEP artifact failed its integrity check.")
+    return Response(content, media_type="model/step", headers={
+        "Content-Disposition": 'attachment; filename="assembly.step"', "Cache-Control": "private, no-store",
+    })
 
 
 @router.post("/sessions", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)

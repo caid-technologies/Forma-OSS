@@ -6,10 +6,11 @@ import json
 import hashlib
 import logging
 from pydantic import ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
-from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
+from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
 from forma_core.debug import new_error_correlation_id
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import (
@@ -38,7 +39,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
     return [
         {
             "name": "forma.opencode.create_project",
-            "description": "Save an empty private draft bound to this session. This does not produce a populated hardware design.",
+            "description": "Initialize a missing private project. If a project already exists, return it unchanged. Never use this to reset or resume a design.",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
@@ -53,7 +54,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         },
         {
             "name": "forma.opencode.compile_project",
-            "description": "Compile and persist Hardware IR. Correct schema errors and critical validation findings. Report the saved revision and project_readiness; draft/partial is not a completed design or physical verification.",
+            "description": "Compile and persist Hardware IR. For solid CAD, author mechanical.cad_operations (exact mm box/cylinder add/cut operations; optional engraved axis labels). CAD-only projects need no components or nets. This exports real STEP plus preview meshes and stores the STEP artifact; check cad_generation and cad_model before claiming availability. Correct schema errors and critical validation findings. Report the saved revision and project_readiness; draft/partial is not a completed design or physical verification.",
             "inputSchema": authoring_schema,
         },
         {
@@ -109,6 +110,9 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
                        for error in exc.errors(include_input=False, include_context=False, include_url=False))
         result = AuthoringToolError(errors=errors).model_dump(mode="json")
         return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
+    except CadGenerationError:
+        result = {"code": "cad_generation_failed", "message": "STEP generation or artifact storage failed. The previous saved project is unchanged. Retry the CAD compile after checking the backend CAD runtime and storage; do not report STEP files as delivered."}
+        return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
     except (TypeError, ValueError, KeyError):
         return _error(request_id, -32602, "The project tool parameters are invalid.", "mcp_invalid_params")
     except Exception:
@@ -131,8 +135,17 @@ async def _call_tool(name: str, arguments: McpToolArguments, capability: Connect
         is_admin=False,
     )
     if name == "forma.opencode.create_project":
+        from forma_core.workspaces.projects.state import ProjectStateError
+        try:
+            existing = await run_in_threadpool(get_latest_project_revision, project_id, owner_user_id)
+        except ProjectStateError as exc:
+            if exc.code != "project_revision_not_found":
+                raise
+            existing = None
+        if existing is not None:
+            return _tool_result(existing.state, project_id, _revision_identifier(existing))
         project = HardwareIR.model_validate({"components": [], "nets": []})
-        result = _compile(project, project_id, user_context)
+        result = await run_in_threadpool(_compile, project, project_id, user_context)
         return ProjectToolResult.model_validate(result).model_dump(mode="json")
     if name == "forma.opencode.read_project":
         revision = get_latest_project_revision(project_id, owner_user_id)
@@ -151,7 +164,7 @@ async def _call_tool(name: str, arguments: McpToolArguments, capability: Connect
     if name == "forma.opencode.validate_project":
         return _validation_result(project)
     if name in {"forma.opencode.compile_project", "forma.opencode.update_project"}:
-        result = _compile(project, project_id, user_context)
+        result = await run_in_threadpool(_compile, project, project_id, user_context)
         return ProjectToolResult.model_validate(result).model_dump(mode="json")
     raise PermissionError("The requested tool is not part of the project-only surface.")
 
@@ -163,7 +176,9 @@ def _compile(project: HardwareIR, project_id: str, user_context: UserContext) ->
     issues = validate_circuit(project.components, project.nets, project.requirements)
     project.validation = build_validation_summary(issues)
     project.is_valid = not project.validation.critical
-    ensure_native_cad_model(project, project_id=project_id, required=False, authoring_agent="opencode", workflow="default")
+    ensure_native_cad_model(project, project_id=project_id,
+                            required=bool(project.mechanical and project.mechanical.cad_operations),
+                            authoring_agent="opencode", workflow="default")
     source_job_id = "opencode-" + hashlib.sha256(
         json.dumps(project.model_dump(mode="json"), sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()[:32]

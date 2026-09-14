@@ -59,7 +59,7 @@ def build_project_endpoint(
     request: BuildRequest,
     user: UserContext = Depends(require_user_context),
 ) -> BuildInitiationOutcome:
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
     owner = _owner(user)
     try:
         return initiate_project_build(
@@ -79,7 +79,7 @@ def build_project_anyway_endpoint(
     request: BuildAnywayRequest,
     user: UserContext = Depends(require_user_context),
 ) -> BuildInitiationOutcome:
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
     owner = _owner(user)
     try:
         return initiate_project_build(

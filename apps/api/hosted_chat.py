@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 
+from apps.api.auth import UserContext, has_opencode_authoring_access
 from forma_core.config.runtime import (
     HOSTED_CHAT_UNAVAILABLE_MESSAGE,
     HostedChatUnavailableError,
@@ -10,18 +11,24 @@ from forma_core.config.runtime import (
 HOSTED_CHAT_UNAVAILABLE_CODE = "hosted_chat_unavailable"
 
 
-def require_hosted_chat_enabled() -> None:
-    """Reject hosted chat mutations while preserving read-only project access."""
+def require_hosted_chat_enabled(
+    user: UserContext | None = None,
+) -> None:
+    """Allow hosted chat globally or for explicitly allowlisted users."""
+
     try:
         ensure_hosted_chat_enabled()
-    except HostedChatUnavailableError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": HOSTED_CHAT_UNAVAILABLE_CODE,
-                "message": HOSTED_CHAT_UNAVAILABLE_MESSAGE,
-            },
-        ) from exc
+        return
+    except HostedChatUnavailableError:
+        pass
 
+    if has_opencode_authoring_access(user):
+        return
 
-__all__ = ["HOSTED_CHAT_UNAVAILABLE_CODE", "require_hosted_chat_enabled"]
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "code": HOSTED_CHAT_UNAVAILABLE_CODE,
+            "message": HOSTED_CHAT_UNAVAILABLE_MESSAGE,
+        },
+    )

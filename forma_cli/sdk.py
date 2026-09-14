@@ -261,8 +261,22 @@ class FormaAPIClient:
                 }
         except HTTPError as exc:
             raw = exc.read()
-            detail = self._decode_json(raw)
-            if exc.code == 401 and authenticated and retry_refresh and tokens and tokens.refresh_token:
+
+            try:
+                detail = self._decode_json(raw)
+            except FormaAPIError:
+                detail = {
+                    "raw_body": raw.decode("utf-8", errors="replace").strip() or None,
+                    "content_type": exc.headers.get("Content-Type"),
+                }
+
+            if (
+                exc.code == 401
+                and authenticated
+                and retry_refresh
+                and tokens
+                and tokens.refresh_token
+            ):
                 try:
                     self.refresh(tokens.refresh_token)
                 except FormaAPIError:
@@ -279,8 +293,12 @@ class FormaAPIClient:
                         retry_refresh=False,
                         _skip_compatibility=_skip_compatibility,
                     )
+
             raise FormaAPIError(
-                self._error_message(detail, fallback=f"Forma API request failed ({exc.code})."),
+                self._error_message(
+                    detail,
+                    fallback=f"Forma API request failed ({exc.code}).",
+                ),
                 status_code=exc.code,
                 detail=detail,
             ) from exc

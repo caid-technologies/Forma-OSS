@@ -42,7 +42,7 @@ def initialize_workflow_endpoint(
     project_id: UUID,
     user: UserContext = Depends(require_user_context),
 ) -> WorkflowTransitionOutcome:
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
     try:
         owner = _owner(user)
         return initialize_project_workflow(

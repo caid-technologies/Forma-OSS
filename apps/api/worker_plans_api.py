@@ -48,7 +48,7 @@ async def execute_build_plan_endpoint(
 ) -> WorkerExecutionPlan:
     """Execute a plan inside this request so serverless runtimes keep it alive."""
 
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
     owner = _owner(user)
     try:
         plan = get_project_generation_plan(plan_id, owner)
@@ -84,7 +84,7 @@ async def reset_build_plan_endpoint(
 ) -> WorkerExecutionPlan:
     """Reset a failed generation plan so the current user can try it again."""
 
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
     owner = _owner(user)
     try:
         plan = get_project_generation_plan(plan_id, owner)

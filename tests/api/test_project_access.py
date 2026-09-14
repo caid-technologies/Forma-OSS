@@ -683,6 +683,8 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertEqual("canonical-chat", response["chat_id"])
         self.assertTrue(response["can_chat"])
         self.assertEqual(2, response["project_ir"]["assembly_metadata"]["project_revision"])
+        self.assertEqual("draft", response["project_readiness"])
+        self.assertEqual("draft", response["project_ir"]["assembly_metadata"]["project_readiness"])
 
     def test_owner_can_update_project_title(self) -> None:
         project = _project("owned-project", owner_user_id="user-a", visibility="public")

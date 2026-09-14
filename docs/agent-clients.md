@@ -24,6 +24,34 @@ Start the backend in local authentication mode:
 FORMA_AUTH_MODE=local uvicorn apps.api.main:app --port 8000
 ```
 
+## Restricted OpenCode authoring results
+
+The session-scoped `/opencode/mcp` tools publish the actual HardwareIR input
+schema, with references resolved from `$defs` at the tool schema root. Invalid
+HardwareIR returns an MCP tool result with `isError: true` and structured code
+`hardware_ir_invalid` after capability authorization. Each diagnostic contains
+only a field `path` and error `type`, not input values or validator messages.
+For example, a missing pin type reports
+`["project_ir", "part_definitions", 0, "pins", 0, "pin_type"]` and `missing`.
+Correct these fields using the schema before retrying. Arbitrary mapping keys
+are redacted as `<key>`.
+
+Command `succeeded`/event `completed` describes execution, not design production.
+The gateway verifies the latest owner-scoped saved revision and supplies its
+revision ID, current deterministic validation, durable artifact IDs, and typed
+`design_outcome`. Connector-supplied output claims do not override this evidence.
+No saved revision means null revision/validation/outcome and no artifact IDs.
+
+- `draft`: no components or nets, even if text requirements exist and validation passes.
+- `partial`: populated but incomplete or critically invalid; `is_valid` and issue counts distinguish invalidity.
+- `complete`: components, pins, and nets exist, deterministic checks have no critical findings, and generation metadata does not mark the result incomplete.
+
+This is conservative electrical-design readiness, not proof of physical safety,
+full requirement coverage, finished mechanical-only output, assembly instructions,
+or CAD availability. Artifacts are reported separately. The browser preserves
+agent text and labels draft-only, incomplete, or unverified output rather than
+treating a successful project GET as a completed design.
+
 ## OpenClaw
 
 From this repository, OpenClaw discovers the project skill under `.agents/skills`. Register and probe Forma's MCP endpoint:

@@ -19,9 +19,27 @@ from forma_core.opencode.models import (
     McpToolCallParams,
     McpToolsListParams,
 )
+from tests.opencode.test_outcomes import wired_project
 
 
 class OpenCodeMcpModelTests(unittest.TestCase):
+    def test_authoring_schema_has_resolvable_root_refs_and_nested_requirements(self) -> None:
+        schema = opencode_mcp_tools()[2]["inputSchema"]
+        self.assertIn("project_ir", schema["required"])
+        self.assertIn("pin_type", schema["$defs"]["PinDefinition"]["required"])
+        def check(value):
+            if isinstance(value, dict):
+                if "$ref" in value:
+                    node = schema
+                    for key in value["$ref"].removeprefix("#/").split("/"):
+                        node = node[key]
+                for child in value.values():
+                    check(child)
+            elif isinstance(value, list):
+                for child in value:
+                    check(child)
+        check(schema)
+
     def test_revision_identifier_uses_canonical_revision_id(self) -> None:
         revision = type("Revision", (), {"revision_id": "revision-1"})()
 
@@ -59,6 +77,46 @@ class OpenCodeMcpModelTests(unittest.TestCase):
 
 
 class OpenCodeMcpHttpTests(unittest.TestCase):
+    def test_nested_authoring_errors_are_actionable_and_do_not_echo_secrets(self) -> None:
+        for ir, expected in (
+            ({"overview": {"title": "SECRET_CANARY"}}, ["project_ir", "overview", "description"]),
+            ({"components": [{"ref_des": "SECRET_CANARY"}]}, ["project_ir", "components", 0, "rationale"]),
+            ({"part_definitions": [{"part_definition_id": "p", "part_number": "p", "name": "p", "category": "Module", "pins": [{"pin_id": "SECRET_CANARY"}]}]}, ["project_ir", "part_definitions", 0, "pins", 0, "pin_type"]),
+            ({"part_definitions": [{"part_definition_id": "p", "part_number": "p", "name": "p", "category": "Module", "dimensions_mm": {"SECRET_CANARY": "PRIVATE_VALUE"}}]}, ["project_ir", "part_definitions", 0, "dimensions_mm", "<key>"]),
+        ):
+            with self.subTest(expected=expected), patch("apps.api.opencode_mcp._persist_mcp_compile") as persist:
+                response = self.client.post("/api/opencode/mcp", json={
+                    "jsonrpc": "2.0", "id": "bad", "method": "tools/call",
+                    "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": ir}},
+                })
+                self.assertEqual(200, response.status_code)
+                self.assertTrue(response.json()["result"]["isError"])
+                errors = response.json()["result"]["structuredContent"]["errors"]
+                self.assertIn(expected, [error["path"] for error in errors])
+                self.assertTrue(all(set(error) == {"path", "type"} for error in errors))
+                self.assertNotIn("SECRET_CANARY", response.text)
+                self.assertNotIn("PRIVATE_VALUE", response.text)
+                persist.assert_not_called()
+
+    def test_invalid_ir_cannot_bypass_authorization(self) -> None:
+        self.authorize.side_effect = HTTPException(status_code=403, detail="denied")
+        response = self.client.post("/api/opencode/mcp", json={
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": {"overview": {}}}},
+        })
+        self.assertEqual(403, response.status_code)
+        self.assertNotIn("hardware_ir_invalid", response.text)
+
+    def test_bad_authoring_call_in_batch_does_not_block_corrected_call(self) -> None:
+        response = self.client.post("/api/opencode/mcp", json=[
+            {"jsonrpc": "2.0", "id": index, "method": "tools/call", "params": {
+                "name": "forma.opencode.validate_project", "arguments": {"project_ir": ir},
+            }} for index, ir in enumerate(({"overview": {}}, {"components": [], "nets": []}))
+        ])
+        self.assertEqual(200, response.status_code)
+        self.assertTrue(response.json()[0]["result"]["isError"])
+        self.assertTrue(response.json()[1]["result"]["structuredContent"]["is_valid"])
+
     def setUp(self) -> None:
         self.app = FastAPI()
         self.app.include_router(router, prefix="/api")
@@ -277,7 +335,26 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
             result = response.json()["result"]["structuredContent"]
             self.assertEqual([], result["project_ir"]["components"])
             self.assertEqual([], result["project_ir"]["nets"])
+            self.assertEqual("draft", result["design_outcome"]["project_readiness"])
             self.assertEqual({"is_valid": True, "issues": []}, result["validation"])
+            persist.assert_called_once()
+
+    def test_wired_design_compiles_with_populated_verified_outcome(self) -> None:
+        with patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
+             patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
+             patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
+             patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+            response = self.client.post("/api/opencode/mcp", json={
+                "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": wired_project().model_dump(mode="json")}},
+            })
+            self.assertEqual(200, response.status_code, response.text)
+            result = response.json()["result"]["structuredContent"]
+            self.assertEqual("complete", result["design_outcome"]["project_readiness"])
+            self.assertEqual(2, result["design_outcome"]["component_count"])
+            self.assertEqual(2, result["design_outcome"]["pin_count"])
+            self.assertEqual(1, result["design_outcome"]["net_count"])
+            self.assertTrue(result["validation"]["is_valid"])
             persist.assert_called_once()
 
     def test_pinless_saved_shape_is_invalid_through_validate_update_and_compile(self) -> None:
@@ -313,6 +390,7 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
                 self.assertFalse(validation["is_valid"])
                 self.assertEqual(10, len(validation["issues"]))
                 if operation != "validate":
+                    self.assertEqual("partial", result["design_outcome"]["project_readiness"])
                     self.assertFalse(result["project_ir"]["is_valid"])
                     self.assertFalse(persist.call_args.args[0].is_valid)
 

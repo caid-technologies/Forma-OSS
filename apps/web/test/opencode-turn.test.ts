@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { reduceOpenCodeTurn, type OpenCodeEvent, type OpenCodeTurnState } from "../lib/opencode.ts";
+import { openCodeDesignNotice, reduceOpenCodeTurn, type OpenCodeEvent, type OpenCodeTurnState } from "../lib/opencode.ts";
 
 const initial: OpenCodeTurnState = {
   content: "Waiting for OpenCode.",
@@ -8,6 +8,18 @@ const initial: OpenCodeTurnState = {
   status: "loading",
   terminalEvent: null,
 };
+
+test("saved draft and partial outcomes preserve agent text without claiming design completion", () => {
+  for (const readiness of ["draft", "partial"] as const) {
+    const answer = reduceOpenCodeTurn(initial, event("assistant_message", { message: "Saved your requirements." }), "command");
+    const result = reduceOpenCodeTurn(answer, event("completed", { design_outcome: { project_readiness: readiness } }), "command");
+    assert.equal(result.status, "success"); // execution success, not design readiness
+    assert.ok(result.content.startsWith("Saved your requirements."));
+    assert.ok(result.content.includes(openCodeDesignNotice(readiness)!));
+  }
+  assert.equal(openCodeDesignNotice("complete"), null);
+  assert.match(openCodeDesignNotice(undefined)!, /not been verified/);
+});
 
 function event(kind: OpenCodeEvent["kind"], overrides: Partial<OpenCodeEvent> = {}): OpenCodeEvent {
   return {

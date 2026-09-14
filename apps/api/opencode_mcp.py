@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import hashlib
 import logging
+from pydantic import ValidationError
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
@@ -16,10 +17,13 @@ from forma_core.opencode.models import (
     McpToolArguments,
     McpToolCallParams,
     ProjectToolResult,
+    AuthoringFieldError,
+    AuthoringToolError,
 )
 from forma_core.database import get_latest_project_revision, get_project_revision_by_source_job
 from forma_core.validation import build_validation_summary, validate_circuit
 from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
 
 
@@ -28,32 +32,34 @@ logger = logging.getLogger(__name__)
 
 def opencode_mcp_tools() -> list[dict[str, object]]:
     """Return only project authoring tools, never the broad Forma MCP registry."""
-    project_ir_schema = {"type": "object", "description": "Forma Hardware IR for this session project."}
+    project_ir_schema = HardwareIR.model_json_schema()
+    definitions = project_ir_schema.pop("$defs", {})
+    authoring_schema = {"type": "object", "properties": {"project_ir": project_ir_schema}, "required": ["project_ir"], "$defs": definitions, "additionalProperties": False}
     return [
         {
             "name": "forma.opencode.create_project",
-            "description": "Create the private project bound to the current OpenCode session.",
+            "description": "Save an empty private draft bound to this session. This does not produce a populated hardware design.",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
             "name": "forma.opencode.read_project",
-            "description": "Read the current private project bound to the current OpenCode session.",
+            "description": "Read the latest saved session project, revision, current validation, and design_outcome before reporting results.",
             "inputSchema": {"type": "object", "properties": {}},
         },
         {
             "name": "forma.opencode.update_project",
-            "description": "Validate and persist a new revision of the current session project.",
-            "inputSchema": {"type": "object", "properties": {"project_ir": project_ir_schema}, "required": ["project_ir"]},
+            "description": "Validate and persist a revision. Follow this schema and correct field errors before retrying. A saved draft is not a produced design; report project_readiness and validation, not HTTP success.",
+            "inputSchema": authoring_schema,
         },
         {
             "name": "forma.opencode.compile_project",
-            "description": "Compile and persist Hardware IR for the current private project.",
-            "inputSchema": {"type": "object", "properties": {"project_ir": project_ir_schema}, "required": ["project_ir"]},
+            "description": "Compile and persist Hardware IR. Correct schema errors and critical validation findings. Report the saved revision and project_readiness; draft/partial is not a completed design or physical verification.",
+            "inputSchema": authoring_schema,
         },
         {
             "name": "forma.opencode.validate_project",
             "description": "Run deterministic Forma electrical validation for the session project.",
-            "inputSchema": {"type": "object", "properties": {"project_ir": project_ir_schema}, "required": ["project_ir"]},
+            "inputSchema": authoring_schema,
         },
     ]
 
@@ -93,6 +99,16 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
         result = await _call_tool(tool_name, arguments, capability)
     except PermissionError:
         return _error(request_id, -32003, "The OpenCode tool is outside the session scope.", "authorization_required")
+    except ValidationError as exc:
+        # Never echo inputs, validator messages, context, or arbitrary mapping keys.
+        schema = HardwareIR.model_json_schema()
+        fields = {"project_ir", *schema.get("properties", {})}
+        for definition in schema.get("$defs", {}).values():
+            fields.update(definition.get("properties", {}))
+        errors = tuple(AuthoringFieldError(path=("project_ir", *[part if isinstance(part, int) or part in fields else "<key>" for part in error["loc"]]), type=error["type"])
+                       for error in exc.errors(include_input=False, include_context=False, include_url=False))
+        result = AuthoringToolError(errors=errors).model_dump(mode="json")
+        return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
     except (TypeError, ValueError, KeyError):
         return _error(request_id, -32602, "The project tool parameters are invalid.", "mcp_invalid_params")
     except Exception:
@@ -124,9 +140,14 @@ async def _call_tool(name: str, arguments: McpToolArguments, capability: Connect
             raise ValueError("The session project has not been created.")
         project = revision.state
         return _tool_result(project, project_id, _revision_identifier(revision))
-    if arguments.project_ir is None:
-        raise ValueError("project_ir is required")
-    project = arguments.project_ir
+    try:
+        project = HardwareIR.model_validate(arguments.project_ir)
+    except TypeError as exc:
+        # Legacy normalization can raise TypeError before Pydantic wraps it.
+        raise ValidationError.from_exception_data("HardwareIR", [{
+            "type": "model_type", "loc": (), "input": None,
+            "ctx": {"class_name": "HardwareIR"},
+        }]) from exc
     if name == "forma.opencode.validate_project":
         return _validation_result(project)
     if name in {"forma.opencode.compile_project", "forma.opencode.update_project"}:
@@ -169,8 +190,9 @@ def _tool_result(project: HardwareIR, project_id: str, revision_id: str | None) 
     return {
         "project_id": project_id,
         "revision_id": revision_id,
+        "design_outcome": evaluate_design_outcome(project).model_dump(mode="json"),
         "project_ir": project.model_dump(mode="json"),
-        "validation": {"is_valid": project.is_valid, "issues": [issue.model_dump(mode="json") for issue in [*project.validation.critical, *project.validation.warning, *project.validation.info]]},
+        "validation": _validation_result(project),
         "mermaid_code": generate_mermaid_chart(project),
         "svg_schematic": generate_svg_schematic(project),
     }

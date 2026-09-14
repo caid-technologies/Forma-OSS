@@ -10,6 +10,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator
 
 from forma_core.workspaces.projects.models import HardwareIR, ValidationIssue
+from forma_core.workspaces.projects.outcomes import DesignOutcome
 
 
 class OpenCodeSessionStatus(str, Enum):
@@ -83,6 +84,7 @@ class PublicEvent(BaseModel):
     revision_id: str | None = None
     validation: ValidationSummary | None = None
     artifact_ids: tuple[str, ...] = ()
+    design_outcome: DesignOutcome | None = None
     error: PublicError | None = None
     created_at: datetime
 
@@ -217,7 +219,23 @@ class ConnectorCompletion(BaseModel):
 class McpToolArguments(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    project_ir: HardwareIR | None = None
+    # Raw JSON is confined to the MCP boundary; the authorized handler validates IR.
+    project_ir: JsonValue = None
+
+
+class AuthoringFieldError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: tuple[str | int, ...]
+    type: str
+
+
+class AuthoringToolError(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    code: Literal["hardware_ir_invalid"] = "hardware_ir_invalid"
+    message: str = "Correct these fields using the tool inputSchema, then retry."
+    errors: tuple[AuthoringFieldError, ...]
 
 
 class McpRequestParams(BaseModel):
@@ -312,6 +330,7 @@ class ProjectToolResult(BaseModel):
     validation: ProjectValidation
     mermaid_code: str
     svg_schematic: str
+    design_outcome: DesignOutcome
 
 
 class ProjectScopeResult(BaseModel):

@@ -23,9 +23,17 @@ export type OpenCodeEvent = {
   status: OpenCodeCommand["status"] | null;
   message: string | null;
   revision_id: string | null;
+  design_outcome?: { project_readiness: "draft" | "partial" | "complete" } | null;
   error: { code: string; message: string; correlation_id: string } | null;
   created_at: string;
 };
+
+export function openCodeDesignNotice(readiness: unknown): string | null {
+  if (readiness === "complete") return null;
+  if (readiness === "draft") return "Draft saved only. No populated hardware design was produced. Ask OpenCode to add components, pins, and wiring, then compile and resolve validation findings.";
+  if (readiness === "partial") return "An incomplete design was saved. Review its wiring and validation findings before treating it as a completed design.";
+  return "OpenCode finished responding, but a completed design has not been verified.";
+}
 
 type OpenCodeEventPage = {
   events: OpenCodeEvent[];
@@ -58,11 +66,15 @@ export function reduceOpenCodeTurn(
     // A prior command's terminal event must not finish the current turn.
     if (event.event_id !== `${commandId}:terminal` && event.event_id !== `cancelled_${event.session_id}`) return state;
     const status = event.kind === "completed" ? "success" : event.kind === "failed" ? "error" : "cancelled";
-    const content = event.kind === "completed"
+    let content = event.kind === "completed"
       ? state.assistantMessage || "OpenCode finished responding."
       : event.kind === "failed"
         ? event.error?.message || "OpenCode could not complete this request."
-        : "OpenCode was stopped.";
+         : "OpenCode was stopped.";
+    if (event.kind === "completed" && event.design_outcome) {
+      const notice = openCodeDesignNotice(event.design_outcome.project_readiness);
+      if (notice) content += `\n\n${notice}`;
+    }
     return { ...state, content, status, terminalEvent: event };
   }
   return {
@@ -127,6 +139,8 @@ function parseEvent(value: unknown): OpenCodeEvent {
   const status = item.status === null || item.status === undefined ? null : stringField(item, "status");
   if (status !== null && !["queued", "leased", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("OpenCode returned an invalid event status.");
   const errorValue = item.error === null || item.error === undefined ? null : record(item.error);
+  const outcome = item.design_outcome == null ? null : record(item.design_outcome);
+  if (outcome && !["draft", "partial", "complete"].includes(String(outcome.project_readiness))) throw new Error("OpenCode returned an invalid design outcome.");
   return {
     event_id: stringField(item, "event_id"),
     sequence: Number(item.sequence),
@@ -136,6 +150,7 @@ function parseEvent(value: unknown): OpenCodeEvent {
     status: status as OpenCodeEvent["status"],
     message: nullableStringField(item, "message"),
     revision_id: nullableStringField(item, "revision_id"),
+    design_outcome: outcome ? { project_readiness: outcome.project_readiness as "draft" | "partial" | "complete" } : null,
     error: errorValue
       ? {
           code: stringField(errorValue, "code"),

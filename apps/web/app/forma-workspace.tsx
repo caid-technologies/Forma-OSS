@@ -17,6 +17,7 @@ import {
   createOpenCodeSession,
   listOpenCodeEvents,
   reduceOpenCodeTurn,
+  openCodeDesignNotice,
   submitOpenCodeCommand,
   type OpenCodeSession,
   type OpenCodeTurnState,
@@ -4700,7 +4701,7 @@ export function FormaWorkspace({
 
   const loadOldProject = async (
     projectId: string,
-    options: { syncRoute?: boolean; signal?: AbortSignal; tab?: string | null; hydrateChat?: boolean; chatId?: string; retryTransient?: boolean; openCodeResult?: boolean } = {}
+    options: { syncRoute?: boolean; signal?: AbortSignal; tab?: string | null; hydrateChat?: boolean; chatId?: string; retryTransient?: boolean; openCodeResult?: boolean; onReadiness?: (readiness: unknown) => void } = {}
   ): Promise<boolean> => {
     if (options.signal?.aborted) return false;
 
@@ -4739,6 +4740,7 @@ export function FormaWorkspace({
       }
 
       const ir = withProjectResponseMetadata(data.project_ir, data);
+      options.onReadiness?.(data.project_readiness);
       if (isVisibleChat()) {
         setProjectIR(ir);
         if (options.hydrateChat && canChatWithProjectIR(ir)) {
@@ -4810,6 +4812,7 @@ export function FormaWorkspace({
                 chatId: turn.chatId,
                 retryTransient: true,
                 openCodeResult: true,
+                onReadiness: (readiness) => { resultLoadNotice = openCodeDesignNotice(readiness); },
               });
               if (!projectLoaded) {
                 resultLoadNotice = "OpenCode finished responding, but no saved project is available to this account. If you expected a design, try opening it from your projects or ask OpenCode to check its saved result.";
@@ -4842,6 +4845,11 @@ export function FormaWorkspace({
             const errorPatch = { content: `${state.content}\n\n${resultLoadError}`, status: "error" as const };
             updateThreadMessage(turn.chatId, turn.assistantMessageId, errorPatch);
             if (activeChatIdRef.current === turn.chatId) updateChatMessage(turn.assistantMessageId, errorPatch);
+          }
+          if (resultLoadNotice && !resultLoadError && !state.content.includes(resultLoadNotice)) {
+            const noticePatch = { content: `${state.content}\n\n${resultLoadNotice}`, status: state.status };
+            updateThreadMessage(turn.chatId, turn.assistantMessageId, noticePatch);
+            if (activeChatIdRef.current === turn.chatId) updateChatMessage(turn.assistantMessageId, noticePatch);
           }
           if (activeChatIdRef.current === turn.chatId) setGenerationInputNotice(resultLoadError || resultLoadNotice);
           finishGenerationRun(turn.run);

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 from typing import List, Optional, Dict, Any, Iterable, Mapping
 from datetime import datetime
 import re
@@ -356,7 +356,7 @@ def expand_component_instances(
 
     expanded: List[ComponentInstance] = []
     used_refs: set[str] = set()
-    for value in components:
+    for index, value in enumerate(components):
         payload = _instance_payload(value)
         configuration = dict(payload.get("configuration") or {})
         legacy_quantity = configuration.pop("_legacy_aggregate_quantity", None)
@@ -376,7 +376,12 @@ def expand_component_instances(
             if ref_des in used_refs:
                 raise ValueError(f"Duplicate component reference designator '{ref_des}'.")
             used_refs.add(ref_des)
-            expanded.append(ComponentInstance.model_validate({**payload, "ref_des": ref_des}))
+            try:
+                expanded.append(ComponentInstance.model_validate({**payload, "ref_des": ref_des}))
+            except ValidationError as exc:
+                raise ValidationError.from_exception_data("ComponentInstance", [
+                    {**error, "loc": ("components", index, *error["loc"])} for error in exc.errors()
+                ]) from exc
     return expanded
 
 
@@ -515,10 +520,14 @@ class HardwareIR(BaseModel):
             return value
         payload = dict(value)
         components = expand_component_instances(payload.get("components") or [])
-        existing_definitions = [
-            item if isinstance(item, PartDefinition) else PartDefinition.model_validate(item)
-            for item in (payload.get("part_definitions") or [])
-        ]
+        existing_definitions = []
+        for index, item in enumerate(payload.get("part_definitions") or []):
+            try:
+                existing_definitions.append(item if isinstance(item, PartDefinition) else PartDefinition.model_validate(item))
+            except ValidationError as exc:
+                raise ValidationError.from_exception_data("PartDefinition", [
+                    {**error, "loc": ("part_definitions", index, *error["loc"])} for error in exc.errors()
+                ]) from exc
         definitions = derive_part_definitions(components, existing_definitions)
         payload["hardware_ir_version"] = "0.2"
         payload["components"] = components

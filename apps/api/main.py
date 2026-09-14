@@ -157,6 +157,7 @@ from apps.api.design_briefs_api import router as design_briefs_router
 from apps.api.context_gathering_api import router as context_gathering_router
 from apps.api.project_workflow_api import router as project_workflow_router
 from apps.api.readiness_api import router as readiness_router
+from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 from apps.api.worker_plans_api import router as worker_plans_router
 from apps.api.user_integrations_api import router as user_integrations_router
 from apps.api.user_settings_api import router as user_settings_router
@@ -2556,6 +2557,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
         if revision is None or brief is None:
             raise HTTPException(status_code=404, detail="Project not found.")
         ir = revision.state.model_copy(deep=True)
+        design_outcome = evaluate_design_outcome(ir)
         ir.assembly_metadata = {
             **(ir.assembly_metadata or {}),
             "project_id": str(revision.project_id),
@@ -2563,6 +2565,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "can_chat": True,
             "project_revision": revision.revision,
             "design_brief_version": revision.design_brief_version,
+            "project_readiness": design_outcome.project_readiness,
         }
         return {
             "project_id": str(revision.project_id),
@@ -2575,7 +2578,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "mermaid_code": generate_mermaid_chart(ir),
             "svg_schematic": generate_svg_schematic(ir),
             "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
-            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "project_readiness": design_outcome.project_readiness,
             "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     project = resolved.project
@@ -2611,7 +2614,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "mermaid_code": None,
             "svg_schematic": None,
             "generation_status": (response_metadata or {}).get("generation_status", "succeeded"),
-            "project_readiness": (response_metadata or {}).get("project_readiness", "complete"),
+            "project_readiness": "partial",
             "generation_stages": ((response_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
 
@@ -2651,7 +2654,7 @@ def get_project_endpoint(project_id: str, user: UserContext = Depends(optional_u
             "mermaid_code": mermaid_code,
             "svg_schematic": svg_schematic,
             "generation_status": (ir.assembly_metadata or {}).get("generation_status", "succeeded"),
-            "project_readiness": (ir.assembly_metadata or {}).get("project_readiness", "complete"),
+            "project_readiness": evaluate_design_outcome(ir).project_readiness,
             "generation_stages": ((ir.assembly_metadata or {}).get("generation_run") or {}).get("records", {}),
         }
     except HTTPException:

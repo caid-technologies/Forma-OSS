@@ -101,9 +101,26 @@ function event(
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
 
-for (const resultMode of ["unpublished", "published", "forbidden", "unavailable", "malformed", "null-response", "network-error", "missing-revision"] as const) test(`OpenCode chat handles ${resultMode} project output`, async ({ page, baseURL }) => {
-  const projectPublished = resultMode === "published";
-  const resultLoadFails = resultMode !== "published" && resultMode !== "unpublished";
+for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidden", "unavailable", "malformed", "null-response", "network-error", "missing-revision"] as const) test(`OpenCode chat handles ${resultMode} project output`, async ({ page, baseURL }) => {
+  const projectPublished = ["published", "draft", "wired"].includes(resultMode);
+  const resultLoadFails = !projectPublished && resultMode !== "unpublished";
+  const readiness = resultMode === "draft" ? "draft" : resultMode === "wired" ? "complete" : "partial";
+  const savedProject = structuredClone(publishedProject);
+  if (resultMode === "draft") {
+    savedProject.project_ir.components = [];
+    savedProject.project_ir.part_definitions = [];
+  }
+  const wiredIR = {
+    ...publishedProject.project_ir,
+    part_definitions: [{
+      ...publishedProject.project_ir.part_definitions[0],
+      pins: [{ pin_id: "VBUS", name: "USB power", pin_type: "Power", voltage: 5 }],
+    }],
+    components: publishedProject.project_ir.components.slice(0, 2),
+    nets: [{ net_id: "USB", name: "USB power", net_type: "Power", pins: [
+      { ref_des: "U1", pin_id: "VBUS" }, { ref_des: "U2", pin_id: "VBUS" },
+    ] }],
+  };
   test.setTimeout(180_000);
   const appOrigin = new URL(baseURL!).origin;
   expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(appOrigin).hostname);
@@ -251,7 +268,7 @@ for (const resultMode of ["unpublished", "published", "forbidden", "unavailable"
       projectResponseStatuses.push(status);
       await route.fulfill({
         status,
-        json: resultMode === "null-response" ? null : resultMode === "malformed" ? { project_id: projectId } : status === 200 ? publishedProject : {
+        json: resultMode === "null-response" ? null : resultMode === "malformed" ? { project_id: projectId } : status === 200 ? { ...savedProject, project_ir: resultMode === "wired" ? wiredIR : savedProject.project_ir, project_readiness: readiness } : {
           detail: status === 404 ? "Project not found" : "Project store temporarily unavailable",
         },
       });
@@ -281,8 +298,8 @@ for (const resultMode of ["unpublished", "published", "forbidden", "unavailable"
     const missingProject = page.getByText(/no longer available in (?:the )?project database/i);
     const projectLinks = page.locator(`a[href*="${projectId}"]`);
     const projectOutput = page.getByRole("region", { name: "Project", exact: true });
-    const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: true });
-    const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: true });
+    const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: false });
+    const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: false });
 
     await expect(page.getByRole("status", { name: "OpenCode is authoring this workspace.", exact: true })).toBeVisible();
     await expect(composer).toBeVisible();
@@ -343,6 +360,9 @@ for (const resultMode of ["unpublished", "published", "forbidden", "unavailable"
       if (projectPublished) {
         await expect.poll(() => projectResponseStatuses.slice(0, 2)).toEqual([503, 200]);
         await expect(projectOutput).toBeVisible();
+        if (resultMode === "draft") await expect(page.getByText(/Draft saved only/).first()).toBeVisible();
+        if (resultMode === "published") await expect(page.getByText(/An incomplete design was saved/).first()).toBeVisible();
+        if (resultMode === "wired") await expect(page.getByText(/Draft saved only|An incomplete design was saved/)).toHaveCount(0);
         await expect(projectOutput.getByRole("heading", { name: publishedProject.project_ir.overview.title, exact: true })).toBeVisible();
         await expect(projectOutput.getByText(publishedProject.project_ir.overview.description, { exact: true })).toBeVisible();
         // Successful publication may also trigger route/inline hydration GETs.

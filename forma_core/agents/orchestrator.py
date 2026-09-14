@@ -5,7 +5,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, Tuple
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_serializer
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -80,6 +80,11 @@ logger = logging.getLogger(__name__)
 class DefaultComponentSelection(BaseModel):
     components: List[ComponentInstance]
     reconciled_component_parts: List[str] = Field(default_factory=list)
+
+    @field_serializer("components")
+    def serialize_components(self, components: List[ComponentInstance]) -> list[dict[str, object]]:
+        # Stage snapshots have no shared part_definitions to hydrate from.
+        return [component_detail_payload(component) for component in components]
 
 
 class DefaultWiringOutput(BaseModel):

@@ -4700,7 +4700,7 @@ export function FormaWorkspace({
 
   const loadOldProject = async (
     projectId: string,
-    options: { syncRoute?: boolean; signal?: AbortSignal; tab?: string | null; hydrateChat?: boolean; chatId?: string; retryTransient?: boolean } = {}
+    options: { syncRoute?: boolean; signal?: AbortSignal; tab?: string | null; hydrateChat?: boolean; chatId?: string; retryTransient?: boolean; openCodeResult?: boolean } = {}
   ): Promise<boolean> => {
     if (options.signal?.aborted) return false;
 
@@ -4715,7 +4715,8 @@ export function FormaWorkspace({
         try {
           res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}`, {
             signal,
-            headers: await optionalAuthHeaders(),
+            headers: await (options.openCodeResult ? generationRequestHeaders() : optionalAuthHeaders()),
+            cache: "no-store",
           });
         } catch (error) {
           if (signal?.aborted || attempt === attempts - 1) throw error;
@@ -4723,10 +4724,19 @@ export function FormaWorkspace({
         if (res && res.status !== 429 && res.status < 500) break;
         if (attempt < attempts - 1) await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
       }
-      if (!res?.ok) return false;
+      if (!res?.ok) {
+        if (options.openCodeResult && res?.status !== 404) {
+          throw new Error(`OpenCode finished, but its project could not be loaded${res ? ` (HTTP ${res.status})` : ""}. Try opening the saved project again.`);
+        }
+        return false;
+      }
 
       const data = await res.json();
       if (signal?.aborted) return false;
+
+      if (!data?.project_ir || typeof data.project_ir !== "object" || !Array.isArray(data.project_ir.components)) {
+        throw new Error("OpenCode finished, but the project response contains no usable Hardware IR. Try opening the saved project again.");
+      }
 
       const ir = withProjectResponseMetadata(data.project_ir, data);
       if (isVisibleChat()) {
@@ -4742,6 +4752,7 @@ export function FormaWorkspace({
       const errorName = error instanceof Error ? error.name : "";
       if (errorName !== "AbortError") {
         console.error(error);
+        if (options.openCodeResult) throw error;
       }
       return false;
     } finally {
@@ -4786,15 +4797,31 @@ export function FormaWorkspace({
         if (terminalEvent) {
           delete openCodePollTimersRef.current[turn.sessionId];
           if (terminalEvent.kind === "cancelled") delete openCodeSessionsRef.current[turn.chatId];
+          let resultLoadError: string | null = null;
+          let resultLoadNotice: string | null = null;
           if (terminalEvent.kind === "completed") {
             // A successful conversation need not create a project. Probe before linking it.
-            const projectLoaded = await loadOldProject(terminalEvent.project_id, {
-              syncRoute: false,
-              tab: "chat",
-              signal: turn.run.controller.signal,
-              chatId: turn.chatId,
-              retryTransient: true,
-            });
+            let projectLoaded = false;
+            try {
+              projectLoaded = await loadOldProject(terminalEvent.project_id, {
+                syncRoute: false,
+                tab: "chat",
+                signal: turn.run.controller.signal,
+                chatId: turn.chatId,
+                retryTransient: true,
+                openCodeResult: true,
+              });
+              if (!projectLoaded) {
+                resultLoadNotice = "OpenCode finished responding, but no saved project is available to this account. If you expected a design, try opening it from your projects or ask OpenCode to check its saved result.";
+              }
+              if (!projectLoaded && terminalEvent.revision_id) {
+                resultLoadError = "OpenCode saved a revision, but the project is not available to this account. Try opening the saved project again.";
+              }
+            } catch (error) {
+              resultLoadError = error instanceof Error && error.message.startsWith("OpenCode")
+                ? error.message
+                : "OpenCode finished, but its project could not be loaded. Check your connection and sign-in, then try opening the saved project again.";
+            }
             if (turn.run.cancelled || turn.run.controller.signal.aborted) return;
             if (projectLoaded) {
               contextProjectIdsRef.current[turn.chatId] = terminalEvent.project_id;
@@ -4811,7 +4838,12 @@ export function FormaWorkspace({
               refreshProjectAndChatLists();
             }
           }
-          if (activeChatIdRef.current === turn.chatId) setGenerationInputNotice(null);
+          if (resultLoadError) {
+            const errorPatch = { content: `${state.content}\n\n${resultLoadError}`, status: "error" as const };
+            updateThreadMessage(turn.chatId, turn.assistantMessageId, errorPatch);
+            if (activeChatIdRef.current === turn.chatId) updateChatMessage(turn.assistantMessageId, errorPatch);
+          }
+          if (activeChatIdRef.current === turn.chatId) setGenerationInputNotice(resultLoadError || resultLoadNotice);
           finishGenerationRun(turn.run);
           return;
         }
@@ -4873,6 +4905,7 @@ export function FormaWorkspace({
 
   useEffect(() => {
     if (currentRouteProjectId || homeView !== "chat" || !inlineChatProjectId || loadedProjectId === inlineChatProjectId) return;
+    if (currentRouteChatId && activeChatId !== safeDecodeChatId(currentRouteChatId)) return;
 
     const controller = new AbortController();
     let retryTimer: number | null = null;
@@ -4914,7 +4947,7 @@ export function FormaWorkspace({
     };
     // The project id and loaded project identity fully define this hydration request.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentRouteChatId, currentRouteProjectId, homeView, inlineChatProjectId, loadedProjectId]);
+  }, [activeChatId, currentRouteChatId, currentRouteProjectId, homeView, inlineChatProjectId, loadedProjectId]);
 
   const routedProjectId = currentRouteProjectId ? safeDecodeProjectId(currentRouteProjectId) : "";
 
@@ -5486,12 +5519,14 @@ export function FormaWorkspace({
   })();
 
   useEffect(() => {
-    if (routedProjectId) return;
+    // Routed chats are hydrated by the route loader. A project's backend chat
+    // identity may differ from the browser's OpenCode conversation identity.
+    if (routedProjectId || routedChatId) return;
     if (!currentUserOwnsProject) return;
     if (!currentProjectId || currentProjectChatMessages.length) return;
     ensureChatThread(currentProjectId, projectIR, projectIR?.assembly_metadata?.source_prompt);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routedProjectId, currentUserOwnsProject, currentProjectId, currentProjectChatMessages.length, projectIR]);
+  }, [routedProjectId, routedChatId, currentUserOwnsProject, currentProjectId, currentProjectChatMessages.length, projectIR]);
 
   const deliverySignatureRef = useRef<string | null>(null);
   useEffect(() => {

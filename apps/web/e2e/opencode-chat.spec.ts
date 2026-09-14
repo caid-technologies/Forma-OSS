@@ -19,16 +19,18 @@ const publishedProject = {
       estimated_cost: 5,
       category: "Monitoring",
     },
-    components: [{
-      ref_des: "U1",
+    part_definitions: [{
+      part_definition_id: "esp32",
       part_number: "ESP32-DevKitC",
       name: "ESP32 development board",
       category: "Microcontroller",
-      quantity: 1,
       unit_price: 5,
       rationale: "Provides USB power and an onboard controller for the status monitor.",
       pins: [],
     }],
+    components: Array.from({ length: 9 }, (_, index) => ({
+      ref_des: `U${index + 1}`, part_definition_id: "esp32", rationale: "Controller module",
+    })),
     connections: [],
     nets: [],
     assembly: [],
@@ -99,7 +101,9 @@ function event(
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
 
-for (const projectPublished of [false, true]) test(`OpenCode chat survives connector recovery with a ${projectPublished ? "published" : "unpublished"} project, reuses its session, and starts a new chat`, async ({ page, baseURL }) => {
+for (const resultMode of ["unpublished", "published", "forbidden", "unavailable", "malformed", "null-response", "network-error", "missing-revision"] as const) test(`OpenCode chat handles ${resultMode} project output`, async ({ page, baseURL }) => {
+  const projectPublished = resultMode === "published";
+  const resultLoadFails = resultMode !== "published" && resultMode !== "unpublished";
   test.setTimeout(180_000);
   const appOrigin = new URL(baseURL!).origin;
   expect(["localhost", "127.0.0.1", "[::1]"]).toContain(new URL(appOrigin).hostname);
@@ -225,6 +229,7 @@ for (const projectPublished of [false, true]) test(`OpenCode chat survives conne
           event(sequence + 1, "completed", {
             event_id: `${commandIds[turn - 1]}:terminal`,
             status: "succeeded",
+            revision_id: resultMode === "missing-revision" ? "saved-revision" : null,
           }),
         ];
         completedTurns.push(turn);
@@ -235,11 +240,18 @@ for (const projectPublished of [false, true]) test(`OpenCode chat survives conne
     if (method === "GET" && path === `/projects/${projectId}`) {
       const turn = commandRequests.length;
       projectProbes.push({ turn, afterCompletion: completedTurns.includes(turn) });
-      const status = !projectPublished ? 404 : projectProbes.length === 1 ? 503 : 200;
+      if (resultMode === "network-error") {
+        await route.abort("failed");
+        return;
+      }
+      const status = resultMode === "forbidden" ? 403
+        : resultMode === "unavailable" ? 503
+        : resultMode === "malformed" || resultMode === "null-response" ? 200
+        : !projectPublished ? 404 : projectProbes.length === 1 ? 503 : 200;
       projectResponseStatuses.push(status);
       await route.fulfill({
         status,
-        json: status === 200 ? publishedProject : {
+        json: resultMode === "null-response" ? null : resultMode === "malformed" ? { project_id: projectId } : status === 200 ? publishedProject : {
           detail: status === 404 ? "Project not found" : "Project store temporarily unavailable",
         },
       });
@@ -300,6 +312,19 @@ for (const projectPublished of [false, true]) test(`OpenCode chat survives conne
       ? "preserve the answer and original chat URL after canonical completion and a 503 retry"
       : "preserve the answer after canonical completion and exactly one 404 probe", async () => {
       releaseCompletion();
+      if (resultLoadFails) {
+        await expect.poll(() => projectProbes.length).toBeGreaterThan(0);
+        await page.clock.runFor(6_000);
+        await expect(stop).toHaveCount(0);
+        await expect(page.getByRole("main").getByText(/OpenCode.*(?:project could not be loaded|no usable Hardware IR|project is not available)/).first()).toBeVisible();
+        await expect(page.getByRole("main").getByText(/Hello from OpenCode/).first()).toBeVisible();
+        await expect(projectOutput).toHaveCount(0);
+        await expect(page).toHaveURL(originalChatUrl);
+        expect(projectProbes).toHaveLength(resultMode === "unavailable" || resultMode === "network-error" ? 3 : 1);
+        await page.clock.runFor(10_000);
+        expect(polls).toHaveLength(3);
+        return;
+      }
       await expect(firstAnswer).toBeVisible();
       if (projectPublished) {
         await expect.poll(() => projectResponseStatuses[0]).toBe(503);
@@ -330,6 +355,12 @@ for (const projectPublished of [false, true]) test(`OpenCode chat survives conne
       }
       expect(polls).toEqual([{ turn: 1, cursor: 0 }, { turn: 1, cursor: 1 }, { turn: 1, cursor: 3 }]);
     });
+
+    if (resultLoadFails) {
+      expect(unexpectedRequests).toEqual([]);
+      expect(pageErrors).toEqual([]);
+      return;
+    }
 
     await test.step("send a second turn in the same session and original UI chat", async () => {
       await followUpComposer.fill("Are you still there?");
@@ -376,6 +407,7 @@ for (const projectPublished of [false, true]) test(`OpenCode chat survives conne
       await followUpComposer.fill("Unsent draft");
       await newChat.click();
       await expect(page).not.toHaveURL(previousUrl);
+      await page.clock.runFor(6_000);
       await expect(composer).toHaveValue("");
       await expect(firstAnswer).toHaveCount(0);
       await expect(secondAnswer).toHaveCount(0);

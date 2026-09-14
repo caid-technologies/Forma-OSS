@@ -105,12 +105,27 @@ def gather_project_context_endpoint(
     project_id: UUID,
     request: ContextGatheringRequest,
     user: UserContext = Depends(require_user_context),
-    agent: ContextGatheringAgent = Depends(context_gathering_agent),
     build_dispatcher: ContextBuildDispatcher | None = Depends(context_build_dispatcher),
 ) -> ContextGatheringResponse:
     """Route one natural conversation turn and mutate context only when appropriate."""
 
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
+    try:
+        agent = context_gathering_agent(user)
+    except Exception as exc:
+        logger.exception(
+            "Context gathering agent initialization failed: project_id=%s user_id=%s",
+            project_id,
+            user.owner_user_id,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "code": "context_agent_initialization_failed",
+                "message": "Could not initialize the context gathering agent.",
+                "error_type": type(exc).__name__,
+            },
+        ) from exc
     owner = _owner(user)
     existing_chat = get_project_chat(request.conversation_id, owner)
     existing_messages = list(getattr(existing_chat, "messages", None) or [])

@@ -499,6 +499,8 @@ class GenerationWorker:
                     project_id=request.project_id,
                     owner_user_id=owner_user_id,
                     source_job_id=source_job_id,
+                    design_brief_id=request.design_brief_id,
+                    design_brief_version=request.design_brief_version,
                 )
             self._publish(outcome.revision, payload.design_brief, owner_user_id)
         except PipelineCancelledError:

@@ -124,6 +124,7 @@ def gather_project_context_endpoint(
                 "code": "context_agent_initialization_failed",
                 "message": "Could not initialize the context gathering agent.",
                 "error_type": type(exc).__name__,
+                "error": str(exc),
             },
         ) from exc
     owner = _owner(user)

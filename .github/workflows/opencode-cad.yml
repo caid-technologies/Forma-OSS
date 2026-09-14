@@ -9,6 +9,7 @@ on:
       - "forma_core/workspaces/projects/**"
       - "tests/opencode/**"
       - "tests/projects/test_*cad*.py"
+      - "tests/projects/inspect_native_step.py"
       - ".agents/skills/forma-hardware/scripts/cad.py"
       - ".github/workflows/opencode-cad.yml"
 

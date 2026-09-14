@@ -11,6 +11,8 @@ import {
 } from "../lib/active-llms";
 import { buildProjectDocsMarkdown, docsExportFilename } from "../lib/docs-export";
 import { normalizeContextSuggestions } from "../lib/context-suggestions";
+import { chatActivity, collectChatOperations, settleChatActivityMessages, type ChatActivity } from "../lib/chat-activity";
+import { useChatActivity } from "./forma-workspace/use-chat-activity";
 import { usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
 import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
@@ -547,10 +549,6 @@ function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: 
     if (!seen.has(local.id)) merged.push(local);
   });
   return merged.slice(-MAX_PROJECT_CHAT_MESSAGES);
-}
-
-function chatIsWaiting(messages: ChatMessage[]) {
-  return messages.some((message) => message.status === "loading");
 }
 
 function chatMessageIdentityKey(messages: ChatMessage[]) {
@@ -1683,6 +1681,8 @@ export function FormaWorkspace({
   const [resettingBuildMessageId, setResettingBuildMessageId] = useState<string | null>(null);
   const [contextSubmitting, setContextSubmitting] = useState(false);
   const [chatThreads, setChatThreads] = useState<Record<string, ChatMessage[]>>({});
+  const [liveChatMessageIds, setLiveChatMessageIds] = useState<Set<string>>(() => new Set());
+  useEffect(() => setLiveChatMessageIds(new Set()), [authIdentityKey]);
   const [projectChatInput, setProjectChatInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
@@ -1881,6 +1881,17 @@ export function FormaWorkspace({
     generationInputNotice || ((prompt.trim() || selectedImage) && !generationInputValidation.isValid
       ? generationInputValidation.message
       : null);
+  const trackLiveChatMessage = (id: string, status: ChatMessage["status"]) => {
+    if (!status) return;
+    setLiveChatMessageIds((current) => {
+      const live = status === "loading";
+      if (current.has(id) === live) return current;
+      const next = new Set(current);
+      if (live) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
   const appendChatMessage = (message: Omit<ChatMessage, "id" | "timestamp"> & { id?: string }) => {
     const nextMessage: ChatMessage = {
       id: message.id || newChatMessageId(),
@@ -1898,10 +1909,12 @@ export function FormaWorkspace({
       buildJobId: message.buildJobId || null,
       timestamp: chatTimestamp(),
     };
+    trackLiveChatMessage(nextMessage.id, nextMessage.status);
     setChatMessages((current) => [...current, nextMessage]);
     return nextMessage.id;
   };
   const updateChatMessage = (id: string, patch: Partial<Omit<ChatMessage, "id">>) => {
+    trackLiveChatMessage(id, patch.status);
     setChatMessages((current) =>
       current.map((message) =>
         message.id === id
@@ -1952,6 +1965,7 @@ export function FormaWorkspace({
       buildJobId: message.buildJobId || null,
       timestamp: chatTimestamp(),
     };
+    trackLiveChatMessage(nextMessage.id, nextMessage.status);
     setChatThreads((current) => {
       const nextMessages = [...(current[chatId] || []), nextMessage].slice(-MAX_PROJECT_CHAT_MESSAGES);
       writeStoredChatThread(chatId, nextMessages, chatStorageScope);
@@ -1966,6 +1980,7 @@ export function FormaWorkspace({
 
   const updateThreadMessage = (chatId: string | null, messageId: string, patch: Partial<Omit<ChatMessage, "id">>) => {
     if (!chatId || !messageId) return;
+    trackLiveChatMessage(messageId, patch.status);
     setChatThreads((current) => {
       const currentMessages = current[chatId] || [];
       const nextMessages = currentMessages.map((message) =>
@@ -3238,6 +3253,7 @@ export function FormaWorkspace({
   };
 
   const finishGenerationRun = (run: ActiveGenerationRun) => {
+    if (run.assistantMessageId) trackLiveChatMessage(run.assistantMessageId, "idle");
     if (activeGenerationRef.current !== run) return;
     activeGenerationRef.current = null;
     setActiveGeneration(null);
@@ -3519,13 +3535,16 @@ export function FormaWorkspace({
           return;
         }
         if (attempts >= 600) {
-          const message = error instanceof Error ? error.message : "Could not read build progress.";
-          setGenerationInputNotice(message);
-          contextBuildWatchersRef.current.delete(watcherKey);
-          return;
+          setGenerationInputNotice("Live build updates were interrupted. Checking the saved build status.");
         }
       }
-      if (attempts < 600) window.setTimeout(poll, 2000);
+      if (attempts >= 600) {
+        contextBuildWatchersRef.current.delete(watcherKey);
+        trackLiveChatMessage(assistantMessageId, "idle");
+        if (run) finishGenerationRun(run);
+        return;
+      }
+      window.setTimeout(poll, 2000);
     };
     window.setTimeout(poll, 750);
   };
@@ -3589,43 +3608,8 @@ export function FormaWorkspace({
     }
   };
 
-  useEffect(() => {
-    const pending = [...chatMessages].reverse().find((message) => (
-      message.status === "loading"
-      && Boolean(message.buildPlanId)
-      && Boolean(message.buildJobId)
-      && Boolean(message.contextProjectId)
-      && !message.projectId
-    ));
-    if (!pending?.buildPlanId || !pending.buildJobId || !pending.contextProjectId || !activeChatId) return;
-    if (!pending.pipelineProgress) {
-      const progress = createAgentPipelineProgress(
-        defaultAgentPipelineSteps,
-        generateProductImage,
-        chatTimestamp(),
-        pending.buildJobId,
-      );
-      updateChatMessage(pending.id, { pipelineProgress: progress, status: "loading" });
-      updateThreadMessage(activeChatId, pending.id, { pipelineProgress: progress, status: "loading" });
-    }
-    const run = beginContextBuildRun(
-      pending.contextProjectId,
-      pending.buildPlanId,
-      pending.buildJobId,
-      activeChatId,
-      pending.id,
-    );
-    watchContextBuild(
-      pending.contextProjectId,
-      pending.buildPlanId,
-      pending.buildJobId,
-      activeChatId,
-      pending.id,
-      run,
-    );
-    // The watcher registry makes this restart-safe without duplicating poll loops.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeChatId, chatMessageIdentityKey(chatMessages)]);
+  // Saved builds are observed by useChatActivity. Opening history must not
+  // call executeContextBuild; execution belongs to explicit submit/retry actions.
 
   const submitGatherContext = async (answer?: string) => {
     if (contextSubmitting || activeGenerationRef.current) return;
@@ -4954,15 +4938,52 @@ export function FormaWorkspace({
     `${homeView}:${activeChatId || ""}:${activeSidebarChatStarted ? "started" : "new"}`
   );
   useEffect(() => bindHomeChromeScroll(homeChromeRef.current), [bindHomeChromeScroll, homeView, projectIR]);
-  const waitingChatIds = useMemo(() => {
-    const ids = new Set<string>();
-    Object.entries(chatThreads).forEach(([chatId, messages]) => {
-      if (chatIsWaiting(messages)) ids.add(chatId);
+  const activityThreads = useMemo(() => {
+    const threads = { ...chatThreads };
+    if (activeChatId) {
+      const byId = new Map((threads[activeChatId] || []).map((message) => [message.id, message]));
+      chatMessages.forEach((message) => byId.set(message.id, message));
+      threads[activeChatId] = [...byId.values()];
+    }
+    return threads;
+  }, [activeChatId, chatMessages, chatThreads]);
+  const activityOperations = useMemo(() => collectChatOperations(activityThreads), [activityThreads]);
+  const activityObservations = useChatActivity({
+    apiUrl: API_URL,
+    scope: chatStorageScope,
+    enabled: !authRequired || (authLoaded && isSignedIn),
+    operations: activityOperations,
+    getHeaders: generationRequestHeaders,
+  });
+  useEffect(() => {
+    // This is a local projection of confirmed outcomes. Do not overwrite server
+    // chat history merely because its status was read, including in maintenance.
+    setChatMessages((current) => settleChatActivityMessages(current, activityObservations, liveChatMessageIds));
+    setChatThreads((current) => {
+      let changed = false;
+      const next = { ...current };
+      Object.entries(current).forEach(([chatId, messages]) => {
+        const settled = settleChatActivityMessages(messages, activityObservations, liveChatMessageIds);
+        if (settled !== messages) {
+          changed = true;
+          next[chatId] = settled;
+          writeStoredChatThread(chatId, settled, chatStorageScope);
+        }
+      });
+      return changed ? next : current;
     });
-    if (activeChatId && chatIsWaiting(chatMessages)) ids.add(activeChatId);
-    if (currentProjectChatId && chatIsWaiting(currentProjectChatMessages)) ids.add(currentProjectChatId);
-    return ids;
-  }, [activeChatId, chatMessages, chatThreads, currentProjectChatId, currentProjectChatMessages]);
+  }, [activityObservations, chatStorageScope, liveChatMessageIds]);
+  const chatActivityById = useMemo(() => {
+    const activities: Record<string, ChatActivity> = {};
+    Object.entries(activityThreads).forEach(([chatId, messages]) => {
+      const activity = chatActivity(messages, activityObservations, liveChatMessageIds);
+      if (activity) activities[chatId] = activity;
+    });
+    return activities;
+  }, [activityThreads, activityObservations, liveChatMessageIds]);
+  const waitingChatIds = useMemo(() => new Set(Object.entries(chatActivityById)
+    .filter(([, activity]) => activity.state === "running")
+    .map(([chatId]) => chatId)), [chatActivityById]);
   const projectJobs = a2aJobs.filter((job) => {
     if (currentProjectJobId && job.job_id === currentProjectJobId) return true;
     if (currentProjectId && job.result_summary?.project_id === currentProjectId) return true;
@@ -5130,6 +5151,7 @@ export function FormaWorkspace({
             onPinChat={togglePinnedChat}
             onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
             jobsPending={sidebarJobsPending}
@@ -5151,6 +5173,7 @@ export function FormaWorkspace({
             onPinChat={togglePinnedChat}
             onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
             jobsPending={sidebarJobsPending}
@@ -5200,6 +5223,7 @@ export function FormaWorkspace({
             onPinChat={togglePinnedChat}
             onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
             jobsPending={sidebarJobsPending}
@@ -5221,6 +5245,7 @@ export function FormaWorkspace({
             onPinChat={togglePinnedChat}
             onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
             jobsPending={sidebarJobsPending}
@@ -5272,6 +5297,7 @@ export function FormaWorkspace({
             onPinChat={togglePinnedChat}
             onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
             jobsPending={sidebarJobsPending}
@@ -5293,6 +5319,7 @@ export function FormaWorkspace({
             onPinChat={togglePinnedChat}
             onDeleteChat={deleteSidebarChat}
             waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
             chatsLoading={sidebarChatsLoading}
             showJobs={canViewJobs}
             jobsPending={sidebarJobsPending}
@@ -5581,6 +5608,7 @@ export function FormaWorkspace({
           onPinChat={togglePinnedChat}
           onDeleteChat={deleteSidebarChat}
           waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
           chatsLoading={sidebarChatsLoading}
           showJobs={canViewJobs}
           jobsPending={sidebarJobsPending}
@@ -5602,6 +5630,7 @@ export function FormaWorkspace({
           onPinChat={togglePinnedChat}
           onDeleteChat={deleteSidebarChat}
           waitingChatIds={waitingChatIds}
+          chatActivityById={chatActivityById}
           chatsLoading={sidebarChatsLoading}
           showJobs={canViewJobs}
           jobsPending={sidebarJobsPending}
@@ -7601,3 +7630,4 @@ function AgentPipelineProgressView({
     </div>
   );
 }
+

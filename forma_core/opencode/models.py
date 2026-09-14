@@ -137,6 +137,13 @@ class CommandResponse(BaseModel):
     updated_at: datetime
 
 
+class CommandContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    message: str = Field(min_length=1, max_length=12_000)
+    status: OpenCodeCommandStatus
+
+
 class ConnectorCommand(BaseModel):
     """A leased command returned to the trusted mini-PC connector."""
 
@@ -149,6 +156,7 @@ class ConnectorCommand(BaseModel):
     project_id: UUID
     operation: OpenCodeOperation
     message: str | None = None
+    conversation_context: tuple[CommandContext, ...] = Field(default=(), max_length=16)
     attempt_count: int = Field(ge=1)
     lease_expires_at: datetime
     lease_token: str = Field(min_length=1)

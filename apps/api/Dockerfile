@@ -25,6 +25,10 @@ RUN pip install --upgrade pip \
 COPY apps/__init__.py ./apps/__init__.py
 COPY apps/api ./apps/api
 COPY forma_core ./forma_core
+COPY .agents/skills/forma-hardware/scripts/cad.py ./.agents/skills/forma-hardware/scripts/cad.py
+# Install the native CAD kernel at build time, never in a live authoring request.
+RUN pip install 'opencad[occt]==0.2.3' \
+    && python .agents/skills/forma-hardware/scripts/cad.py check
 RUN chown -R appuser:appuser /app
 
 USER appuser

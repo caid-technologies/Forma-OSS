@@ -206,6 +206,16 @@ export function projectCadModel(project: unknown): unknown {
   return record?.cad_model ?? null;
 }
 
+export function nativeStepArtifact(value: unknown): { projectId: string; sha256: string } | null {
+  const cad = asRecord(value);
+  if (cad?.adapter !== "forma-opencad" || cad.format !== "step") return null;
+  const projectId = nonEmptyString(cad.project_id);
+  const sha256 = nonEmptyString(cad.stored_sha256);
+  if (!projectId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(projectId)
+      || !sha256 || !/^[0-9a-f]{64}$/.test(sha256)) return null;
+  return { projectId, sha256 };
+}
+
 export function resolveCadModel(value: unknown): CadModelDescriptor | null {
   if (value === null || value === undefined || value === "") return null;
 

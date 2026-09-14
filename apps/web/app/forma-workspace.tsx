@@ -5493,7 +5493,7 @@ export function FormaWorkspace({
           />
         );
       case "cad": {
-        return <CadModelPanel cadModel={currentCadModel} />;
+        return <CadModelPanel cadModel={currentCadModel} apiUrl={API_URL} getHeaders={generationRequestHeaders} />;
       }
       case "schematic":
         return <SchematicCanvas project={schematicProject} />;

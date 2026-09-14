@@ -84,6 +84,9 @@ def _placement_payload(project: HardwareIR) -> list[dict[str, Any]]:
 
 
 def _cad_source(project: HardwareIR) -> str:
+    if project.mechanical and project.mechanical.cad_operations:
+        from forma_core.workspaces.projects.solid_cad import solid_cad_source
+        return solid_cad_source(project.mechanical.cad_operations)
     width, depth, height = _project_dimensions(project)
     mechanical = project.mechanical
     enclosure_text = " ".join(
@@ -220,6 +223,7 @@ def _adapter_path() -> Path:
     candidates.extend(
         (
             Path(__file__).resolve().parents[3] / CAD_ADAPTER_RELATIVE_PATH,
+            Path(__file__).resolve().parents[4] / CAD_ADAPTER_RELATIVE_PATH,
             Path.cwd() / CAD_ADAPTER_RELATIVE_PATH,
         )
     )
@@ -239,7 +243,7 @@ def _cad_workspace(project_id: str | None) -> Path:
         character if character.isalnum() or character in {"-", "_"} else "_"
         for character in str(project_id or uuid4())
     ).strip("._") or str(uuid4())
-    project_root = root / project_key / "cad"
+    project_root = root / project_key / "cad" / uuid4().hex
     project_root.mkdir(parents=True, exist_ok=True)
     (project_root / "outputs").mkdir(exist_ok=True)
     return project_root
@@ -324,7 +328,7 @@ def _has_authoritative_cad(value: Any) -> bool:
 def _cad_is_applicable(project: HardwareIR) -> bool:
     if project.mechanical is None:
         return False
-    return bool(project.mechanical.component_placements or project.components or project.mechanical.render_dimensions)
+    return bool(project.mechanical.cad_operations or project.mechanical.component_placements or project.components or project.mechanical.render_dimensions)
 
 
 def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: str | None = None) -> None:
@@ -350,7 +354,8 @@ def ensure_native_cad_model(
     workflow: str | None = None,
 ) -> bool:
     """Generate native CAD when requested, preserving legacy optional behavior."""
-    if _has_authoritative_cad(project.cad_model):
+    explicit_solid = bool(project.mechanical and project.mechanical.cad_operations)
+    if _has_authoritative_cad(project.cad_model) and not explicit_solid:
         _set_cad_status(project, status="provided", required=required)
         return False
     if not _cad_is_applicable(project):
@@ -392,6 +397,12 @@ def ensure_native_cad_model(
             "opencad_version": step_summary.get("opencad_version"),
             "meshes": [_stl_mesh(stl_path)],
         }
+        if explicit_solid and project_id:
+            from forma_core.persistence.project_artifacts import ProjectArtifactStorage
+            # Persist actual STEP bytes before declaring success, independent of worker disk.
+            ProjectArtifactStorage().put(project_id, checksum, step_bytes, "model/step")
+            project.cad_model["stored_sha256"] = checksum
+            project.cad_model["project_id"] = project_id
         _set_cad_status(project, status="succeeded", required=required)
         if workflow:
             from forma_core.agents.pipeline import emit_agent_pipeline_event
@@ -404,6 +415,8 @@ def ensure_native_cad_model(
             )
         return True
     except Exception as exc:
+        if explicit_solid:
+            project.cad_model = None
         _set_cad_status(project, status="failed", required=required, error=str(exc))
         if workflow:
             from forma_core.agents.pipeline import emit_agent_pipeline_event

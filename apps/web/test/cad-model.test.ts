@@ -1,13 +1,22 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { projectCadModel, resolveCadModel } from "../lib/cad-model.ts";
+import { nativeStepArtifact, projectCadModel, resolveCadModel } from "../lib/cad-model.ts";
 
 const mesh = {
   shapeId: "body",
   vertices: [0, 0, 0, 1, 0, 0, 0, 1, 0],
   faces: [0, 1, 2],
 };
+
+test("a stored STEP stays renderable without a separately configured OpenCAD server", () => {
+  const cad = { adapter: "forma-opencad", format: "step", project_id: "11111111-1111-4111-8111-111111111111", stored_sha256: "a".repeat(64), path: "C:/private/assembly.step", meshes: [mesh] };
+  assert.equal(resolveCadModel(cad)?.kind, "meshes");
+  assert.deepEqual(nativeStepArtifact(cad), { projectId: cad.project_id, sha256: cad.stored_sha256 });
+  assert.equal(nativeStepArtifact({ ...cad, project_id: "https://untrusted.example" }), null);
+  assert.equal(nativeStepArtifact({ ...cad, stored_sha256: "../private" }), null);
+  assert.equal(nativeStepArtifact({ ...cad, stored_sha256: null }), null);
+});
 
 test("project CAD models are read from the canonical payload", () => {
   assert.equal(projectCadModel({ cad_model: "body.step" }), "body.step");

@@ -29,6 +29,10 @@ def evaluate_design_outcome(project: HardwareIR) -> DesignOutcome:
     readiness: Literal["draft", "partial", "complete"] = "partial"
     if not project.components and not project.nets:
         readiness = "draft"
+        if project.mechanical and project.mechanical.cad_operations:
+            cad = project.cad_model if isinstance(project.cad_model, dict) else {}
+            readiness = "complete" if (cad.get("stored_sha256") and cad.get("meshes")
+                and project.assembly_metadata.get("cad_generation", {}).get("status") == "succeeded") else "partial"
     elif project.components and pins and project.nets and not critical:
         readiness = "complete"
     # Generation-stage incompleteness remains blocking even with a valid circuit.

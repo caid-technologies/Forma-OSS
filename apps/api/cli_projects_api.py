@@ -29,6 +29,7 @@ from forma_core.database import (
     list_project_publish_audits,
     publish_cli_project,
     update_cli_project_delivery,
+    get_latest_project_revision,
 )
 from forma_core.persistence.project_artifacts import (
     ProjectArtifactStorage,
@@ -40,7 +41,7 @@ from forma_core.workspaces.projects.manifest import (
     validate_artifact_references,
 )
 from forma_core.workspaces.projects.models import ProjectIdentityResponse
-
+from forma_core.workspaces.projects import ProjectStateError
 
 router = APIRouter(prefix="/cli/projects", tags=["cli"])
 
@@ -575,10 +576,53 @@ async def get_latest_cli_project_revision(
     project_id: str,
     user: UserContext = Depends(require_user_context),
 ) -> dict[str, Any]:
-    revision = get_cli_project_revision(project_id, _owner(user))
-    if revision is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cloud project not found.")
-    return revision
+    owner = _owner(user)
+
+    cli_revision = get_cli_project_revision(project_id, owner)
+
+    try:
+        canonical_revision = get_latest_project_revision(project_id, owner)
+    except ProjectStateError:
+        canonical_revision = None
+
+    if canonical_revision is None:
+        if cli_revision is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Cloud project not found.",
+            )
+        return cli_revision
+
+    manifest = dict((cli_revision or {}).get("manifest") or {})
+
+    manifest.update(
+        {
+            "project_id": str(canonical_revision.project_id),
+            "project_ir": canonical_revision.state.model_dump(mode="json"),
+        }
+    )
+
+    if canonical_revision.state.overview is not None:
+        manifest["title"] = canonical_revision.state.overview.title
+
+    parent_revision_id = None
+
+    if canonical_revision.parent_revision is not None and cli_revision is not None:
+        cli_revision_number = int(cli_revision.get("revision") or 0)
+
+        if cli_revision_number == canonical_revision.parent_revision:
+            parent_revision_id = (
+                str(cli_revision.get("revision_id") or "").strip() or None
+            )
+
+    return {
+        "revision_id": str(canonical_revision.revision_id),
+        "project_id": str(canonical_revision.project_id),
+        "revision": canonical_revision.revision,
+        "parent_revision_id": parent_revision_id,
+        "manifest": manifest,
+        "created_at": canonical_revision.created_at.isoformat(),
+    }
 
 
 __all__ = ["router"]

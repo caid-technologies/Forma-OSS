@@ -1,6 +1,8 @@
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
+from itertools import count
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -9,6 +11,12 @@ from forma_core.opencode.store import OpenCodeStore
 
 
 class ContextTests(unittest.TestCase):
+    def setUp(self):
+        # Model sequential chat requests independently of the OS clock resolution.
+        ticks = count()
+        self.enterContext(patch("forma_core.opencode.store._now", side_effect=lambda:
+            datetime(2026, 9, 14, tzinfo=timezone.utc) + timedelta(seconds=next(ticks))))
+
     def test_cancelled_brief_survives_restart_and_excludes_other_sessions_and_future_requests(self):
         with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {"FORMA_USER_SECRETS_KEY": "test-key"}):
             path = directory + "/store.sqlite"

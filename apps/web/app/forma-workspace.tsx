@@ -7775,6 +7775,7 @@ function ChatWorkspace({
                         event.currentTarget.form?.requestSubmit();
                       }
                     }}
+                    aria-label={`Describe a change to ${activeNamespaceLabel.toLowerCase()}`}
                     placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
                     className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                   />

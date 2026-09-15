@@ -297,7 +297,7 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     const stop = page.getByRole("button", { name: "Stop generation", exact: true });
     const missingProject = page.getByText(/no longer available in (?:the )?project database/i);
     const projectLinks = page.locator(`a[href*="${projectId}"]`);
-    const projectOutput = page.getByRole("region", { name: "Project", exact: true });
+    const projectOutput = page.getByTestId("project-pane");
     const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: false });
     const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: false });
 
@@ -418,6 +418,41 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
       expect(polls).toEqual([
         { turn: 1, cursor: 0 }, { turn: 1, cursor: 1 }, { turn: 1, cursor: 3 }, { turn: 2, cursor: 5 },
       ]);
+    });
+
+    if (projectPublished) await test.step("the real OpenCode page shares one pane and preserves mobile drafts", async () => {
+      const layout = page.getByTestId("chat-project-layout");
+      await expect(layout).toHaveAttribute("data-layout", "split");
+      await expect(projectOutput).toHaveCount(1);
+      await expect(page.getByTestId("chat-pane").getByTestId("project-pane")).toHaveCount(0);
+      await expect(page.getByTestId("chat-pane").locator("canvas")).toHaveCount(0);
+      const currentCard = page.getByRole("button", { name: /View current project/ }).last();
+      await expect(currentCard).toBeVisible();
+      await page.getByRole("button", { name: "Close project", exact: true }).click();
+      await expect(projectOutput).toHaveCount(0);
+      await currentCard.click();
+      await expect(projectOutput).toHaveCount(1);
+      await page.getByRole("button", { name: "View project full screen", exact: true }).click();
+      await expect(page.getByRole("dialog", { name: "Project workspace", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+      await expect(layout).toHaveAttribute("data-layout", "split");
+      await expect(projectOutput).toHaveCount(1);
+      await page.screenshot({ path: `test-results/opencode-${resultMode}-workspace-desktop.png`, fullPage: true });
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.getByRole("button", { name: "Chat", exact: true }).click();
+      await expect(projectOutput).toHaveCount(0);
+      await followUpComposer.fill("Preserve this mobile draft");
+      await page.getByRole("button", { name: "Show project", exact: true }).click();
+      await expect(projectOutput).toHaveCount(1);
+      await expect(page.getByTestId("chat-pane")).toBeHidden();
+      await page.getByRole("button", { name: "Chat", exact: true }).click();
+      await expect(projectOutput).toHaveCount(0);
+      await expect(followUpComposer).toHaveValue("Preserve this mobile draft");
+      await page.screenshot({ path: `test-results/opencode-${resultMode}-workspace-mobile.png`, fullPage: true });
+      await followUpComposer.fill("");
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.getByRole("button", { name: "Show project", exact: true }).click();
+      await expect(layout).toHaveAttribute("data-layout", "split");
     });
 
     await test.step("New chat resets the rendered conversation with legacy hosted chat disabled", async () => {

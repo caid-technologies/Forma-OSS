@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import CopyButton from "../../components/copy-button";
+import { ProjectUpdateCard } from "./chat-project-layout";
 
 export type ConversationMessage = {
   id: string;
@@ -162,6 +163,7 @@ export default function ConversationMessageList({
             />
           )}
           {showPipeline && renderPipelineProgress(message)}
+          <ProjectUpdateCard message={message} />
         </div>
       </div>
     );

@@ -30,6 +30,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
 
     setMeshes([]);
     setError(null);
@@ -52,10 +53,11 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
     void (async () => {
       try {
         const { OpenCadApiClient } = await import("opencad-viewport");
+        if (cancelled) return;
         const api = new OpenCadApiClient(apiBaseUrl, kernelUrl);
         const mesh = descriptor.kind === "shape"
           ? await api.getMesh(descriptor.shapeId)
-          : await loadFileMesh(api, descriptor.url, descriptor.filename);
+          : await loadFileMesh(api, descriptor.url, descriptor.filename, controller.signal);
         if (cancelled) return;
         setMeshes([mesh]);
       } catch (reason) {
@@ -69,6 +71,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [descriptor]);
 
@@ -137,12 +140,15 @@ async function loadFileMesh(
   api: OpenCadApiClient,
   url: string,
   filename: string,
+  signal: AbortSignal,
 ): Promise<MeshPayload> {
-  const response = await fetch(url);
+  const response = await fetch(url, { signal });
   if (!response.ok) throw new Error(`Could not fetch CAD model (${response.status}).`);
   const blob = await response.blob();
+  signal.throwIfAborted();
   const file = new File([blob], filename, { type: blob.type || "application/octet-stream" });
   const imported = await api.importCadFile(file);
+  signal.throwIfAborted();
   return api.getMesh(imported.shape_id);
 }
 

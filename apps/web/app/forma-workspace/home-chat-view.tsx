@@ -20,6 +20,7 @@ import { shouldOfferFailedBuildRetry } from "../../lib/conversation-build-state"
 import ConversationMessageList, { type ConversationMessage } from "./conversation-message-list";
 import HostedChatMaintenance, { AuthoringModeBanner } from "./hosted-chat-maintenance";
 import useChatAutoScroll from "./use-chat-auto-scroll";
+import ChatProjectLayout from "./chat-project-layout";
 
 type HomeChatViewProps = {
   started: boolean;
@@ -28,6 +29,7 @@ type HomeChatViewProps = {
   messages: ConversationMessage[];
   renderPipelineProgress: (message: ConversationMessage) => ReactNode;
   projectArtifact?: ReactNode;
+  projectArtifactId?: string | null;
   examples: string[];
   onSelectExample: (example: string) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
@@ -65,6 +67,7 @@ export default function HomeChatView({
   messages,
   renderPipelineProgress,
   projectArtifact,
+  projectArtifactId,
   examples,
   onSelectExample,
   onSubmit,
@@ -116,6 +119,7 @@ export default function HomeChatView({
   }, [selectedImage]);
 
   return (
+    <ChatProjectLayout conversationKey={conversationKey} projectId={projectArtifactId} project={started ? projectArtifact : null}>
     <section
       className={`${
         !started
@@ -169,7 +173,6 @@ export default function HomeChatView({
               buildNowLoading={readOnly ? false : buildNowLoading}
               onBuildNow={readOnly ? undefined : onBuildNow}
             />
-            {projectArtifact}
             <div ref={endRef} />
           </div>
         )}
@@ -199,11 +202,9 @@ export default function HomeChatView({
         {!readOnly && (
           <form
             onSubmit={onSubmit}
-            className={`${
-            started
-              ? "md:sticky md:bottom-0 md:bg-transparent md:pb-3"
-              : "md:static md:order-1 md:bg-transparent md:p-0"
-            } fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible`}
+            className={started
+              ? "relative z-20 max-h-[50dvh] shrink-0 overflow-y-auto overscroll-contain border-t border-[var(--forma-border)] bg-[var(--forma-page)] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:px-4"
+              : "fixed bottom-0 left-0 right-0 z-30 max-h-[calc(100dvh-3rem)] shrink-0 overflow-y-auto overscroll-contain bg-transparent px-3 pb-[max(0.4rem,env(safe-area-inset-bottom))] pt-1 sm:px-4 md:static md:order-1 md:left-auto md:right-auto md:z-20 md:max-h-none md:overflow-visible md:bg-transparent md:p-0"}
           >
           {(needsGenerationProvider || needsImageProvider) && (
             <section className="mb-3 rounded-xl border border-white/5 bg-[#181b22] p-3 text-left sm:p-4" aria-label="Bring your own key setup">
@@ -359,5 +360,6 @@ export default function HomeChatView({
         {started && !readOnly && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
+    </ChatProjectLayout>
   );
 }

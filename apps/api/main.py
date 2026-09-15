@@ -110,7 +110,9 @@ from forma_core.database import (
 )
 from forma_core.project_list_cache import (
     cache_project_list,
+    cache_project_page,
     get_cached_project_list,
+    get_cached_project_page,
     require_project_list_cache_config,
 )
 from apps.api.seed_db import seed_database
@@ -2376,16 +2378,30 @@ def list_projects_endpoint(
     """Lists public compiled hardware projects."""
     try:
         if limit is not None:
-            items, total = _paginated_gallery_summaries(
-                owner_user_id=None,
-                visibility="public",
-                limit=limit,
-                offset=offset,
-                search=q,
-                summary_builder=_gallery_inventory_cache_record,
-                on_page_records=lambda records: _log_gallery_legacy_fallback("public", records),
-                include_search_in_page_call=True,
+            limit = max(1, min(int(limit), 50))
+            offset = max(0, int(offset))
+            q = (q or "").strip() or None
+            cached_page, generation = get_cached_project_page(
+                "public", None, limit=limit, offset=offset, search=q,
             )
+            if cached_page is not None:
+                items, total = cached_page["items"], cached_page["total"]
+            else:
+                items, total = _paginated_gallery_summaries(
+                    owner_user_id=None,
+                    visibility="public",
+                    limit=limit,
+                    offset=offset,
+                    search=q,
+                    summary_builder=_gallery_inventory_cache_record,
+                    on_page_records=lambda records: _log_gallery_legacy_fallback("public", records),
+                    include_search_in_page_call=True,
+                )
+                cache_project_page(
+                    "public", None, jsonable_encoder(items), total, generation,
+                    limit=limit, offset=offset, search=q,
+                )
+            # Personalization and engagement stay OUTSIDE the shared cache.
             return {
                 "items": _with_project_engagement(
                     _personalize_public_project_records(items, user.owner_user_id),

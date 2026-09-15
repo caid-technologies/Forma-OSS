@@ -106,7 +106,7 @@ export function workspaceStatusBadge({
     return present("delivered", "delivered", "Delivered — agent work is on-chain", false);
   }
   if (authoring) {
-    return present("authoring", "authoring", "Authoring — OpenCode is building this project", true);
+    return present("authoring", "authoring", "Authoring — Forma Agent is building this project", true);
   }
 
   return present(

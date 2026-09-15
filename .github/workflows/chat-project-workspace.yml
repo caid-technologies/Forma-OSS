@@ -1,0 +1,53 @@
+name: Chat project workspace UI
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - apps/web/**
+      - .github/workflows/chat-project-workspace.yml
+
+permissions:
+  contents: read
+
+jobs:
+  workspace-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install locked application dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Typecheck the full frontend
+        id: typecheck
+        continue-on-error: true
+        run: npx --no-install tsc --noEmit
+      - name: Run layout and real-entry-point regression tests
+        run: node --experimental-strip-types --test test/chat-project-layout.test.ts test/chat-project-integration.test.ts
+      - name: Install browser-test-only tooling without changing the application lockfile
+        run: npm install --no-save --package-lock=false --legacy-peer-deps @playwright/test@1.63.0 esbuild@0.25.12
+      - name: Install Chromium
+        run: npx --no-install playwright install --with-deps chromium
+      - name: Test desktop, mobile, focus, resizing, and viewer lifetime
+        run: npx --no-install playwright test --config playwright.workspace.config.mjs
+      - name: Report full-frontend typecheck failure
+        if: always() && steps.typecheck.outcome == 'failure'
+        run: exit 1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chat-project-workspace-browser-results
+          path: |
+            apps/web/test-results/
+            apps/web/workspace-playwright-report/
+          retention-days: 7

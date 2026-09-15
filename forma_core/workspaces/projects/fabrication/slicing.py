@@ -19,11 +19,14 @@ from forma_core.workspaces.projects.fabrication.models import (
 )
 from forma_core.workspaces.projects.fabrication.slicers.base import SlicerAdapter
 from forma_core.workspaces.projects.fabrication.slicers.cura import CuraSlicerAdapter
+from forma_core.workspaces.projects.fabrication.slicers.orca import OrcaSlicerAdapter
 from forma_core.workspaces.projects.fabrication.validation import validate_gcode
 from forma_core.workspaces.projects.state import ProjectArtifact
 
 
 class SlicerCapability(BaseModel):
+    """Availability metadata for one configured slicer backend."""
+
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -32,7 +35,8 @@ class SlicerCapability(BaseModel):
 
 
 def _adapters() -> list[SlicerAdapter]:
-    return [CuraSlicerAdapter()]
+    """Return the built-in slicer adapter implementations."""
+    return [CuraSlicerAdapter(), OrcaSlicerAdapter()]
 
 
 def discover_slicers() -> list[SlicerCapability]:
@@ -51,6 +55,7 @@ def discover_slicers() -> list[SlicerCapability]:
 
 
 def get_slicer_adapter(backend: str, *, adapters: list[SlicerAdapter] | None = None) -> SlicerAdapter:
+    """Resolve an available slicer adapter by stable backend name."""
     name = str(backend or "").strip().lower()
     selected = next((adapter for adapter in (adapters or _adapters()) if adapter.name == name), None)
     if selected is None:
@@ -67,6 +72,7 @@ def _report_artifact(
     *,
     elapsed_s: float,
 ) -> ProjectArtifact:
+    """Create a JSON provenance report beside generated G-code."""
     gcode = Path(result.gcode_artifact.uri)
     report_path = gcode.with_suffix(".report.json")
     gcode_checksum = hashlib.sha256(gcode.read_bytes()).hexdigest()
@@ -82,6 +88,8 @@ def _report_artifact(
         "profile_name": result.profile_name,
         "printer_name": result.printer_name,
         "native_config": request.profile.native_config,
+        "native_settings": request.profile.native_settings,
+        "native_filaments": request.profile.native_filaments,
         "material": request.profile.material,
         "nozzle_diameter_mm": request.profile.nozzle_diameter_mm,
         "bed_size_mm": request.profile.bed_size_mm,

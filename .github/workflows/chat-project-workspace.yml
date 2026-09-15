@@ -15,6 +15,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  production-build:
+    name: Production frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Build the production frontend
+        run: npm run build
+
   workspace-ui:
     runs-on: ubuntu-latest
     timeout-minutes: 20

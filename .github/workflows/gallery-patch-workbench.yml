@@ -1,0 +1,26 @@
+name: Temporary gallery patch workbench
+
+on:
+  push:
+    branches: [perf/projects-gallery-20260915]
+    paths: [.github/workflows/gallery-patch-workbench.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  source:
+    if: github.ref == 'refs/heads/perf/projects-gallery-20260915'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export source for isolated patch verification
+        run: git archive --format=tar HEAD | gzip > /tmp/forma-gallery-source.tar.gz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forma-gallery-source
+          path: /tmp/forma-gallery-source.tar.gz
+          retention-days: 1

@@ -2287,6 +2287,39 @@ def remix_generated_project(source_project_id: str, owner_user_id: str) -> Optio
     return get_generated_project(new_project_id)
 
 
+def get_user_fabrication_settings(owner_user_id: str) -> Dict[str, Any]:
+    """Read a user's reviewed printer bundle; a missing row is a read-only default."""
+    from forma_core.workspaces.projects.fabrication.preferences import (
+        DEFAULT_PRINTER_ID, FabricationPreferenceUpdate,
+    )
+
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        raise ValueError("owner_user_id is required.")
+    row = _DATABASE_REPOSITORY.get_user_fabrication_settings(owner)
+    preference = FabricationPreferenceUpdate(
+        printer_id=getattr(row, "printer_id", DEFAULT_PRINTER_ID),
+    )
+    return {**preference.model_dump(), "source": "user" if row else "default",
+            "updated_at": getattr(row, "updated_at", None)}
+
+
+def set_user_fabrication_settings(
+    owner_user_id: str, *, printer_id: str, updated_at: str,
+) -> Dict[str, Any]:
+    """Persist only the authenticated owner's allowlisted printer preference."""
+    from forma_core.workspaces.projects.fabrication.preferences import FabricationPreferenceUpdate
+
+    owner = _normalize_user_id(owner_user_id)
+    if not owner:
+        raise ValueError("owner_user_id is required.")
+    preference = FabricationPreferenceUpdate(printer_id=printer_id)
+    row = _DATABASE_REPOSITORY.upsert_user_fabrication_settings({
+        "owner_user_id": owner, "printer_id": preference.printer_id, "updated_at": updated_at,
+    })
+    return {"printer_id": row.printer_id, "source": "user", "updated_at": row.updated_at}
+
+
 def get_user_settings(owner_user_id: str) -> Optional[Any]:
     normalized_owner_user_id = _normalize_user_id(owner_user_id)
     if not normalized_owner_user_id:

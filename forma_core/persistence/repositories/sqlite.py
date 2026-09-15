@@ -34,6 +34,7 @@ from forma_core.persistence.models import (
     DBProjectValidationReport,
     DBWorkerExecutionPlan,
     DBUserSettings,
+    DBUserFabricationSettings,
 )
 from forma_core.workspaces.projects.manifest import build_canonical_revision_record
 
@@ -1517,6 +1518,26 @@ class SqlAlchemyRepository:
                 .all()
             )
             return {str(project_id): int(count) for project_id, count in rows}
+
+    def get_user_fabrication_settings(self, owner_user_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.get(DBUserFabricationSettings, owner_user_id)
+
+    def upsert_user_fabrication_settings(self, record: Dict[str, Any]) -> Any:
+        # Atomic UPSERT: simultaneous first saves must not race an INSERT.
+        from sqlalchemy.dialects.sqlite import insert
+
+        statement = insert(DBUserFabricationSettings).values(**record)
+        statement = statement.on_conflict_do_update(
+            index_elements=["owner_user_id"],
+            set_={"printer_id": statement.excluded.printer_id,
+                  "updated_at": statement.excluded.updated_at},
+        )
+        with self._session() as session, session.begin():
+            session.execute(statement)
+            settings = session.get(DBUserFabricationSettings, record["owner_user_id"])
+            session.expunge(settings)
+            return settings
 
     def get_user_settings(self, owner_user_id: str) -> Optional[Any]:
         with self._session() as session:

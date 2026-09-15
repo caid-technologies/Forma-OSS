@@ -12,6 +12,10 @@ from forma_core.opencode.schema import OPENCODE_TABLE_CONTRACTS
 # an unrelated request.
 APPLICATION_SCHEMA: Tuple[TableContract, ...] = (
     TableContract(
+        "user_fabrication_settings",
+        ("owner_user_id", "printer_id", "updated_at"),
+    ),
+    TableContract(
         "component_templates",
         ("id", "part_number", "name", "category", "description", "price", "sourcing_url", "pins", "use_cases"),
     ),

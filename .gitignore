@@ -46,3 +46,7 @@ tmp/
 *.sln
 *.swp
 .vercel
+
+# Fabrication UI test output
+apps/web/.fabrication-settings-test/
+apps/web/fabrication-test-results/

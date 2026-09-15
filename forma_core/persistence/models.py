@@ -417,6 +417,16 @@ class DBWorkspaceIntegrationConfig(Base):
     updated_at = Column(String, nullable=False)
 
 
+class DBUserFabricationSettings(Base):
+    """Independent account preferences so printer saves cannot reset privacy choices."""
+
+    __tablename__ = "user_fabrication_settings"
+
+    owner_user_id = Column(String, primary_key=True)
+    printer_id = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
+
+
 class DBUserSettings(Base):
     __tablename__ = "user_settings"
 

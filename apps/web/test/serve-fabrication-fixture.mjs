@@ -1,0 +1,28 @@
+import { build } from "esbuild";
+import { createServer } from "node:http";
+import { readFile, mkdir } from "node:fs/promises";
+import { join, resolve } from "node:path";
+
+const directory = join(process.cwd(), ".fabrication-settings-test");
+await mkdir(directory, { recursive: true });
+await build({
+  entryPoints: ["test/fixtures/fabrication-settings.tsx"], bundle: true, platform: "browser", jsx: "automatic",
+  outfile: join(directory, "fixture.js"),
+  define: { "process.env": JSON.stringify({ NODE_ENV: "development", NEXT_PUBLIC_API_URL: "/api" }) },
+  plugins: [{ name: "test-auth-only", setup(builder) {
+    builder.onResolve({ filter: /(^|\/)forma-auth$/ }, () => ({ path: resolve("test/fixtures/fabrication-auth.tsx") }));
+  } }],
+});
+const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Fabrication settings test</title><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>';
+const files = new Map([["/fixture.js", "text/javascript"], ["/fixture.css", "text/css"]]);
+const server = createServer(async (request, response) => {
+  if (request.url === "/") { response.writeHead(200, { "Content-Type": "text/html" }); response.end(html); return; }
+  const mime = files.get(request.url);
+  if (!mime) { response.writeHead(404); response.end(); return; }
+  try {
+    const content = await readFile(join(directory, request.url.slice(1)));
+    response.writeHead(200, { "Content-Type": mime }); response.end(content);
+  } catch { response.writeHead(404); response.end(); }
+});
+server.listen(4176, "127.0.0.1");
+for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => server.close(() => process.exit(0)));

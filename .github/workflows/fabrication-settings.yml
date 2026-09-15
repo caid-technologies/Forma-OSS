@@ -1,0 +1,56 @@
+name: Account fabrication settings
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'apps/web/**'
+      - 'apps/api/**'
+      - 'forma_core/**'
+      - 'supabase/migrations/**'
+      - 'tests/api/test_fabrication_settings_api.py'
+      - 'tests/projects/test_orca_discovery.py'
+      - '.github/workflows/fabrication-settings.yml'
+permissions:
+  contents: read
+concurrency:
+  group: fabrication-settings-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  preferences-api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -r apps/api/requirements.txt pytest
+      - run: python -m pytest tests/api/test_fabrication_settings_api.py tests/api/test_user_settings_api.py tests/projects/test_orca_discovery.py tests/projects/test_demo_printer_exports.py tests/projects/test_fabrication.py tests/projects/test_readiness_build.py tests/persistence -q
+  preferences-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - run: node --experimental-strip-types --test test/fabrication-settings.test.ts
+      - run: npx --no-install eslint components/fabrication-settings.tsx lib/fabrication-settings.ts lib/use-fabrication-settings.ts app/forma-workspace/project-exports-panel.tsx
+      - run: npx --no-install playwright install --with-deps chromium
+      - run: npx --no-install playwright test --config playwright.fabrication.config.mjs --output=fabrication-test-results
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: fabrication-settings-browser-results
+          path: apps/web/fabrication-test-results/
+          retention-days: 7

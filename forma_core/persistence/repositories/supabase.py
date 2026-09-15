@@ -1529,6 +1529,18 @@ class SupabaseRepository:
         )
         return dict(Counter(str(row["source_project_id"]) for row in rows if row.get("source_project_id")))
 
+    def get_user_fabrication_settings(self, owner_user_id: str) -> Optional[Any]:
+        rows = (self._client.table("user_fabrication_settings").select("*")
+                .eq("owner_user_id", owner_user_id).limit(1).execute().data or [])
+        return _record(rows[0]) if rows else None
+
+    def upsert_user_fabrication_settings(self, record: Dict[str, Any]) -> Any:
+        rows = (self._client.table("user_fabrication_settings")
+                .upsert(record, on_conflict="owner_user_id").execute().data or [])
+        if not rows:
+            raise RuntimeError("Printer preference save returned no persisted record.")
+        return _record(rows[0])
+
     def get_user_settings(self, owner_user_id: str) -> Optional[Any]:
         rows = (
             self._client.table("user_settings")

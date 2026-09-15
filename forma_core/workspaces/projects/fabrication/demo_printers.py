@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 from typing import Any
 
-from forma_core.config import config
 from forma_core.workspaces.projects.fabrication.models import PrinterConfigurationError, SliceProfile
 from forma_core.workspaces.projects.fabrication.slicers.orca import OrcaSlicerAdapter
 
@@ -62,11 +61,8 @@ def get_demo_printer(printer_id: str) -> DemoPrinterSpec:
 
 
 def _candidate_profile_roots(adapter: OrcaSlicerAdapter) -> list[Path]:
-    """Return explicit and conventional OrcaSlicer system-profile locations."""
+    """Discover system profiles beside the installed slicer; no account-supplied paths."""
     candidates: list[Path] = []
-    configured = str(config.optional("FORMA_ORCA_PROFILE_ROOT") or "").strip()
-    if configured:
-        candidates.append(Path(configured).expanduser())
     executable = adapter.executable_path()
     if executable is not None:
         executable = executable.resolve()
@@ -76,6 +72,7 @@ def _candidate_profile_roots(adapter: OrcaSlicerAdapter) -> list[Path]:
                 executable.parent.parent / "resources" / "profiles",
                 executable.parent.parent / "Resources" / "profiles",
                 executable.parent.parent / "share" / "OrcaSlicer" / "resources" / "profiles",
+                executable.parent.parent / "share" / "OrcaSlicer" / "profiles",
             ]
         )
     candidates.extend(
@@ -83,6 +80,8 @@ def _candidate_profile_roots(adapter: OrcaSlicerAdapter) -> list[Path]:
             Path("/usr/share/OrcaSlicer/resources/profiles"),
             Path("/usr/share/orca-slicer/resources/profiles"),
             Path("/opt/OrcaSlicer/resources/profiles"),
+            Path("/usr/share/OrcaSlicer/profiles"),
+            Path("/usr/local/share/OrcaSlicer/profiles"),
         ]
     )
     unique: list[Path] = []
@@ -102,7 +101,7 @@ def orca_profile_root(adapter: OrcaSlicerAdapter | None = None) -> Path:
         if candidate.is_dir():
             return candidate.resolve()
     raise PrinterConfigurationError(
-        "OrcaSlicer system profiles are unavailable. Set FORMA_ORCA_PROFILE_ROOT to OrcaSlicer's resources/profiles directory."
+        "The fabrication worker is missing OrcaSlicer system profiles. Reinstall OrcaSlicer with its bundled profiles."
     )
 
 
@@ -155,7 +154,7 @@ def resolve_demo_slice_profile(
     selected_adapter = adapter or OrcaSlicerAdapter()
     if not selected_adapter.is_available():
         raise PrinterConfigurationError(
-            "OrcaSlicer is unavailable. Install it on the fabrication worker or set FORMA_ORCA_SLICER_PATH."
+            "The fabrication worker does not have OrcaSlicer installed. Your printer preference can still be saved. STEP downloads remain available."
         )
     root = orca_profile_root(selected_adapter)
     vendor = root / printer.vendor_directory
@@ -199,6 +198,15 @@ def profile_fingerprint(profile: SliceProfile) -> str:
     return digest.hexdigest()
 
 
+def printer_catalog() -> list[dict[str, Any]]:
+    """Reviewed account-selectable bundles, independent of worker availability."""
+    return [
+        {"printer_id": printer.printer_id, "display_name": printer.display_name,
+         "nozzle_mm": 0.4, "material": "PLA", "layer_height_mm": 0.2}
+        for printer in DEMO_PRINTERS
+    ]
+
+
 def demo_printer_capabilities() -> list[dict[str, Any]]:
     """Return UI-safe availability information for the fixed demo printer set."""
     adapter = OrcaSlicerAdapter()
@@ -209,8 +217,12 @@ def demo_printer_capabilities() -> list[dict[str, Any]]:
         try:
             resolve_demo_slice_profile(printer.printer_id, adapter=adapter)
             available = True
-        except PrinterConfigurationError as exc:
-            reason = str(exc)
+        except PrinterConfigurationError:
+            reason = (
+                "The fabrication worker does not have OrcaSlicer installed. STEP downloads remain available."
+                if not adapter.is_available() else
+                "This printer's bundled OrcaSlicer profiles are unavailable on the fabrication worker. STEP downloads remain available."
+            )
         capabilities.append(
             {
                 "printer_id": printer.printer_id,
@@ -232,5 +244,6 @@ __all__ = [
     "get_demo_printer",
     "orca_profile_root",
     "profile_fingerprint",
+    "printer_catalog",
     "resolve_demo_slice_profile",
 ]

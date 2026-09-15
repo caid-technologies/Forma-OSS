@@ -8,7 +8,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.hosted_chat import require_hosted_chat_enabled
@@ -18,6 +18,7 @@ from forma_core.database import (
     get_latest_project_revision,
     get_project_identity,
     initiate_project_build,
+    get_user_fabrication_settings,
 )
 from forma_core.persistence.project_artifacts import ProjectArtifactStorage, ProjectArtifactStorageError
 from forma_core.workspaces.projects.fabrication.demo_printers import (
@@ -32,6 +33,7 @@ from forma_core.workspaces.projects.fabrication.models import (
     SliceRequest as FabricationSliceRequest,
 )
 from forma_core.workspaces.projects.fabrication.slicing import slice_project
+from forma_core.workspaces.projects.fabrication.preferences import PrinterId
 from forma_core.workspaces.projects.state import ProjectArtifact, ProjectStateError
 from forma_core.workspaces.readiness import (
     BuildAnywayRequest,
@@ -56,7 +58,7 @@ class ProjectSliceRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    printer_id: str = Field(min_length=1, max_length=120)
+    printer_id: PrinterId | None = None
 
 
 def _owner(user: UserContext) -> str:
@@ -169,6 +171,16 @@ def _step_to_stl(step_content: bytes, directory: Path) -> ProjectArtifact:
     )
 
 
+def _printer_preference(owner: str) -> str:
+    try:
+        return get_user_fabrication_settings(owner)["printer_id"]
+    except Exception as exc:
+        raise _export_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "fabrication_settings_unavailable",
+            "Printer preferences could not be loaded. Please retry.",
+        ) from exc
+
+
 def _gcode_preview(content: bytes) -> str:
     """Return a bounded text preview suitable for the demo UI."""
     text = content.decode("utf-8", errors="replace")
@@ -241,12 +253,23 @@ def get_frozen_build_endpoint(
 @router.get("/exports")
 def list_project_exports_endpoint(
     project_id: UUID,
+    response: Response,
     user: UserContext = Depends(require_user_context),
 ) -> dict[str, Any]:
     """Describe downloadable STEP and supported printer-specific G-code targets."""
     project_key = str(project_id)
-    cad = _project_cad(project_key, _owner(user))
+    owner = _owner(user)
+    cad = _project_cad(project_key, owner)
     digest = _step_digest(cad)
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        preferred_printer_id = _printer_preference(owner)
+        preference_error = None
+    except HTTPException:
+        # Account preferences are optional for STEP downloads; expose the
+        # failure rather than pretending an unsaved default was persisted.
+        preferred_printer_id = None
+        preference_error = "fabrication_settings_unavailable"
     return {
         "project_id": project_key,
         "step": {
@@ -256,6 +279,8 @@ def list_project_exports_endpoint(
             "download_url": f"/projects/{project_key}/exports/step/{digest}",
         },
         "printers": demo_printer_capabilities(),
+        "preferred_printer_id": preferred_printer_id,
+        "preference_error": preference_error,
     }
 
 
@@ -289,11 +314,15 @@ def create_project_gcode_endpoint(
     owner = _owner(user)
     cad = _project_cad(project_key, owner)
     source_sha256, step_content = _load_step_bytes(project_key, cad)
-    printer = get_demo_printer(request.printer_id)
+    printer = get_demo_printer(request.printer_id or _printer_preference(owner))
     try:
         profile = resolve_demo_slice_profile(printer.printer_id)
     except PrinterConfigurationError as exc:
-        raise _export_error(status.HTTP_503_SERVICE_UNAVAILABLE, "printer_profile_unavailable", str(exc)) from exc
+        raise _export_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "printer_profile_unavailable",
+            "The fabrication worker cannot load this printer's OrcaSlicer profiles. "
+            "Your saved preference is unchanged; STEP downloads remain available.",
+        ) from exc
 
     with TemporaryDirectory(prefix=f"forma-slice-{project_key[:8]}-") as temporary:
         workdir = Path(temporary)

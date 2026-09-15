@@ -12,6 +12,7 @@ import {
   KeyRound,
   Moon,
   Palette,
+  Printer,
   RefreshCw,
   Save,
   Search,
@@ -36,6 +37,8 @@ import { arcticLight, solarizedDark, solarizedLight, type FormaTheme } from "../
 import { webConfig } from "../../lib/config";
 import { ProviderMarkTile } from "../../components/provider-mark";
 import { imageOutputIsEnabled, parsePreferredLlmProvider, settingsNavBadge, type SettingsNavBadge as SettingsNavBadgeModel } from "../../lib/settings-nav-status";
+
+import FabricationSettingsCard from "../../components/fabrication-settings";
 
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 
@@ -1896,7 +1899,8 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
 
   const isAppearanceView = selectedNavigationKey === "appearance:theme";
   const isDataPrivacyView = selectedNavigationKey === "privacy:data-usage";
-  const isLocalSettingsView = isAppearanceView || isDataPrivacyView;
+  const isFabricationView = selectedNavigationKey === "fabrication:printers";
+  const isLocalSettingsView = isAppearanceView || isDataPrivacyView || isFabricationView;
   const selectedIntegration = isLocalSettingsView
     ? null
     : selectedNavigationItem?.integration || payload?.integrations[0] || null;
@@ -2095,7 +2099,7 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
       setForms(Object.fromEntries(data.integrations.map((integration) => [integration.id, formFromIntegration(integration)])));
       const availableNavigationItems = integrationNavigationGroups(data.integrations).flatMap(navigationGroupItems);
       setSelectedNavigationKey((current) =>
-        current === "appearance:theme" || current === "privacy:data-usage" || availableNavigationItems.some((item) => item.key === current)
+        current === "appearance:theme" || current === "privacy:data-usage" || current === "fabrication:printers" || availableNavigationItems.some((item) => item.key === current)
           ? current
           : availableNavigationItems[0]?.key || "runtime:all"
       );
@@ -2450,6 +2454,13 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
           <nav aria-label="Settings" className="space-y-4 p-2">
             <SettingsNavSection title="Account">
               <SettingsNavRow
+                label="Printer & fabrication"
+                title="Save your printer profile for G-code exports across projects."
+                icon={Printer}
+                selected={isFabricationView}
+                onSelect={() => setSelectedNavigationKey("fabrication:printers")}
+              />
+              <SettingsNavRow
                 label="Appearance"
                 title="Choose and save your light or dark theme."
                 icon={Palette}
@@ -2545,7 +2556,9 @@ export default function UserIntegrationsPage({ embedded = false }: { embedded?: 
             </div>
           )}
 
-          {isAppearanceView ? (
+          {isFabricationView ? (
+            <FabricationSettingsCard />
+          ) : isAppearanceView ? (
             <ThemeSettingsPanel />
           ) : isDataPrivacyView ? (
             <article className={CARD_SURFACE_CLASS}>

@@ -30,9 +30,9 @@ export type OpenCodeEvent = {
 
 export function openCodeDesignNotice(readiness: unknown): string | null {
   if (readiness === "complete") return null;
-  if (readiness === "draft") return "Draft saved only. No populated hardware design was produced. Ask OpenCode to add components, pins, and wiring, then compile and resolve validation findings.";
+  if (readiness === "draft") return "Draft saved only. No populated hardware design was produced. Ask Forma Agent to add components, pins, and wiring, then compile and resolve validation findings.";
   if (readiness === "partial") return "An incomplete design was saved. Review its wiring and validation findings before treating it as a completed design.";
-  return "OpenCode finished responding, but a completed design has not been verified.";
+  return "Forma Agent finished responding, but a completed design has not been verified.";
 }
 
 type OpenCodeEventPage = {
@@ -56,7 +56,7 @@ export function reduceOpenCodeTurn(
   if (event.kind === "connector_unavailable") {
     return {
       ...state,
-      content: state.assistantMessage || "Waiting for the OpenCode connector to reconnect. You can stop this request at any time.",
+      content: state.assistantMessage || "Waiting for Forma Agent to reconnect. You can stop this request at any time.",
     };
   }
   if (event.kind === "assistant_message" && event.message) {
@@ -67,10 +67,10 @@ export function reduceOpenCodeTurn(
     if (event.event_id !== `${commandId}:terminal` && event.event_id !== `cancelled_${event.session_id}`) return state;
     const status = event.kind === "completed" ? "success" : event.kind === "failed" ? "error" : "cancelled";
     let content = event.kind === "completed"
-      ? state.assistantMessage || "OpenCode finished responding."
+      ? state.assistantMessage || "Forma Agent finished responding."
       : event.kind === "failed"
-        ? event.error?.message || "OpenCode could not complete this request."
-         : "OpenCode was stopped.";
+        ? event.error?.message || "Forma Agent could not complete this request."
+         : "Forma Agent was stopped.";
     if (event.kind === "completed" && event.design_outcome) {
       const notice = openCodeDesignNotice(event.design_outcome.project_readiness);
       if (notice) content += `\n\n${notice}`;
@@ -80,32 +80,32 @@ export function reduceOpenCodeTurn(
   return {
     ...state,
     content: state.assistantMessage || (event.kind === "validating"
-      ? "OpenCode is validating the project."
-      : "OpenCode is working on your request."),
+      ? "Forma Agent is validating the project."
+      : "Forma Agent is working on your request."),
   };
 }
 
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error("OpenCode returned an invalid response.");
+    throw new Error("Forma Agent returned an invalid response.");
   }
   return value as Record<string, unknown>;
 }
 
 function stringField(value: Record<string, unknown>, name: string): string {
-  if (typeof value[name] !== "string" || !value[name]) throw new Error("OpenCode returned an invalid response.");
+  if (typeof value[name] !== "string" || !value[name]) throw new Error("Forma Agent returned an invalid response.");
   return value[name];
 }
 
 function nullableStringField(value: Record<string, unknown>, name: string): string | null {
-  if (value[name] !== null && typeof value[name] !== "string") throw new Error("OpenCode returned an invalid response.");
+  if (value[name] !== null && typeof value[name] !== "string") throw new Error("Forma Agent returned an invalid response.");
   return (value[name] as string | null | undefined) ?? null;
 }
 
 function parseSession(value: unknown): OpenCodeSession {
   const item = record(value);
   const status = stringField(item, "status");
-  if (status !== "active" && status !== "cancelled" && status !== "completed") throw new Error("OpenCode returned an invalid session status.");
+  if (status !== "active" && status !== "cancelled" && status !== "completed") throw new Error("Forma Agent returned an invalid session status.");
   return {
     session_id: stringField(item, "session_id"),
     connector_id: stringField(item, "connector_id"),
@@ -119,8 +119,8 @@ function parseCommand(value: unknown): OpenCodeCommand {
   const item = record(value);
   const operation = stringField(item, "operation");
   const status = stringField(item, "status");
-  if (!["project_message", "compile_project", "validate_project"].includes(operation)) throw new Error("OpenCode returned an invalid command operation.");
-  if (!["queued", "leased", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("OpenCode returned an invalid command status.");
+  if (!["project_message", "compile_project", "validate_project"].includes(operation)) throw new Error("Forma Agent returned an invalid command operation.");
+  if (!["queued", "leased", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("Forma Agent returned an invalid command status.");
   return {
     command_id: stringField(item, "command_id"),
     session_id: stringField(item, "session_id"),
@@ -134,13 +134,13 @@ function parseEvent(value: unknown): OpenCodeEvent {
   const item = record(value);
   const kind = stringField(item, "kind");
   if (!["assistant_message", "queued", "working", "validating", "completed", "failed", "cancelled", "connector_unavailable", "progress"].includes(kind)) {
-    throw new Error("OpenCode returned an invalid event kind.");
+    throw new Error("Forma Agent returned an invalid event kind.");
   }
   const status = item.status === null || item.status === undefined ? null : stringField(item, "status");
-  if (status !== null && !["queued", "leased", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("OpenCode returned an invalid event status.");
+  if (status !== null && !["queued", "leased", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("Forma Agent returned an invalid event status.");
   const errorValue = item.error === null || item.error === undefined ? null : record(item.error);
   const outcome = item.design_outcome == null ? null : record(item.design_outcome);
-  if (outcome && !["draft", "partial", "complete"].includes(String(outcome.project_readiness))) throw new Error("OpenCode returned an invalid design outcome.");
+  if (outcome && !["draft", "partial", "complete"].includes(String(outcome.project_readiness))) throw new Error("Forma Agent returned an invalid design outcome.");
   return {
     event_id: stringField(item, "event_id"),
     sequence: Number(item.sequence),
@@ -169,7 +169,7 @@ async function responseJson(response: Response): Promise<unknown> {
     const message = detail && typeof detail === "object" && detail !== null && "message" in detail
       ? (detail as { message?: unknown }).message
       : null;
-    throw new Error(typeof message === "string" ? message : "OpenCode request failed.");
+    throw new Error(typeof message === "string" ? message : "Forma Agent request failed.");
   }
   return response.json();
 }
@@ -214,7 +214,7 @@ export async function listOpenCodeEvents(
   });
   const value = record(await responseJson(response));
   const events = value.events;
-  if (!Array.isArray(events) || !Number.isInteger(Number(value.next_cursor))) throw new Error("OpenCode returned an invalid event page.");
+  if (!Array.isArray(events) || !Number.isInteger(Number(value.next_cursor))) throw new Error("Forma Agent returned an invalid event page.");
   return { events: events.map(parseEvent), next_cursor: Number(value.next_cursor) };
 }
 

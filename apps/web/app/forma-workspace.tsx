@@ -52,6 +52,7 @@ import {
   isFinalVideoStatus,
 } from "./forma-workspace/admin-panels";
 import HomeChatView from "./forma-workspace/home-chat-view";
+import ChatProjectLayout, { ChatProjectSurface, ProjectUpdateCard } from "./forma-workspace/chat-project-layout";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
 import {
@@ -104,8 +105,6 @@ import {
   Terminal,
   MessageSquare,
   Square,
-  Maximize2,
-  Minimize2,
   Trash2,
   Settings,
   Handshake,
@@ -5479,6 +5478,7 @@ export function FormaWorkspace({
                   resetting={resettingBuildMessageId === message.id}
                 />
               )}
+              projectArtifactId={inlineChatProjectId}
               projectArtifact={
                 projectIR && inlineChatProjectId && currentProjectId === inlineChatProjectId
                   ? (
@@ -7033,6 +7033,22 @@ function ChatWorkspace({
   };
 
   return (
+    <ChatProjectLayout
+      conversationKey={chatId || projectId || "project-chat"}
+      projectId={projectId}
+      project={canChat ? (
+        <ChatProjectArtifact
+                  projectId={projectId}
+                  projectTitle={projectTitle}
+                  canEdit={canChat && Boolean(onRenameTitle)}
+                  onRenameTitle={onRenameTitle}
+                  namespaceTabs={namespaceTabs}
+                  activeNamespace={activeNamespace}
+                  onNamespaceChange={onNamespaceChange}
+                  projectContent={projectContent}
+                />
+      ) : null}
+    >
     <div className="relative flex h-full min-h-0 min-w-0 flex-col bg-[var(--forma-page)]">
       <header className={`workspace-chrome-header absolute inset-x-0 top-0 z-20 flex min-h-14 min-w-0 items-center gap-3 px-3 pb-5 pt-2 sm:px-4 ${headerAway ? "is-away" : ""}`}>
         <MobileSidebarButton onClick={onOpenSidebar} />
@@ -7096,6 +7112,7 @@ function ChatWorkspace({
                           {!message.projectId && (
                             <AgentPipelineProgressView progress={message.pipelineProgress} status={message.status} compact />
                           )}
+                          <ProjectUpdateCard message={message} />
                         </div>
                       </div>
                     );
@@ -7106,16 +7123,6 @@ function ChatWorkspace({
                   </div>
                 )}
                 <div ref={endRef} />
-                <ChatProjectArtifact
-                  projectId={projectId}
-                  projectTitle={projectTitle}
-                  canEdit={canChat && Boolean(onRenameTitle)}
-                  onRenameTitle={onRenameTitle}
-                  namespaceTabs={namespaceTabs}
-                  activeNamespace={activeNamespace}
-                  onNamespaceChange={onNamespaceChange}
-                  projectContent={projectContent}
-                />
               </div>
             </div>
 
@@ -7174,17 +7181,8 @@ function ChatWorkspace({
         )}
       </div>
     </div>
+    </ChatProjectLayout>
   );
-}
-
-function scrollableVerticalParent(node: HTMLElement | null) {
-  let current = node?.parentElement || null;
-  while (current) {
-    const overflowY = window.getComputedStyle(current).overflowY;
-    if (/(auto|scroll)/.test(overflowY) && current.scrollHeight > current.clientHeight) return current;
-    current = current.parentElement;
-  }
-  return null;
 }
 
 function ChatProjectArtifact({
@@ -7206,123 +7204,28 @@ function ChatProjectArtifact({
   onNamespaceChange: (namespaceId: string) => void;
   projectContent: React.ReactNode;
 }) {
-  const [fullScreen, setFullScreen] = useState(false);
-  const artifactRef = useRef<HTMLElement>(null);
-  const chatScrollSnapshotRef = useRef<{
-    element: HTMLElement | null;
-    top: number;
-    left: number;
-    windowX: number;
-    windowY: number;
-  } | null>(null);
-  const restoreChatScrollRef = useRef(false);
-
-  const enterFullScreen = () => {
-    const element = scrollableVerticalParent(artifactRef.current);
-    chatScrollSnapshotRef.current = {
-      element,
-      top: element?.scrollTop || 0,
-      left: element?.scrollLeft || 0,
-      windowX: window.scrollX,
-      windowY: window.scrollY,
-    };
-    setFullScreen(true);
-  };
-
-  const exitFullScreen = () => {
-    restoreChatScrollRef.current = true;
-    setFullScreen(false);
-  };
-
-  useLayoutEffect(() => {
-    if (fullScreen || !restoreChatScrollRef.current) return;
-    restoreChatScrollRef.current = false;
-    const snapshot = chatScrollSnapshotRef.current;
-    if (!snapshot) return;
-
-    const restoreScroll = () => {
-      if (snapshot.element?.isConnected) {
-        snapshot.element.scrollTo({ top: snapshot.top, left: snapshot.left, behavior: "auto" });
-      } else {
-        window.scrollTo({ top: snapshot.windowY, left: snapshot.windowX, behavior: "auto" });
-      }
-    };
-
-    restoreScroll();
-    const frameId = window.requestAnimationFrame(restoreScroll);
-    return () => window.cancelAnimationFrame(frameId);
-  }, [fullScreen]);
-
-  useEffect(() => {
-    if (!fullScreen) return;
-    const previousOverflow = document.body.style.overflow;
-    const exitOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        restoreChatScrollRef.current = true;
-        setFullScreen(false);
-      }
-    };
-    document.body.style.overflow = "hidden";
-    window.addEventListener("keydown", exitOnEscape);
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      window.removeEventListener("keydown", exitOnEscape);
-    };
-  }, [fullScreen]);
-
   return (
-    <section
-      ref={artifactRef}
-      className={`min-w-0 overflow-hidden bg-[var(--forma-page)] ${
-        fullScreen
-          ? "fixed inset-0 z-[80] flex h-[100dvh] w-screen flex-col"
-          : "mx-auto mt-3 w-full max-w-6xl rounded-xl border border-[var(--forma-border)]"
-      }`}
-      aria-labelledby="chat-project-title"
+    <ChatProjectSurface
+      title={(
+        <EditableWorkspaceTitle
+          value={projectTitle}
+          canEdit={canEdit && Boolean(onRenameTitle)}
+          label="Project title"
+          element="div"
+          className="truncate text-xs font-semibold text-[var(--forma-text-strong)]"
+          onCommit={(title) => onRenameTitle?.(title)}
+        />
+      )}
     >
-      <header className="flex min-h-[56px] min-w-0 shrink-0 items-center justify-between gap-3 border-b border-[var(--forma-border)] bg-[var(--forma-surface)] px-4 py-2.5">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <Layers className="h-3.5 w-3.5 shrink-0 text-[rgb(var(--forma-green-rgb))]" />
-            <h3 id="chat-project-title" className="truncate text-[10px] font-medium text-[var(--forma-text-muted)]">
-              Project
-            </h3>
-          </div>
-          <EditableWorkspaceTitle
-            value={projectTitle}
-            canEdit={canEdit && Boolean(onRenameTitle)}
-            label="Project title"
-            element="div"
-            className="mt-0.5 truncate text-xs font-semibold text-[var(--forma-text-strong)]"
-            onCommit={(title) => onRenameTitle?.(title)}
-          />
-        </div>
-        <div className="flex min-w-0 items-center justify-end">
-          <button
-            type="button"
-            onClick={fullScreen ? exitFullScreen : enterFullScreen}
-            className="inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-lg border border-[var(--forma-border)] px-2.5 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] sm:px-3"
-            aria-pressed={fullScreen}
-            aria-label={fullScreen ? "Exit project full screen" : "View project full screen"}
-            title={fullScreen ? "Exit full screen (Esc)" : "Full screen"}
-          >
-            {fullScreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
-            <span className="hidden md:inline">{fullScreen ? "Exit full screen" : "Full screen"}</span>
-          </button>
-        </div>
-      </header>
-
-      <div className={fullScreen ? "min-h-0 min-w-0 flex-1 overflow-hidden" : "h-[70dvh] min-h-[540px] max-h-[820px] min-w-0 overflow-hidden"}>
-        <ProjectWorkspacePanel
-          projectId={projectId}
-          namespaceTabs={namespaceTabs}
-          activeNamespace={activeNamespace}
-          onNamespaceChange={onNamespaceChange}
-        >
-          {projectContent}
-        </ProjectWorkspacePanel>
-      </div>
-    </section>
+      <ProjectWorkspacePanel
+        projectId={projectId}
+        namespaceTabs={namespaceTabs}
+        activeNamespace={activeNamespace}
+        onNamespaceChange={onNamespaceChange}
+      >
+        {projectContent}
+      </ProjectWorkspacePanel>
+    </ChatProjectSurface>
   );
 }
 

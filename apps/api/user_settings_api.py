@@ -4,11 +4,16 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 
 from apps.api.auth import UserContext, require_user_context
-from forma_core.database import get_user_settings, set_user_model_training_preference
+from forma_core.database import (
+    get_user_settings, set_user_model_training_preference,
+    get_user_fabrication_settings, set_user_fabrication_settings,
+)
+from forma_core.workspaces.projects.fabrication.preferences import FabricationPreferenceUpdate
+from forma_core.workspaces.projects.fabrication.demo_printers import printer_catalog
 from forma_core.debug import api_error_detail
 
 
@@ -91,3 +96,42 @@ def update_data_usage_preference(
         not request.allow_model_training,
     )
     return _data_usage_payload(settings)
+
+
+def _fabrication_error(operation: str) -> HTTPException:
+    logger.exception("User printer settings %s failed", operation)
+    return HTTPException(status_code=503, detail={
+        "code": "fabrication_settings_unavailable",
+        "message": "Printer settings could not be " + ("loaded." if operation == "load" else "saved."),
+    })
+
+
+@router.get("/fabrication")
+def get_fabrication_preference(
+    response: Response,
+    user_context: UserContext = Depends(require_user_context),
+) -> dict[str, Any]:
+    """Return preferences without requiring an installed slicer or a project."""
+    owner = _owner_user_id(user_context)
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return {**get_user_fabrication_settings(owner), "printers": printer_catalog()}
+    except Exception as exc:
+        raise _fabrication_error("load") from exc
+
+
+@router.put("/fabrication")
+def update_fabrication_preference(
+    request: FabricationPreferenceUpdate,
+    response: Response,
+    user_context: UserContext = Depends(require_user_context),
+) -> dict[str, Any]:
+    owner = _owner_user_id(user_context)
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        saved = set_user_fabrication_settings(
+            owner, printer_id=request.printer_id, updated_at=_timestamp(),
+        )
+        return {**saved, "printers": printer_catalog()}
+    except Exception as exc:
+        raise _fabrication_error("save") from exc

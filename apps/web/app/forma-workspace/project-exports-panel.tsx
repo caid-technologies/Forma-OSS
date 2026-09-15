@@ -1,10 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, Download, FileBox, Loader2, Printer, RefreshCw, TriangleAlert } from "lucide-react";
 
 import { webConfig } from "../../lib/config";
 import { useFormaAuth } from "../../lib/forma-auth";
+import { normalizeApiUrl } from "../../lib/fabrication-settings";
+import { useFabricationSettings } from "../../lib/use-fabrication-settings";
+import { FabricationSettingsFields } from "../../components/fabrication-settings";
 
 
 type ExportStep = {
@@ -59,13 +62,6 @@ type GcodeExportResult = {
 type SliceUiState = "idle" | "queued" | "running" | "completed" | "failed";
 
 
-function normalizeApiUrl(value: string): string {
-  // Normalize a configured API origin to the same /api boundary used by FormaWorkspace.
-  const trimmed = value.trim().replace(/\/+$/, "");
-  if (!trimmed) return "/api";
-  return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
-}
-
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 
 
@@ -104,10 +100,19 @@ function errorMessage(payload: unknown, fallback: string): string {
 
 
 export default function ProjectExportsPanel({ projectId }: { projectId: string }) {
+  const { identityKey } = useFormaAuth();
+  return <ProjectExportsContent key={`${identityKey}:${projectId}`} projectId={projectId} />;
+}
+
+function ProjectExportsContent({ projectId }: { projectId: string }) {
   // Download canonical STEP or create printer-specific G-code for one project.
   const { authRequired, getToken, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [manifest, setManifest] = useState<ProjectExportsManifest | null>(null);
-  const [selectedPrinterId, setSelectedPrinterId] = useState("");
+  const preferences = useFabricationSettings();
+  const selectedPrinterId = preferences.printerId;
+  const requestGeneration = useRef(0);
+  const manifestController = useRef<AbortController | null>(null);
+  useEffect(() => () => { requestGeneration.current++; manifestController.current?.abort(); }, []);
   const [result, setResult] = useState<GcodeExportResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [sliceState, setSliceState] = useState<SliceUiState>("idle");
@@ -124,23 +129,26 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
 
   const fetchManifest = useCallback(async () => {
     if (!projectId || !isLoaded || (authRequired && !isSignedIn)) return;
+    manifestController.current?.abort();
+    const controller = new AbortController();
+    manifestController.current = controller;
     setLoading(true);
     setError(null);
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/exports`, {
         headers: await requestHeaders(),
-        cache: "no-store",
+        cache: "no-store", signal: controller.signal,
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(errorMessage(payload, `Exports request failed (${response.status}).`));
       const next = payload as ProjectExportsManifest;
-      setManifest(next);
-      setSelectedPrinterId((current) => current || next.printers.find((printer) => printer.available)?.printer_id || next.printers[0]?.printer_id || "");
+      if (!controller.signal.aborted) setManifest(next);
     } catch (cause) {
+      if (controller.signal.aborted) return;
       setManifest(null);
       setError(cause instanceof Error ? cause.message : "Project exports could not be loaded.");
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
   }, [authRequired, isLoaded, isSignedIn, projectId, requestHeaders]);
 
@@ -152,19 +160,7 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
     setResult(null);
     setSliceState("idle");
     setError(null);
-    if (!projectId || !selectedPrinterId || typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(`forma.export.${projectId}.${selectedPrinterId}`);
-    if (!stored) return;
-    try {
-      const parsed = JSON.parse(stored) as GcodeExportResult;
-      if (parsed?.gcode?.sha256 && parsed.printer_id === selectedPrinterId) {
-        setResult(parsed);
-        setSliceState("completed");
-      }
-    } catch {
-      window.localStorage.removeItem(`forma.export.${projectId}.${selectedPrinterId}`);
-    }
-  }, [projectId, selectedPrinterId]);
+  }, [projectId, selectedPrinterId, manifest?.step.sha256]);
 
   const selectedPrinter = useMemo(
     () => manifest?.printers.find((printer) => printer.printer_id === selectedPrinterId) || null,
@@ -173,6 +169,7 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
 
   const downloadAuthenticated = useCallback(async (relativeUrl: string, filename: string) => {
     setError(null);
+    const generation = requestGeneration.current;
     const response = await fetch(`${API_URL}${relativeUrl}`, {
       headers: await requestHeaders(),
       cache: "no-store",
@@ -182,6 +179,7 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
       throw new Error(errorMessage(payload, `Download failed (${response.status}).`));
     }
     const blob = await response.blob();
+    if (generation !== requestGeneration.current) return;
     const objectUrl = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = objectUrl;
@@ -200,8 +198,10 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
     }
     setResult(null);
     setError(null);
+    const generation = requestGeneration.current;
     setSliceState("queued");
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    if (generation !== requestGeneration.current) return;
     setSliceState("running");
     try {
       const response = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/exports/gcode`, {
@@ -212,12 +212,11 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
       const payload = await response.json().catch(() => null);
       if (!response.ok) throw new Error(errorMessage(payload, `G-code generation failed (${response.status}).`));
       const next = payload as GcodeExportResult;
+      if (generation !== requestGeneration.current) return;
       setResult(next);
       setSliceState("completed");
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(`forma.export.${projectId}.${selectedPrinterId}`, JSON.stringify(next));
-      }
     } catch (cause) {
+      if (generation !== requestGeneration.current) return;
       setSliceState("failed");
       setError(cause instanceof Error ? cause.message : "G-code generation failed.");
     }
@@ -283,26 +282,15 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
             <Printer className="mt-0.5 h-5 w-5 text-[var(--forma-text-muted)]" />
             <div className="min-w-0 flex-1">
               <h3 className="text-sm font-semibold text-[var(--forma-text-strong)]">Printer G-code</h3>
-              <p className="mt-1 text-xs leading-5 text-[var(--forma-text-muted)]">Select a validated demo printer profile. Forma slices the stored STEP deterministically; the agent does not write raw G-code.</p>
+              <p className="mt-1 text-xs leading-5 text-[var(--forma-text-muted)]">Choose your saved printer profile. Forma slices the stored STEP deterministically; the agent does not write raw G-code.</p>
             </div>
           </div>
 
-          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <label className="block">
-              <span className="mb-1.5 block text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">Printer</span>
-              <select
-                value={selectedPrinterId}
-                onChange={(event) => setSelectedPrinterId(event.target.value)}
-                className="w-full rounded-lg border border-[var(--forma-border)] bg-[var(--forma-page)] px-3 py-2.5 text-sm text-[var(--forma-text-body)]"
-              >
-                {(manifest?.printers || []).map((printer) => (
-                  <option key={printer.printer_id} value={printer.printer_id}>{printer.display_name} · 0.4 mm</option>
-                ))}
-              </select>
-            </label>
+          <FabricationSettingsFields state={preferences} disabled={sliceState === "queued" || sliceState === "running"} />
+          <div className="mt-4 flex flex-wrap items-center gap-3">
             <button
               type="button"
-              disabled={!selectedPrinter || !selectedPrinter.available || sliceState === "queued" || sliceState === "running"}
+              disabled={preferences.loading || preferences.saving || !selectedPrinter || !selectedPrinter.available || sliceState === "queued" || sliceState === "running"}
               onClick={() => void generateGcode()}
               className="inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-4 py-2 text-xs font-semibold text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40"
             >
@@ -311,14 +299,11 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
             </button>
           </div>
 
-          {selectedPrinter && (
-            <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-[var(--forma-text-muted)]">
-              <span>PLA</span><span>{selectedPrinter.nozzle_mm.toFixed(1)} mm nozzle</span><span>{selectedPrinter.layer_height_mm.toFixed(2)} mm Standard</span>
-            </div>
-          )}
           {selectedPrinter && !selectedPrinter.available && (
-            <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs leading-5 text-amber-100">
-              This printer profile is not configured on the current fabrication worker. {selectedPrinter.unavailable_reason || "OrcaSlicer system profiles are required."}
+            <div className="mt-3 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs leading-5 text-amber-700 dark:text-amber-200">
+              <strong className="block">Fabrication worker unavailable</strong>
+              {selectedPrinter.unavailable_reason || "The worker needs OrcaSlicer with this printer's bundled profiles. STEP downloads remain available."}
+              <p className="mt-1">You can save your printer preference above. The worker discovers OrcaSlicer automatically once installed.</p>
             </div>
           )}
 

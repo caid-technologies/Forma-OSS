@@ -26,7 +26,7 @@ class OrcaSlicerAdapter:
 
     def __init__(self, executable: str | Path | None = None) -> None:
         """Create an adapter with an optional explicit OrcaSlicer executable."""
-        self.executable = str(executable or config.optional("FORMA_ORCA_SLICER_PATH") or "").strip() or None
+        self.executable = str(executable or "").strip() or None
 
     @staticmethod
     def _standard_install_candidates() -> list[Path]:
@@ -116,7 +116,7 @@ class OrcaSlicerAdapter:
         executable = self.executable_path()
         if executable is None:
             raise SlicerUnavailableError(
-                "OrcaSlicer is unavailable. Install OrcaSlicer or set FORMA_ORCA_SLICER_PATH."
+                "OrcaSlicer is not installed on this fabrication worker. Install it in a standard location; Forma discovers it automatically."
             )
         mesh_path = self._mesh_path(request)
         inspection = self.inspect(mesh_path)

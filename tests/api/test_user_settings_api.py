@@ -26,7 +26,7 @@ USER_CONTEXT = UserContext(
 
 class UserSettingsApiTests(unittest.TestCase):
     def test_data_usage_routes_require_authenticated_user_context(self) -> None:
-        routes = [route for route in router.routes if isinstance(route, APIRoute)]
+        routes = [route for route in router.routes if isinstance(route, APIRoute) and route.path.endswith("/data-usage")]
         self.assertEqual(2, len(routes))
         for route in routes:
             dependency_calls = {dependency.call for dependency in route.dependant.dependencies}

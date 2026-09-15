@@ -38,7 +38,7 @@ jobs:
             'forma_core/project_list_cache.py': 'a6ab6e12344c4adb119ce1fb60fd3f185cb98a54',
             'tests/api/test_project_access.py': 'c588ce634eeb57050409212f32d52c11301ebda4',
             'tests/api/test_project_list_cache.py': '22776a31911903aab3181a3b02ba85cfe6c9e70d',
-            'apps/web/e2e/project-pagination.spec.ts': '09f32b7b16c82ffe29a455d9e01cca2b9911e206',
+            'apps/web/e2e/project-pagination.spec.ts': '61d1008feff9a5edd5937f0cec6679ff96aae8d0',
             'apps/web/lib/gallery-loading.ts': '8e4a7d5536e18d4205266186b594ef8714e1ae56',
             'apps/web/test/gallery-loading.test.ts': '7fb7f3747c6d45e255ff0ce4e168463946311ae0',
           }

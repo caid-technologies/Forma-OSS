@@ -60,7 +60,7 @@ type SliceUiState = "idle" | "queued" | "running" | "completed" | "failed";
 
 
 function normalizeApiUrl(value: string): string {
-  """Normalize a configured API origin to the same /api boundary used by FormaWorkspace."""
+  // Normalize a configured API origin to the same /api boundary used by FormaWorkspace.
   const trimmed = value.trim().replace(/\/+$/, "");
   if (!trimmed) return "/api";
   return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
@@ -70,7 +70,7 @@ const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
 
 
 function formatBytes(value?: number | null): string {
-  """Format an artifact byte count for the export UI."""
+  // Format an artifact byte count for the export UI.
   if (!value || value < 1) return "Size unavailable";
   if (value < 1024) return `${value} B`;
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
@@ -79,7 +79,7 @@ function formatBytes(value?: number | null): string {
 
 
 function formatDuration(seconds?: number | null): string | null {
-  """Format an optional slicer duration estimate."""
+  // Format an optional slicer duration estimate.
   if (!seconds || seconds <= 0) return null;
   const rounded = Math.round(seconds);
   const hours = Math.floor(rounded / 3600);
@@ -90,7 +90,7 @@ function formatDuration(seconds?: number | null): string | null {
 
 
 function errorMessage(payload: unknown, fallback: string): string {
-  """Extract Forma's structured API error message without exposing server internals."""
+  // Extract Forma's structured API error message without exposing server internals.
   if (!payload || typeof payload !== "object") return fallback;
   const value = payload as Record<string, unknown>;
   const detail = value.detail;
@@ -104,7 +104,7 @@ function errorMessage(payload: unknown, fallback: string): string {
 
 
 export default function ProjectExportsPanel({ projectId }: { projectId: string }) {
-  """Download canonical STEP or create printer-specific G-code for one project."""
+  // Download canonical STEP or create printer-specific G-code for one project.
   const { authRequired, getToken, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [manifest, setManifest] = useState<ProjectExportsManifest | null>(null);
   const [selectedPrinterId, setSelectedPrinterId] = useState("");

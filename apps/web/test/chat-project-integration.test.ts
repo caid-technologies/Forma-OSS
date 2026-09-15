@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { linkedProjectPath } from "../lib/chat-project-layout.ts";
 
 const workspace = readFileSync(new URL("../app/forma-workspace.tsx", import.meta.url), "utf8");
 const home = readFileSync(new URL("../app/forma-workspace/home-chat-view.tsx", import.meta.url), "utf8");
@@ -34,4 +35,8 @@ test("chat submit and stop handlers remain connected; the started home composer 
 test("home project controls clear the mobile chrome without the obsolete composer spacer", () => {
   assert.match(home, /className=\{layoutStyles.home\} data-project=/);
   assert.doesNotMatch(home, /h-40 shrink-0 md:hidden/);
+});
+test("card navigation matches the application's actual singular project route", () => {
+  assert.match(workspace, /function projectRoute\(projectId: string\) \{\s*return `\/project\/\$\{encodeURIComponent\(projectId\)\}`;/);
+  assert.equal(linkedProjectPath("part/1"), "/project/part%2F1");
 });

@@ -40,5 +40,5 @@ export function completedProjectReference(message: ProjectMessageReference): str
 }
 
 export function linkedProjectPath(projectId: string): string {
-  return `/projects/${encodeURIComponent(projectId)}`;
+  return `/project/${encodeURIComponent(projectId)}`;
 }

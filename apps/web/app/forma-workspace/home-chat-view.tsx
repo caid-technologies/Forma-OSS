@@ -168,7 +168,7 @@ export default function HomeChatView({
               renderPipelineProgress={renderPipelineProgress}
               onSelectContextSuggestion={readOnly ? undefined : onSelectContextSuggestion}
               isLoading={readOnly ? false : isLoading}
-              assistantLabel={authoringActive ? "OpenCode" : "Forma"}
+              assistantLabel={authoringActive ? "Forma Agent" : "Forma"}
               canBuildNow={readOnly ? false : canBuildNow}
               buildNowLoading={readOnly ? false : buildNowLoading}
               onBuildNow={readOnly ? undefined : onBuildNow}
@@ -254,7 +254,7 @@ export default function HomeChatView({
           {notice && (
             <div id="generation-input-notice" role="status" className="mb-3 flex items-start gap-2 rounded-lg border border-amber-300/30 bg-amber-300/10 px-3 py-2 text-xs leading-5 text-amber-100">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-              <span className="break-anywhere min-w-0 flex-1">{notice}</span>
+              <span className="break-anywhere min-w-0 flex-1">{notice.replace(/\bOpenCode\b/g, "Forma Agent")}</span>
             </div>
           )}
 

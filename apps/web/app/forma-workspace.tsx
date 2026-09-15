@@ -27,6 +27,7 @@ import {
 import { authoringModeEnabled, usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
 import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
+import { GalleryImageRequests, GalleryPageCache, galleryPageKey } from "../lib/gallery-loading";
 import {
   isAuthOrSecurityHttpStatus,
   workspaceStatusBadge,
@@ -179,6 +180,8 @@ const MAX_PROJECT_CHAT_MESSAGES = 80;
 const MAX_CHAT_INDEX_ITEMS = 200;
 const INITIAL_CHAT_TIMESTAMP = "2000-01-01T00:00:00.000Z";
 const NEW_PROJECT_TITLE = "New project";
+const EMPTY_GALLERY_IMAGES: Record<string, ProjectImageCandidate | null> = {};
+const EMPTY_PROJECT_HISTORY: any[] = [];
 
 let lastKnownServerStatus: "connected" | "disconnected" | null = null;
 
@@ -1713,6 +1716,7 @@ export function FormaWorkspace({
     userImageUrl,
   } = useFormaAuth();
   const chatStorageScope = authRequired ? `identity:${authIdentityKey}` : "local";
+  const galleryIdentityKey = JSON.stringify([API_URL, authRequired, authIdentityKey, Boolean(isSignedIn)]);
   const [prompt, setPrompt] = useState("");
   const [activeChatId, setActiveChatId] = useState(() => currentRouteChatId ? safeDecodeChatId(currentRouteChatId) : newBuildChatId());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -1743,6 +1747,11 @@ export function FormaWorkspace({
   const [projectHistoryTotal, setProjectHistoryTotal] = useState(0);
   const [myProjectHistoryTotal, setMyProjectHistoryTotal] = useState(0);
   const [projectHistoryLoaded, setProjectHistoryLoaded] = useState(false);
+  const [projectHistoryKey, setProjectHistoryKey] = useState<string | null>(null);
+  const [projectHistoryError, setProjectHistoryError] = useState<Error | null>(null);
+  const projectPageCacheRef = useRef(new GalleryPageCache<{ items: any[]; total: number }>());
+  const projectHistoryAbortRef = useRef<AbortController | null>(null);
+  const galleryImageRequestsRef = useRef(new GalleryImageRequests<ProjectImageCandidate | null>());
   const [myProjectHistoryLoaded, setMyProjectHistoryLoaded] = useState(false);
   const [myProjectHistoryError, setMyProjectHistoryError] = useState<Error | null>(null);
   const [projectSearchInput, setProjectSearchInput] = useState("");
@@ -1755,7 +1764,9 @@ export function FormaWorkspace({
   const [chatIndexLoaded, setChatIndexLoaded] = useState(false);
   const [sessionChatItems, setSessionChatItems] = useState<ChatListItem[]>([]);
   const [pinnedChatIds, setPinnedChatIds] = useState<Set<string>>(new Set());
-  const [projectGalleryImages, setProjectGalleryImages] = useState<Record<string, ProjectImageCandidate | null>>({});
+  const [galleryImageState, setGalleryImageState] = useState<{
+    scope: string; images: Record<string, ProjectImageCandidate | null>;
+  }>({ scope: "", images: {} });
   const [visibleProjectGalleryIds, setVisibleProjectGalleryIds] = useState<string[]>([]);
   const [routeProjectError, setRouteProjectError] = useState<string | null>(null);
   const [pendingProjectDeletion, setPendingProjectDeletion] = useState<PendingProjectDeletion | null>(null);
@@ -1858,16 +1869,28 @@ export function FormaWorkspace({
     ),
     [pinnedChatIds, visibleChatSourceProjects, visibleChatSourceItems]
   );
+  const imageScopeKey = `${galleryIdentityKey}:${formaDevMode}`;
+  const projectGalleryImages = galleryImageState.scope === imageScopeKey
+    ? galleryImageState.images : EMPTY_GALLERY_IMAGES;
+  const currentGalleryPageKey = galleryPageKey(
+    galleryIdentityKey, PROJECT_GALLERY_PAGE_SIZE, projectHistoryPage, projectSearchQuery,
+  );
+  const cachedGalleryPage = projectPageCacheRef.current.get(currentGalleryPageKey);
+  const hasCurrentGalleryPage = projectHistoryKey === currentGalleryPageKey;
+  const visibleProjectHistory = hasCurrentGalleryPage
+    ? projectHistory : cachedGalleryPage?.items || EMPTY_PROJECT_HISTORY;
+  const visibleProjectTotal = hasCurrentGalleryPage
+    ? projectHistoryTotal : cachedGalleryPage?.total || 0;
   const projectGalleryItems = useMemo(
     () => buildProjectGalleryItems(
-      projectHistory,
+      visibleProjectHistory,
       projectGalleryImages,
       formaDevMode,
     ).map((item) => ({
       ...item,
       canChat: item.canChat && (!authRequired || Boolean(isSignedIn)),
     })),
-    [authRequired, formaDevMode, isSignedIn, projectHistory, projectGalleryImages]
+    [authRequired, formaDevMode, isSignedIn, visibleProjectHistory, projectGalleryImages]
   );
   const projectBrowserItems = useMemo(
     () => projectGalleryItems.map(formaBrowserProjectFromGalleryItem),
@@ -1889,7 +1912,7 @@ export function FormaWorkspace({
     [myProjectGalleryItems]
   );
   const chatHistoryLoaded = myProjectHistoryLoaded && privateChatsLoaded;
-  const projectsPageLoading = !projectHistoryLoaded;
+  const projectsPageLoading = !(hasCurrentGalleryPage && projectHistoryLoaded) && !cachedGalleryPage;
   const myProjectsPageLoading = (authRequired && !authLoaded)
     || !myProjectHistoryLoaded;
   const handleVisibleProjectGalleryIdsChange = useCallback((projectIds: string[]) => {
@@ -1898,7 +1921,6 @@ export function FormaWorkspace({
     ));
   }, []);
   const handleProjectHistoryPageChange = useCallback((page: number) => {
-    setProjectHistoryLoaded(false);
     setVisibleProjectGalleryIds([]);
     setProjectHistoryPage(page);
   }, []);
@@ -2159,6 +2181,7 @@ export function FormaWorkspace({
           return (Number.isNaN(rightTime) ? 0 : rightTime) - (Number.isNaN(leftTime) ? 0 : leftTime);
         })
     );
+    projectPageCacheRef.current.clear();
     setProjectHistory((projects) => (
       normalizedRecord.visibility === "public"
         ? mergeProject(projects)
@@ -2257,6 +2280,7 @@ export function FormaWorkspace({
     const apply = (projects: any[]) => projects.map((project) => (
       project?.project_id === projectId ? { ...project, ...updates } : project
     ));
+    projectPageCacheRef.current.clear();
     setProjectHistory(apply);
     setMyProjectHistory(apply);
   }, []);
@@ -2404,12 +2428,13 @@ export function FormaWorkspace({
       const relatedChatIds = chatListItems
         .filter((item) => item.projectId === projectId)
         .map((item) => item.chatId);
+      projectPageCacheRef.current.clear();
       setProjectHistory((projects) => projects.filter((project: any) => project?.project_id !== projectId));
       setMyProjectHistory((projects) => projects.filter((project: any) => project?.project_id !== projectId));
-      setProjectGalleryImages((images) => {
-        const next = { ...images };
-        delete next[projectId];
-        return next;
+      setGalleryImageState((current) => {
+        const images = { ...current.images };
+        delete images[projectId];
+        return { ...current, images };
       });
       forgetChatRecords(relatedChatIds);
       relatedChatIds.forEach((chatId) => {
@@ -2725,18 +2750,32 @@ export function FormaWorkspace({
     ));
   }, [authRequired, chatStorageScope]);
 
+  useLayoutEffect(() => {
+    projectPageCacheRef.current.clear();
+    projectHistoryRequestIdRef.current += 1;
+    projectHistoryAbortRef.current?.abort();
+    return () => {
+      projectHistoryRequestIdRef.current += 1;
+      projectHistoryAbortRef.current?.abort();
+    };
+  }, [galleryIdentityKey]);
+
+  useEffect(() => {
+    const requests = galleryImageRequestsRef.current;
+    return () => requests.clear();
+  }, []);
+
   useEffect(() => {
     if (homeView !== "projects") return;
     void fetchProjectHistory(projectHistoryPage, projectSearchQuery);
     // Public gallery data becomes critical only when its route is active.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [homeView, projectHistoryPage, projectSearchQuery]);
+  }, [homeView, projectHistoryPage, projectSearchQuery, galleryIdentityKey, authLoaded]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
       const nextQuery = projectSearchInput.trim();
       if (nextQuery === projectSearchQuery) return;
-      setProjectHistoryLoaded(false);
       setVisibleProjectGalleryIds([]);
       setProjectHistoryPage(0);
       setProjectSearchQuery(nextQuery);
@@ -2968,9 +3007,24 @@ export function FormaWorkspace({
     page: number = projectHistoryPage,
     search: string = projectSearchQuery,
   ) => {
-    const requestId = projectHistoryRequestIdRef.current + 1;
-    projectHistoryRequestIdRef.current = requestId;
-    setProjectHistoryLoaded(false);
+    const requestId = ++projectHistoryRequestIdRef.current;
+    projectHistoryAbortRef.current?.abort();
+    const controller = new AbortController();
+    projectHistoryAbortRef.current = controller;
+    const isCurrent = () => !controller.signal.aborted && projectHistoryRequestIdRef.current === requestId;
+    const key = galleryPageKey(galleryIdentityKey, PROJECT_GALLERY_PAGE_SIZE, page, search);
+    const cached = projectPageCacheRef.current.get(key);
+    setProjectHistoryError(null);
+    if (cached) {
+      setProjectHistory(cached.items);
+      setProjectHistoryTotal(cached.total);
+      setProjectHistoryKey(key);
+      setProjectHistoryLoaded(true);
+    } else if (projectHistoryKey !== key) {
+      setProjectHistoryLoaded(false);
+    }
+    // A same-page refresh keeps the current cards mounted. A cached page can
+    // also render immediately, but every visit still revalidates permissions.
     try {
       const params = new URLSearchParams({
         limit: String(PROJECT_GALLERY_PAGE_SIZE),
@@ -2978,27 +3032,48 @@ export function FormaWorkspace({
       });
       const normalizedSearch = search.trim();
       if (normalizedSearch) params.set("q", normalizedSearch);
+      const headers = await optionalAuthHeaders();
+      if (!isCurrent()) return;
       const res = await fetch(`${API_URL}/projects?${params.toString()}`, {
-        headers: await optionalAuthHeaders(),
+        signal: controller.signal,
+        headers,
       });
-      if (projectHistoryRequestIdRef.current !== requestId) return;
-      if (res.ok) {
-        const result = normalizeProjectListPage(await res.json());
-        if (projectHistoryRequestIdRef.current !== requestId) return;
-        setProjectHistory(result.items);
-        setProjectHistoryTotal(result.total);
-        if (!authRequired) {
-          setLocalChatItems((current) => {
-            const repairedItems = buildChatListItems(result.items, current);
-            writeStoredChatIndex(repairedItems, chatStorageScope);
-            return repairedItems;
-          });
+      if (!isCurrent()) return;
+      if (!res.ok) {
+        if (isAuthOrSecurityHttpStatus(res.status)) {
+          projectPageCacheRef.current.clear();
+          setProjectHistory([]);
+          setProjectHistoryTotal(0);
         }
+        throw new Error(await readApiErrorMessage(res));
       }
-    } catch (e) {
-      console.error("Error fetching project history", e);
+      const result = normalizeProjectListPage(await res.json());
+      if (!isCurrent()) return;
+      projectPageCacheRef.current.set(key, result);
+      setProjectHistory(result.items);
+      setProjectHistoryTotal(result.total);
+      setProjectHistoryKey(key);
+      if (!authRequired) {
+        setLocalChatItems((current) => {
+          const repairedItems = buildChatListItems(result.items, current);
+          writeStoredChatIndex(repairedItems, chatStorageScope);
+          return repairedItems;
+        });
+      }
+    } catch (error) {
+      if (!isCurrent()) return;
+      if (!cached && projectHistoryKey !== key) {
+        setProjectHistory([]);
+        setProjectHistoryTotal(0);
+      }
+      setProjectHistoryKey(key);
+      setProjectHistoryError(error instanceof Error ? error : new Error("Projects could not be loaded."));
+      console.error("Error fetching project history", error);
     } finally {
-      if (projectHistoryRequestIdRef.current === requestId) setProjectHistoryLoaded(true);
+      if (isCurrent()) {
+        setProjectHistoryLoaded(true);
+        projectHistoryAbortRef.current = null;
+      }
     }
   };
 
@@ -3237,67 +3312,49 @@ export function FormaWorkspace({
 
 
   useEffect(() => {
-    if (currentRouteProjectId || projectIR) return;
-    const visibleProjectIds = new Set(visibleProjectGalleryIds);
-    if (!visibleProjectIds.size) return;
-
-    const imageProjects = mergeProjectRecords(projectHistory, myProjectHistory).filter((project: any) => {
+    const galleryActive = (homeView === "projects" || homeView === "my-projects")
+      && !currentRouteProjectId && !projectIR;
+    const visibleProjectIds = new Set(galleryActive ? visibleProjectGalleryIds : []);
+    const imageProjects = homeView === "my-projects" ? myProjectHistory : visibleProjectHistory;
+    const missingIds = imageProjects.filter((project: any) => {
       const projectId = project?.project_id ? String(project.project_id) : "";
-      return projectId && visibleProjectIds.has(projectId);
-    });
-    const missingProjects = imageProjects.filter((project: any) => {
-      const projectId = project?.project_id ? String(project.project_id) : "";
-      const summaryImage =
-        resolveProjectImageCandidates({
-          product_visual_sequence: project.product_visual_sequence,
-          product_image_url: project.product_image_url,
-          product_image_data: project.product_image_data,
-          product_image_content_type: project.product_image_content_type,
-          product_image_model: project.product_image_model,
-          image_output_model: project.image_output_model,
-        }, formaDevMode)[0] || null;
-      return projectId && !summaryImage && projectGalleryImages[projectId] === undefined;
-    });
-    if (!missingProjects.length) return;
-
-    let cancelled = false;
-    const controller = new AbortController();
-
-    Promise.all(
-      missingProjects.map(async (project: any): Promise<[string, ProjectImageCandidate | null]> => {
-        const projectId = String(project.project_id);
-        try {
-          const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/image-summary`, {
-            signal: controller.signal,
-            headers: await optionalAuthHeaders(),
-          });
-          if (!res.ok) return [projectId, null];
-
-          const data = await res.json();
-          return [projectId, resolveProjectImageCandidates(data || {}, formaDevMode)[0] || null];
-        } catch (error) {
-          if (!controller.signal.aborted) {
-            console.error("Error fetching project image", error);
-          }
-          return [projectId, null];
-        }
-      })
-    ).then((entries) => {
-      if (cancelled) return;
-      setProjectGalleryImages((current) => {
-        const next = { ...current };
-        entries.forEach(([projectId, image]) => {
-          next[projectId] = image;
-        });
-        return next;
-      });
-    });
-
-    return () => {
-      cancelled = true;
-      controller.abort();
+      if (!visibleProjectIds.has(projectId) || projectGalleryImages[projectId] !== undefined) return false;
+      return !resolveProjectImageCandidates({
+        product_visual_sequence: project.product_visual_sequence,
+        product_image_url: project.product_image_url,
+        product_image_data: project.product_image_data,
+        product_image_content_type: project.product_image_content_type,
+        product_image_model: project.product_image_model,
+        image_output_model: project.image_output_model,
+      }, formaDevMode)[0];
+    }).map((project: any) => String(project.project_id));
+    const storeImage = (projectId: string, image: ProjectImageCandidate | null) => {
+      setGalleryImageState((current) => ({
+        scope: imageScopeKey,
+        images: { ...(current.scope === imageScopeKey ? current.images : {}), [projectId]: image },
+      }));
     };
-  }, [formaDevMode, chatListItems, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, projectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
+    galleryImageRequestsRef.current.sync(
+      imageScopeKey,
+      missingIds,
+      async (projectId, signal) => {
+        const headers = await optionalAuthHeaders();
+        signal.throwIfAborted();
+        const res = await fetch(`${API_URL}/projects/${encodeURIComponent(projectId)}/image-summary`, {
+          signal, headers,
+        });
+        if (!res.ok) return null;
+        return resolveProjectImageCandidates(await res.json(), formaDevMode)[0] || null;
+      },
+      storeImage,
+      (projectId, error) => {
+        console.error("Error fetching project image", error);
+        storeImage(projectId, null);
+      },
+    );
+    // No per-render cleanup: settling one image must not abort its siblings.
+    // sync cancels obsolete IDs/scope; the separate cleanup handles unmount.
+  }, [formaDevMode, homeView, imageScopeKey, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, visibleProjectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
 
   const attachImageFile = (file: File, source: "upload" | "clipboard" = "upload") => {
     if (!file.type.startsWith("image/")) {
@@ -5917,7 +5974,8 @@ export function FormaWorkspace({
                   return item ? handleRemixProject(item) : undefined;
                 } : undefined}
                 onVisibleProjectIdsChange={handleVisibleProjectGalleryIdsChange}
-                totalItems={projectHistoryTotal}
+                totalItems={visibleProjectTotal}
+                error={hasCurrentGalleryPage && !visibleProjectHistory.length ? projectHistoryError : null}
                 currentPage={projectHistoryPage}
                 onPageChange={handleProjectHistoryPageChange}
                 searchValue={projectSearchInput}

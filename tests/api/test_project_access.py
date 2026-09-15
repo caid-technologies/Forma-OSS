@@ -143,6 +143,8 @@ class ProjectReadAccessTests(unittest.TestCase):
         stack.enter_context(patch.object(main, "creator_display_name", return_value="test-user"))
         stack.enter_context(patch.object(main, "get_cached_project_list", return_value=(None, None)))
         stack.enter_context(patch.object(main, "cache_project_list"))
+        stack.enter_context(patch.object(main, "get_cached_project_page", return_value=(None, None)))
+        stack.enter_context(patch.object(main, "cache_project_page"))
         stack.enter_context(patch.object(main, "project_engagement_for_ids", return_value={}))
         return stack
 
@@ -309,6 +311,45 @@ class ProjectReadAccessTests(unittest.TestCase):
         self.assertIsNone(other_response[0]["chat_id"])
         self.assertNotIn(main._CACHE_OWNER_DIGEST_FIELD, owner_response[0])
         self.assertNotIn(main._CACHE_OWNER_CHAT_FIELD, owner_response[0])
+
+    def test_public_page_cache_hit_keeps_owner_permissions_and_saved_state_private(self) -> None:
+        base = {
+            "project_id": "public-project",
+            main._CACHE_OWNER_DIGEST_FIELD: main._project_owner_digest("user-a"),
+            main._CACHE_OWNER_CHAT_FIELD: "owner-chat",
+        }
+        def engagement(_ids, user_id):
+            return {"public-project": {"save_count": 5, "remix_count": 2, "saved": user_id == "user-a"}}
+        with patch.object(main, "get_cached_project_page", return_value=({"items": [base], "total": 1}, "3")), patch.object(main, "project_engagement_for_ids", side_effect=engagement), patch.object(main, "_paginated_gallery_summaries") as db:
+            owner = main.list_projects_endpoint(_user_context("user-a"), limit=6)
+            other = main.list_projects_endpoint(_user_context("user-b"), limit=6)
+            anonymous = main.list_projects_endpoint(_anonymous_context(), limit=6)
+        db.assert_not_called()
+        self.assertTrue(owner["items"][0]["can_chat"])
+        self.assertTrue(owner["items"][0]["saved"])
+        self.assertEqual("owner-chat", owner["items"][0]["chat_id"])
+        for response in (other, anonymous):
+            self.assertFalse(response["items"][0]["can_chat"])
+            self.assertFalse(response["items"][0]["saved"])
+            self.assertIsNone(response["items"][0]["chat_id"])
+        for response in (owner, other, anonymous):
+            self.assertNotIn(main._CACHE_OWNER_DIGEST_FIELD, response["items"][0])
+            self.assertNotIn(main._CACHE_OWNER_CHAT_FIELD, response["items"][0])
+        self.assertNotIn("saved", base)
+        self.assertNotIn("can_chat", base)
+
+    def test_public_page_cache_miss_normalizes_query_and_caches_only_base_records(self) -> None:
+        base = {"project_id": "public-project", main._CACHE_OWNER_DIGEST_FIELD: "digest"}
+        with patch.object(main, "get_cached_project_page", return_value=(None, "4")) as lookup, patch.object(main, "_paginated_gallery_summaries", return_value=([base], 1)) as db, patch.object(main, "cache_project_page") as store, patch.object(main, "project_engagement_for_ids", return_value={}):
+            response = main.list_projects_endpoint(_anonymous_context(), limit=99, offset=-1, q=" fan ")
+        lookup.assert_called_once_with("public", None, limit=50, offset=0, search="fan")
+        self.assertEqual(50, db.call_args.kwargs["limit"])
+        self.assertEqual(0, db.call_args.kwargs["offset"])
+        self.assertEqual("fan", db.call_args.kwargs["search"])
+        store.assert_called_once_with("public", None, [base], 1, "4", limit=50, offset=0, search="fan")
+        self.assertEqual(50, response["limit"])
+        self.assertFalse(response["has_more"])
+        self.assertNotIn("saved", base)
 
     def test_owner_list_includes_canonical_project_without_legacy_row(self) -> None:
         project_id = "11111111-1111-4111-8111-111111111111"

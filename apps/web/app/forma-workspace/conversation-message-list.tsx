@@ -66,6 +66,7 @@ export default function ConversationMessageList({
       .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id
     : null;
   const projectLayout = variant === "project";
+  const displayAssistantLabel = assistantLabel === "OpenCode" ? "Forma Agent" : assistantLabel;
 
   if (!messages.length && emptyMessage) {
     return (
@@ -113,7 +114,7 @@ export default function ConversationMessageList({
             ) : (
               <Cpu className="h-3.5 w-3.5 text-zinc-400" />
             )}
-            <span>{isUser ? "You" : isSystem ? "Context" : assistantLabel}</span>
+            <span>{isUser ? "You" : isSystem ? "Context" : displayAssistantLabel}</span>
             <span className="text-zinc-700">·</span>
             <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
             <CopyButton

@@ -117,7 +117,7 @@ test("an active OpenCode authoring session is distinct from a stable ready badge
 
   assert.equal(badge.tone, "authoring");
   assert.equal(badge.reason, "authoring");
-  assert.match(badge.label, /OpenCode/);
+  assert.match(badge.label, /Forma Agent/);
   assert.equal(badge.pulse, true);
 });
 

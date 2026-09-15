@@ -20,8 +20,8 @@ _PATH_PATTERN = re.compile(r"(?:[A-Za-z]:[\\/]|/Users/|/home/|/tmp/|\\\\|\.{1,2}
 _INTERNAL_PATTERN = re.compile(r"(?i)(?:^|\s)(?:diff|patch|shell|command|tool|reasoning|traceback|exception)\s*[:=]")
 _PUBLIC_KINDS = {kind.value for kind in OpenCodeEventKind}
 _ERROR_MESSAGES = {
-    "connector_unavailable": "The OpenCode connector is unavailable.",
-    "command_failed": "The OpenCode project command failed.",
+    "connector_unavailable": "Forma Agent is unavailable.",
+    "command_failed": "Forma Agent could not complete the project request.",
     "validation_failed": "The project failed Forma validation.",
 }
 _SAFE_WORKER_ERROR_PATTERN = re.compile(r"^opencode_(?:session_)?http_[45]\d{2}$")
@@ -66,7 +66,7 @@ def _safe_message(value: str | None) -> str | None:
     if not value:
         return None
     if _PATH_PATTERN.search(value) or _INTERNAL_PATTERN.search(value):
-        return "The OpenCode connector is working on the project."
+        return "Forma Agent is working on the project."
     redacted = _SECRET_PATTERN.sub("[redacted]", value).strip()
     return redacted[:2000] if redacted else None
 
@@ -75,12 +75,12 @@ def _public_error(event: ConnectorEventInput) -> PublicError:
     code = event.error_code if event.error_code in _ERROR_MESSAGES else "command_failed"
     if event.error_code == "opencode_fetch_failed":
         code = event.error_code
-        message = "The mini-PC could not reach its local OpenCode server."
+        message = "Forma Agent could not reach its local runtime."
     elif event.error_code and _SAFE_WORKER_ERROR_PATTERN.fullmatch(event.error_code):
         code = event.error_code
-        message = f"OpenCode local request failed (HTTP {event.error_code[-3:]})."
+        message = f"Forma Agent local request failed (HTTP {event.error_code[-3:]})."
     else:
-        message = _ERROR_MESSAGES.get(code, "The OpenCode project command failed.")
+        message = _ERROR_MESSAGES.get(code, "Forma Agent could not complete the project request.")
     return PublicError(
         code=code,
         message=message,

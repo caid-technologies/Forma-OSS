@@ -32,7 +32,6 @@ def integrate() -> None:
     if MARKER in WORKSPACE.read_text() and MARKER in HOME.read_text():
         print("UI integration already committed; no changes needed.")
         return
-    # Prepare both files before writing either one. The integration is all-or-nothing.
     workspace = read_guarded(WORKSPACE, "b75a379f7d9af68ef40f4f973cbd3ab383d967e0")
     home = read_guarded(HOME, "b059d6d1a84403aa658f245f5dbc8b5d8e08a89b")
     workspace = replace_once(workspace, 'import HomeChatView from "./forma-workspace/home-chat-view";',
@@ -48,7 +47,7 @@ def integrate() -> None:
         raise RuntimeError("Expected exactly one inline project artifact in ChatWorkspace")
     artifact = artifact_match.group(0).strip()
     chat = chat[:artifact_match.start()] + chat[artifact_match.end():]
-    chat = replace_once(chat, "  return (\n", "  return (\n    <ChatProjectLayout\n      conversationKey={chatId || projectId || \"project-chat\"}\n      projectId={projectId}\n      project={canChat ? (\n        " + artifact + "\n      ) : null}\n    >\n")
+    chat = replace_once(chat, "\n  return (\n", "\n  return (\n    <ChatProjectLayout\n      conversationKey={chatId || projectId || \"project-chat\"}\n      projectId={projectId}\n      project={canChat ? (\n        " + artifact + "\n      ) : null}\n    >\n")
     if not chat.endswith("    </div>\n  );\n}\n\n"):
         raise RuntimeError("Unexpected ChatWorkspace return boundary")
     chat = chat[:-len("  );\n}\n\n")] + "    </ChatProjectLayout>\n  );\n}\n\n"
@@ -63,7 +62,6 @@ def integrate() -> None:
     panel_start = workspace.index("function ProjectWorkspacePanel({", artifact_start)
     old_artifact = workspace[artifact_start:panel_start]
     signature_end = old_artifact.index(") {\n") + len(") {\n")
-    # Preserve the existing typed props and shared namespace panel; replace only presentation.
     new_artifact = old_artifact[:signature_end] + '''  return (
     <ChatProjectSurface
       title={(
@@ -91,7 +89,6 @@ def integrate() -> None:
 
 '''
     workspace = workspace[:helper_start] + new_artifact + workspace[panel_start:]
-    # Delete imports only when their last use disappeared with the old full-screen wrapper.
     if workspace.count("useLayoutEffect") == 1:
         workspace = workspace.replace("useLayoutEffect, ", "", 1)
     for name in ("Maximize2", "Minimize2"):

@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { openCodeDesignNotice, reduceOpenCodeTurn, type OpenCodeEvent, type OpenCodeTurnState } from "../lib/opencode.ts";
 
 const initial: OpenCodeTurnState = {
-  content: "Waiting for OpenCode.",
+  content: "Waiting for Forma Agent.",
   assistantMessage: null,
   status: "loading",
   terminalEvent: null,
@@ -53,7 +53,7 @@ test("assistant text survives progress, reconnect, and completion in the same ev
 
 test("completion without an answer does not claim a project was created", () => {
   const result = reduceOpenCodeTurn(initial, event("completed"), "command");
-  assert.equal(result.content, "OpenCode finished responding.");
+  assert.equal(result.content, "Forma Agent finished responding.");
   assert.equal("projectId" in result, false);
 });
 

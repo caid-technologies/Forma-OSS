@@ -37,10 +37,6 @@ function formatTimestamp(value: string) {
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-function formaAgentDisplayText(value: string) {
-  return value.replace(/\bOpenCode\b/g, "Forma Agent");
-}
-
 export default function ConversationMessageList({
   messages,
   renderPipelineProgress,
@@ -70,12 +66,12 @@ export default function ConversationMessageList({
       .find((message) => message.role === "assistant" && Boolean(message.contextSuggestions?.length))?.id
     : null;
   const projectLayout = variant === "project";
-  const displayAssistantLabel = formaAgentDisplayText(assistantLabel);
+  const displayAssistantLabel = assistantLabel === "OpenCode" ? "Forma Agent" : assistantLabel;
 
   if (!messages.length && emptyMessage) {
     return (
       <div className="mx-auto w-full max-w-3xl rounded-xl border border-white/5 bg-[#181b22] p-5 text-sm leading-6 text-zinc-500">
-        {formaAgentDisplayText(emptyMessage)}
+        {emptyMessage}
       </div>
     );
   }
@@ -83,7 +79,6 @@ export default function ConversationMessageList({
   return messages.map((message) => {
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
-    const displayContent = isUser ? message.content : formaAgentDisplayText(message.content);
     const statusTone =
       message.status === "error"
         ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
@@ -123,12 +118,12 @@ export default function ConversationMessageList({
             <span className="text-zinc-700">·</span>
             <span suppressHydrationWarning>{formatTimestamp(message.timestamp)}</span>
             <CopyButton
-              value={displayContent}
+              value={message.content}
               label={isUser ? "Copy your message" : isSystem ? "Copy context message" : "Copy Forma's message"}
               className="ml-auto"
             />
           </div>
-          <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{displayContent}</p>
+          <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
           {!isUser && message.id === latestChoiceMessageId && Boolean(message.contextSuggestions?.length) && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Suggested answers">
               {message.contextSuggestions?.map((suggestion) => (

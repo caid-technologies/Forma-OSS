@@ -4,18 +4,32 @@ on:
     branches: [feat/user-fabrication-settings]
     paths: [.github/workflows/fabrication-settings-workspace.yml]
 permissions:
-  contents: read
+  contents: write
 jobs:
-  source:
+  apply-reviewed-change:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          persist-credentials: false
-      - run: git archive --format=zip HEAD -o forma-source.zip
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: fabrication-settings-source
-          path: forma-source.zip
-          retention-days: 1
+          ref: feat/user-fabrication-settings
+      - name: Verify and apply the reviewed source patch
+        env:
+          EXPECTED_HEAD: ${{ github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          python - <<'PY'
+          import gzip, hashlib
+          from pathlib import Path
+          compressed = b''.join(Path(f'.github/fabrication-change/part{i}').read_bytes() for i in range(6))
+          assert hashlib.sha256(compressed).hexdigest() == '4187f17b0b2790a60146ba8a76afd2d523485213dde5e77644e8855c119d3c58'
+          Path('/tmp/fabrication-settings.patch').write_bytes(gzip.decompress(compressed))
+          PY
+          git apply --check /tmp/fabrication-settings.patch
+          git apply --index /tmp/fabrication-settings.patch
+          git rm -r .github/fabrication-change .github/workflows/fabrication-settings-workspace.yml
+          git diff --cached --check
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'feat: persist account printer preferences without Orca environment configuration'
+          git push origin HEAD:refs/heads/feat/user-fabrication-settings

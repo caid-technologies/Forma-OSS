@@ -31,3 +31,7 @@ test("chat submit and stop handlers remain connected; the started home composer 
   assert.match(home, /className=\{started\s*\? "relative/);
   assert.match(home, /onSubmit=\{onSubmit\}/);
 });
+test("home project controls clear the mobile chrome without the obsolete composer spacer", () => {
+  assert.match(home, /className=\{layoutStyles.home\} data-project=/);
+  assert.doesNotMatch(home, /h-40 shrink-0 md:hidden/);
+});

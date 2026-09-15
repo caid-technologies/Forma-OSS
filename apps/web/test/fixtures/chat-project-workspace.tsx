@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ChatProjectLayout, { ChatProjectSurface, ProjectUpdateCard } from "../../app/forma-workspace/chat-project-layout";
 import "./chat-project-workspace.css";
+import layoutStyles from "../../app/forma-workspace/chat-project-layout.module.css";
 
 declare global {
   interface Window { viewerStats: { live: number; mounts: number; unmounts: number; peak: number }; }
@@ -30,10 +31,13 @@ function Fixture() {
   const [tab, setTab] = useState("CAD");
   const [updates, setUpdates] = useState(1);
   const [draft, setDraft] = useState("");
+  const homeChrome = new URLSearchParams(window.location.search).has("home");
   const title = projectId === "controller" ? "USB Game Controller" : "Mechanical Bracket";
   return <div className="fixture-app">
     <aside className="fixture-sidebar"><strong>Forma</strong><button type="button" onClick={() => setProjectId("controller")}>Controller chat</button><button type="button" onClick={() => setProjectId("bracket")}>Bracket chat</button></aside>
     <main className="fixture-main">
+      {homeChrome && <header className="fixture-mobile-chrome" data-testid="mobile-chrome">Forma · Project chat</header>}
+      <div className={layoutStyles.home} data-project={homeChrome ? "true" : undefined}>
       <ChatProjectLayout conversationKey={projectId} projectId={projectId} project={
         <ChatProjectSurface title={title}>
           <div className="project-tabs" role="group" aria-label="Project section">
@@ -54,6 +58,7 @@ function Fixture() {
           <button type="submit">Complete update</button>
         </form>
       </ChatProjectLayout>
+      </div>
     </main>
   </div>;
 }

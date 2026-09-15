@@ -16,7 +16,7 @@
   align-items: center;
   gap: 6px;
   min-height: 46px;
-  padding: 6px 12px;
+  padding: 6px 104px 6px 12px;
   border-bottom: 1px solid var(--forma-border, #ffffff18);
 }
 .button {
@@ -101,3 +101,10 @@
 .cardTitle { font-size: 12px; font-weight: 600; }
 .cardNote { font-size: 11px; line-height: 1.5; color: var(--forma-text-muted, #a1a1aa); }
 @media (max-width: 600px) { .hint, .buttonLabel { display: none; } }
+
+/* The home route owns an absolute 56px mobile chrome bar above this layout. */
+.home { display: contents; }
+@media (max-width: 767px) {
+  .home[data-project="true"] { display: flex; flex: 1 1 0%; flex-direction: column; min-height: 0; min-width: 0; padding-top: 56px; }
+  .home[data-project="true"] .toolbar { padding-right: 12px; }
+}

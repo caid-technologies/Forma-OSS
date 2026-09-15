@@ -20,6 +20,7 @@ import {
 import CopyButton from "../../components/copy-button";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout, { ProjectUpdateCard } from "./chat-project-layout";
+import layoutStyles from "./chat-project-layout.module.css";
 
 type HomeChatMessage = {
   id: string;
@@ -136,6 +137,7 @@ export default function HomeChatView({
   }, [selectedImage]);
 
   return (
+    <div className={layoutStyles.home} data-project={started && Boolean(projectArtifact) ? "true" : undefined}>
     <ChatProjectLayout conversationKey={conversationKey} projectId={projectArtifactId} project={started ? projectArtifact : null}>
     <section
       className={`${
@@ -171,7 +173,7 @@ export default function HomeChatView({
           <div
             ref={containerRef}
             onScroll={handleScroll}
-            className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-4 sm:pb-6 md:pt-5"
+            className={`min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 pb-5 sm:px-4 sm:pb-6 md:pt-5 ${projectArtifact ? "pt-5" : "pt-16"}`}
           >
             {messages.map((message) => {
               const isUser = message.role === "user";
@@ -433,9 +435,9 @@ export default function HomeChatView({
           </div>
 
         </form>
-        {started && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
     </ChatProjectLayout>
+    </div>
   );
 }

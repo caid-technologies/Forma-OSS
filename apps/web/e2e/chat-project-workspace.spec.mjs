@@ -37,8 +37,9 @@ test("close releases the viewer, cards reopen it, and repeated chat switching is
     await page.getByRole("button", { name: "Bracket chat" }).click();
     await expect(page.getByTestId("model-canvas")).toHaveAttribute("aria-label", "Model for bracket");
     await page.getByRole("button", { name: "Controller chat" }).click();
+    await expect(page.getByTestId("model-canvas")).toHaveAttribute("aria-label", "Model for controller");
   }
-  expect((await stats(page)).live).toBe(1);
+  await expect.poll(async () => (await stats(page)).live).toBe(1);
   expect((await stats(page)).peak).toBe(1);
 });
 
@@ -89,4 +90,16 @@ test("only the selected project tab is mounted; resizing is keyboard accessible"
   await page.getByRole("button", { name: "CAD", exact: true }).click();
   await expect(page.getByTestId("model-canvas")).toHaveCount(1);
   expect((await stats(page)).peak).toBe(1);
+});
+
+test("home-route mobile chrome does not cover project controls", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/?home");
+  const header = await page.getByTestId("mobile-chrome").boundingBox();
+  const controls = await page.getByRole("group", { name: "Workspace view" }).boundingBox();
+  expect(header && controls && controls.y >= header.y + header.height).toBeTruthy();
+  await page.getByRole("button", { name: "Show project", exact: true }).click();
+  await expect(page.getByTestId("model-canvas")).toHaveCount(1);
+  await page.getByRole("button", { name: "Chat", exact: true }).click();
+  await expect(page.getByTestId("model-canvas")).toHaveCount(0);
 });

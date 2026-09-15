@@ -14,11 +14,12 @@ await build({
 const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Forma workspace UI test</title><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>';
 const files = new Map([["/fixture.js", "text/javascript"], ["/fixture.css", "text/css"], ["/fixture.js.map", "application/json"]]);
 const server = createServer(async (request, response) => {
-  if (request.url === "/") { response.writeHead(200, { "Content-Type": "text/html" }); response.end(html); return; }
-  const mime = files.get(request.url);
+  const pathname = new URL(request.url, "http://127.0.0.1:4175").pathname;
+  if (pathname === "/") { response.writeHead(200, { "Content-Type": "text/html" }); response.end(html); return; }
+  const mime = files.get(pathname);
   if (!mime) { response.writeHead(404); response.end(); return; }
   try {
-    const content = await readFile(join(directory, request.url.slice(1)));
+    const content = await readFile(join(directory, pathname.slice(1)));
     response.writeHead(200, { "Content-Type": mime }); response.end(content);
   } catch { response.writeHead(404); response.end(); }
 });

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -27,17 +28,48 @@ class OrcaSlicerAdapter:
         """Create an adapter with an optional explicit OrcaSlicer executable."""
         self.executable = str(executable or config.optional("FORMA_ORCA_SLICER_PATH") or "").strip() or None
 
+    @staticmethod
+    def _standard_install_candidates() -> list[Path]:
+        """Return common host-install locations not normally added to PATH."""
+        candidates: list[Path] = []
+        for variable in ("ProgramFiles", "ProgramW6432", "LOCALAPPDATA"):
+            root = str(os.environ.get(variable) or "").strip()
+            if not root:
+                continue
+            base = Path(root)
+            candidates.extend(
+                [
+                    base / "OrcaSlicer" / "orca-slicer.exe",
+                    base / "OrcaSlicer" / "OrcaSlicer.exe",
+                    base / "Programs" / "OrcaSlicer" / "orca-slicer.exe",
+                    base / "Programs" / "OrcaSlicer" / "OrcaSlicer.exe",
+                ]
+            )
+        candidates.extend(
+            [
+                Path("/Applications/OrcaSlicer.app/Contents/MacOS/OrcaSlicer"),
+                Path("/usr/bin/orca-slicer"),
+                Path("/usr/local/bin/orca-slicer"),
+                Path("/opt/OrcaSlicer/orca-slicer"),
+                Path("/opt/OrcaSlicer/OrcaSlicer"),
+            ]
+        )
+        return candidates
+
     def executable_path(self) -> Path | None:
-        """Return a configured or PATH-discovered OrcaSlicer executable."""
+        """Return a configured, PATH-discovered, or conventionally installed OrcaSlicer binary."""
         if self.executable:
             configured = Path(self.executable).expanduser()
-            return configured if configured.is_file() else None
+            return configured.resolve() if configured.is_file() else None
         discovered = (
             shutil.which("orca-slicer")
             or shutil.which("OrcaSlicer")
             or shutil.which("orca-slicer.exe")
+            or shutil.which("OrcaSlicer.exe")
         )
-        return Path(discovered) if discovered else None
+        if discovered:
+            return Path(discovered).resolve()
+        return next((candidate.resolve() for candidate in self._standard_install_candidates() if candidate.is_file()), None)
 
     def is_available(self) -> bool:
         """Return whether OrcaSlicer can be invoked on this worker."""

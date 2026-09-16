@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@caid-technologies/forma-gui": ["./node_modules/@isayahc/forma-gui"]
     },
     "target": "ES2017"
   },

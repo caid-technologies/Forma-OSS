@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.hosted_chat import require_hosted_chat_enabled
+from apps.api import ender_exports
 from forma_core.database import (
     evaluate_project_readiness,
     get_latest_project_build,
@@ -255,7 +256,7 @@ def list_project_exports_endpoint(
             "size_bytes": cad.get("bytes"),
             "download_url": f"/projects/{project_key}/exports/step/{digest}",
         },
-        "printers": demo_printer_capabilities(),
+        "printers": ender_exports.capabilities() if ender_exports.enabled() else demo_printer_capabilities(),
     }
 
 
@@ -289,6 +290,8 @@ def create_project_gcode_endpoint(
     owner = _owner(user)
     cad = _project_cad(project_key, owner)
     source_sha256, step_content = _load_step_bytes(project_key, cad)
+    if ender_exports.enabled():
+        return ender_exports.start(project_key, source_sha256, step_content, request.printer_id)
     printer = get_demo_printer(request.printer_id)
     try:
         profile = resolve_demo_slice_profile(printer.printer_id)
@@ -381,3 +384,18 @@ def download_project_gcode_endpoint(
             "Cache-Control": "private, no-store",
         },
     )
+
+
+
+@router.get("/exports/gcode/jobs/{job_id}")
+def poll_project_gcode_endpoint(
+    project_id: UUID,
+    job_id: UUID,
+    user: UserContext = Depends(require_user_context),
+) -> dict[str, Any]:
+    """Poll without holding a cloud request open for the entire native slice."""
+    project_key = str(project_id)
+    cad = _project_cad(project_key, _owner(user))
+    if not ender_exports.enabled():
+        raise _export_error(503, "slicing_worker_unavailable", "The Ender 3 worker is not configured.")
+    return ender_exports.poll(project_key, _step_digest(cad), str(job_id))

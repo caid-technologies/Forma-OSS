@@ -153,7 +153,7 @@ class HierarchicalCadTests(unittest.TestCase):
 
     def test_require_approval_remains_deferred_after_visual_exists(self) -> None:
         ir = gated_project(policy="require_approval")
-        bootstrap_design_lifecycle(ir)
+        bootstrap_design_lifecycle(ir, policy="require_approval")
         register_system_render(
             ir,
             source_fingerprint="sha256:visual",

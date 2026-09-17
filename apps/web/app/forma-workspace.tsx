@@ -17,6 +17,7 @@ import { useChatActivity } from "./forma-workspace/use-chat-activity";
 import {
   cancelOpenCodeSession,
   createOpenCodeSession,
+  getOpenCodeSession,
   listOpenCodeEvents,
   reduceOpenCodeTurn,
   openCodeDesignNotice,
@@ -225,6 +226,13 @@ type AgentPipelineProgress = {
   uiUpdatedAt?: string;
 };
 
+type OpenCodeTurnReference = {
+  sessionId: string;
+  commandId: string;
+  projectId: string;
+  kind: "chat" | "project-chat";
+};
+
 type ChatMessage = {
   id: string;
   role: "assistant" | "user" | "system";
@@ -240,6 +248,7 @@ type ChatMessage = {
   contextSuggestions?: string[];
   buildPlanId?: string | null;
   buildJobId?: string | null;
+  openCodeTurn?: OpenCodeTurnReference | null;
 };
 
 type ActiveGenerationRun = {
@@ -491,6 +500,22 @@ function validChatRole(value: any): ChatMessage["role"] {
   return ["assistant", "user", "system"].includes(value) ? value : "assistant";
 }
 
+function normalizeOpenCodeTurn(value: any): OpenCodeTurnReference | null {
+  if (!value || typeof value !== "object") return null;
+  const sessionId = typeof value.sessionId === "string"
+    ? value.sessionId
+    : typeof value.session_id === "string" ? value.session_id : "";
+  const commandId = typeof value.commandId === "string"
+    ? value.commandId
+    : typeof value.command_id === "string" ? value.command_id : "";
+  const projectId = typeof value.projectId === "string"
+    ? value.projectId
+    : typeof value.project_id === "string" ? value.project_id : "";
+  const kind = value.kind === "project-chat" ? "project-chat" : value.kind === "chat" ? "chat" : "";
+  if (!sessionId || !commandId || !projectId || !kind) return null;
+  return { sessionId, commandId, projectId, kind };
+}
+
 function normalizeChatMessage(value: any): ChatMessage | null {
   if (!value || typeof value !== "object" || typeof value.content !== "string") return null;
   const buildExecutionStatus = typeof value.buildExecution?.status === "string"
@@ -536,6 +561,7 @@ function normalizeChatMessage(value: any): ChatMessage | null {
         : typeof value.buildExecution?.job_id === "string"
           ? value.buildExecution.job_id
           : null,
+    openCodeTurn: normalizeOpenCodeTurn(value.openCodeTurn ?? value.open_code_turn),
   };
 }
 
@@ -584,6 +610,11 @@ function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: 
       contextProjectId: remote.contextProjectId || local.contextProjectId || null,
       buildPlanId: remote.buildPlanId || local.buildPlanId || null,
       buildJobId: remote.buildJobId || local.buildJobId || null,
+      openCodeTurn: remoteRegressed
+        ? local.openCodeTurn || null
+        : remote.status === "loading"
+          ? remote.openCodeTurn || local.openCodeTurn || null
+          : null,
       imagePreview: remote.imagePreview || local.imagePreview || null,
     });
   });
@@ -1848,6 +1879,7 @@ export function FormaWorkspace({
   const openCodeSessionsRef = useRef<Record<string, OpenCodeSession>>({});
   const openCodeCursorsRef = useRef<Record<string, number>>({});
   const openCodePollTimersRef = useRef<Record<string, number>>({});
+  const openCodePollingTurnsRef = useRef<Set<string>>(new Set());
   const activeChatIdRef = useRef(activeChatId);
   useLayoutEffect(() => {
     activeChatIdRef.current = activeChatId;
@@ -2010,6 +2042,7 @@ export function FormaWorkspace({
       contextSuggestions: message.contextSuggestions || [],
       buildPlanId: message.buildPlanId || null,
       buildJobId: message.buildJobId || null,
+      openCodeTurn: message.openCodeTurn || null,
       timestamp: chatTimestamp(),
     };
     trackLiveChatMessage(nextMessage.id, nextMessage.status);
@@ -2066,6 +2099,7 @@ export function FormaWorkspace({
       contextSuggestions: message.contextSuggestions || [],
       buildPlanId: message.buildPlanId || null,
       buildJobId: message.buildJobId || null,
+      openCodeTurn: message.openCodeTurn || null,
       timestamp: chatTimestamp(),
     };
     trackLiveChatMessage(nextMessage.id, nextMessage.status);
@@ -3538,6 +3572,7 @@ export function FormaWorkspace({
           ? "Build stopped by you. Your project brief is preserved."
           : "Generation stopped by you.",
         status: "cancelled",
+        ...(run.openCodeSessionId ? { openCodeTurn: null } : {}),
       };
       if (run.kind !== "project-chat") updateChatMessage(run.assistantMessageId, patch);
       updateThreadMessage(run.chatId, run.assistantMessageId, patch);
@@ -3548,6 +3583,10 @@ export function FormaWorkspace({
         : "Generation stopped. You can send another message whenever you're ready.",
     );
     if (authoringMode && run.openCodeSessionId) {
+      const timer = openCodePollTimersRef.current[run.openCodeSessionId];
+      if (timer) window.clearTimeout(timer);
+      delete openCodePollTimersRef.current[run.openCodeSessionId];
+      if (run.jobId) openCodePollingTurnsRef.current.delete(`${run.openCodeSessionId}:${run.jobId}`);
       delete openCodeSessionsRef.current[run.chatId];
       void generationRequestHeaders()
         .then((headers) => cancelOpenCodeSession(API_URL, headers, run.openCodeSessionId || ""))
@@ -4810,14 +4849,26 @@ export function FormaWorkspace({
     assistantMessageId: string;
     run: ActiveGenerationRun;
   }) => {
+    const pollKey = `${turn.sessionId}:${turn.commandId}`;
+    if (openCodePollingTurnsRef.current.has(pollKey)) return;
+    openCodePollingTurnsRef.current.add(pollKey);
     let state: OpenCodeTurnState = {
       assistantMessage: null,
       content: "Waiting for OpenCode.",
       status: "loading",
       terminalEvent: null,
     };
+    const stopPolling = () => {
+      const timer = openCodePollTimersRef.current[turn.sessionId];
+      if (timer) window.clearTimeout(timer);
+      delete openCodePollTimersRef.current[turn.sessionId];
+      openCodePollingTurnsRef.current.delete(pollKey);
+    };
     const poll = async () => {
-      if (turn.run.cancelled || turn.run.controller.signal.aborted) return;
+      if (turn.run.cancelled || turn.run.controller.signal.aborted) {
+        stopPolling();
+        return;
+      }
       try {
         const page = await listOpenCodeEvents(
           API_URL,
@@ -4825,18 +4876,25 @@ export function FormaWorkspace({
           turn.sessionId,
           openCodeCursorsRef.current[turn.sessionId] || 0,
         );
-        if (turn.run.cancelled || turn.run.controller.signal.aborted) return;
+        if (turn.run.cancelled || turn.run.controller.signal.aborted) {
+          stopPolling();
+          return;
+        }
         openCodeCursorsRef.current[turn.sessionId] = page.next_cursor;
         for (const event of page.events) {
           if (event.session_id !== turn.sessionId) continue;
           state = reduceOpenCodeTurn(state, event, turn.commandId);
         }
-        const patch = { content: state.content, status: state.status };
+        const terminalEvent = state.terminalEvent;
+        const patch: Partial<Omit<ChatMessage, "id">> = {
+          content: state.content,
+          status: state.status,
+          ...(terminalEvent ? { openCodeTurn: null } : {}),
+        };
         updateThreadMessage(turn.chatId, turn.assistantMessageId, patch);
         if (activeChatIdRef.current === turn.chatId) updateChatMessage(turn.assistantMessageId, patch);
-        const terminalEvent = state.terminalEvent;
         if (terminalEvent) {
-          delete openCodePollTimersRef.current[turn.sessionId];
+          stopPolling();
           if (terminalEvent.kind === "cancelled") delete openCodeSessionsRef.current[turn.chatId];
           let resultLoadError: string | null = null;
           let resultLoadNotice: string | null = null;
@@ -4896,7 +4954,10 @@ export function FormaWorkspace({
         }
         openCodePollTimersRef.current[turn.sessionId] = window.setTimeout(poll, 1500);
       } catch (error) {
-        if (turn.run.cancelled || turn.run.controller.signal.aborted) return;
+        if (turn.run.cancelled || turn.run.controller.signal.aborted) {
+          stopPolling();
+          return;
+        }
         setGenerationInputNotice(error instanceof Error ? error.message : "OpenCode events could not be loaded.");
         openCodePollTimersRef.current[turn.sessionId] = window.setTimeout(poll, 3000);
       }
@@ -4936,6 +4997,15 @@ export function FormaWorkspace({
       run.openCodeSessionId = session.session_id;
       const command = await submitOpenCodeCommand(API_URL, headers, session.session_id, message);
       run.jobId = command.command_id;
+      const openCodeTurn: OpenCodeTurnReference = {
+        sessionId: session.session_id,
+        commandId: command.command_id,
+        projectId: session.project_id,
+        kind: run.kind === "project-chat" ? "project-chat" : "chat",
+      };
+      const recoveryPatch: Partial<Omit<ChatMessage, "id">> = { openCodeTurn };
+      updateThreadMessage(chatId, assistantMessageId, recoveryPatch);
+      if (activeChatIdRef.current === chatId) updateChatMessage(assistantMessageId, recoveryPatch);
       setActiveGeneration({ kind: run.kind, jobId: command.command_id });
       setGenerationInputNotice("Sent to OpenCode. Live authoring status will appear here.");
       pollOpenCodeTurn({ chatId, sessionId: session.session_id, commandId: command.command_id, assistantMessageId, run });
@@ -4946,6 +5016,46 @@ export function FormaWorkspace({
       finishGenerationRun(run);
       setGenerationInputNotice(messageText);
     }
+  };
+
+  const resumeOpenCodeTurn = (chatId: string, message: ChatMessage) => {
+    const reference = message.openCodeTurn;
+    if (!reference || message.status !== "loading") return;
+    const pollKey = `${reference.sessionId}:${reference.commandId}`;
+    if (openCodePollingTurnsRef.current.has(pollKey)) return;
+
+    const run: ActiveGenerationRun = {
+      kind: reference.kind,
+      controller: new AbortController(),
+      jobId: reference.commandId,
+      projectId: reference.projectId,
+      chatId,
+      assistantMessageId: message.id,
+      openCodeSessionId: reference.sessionId,
+      cancelled: false,
+    };
+    trackLiveChatMessage(message.id, "loading");
+    if (!activeGenerationRef.current && activeChatIdRef.current === chatId) {
+      activeGenerationRef.current = run;
+      setActiveGeneration({ kind: run.kind, jobId: run.jobId });
+      setIsLoading(true);
+      setGenerationInputNotice("Reconnected to the in-progress OpenCode request.");
+    }
+    openCodeCursorsRef.current[reference.sessionId] = 0;
+    void generationRequestHeaders()
+      .then((headers) => getOpenCodeSession(API_URL, headers, reference.sessionId))
+      .then((session) => {
+        if (session.status === "active") openCodeSessionsRef.current[chatId] = session;
+        else delete openCodeSessionsRef.current[chatId];
+      })
+      .catch(() => undefined);
+    pollOpenCodeTurn({
+      chatId,
+      sessionId: reference.sessionId,
+      commandId: reference.commandId,
+      assistantMessageId: message.id,
+      run,
+    });
   };
 
   const loadedProjectId = projectIdFromIR(projectIR);
@@ -5459,6 +5569,31 @@ export function FormaWorkspace({
     }
     return threads;
   }, [activeChatId, chatMessages, chatThreads]);
+  const pendingOpenCodeTurns = useMemo(() => {
+    const pending: Array<{ chatId: string; message: ChatMessage }> = [];
+    Object.entries(activityThreads).forEach(([chatId, messages]) => {
+      messages.forEach((message) => {
+        if (message.role === "assistant" && message.status === "loading" && message.openCodeTurn) {
+          pending.push({ chatId, message });
+        }
+      });
+    });
+    return pending;
+  }, [activityThreads]);
+  const pendingOpenCodeTurnKey = useMemo(
+    () => pendingOpenCodeTurns
+      .map(({ chatId, message }) => `${chatId}:${message.id}:${message.openCodeTurn?.sessionId}:${message.openCodeTurn?.commandId}`)
+      .sort()
+      .join("|"),
+    [pendingOpenCodeTurns],
+  );
+  useEffect(() => {
+    if (!authoringMode || !chatIndexLoaded || !chatHistoryLoaded) return;
+    if (authRequired && (!authLoaded || !isSignedIn)) return;
+    pendingOpenCodeTurns.forEach(({ chatId, message }) => resumeOpenCodeTurn(chatId, message));
+    // pendingOpenCodeTurnKey captures the stable pending identities.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authoringMode, authLoaded, authRequired, chatHistoryLoaded, chatIndexLoaded, isSignedIn, pendingOpenCodeTurnKey]);
   const activityOperations = useMemo(() => collectChatOperations(activityThreads), [activityThreads]);
   const activityObservations = useChatActivity({
     apiUrl: API_URL,

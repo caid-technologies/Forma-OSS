@@ -2,12 +2,14 @@
 
 import type { ReactNode } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle,
   Cpu,
   RefreshCw,
+  Settings,
   Square,
 } from "lucide-react";
 
@@ -35,6 +37,11 @@ function formatTimestamp(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function isRuntimeOfflineMessage(message: ConversationMessage): boolean {
+  if (message.role !== "assistant" || message.status !== "error") return false;
+  return /(?:runtime assigned to this workspace|local runtime|runtime request failed)/i.test(message.content);
 }
 
 export default function ConversationMessageList({
@@ -79,6 +86,7 @@ export default function ConversationMessageList({
   return messages.map((message) => {
     const isUser = message.role === "user";
     const isSystem = message.role === "system";
+    const runtimeOffline = isRuntimeOfflineMessage(message);
     const statusTone =
       message.status === "error"
         ? "border-rose-400/40 bg-rose-950/30 text-rose-100"
@@ -124,6 +132,31 @@ export default function ConversationMessageList({
             />
           </div>
           <p className="break-anywhere whitespace-pre-wrap text-sm leading-6">{message.content}</p>
+          {runtimeOffline && (
+            <div className="mt-3 border-t border-rose-300/15 pt-3">
+              <div className="mb-2 flex items-center gap-2 text-[11px] font-medium text-rose-200/80">
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-300" aria-hidden="true" />
+                Runtime · Offline
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-300/15"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                  Reconnect
+                </button>
+                <Link
+                  href="/settings"
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-zinc-200 transition-colors hover:bg-white/10"
+                >
+                  <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+                  Choose runtime
+                </Link>
+              </div>
+            </div>
+          )}
           {!isUser && message.id === latestChoiceMessageId && Boolean(message.contextSuggestions?.length) && (
             <div className="mt-3 grid gap-2 sm:grid-cols-2" aria-label="Suggested answers">
               {message.contextSuggestions?.map((suggestion) => (

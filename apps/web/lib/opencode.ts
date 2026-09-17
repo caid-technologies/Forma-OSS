@@ -1,3 +1,5 @@
+export const FORMA_AGENT_RUNTIME_STORAGE_KEY = "forma.agent.runtime.connector_id";
+
 export type OpenCodeSession = {
   session_id: string;
   connector_id: string;
@@ -174,16 +176,23 @@ async function responseJson(response: Response): Promise<unknown> {
   return response.json();
 }
 
+function selectedRuntimeConnectorId(defaultConnectorId: string): string {
+  if (typeof window === "undefined") return defaultConnectorId;
+  const selected = window.localStorage.getItem(FORMA_AGENT_RUNTIME_STORAGE_KEY)?.trim();
+  return selected || defaultConnectorId;
+}
+
 export async function createOpenCodeSession(
   apiUrl: string,
   headers: Record<string, string>,
   connectorId: string,
   projectId?: string | null,
 ): Promise<OpenCodeSession> {
+  const selectedConnectorId = selectedRuntimeConnectorId(connectorId);
   const response = await fetch(`${apiUrl}/opencode/sessions`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ connector_id: connectorId, ...(projectId ? { project_id: projectId } : {}) }),
+    body: JSON.stringify({ connector_id: selectedConnectorId, ...(projectId ? { project_id: projectId } : {}) }),
   });
   return parseSession(await responseJson(response));
 }

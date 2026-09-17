@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import {
@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 
 import CopyButton from "../../components/copy-button";
+import { webConfig } from "../../lib/config";
+import { FORMA_AGENT_RUNTIME_STORAGE_KEY } from "../../lib/opencode";
 import { ProjectUpdateCard } from "./chat-project-layout";
 
 export type ConversationMessage = {
@@ -33,6 +35,20 @@ export type ConversationMessage = {
   buildJobId?: string | null;
 };
 
+type AgentRuntimeOption = {
+  id: string;
+  label: string;
+};
+
+type RuntimeConfigPayload = {
+  deployment?: {
+    opencode_connector_id?: string | null;
+    authoring_runtimes?: AgentRuntimeOption[];
+  };
+};
+
+const API_URL = webConfig.apiBaseUrl.replace(/\/+$/, "");
+
 function formatTimestamp(value: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -42,6 +58,16 @@ function formatTimestamp(value: string) {
 function isRuntimeOfflineMessage(message: ConversationMessage): boolean {
   if (message.role !== "assistant" || message.status !== "error") return false;
   return /(?:runtime assigned to this workspace|local runtime|runtime request failed)/i.test(message.content);
+}
+
+function validRuntimeOptions(value: unknown): AgentRuntimeOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const id = "id" in item && typeof item.id === "string" ? item.id.trim() : "";
+    const label = "label" in item && typeof item.label === "string" ? item.label.trim() : "";
+    return id ? [{ id, label: label || id }] : [];
+  });
 }
 
 export default function ConversationMessageList({
@@ -67,6 +93,9 @@ export default function ConversationMessageList({
   onBuildNow?: () => void;
   assistantLabel?: string;
 }) {
+  const [runtimeOptions, setRuntimeOptions] = useState<AgentRuntimeOption[]>([]);
+  const [selectedRuntimeId, setSelectedRuntimeId] = useState("");
+  const hasRuntimeOfflineMessage = messages.some(isRuntimeOfflineMessage);
   const latestChoiceMessageId = onSelectContextSuggestion
     ? [...messages]
       .reverse()
@@ -74,6 +103,44 @@ export default function ConversationMessageList({
     : null;
   const projectLayout = variant === "project";
   const displayAssistantLabel = assistantLabel === "OpenCode" ? "Forma Agent" : assistantLabel;
+
+  useEffect(() => {
+    if (!hasRuntimeOfflineMessage) return;
+    const controller = new AbortController();
+
+    void (async () => {
+      try {
+        const response = await fetch(`${API_URL}/runtime/config`, {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const payload = await response.json() as RuntimeConfigPayload;
+        const configuredOptions = validRuntimeOptions(payload.deployment?.authoring_runtimes);
+        const defaultRuntimeId = typeof payload.deployment?.opencode_connector_id === "string"
+          ? payload.deployment.opencode_connector_id.trim()
+          : "";
+        const options = configuredOptions.length > 0
+          ? configuredOptions
+          : defaultRuntimeId
+            ? [{ id: defaultRuntimeId, label: defaultRuntimeId }]
+            : [];
+        setRuntimeOptions(options);
+
+        const storedRuntimeId = window.localStorage.getItem(FORMA_AGENT_RUNTIME_STORAGE_KEY)?.trim() || "";
+        const nextRuntimeId = options.some((option) => option.id === storedRuntimeId)
+          ? storedRuntimeId
+          : options.some((option) => option.id === defaultRuntimeId)
+            ? defaultRuntimeId
+            : options[0]?.id || "";
+        setSelectedRuntimeId(nextRuntimeId);
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    })();
+
+    return () => controller.abort();
+  }, [hasRuntimeOfflineMessage]);
 
   if (!messages.length && emptyMessage) {
     return (
@@ -138,22 +205,48 @@ export default function ConversationMessageList({
                 <span className="h-1.5 w-1.5 rounded-full bg-rose-300" aria-hidden="true" />
                 Runtime · Offline
               </div>
+              {runtimeOptions.length > 0 && (
+                <label className="mb-2 block text-[11px] text-rose-100/80">
+                  <span className="mb-1 block">Choose runtime</span>
+                  <select
+                    value={selectedRuntimeId}
+                    onChange={(event) => {
+                      const runtimeId = event.target.value;
+                      setSelectedRuntimeId(runtimeId);
+                      window.localStorage.setItem(FORMA_AGENT_RUNTIME_STORAGE_KEY, runtimeId);
+                    }}
+                    className="h-8 w-full rounded-lg border border-white/10 bg-[#181b22] px-2 text-xs text-zinc-100 outline-none focus:border-rose-300/40"
+                    aria-label="Choose Forma Agent runtime"
+                  >
+                    {runtimeOptions.map((runtime) => (
+                      <option key={runtime.id} value={runtime.id}>{runtime.label}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
-                  onClick={() => window.location.reload()}
+                  onClick={() => {
+                    if (selectedRuntimeId) {
+                      window.localStorage.setItem(FORMA_AGENT_RUNTIME_STORAGE_KEY, selectedRuntimeId);
+                    }
+                    window.location.reload();
+                  }}
                   className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-300/25 bg-rose-300/10 px-3 text-xs font-medium text-rose-100 transition-colors hover:bg-rose-300/15"
                 >
                   <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
                   Reconnect
                 </button>
-                <Link
-                  href="/settings"
-                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-zinc-200 transition-colors hover:bg-white/10"
-                >
-                  <Settings className="h-3.5 w-3.5" aria-hidden="true" />
-                  Choose runtime
-                </Link>
+                {runtimeOptions.length === 0 && (
+                  <Link
+                    href="/install/opencode"
+                    className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 text-xs font-medium text-zinc-200 transition-colors hover:bg-white/10"
+                  >
+                    <Settings className="h-3.5 w-3.5" aria-hidden="true" />
+                    Runtime setup
+                  </Link>
+                )}
               </div>
             </div>
           )}

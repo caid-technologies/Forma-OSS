@@ -744,6 +744,10 @@ class GenerateProjectRequest(BaseModel):
         False,
         description="When true, generate a product concept image with the configured image provider"
     )
+    generation_mode: str = Field(
+        "regular",
+        description="Generation strategy: regular one-shot or progressive hierarchical generation.",
+    )
     provider: Optional[str] = Field(
         None,
         description="Optional runtime LLM provider override, for example vertex, openai, anthropic, baseten, gmi, huggingface, cloudflare, nvidia, openai-compatible, gemini, runpod, runpod-serverless, or simulation"
@@ -778,6 +782,14 @@ class GenerateProjectRequest(BaseModel):
         le=8,
         description="Maximum number of relevant completed jobs to include when data_sources contains past_jobs.",
     )
+
+    @field_validator("generation_mode", mode="before")
+    @classmethod
+    def normalize_generation_mode(cls, value: Any) -> str:
+        normalized = str(value or "regular").strip().lower()
+        if normalized not in {"regular", "progressive"}:
+            raise ValueError("generation_mode must be regular or progressive.")
+        return normalized
 
     @field_validator("provider", "model", "project_id", "retry_stage", "chat_id", "source_project_id", "client_job_id", "external_source_provider", mode="before")
     @classmethod

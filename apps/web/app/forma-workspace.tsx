@@ -70,7 +70,7 @@ import {
   formatBytes,
   isFinalVideoStatus,
 } from "./forma-workspace/admin-panels";
-import HomeChatView from "./forma-workspace/home-chat-view";
+import HomeChatView, { type GenerationMode } from "./forma-workspace/home-chat-view";
 import ChatProjectLayout, { ChatProjectSurface } from "./forma-workspace/chat-project-layout";
 import ConversationMessageList, {
   type ConversationMessage,
@@ -1816,6 +1816,7 @@ export function FormaWorkspace({
   const [authoringMode, setAuthoringMode] = useState(false);
   const [openCodeConnectorId, setOpenCodeConnectorId] = useState<string | null>(null);
   const [generateProductImage, setGenerateProductImage] = useState(false);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("regular");
   const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
   const [agentPipelineSteps, setAgentPipelineSteps] = useState<AgentPipelineStep[]>(defaultAgentPipelineSteps);
@@ -3900,6 +3901,7 @@ export function FormaWorkspace({
         body: JSON.stringify({
           conversation_id: requestChatId,
           text,
+          generation_mode: generationMode,
           attachments: imageData ? [{
             attachment_id: `context-image-${userMessageId}`,
             kind: "image",
@@ -4035,6 +4037,7 @@ export function FormaWorkspace({
         headers: await generationRequestHeaders(),
         body: JSON.stringify({
           conversation_id: requestChatId,
+          generation_mode: generationMode,
           requested_tool: "build_project",
         }),
       });
@@ -4141,7 +4144,7 @@ export function FormaWorkspace({
     const requestChatId = activeChatId || newBuildChatId();
     const generationRun = beginGenerationRun("chat", requestChatId);
 
-    if (!contextCheckpoint) {
+    if (!contextCheckpoint && generationMode !== "regular") {
       setGenerationInputNotice(null);
       try {
         const clarification = await requestHumanContextQuestions(
@@ -4298,6 +4301,7 @@ export function FormaWorkspace({
           client_job_id: frontendJobId,
           image_data: imageData || null,
           generate_image: generateProductImage,
+          generation_mode: generationMode,
         }),
       });
 
@@ -6112,8 +6116,10 @@ export function FormaWorkspace({
                 setPendingHumanContext(null);
                 setPrompt(example);
               }}
-              onSubmit={handleGatherContext}
-              canBuildNow={hostedChatEnabled && (() => {
+              generationMode={generationMode}
+              onGenerationModeChange={setGenerationMode}
+              onSubmit={authoringMode ? handleGatherContext : generationMode === "regular" ? handleGenerate : handleGatherContext}
+              canBuildNow={generationMode === "progressive" && hostedChatEnabled && (() => {
                 const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
                 const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
                 const state = contextWorkflowStates[activeChatId]

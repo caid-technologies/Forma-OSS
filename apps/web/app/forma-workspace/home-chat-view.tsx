@@ -22,6 +22,8 @@ import HostedChatMaintenance, { AuthoringModeBanner } from "./hosted-chat-mainte
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout from "./chat-project-layout";
 
+export type GenerationMode = "regular" | "progressive";
+
 type HomeChatViewProps = {
   started: boolean;
   conversationKey: string;
@@ -32,6 +34,8 @@ type HomeChatViewProps = {
   projectArtifactId?: string | null;
   examples: string[];
   onSelectExample: (example: string) => void;
+  generationMode: GenerationMode;
+  onGenerationModeChange: (mode: GenerationMode) => void;
   onSubmit: FormEventHandler<HTMLFormElement>;
   canBuildNow: boolean;
   buildNowLoading: boolean;
@@ -70,6 +74,8 @@ export default function HomeChatView({
   projectArtifactId,
   examples,
   onSelectExample,
+  generationMode,
+  onGenerationModeChange,
   onSubmit,
   canBuildNow,
   buildNowLoading,
@@ -111,7 +117,7 @@ export default function HomeChatView({
     : retryMode
       ? "Try failed build again"
       : inputValid
-        ? "Send context"
+        ? generationMode === "regular" ? "Generate project" : "Send context"
         : "Check hardware idea";
 
   useEffect(() => {
@@ -316,15 +322,34 @@ export default function HomeChatView({
               className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
             />
             <div className="mt-1 flex items-center justify-between gap-2">
-              <button
-                type="button"
-                onClick={() => imageInputRef.current?.click()}
-                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
-                aria-label="Attach image"
-                title="Attach an image or paste one from your clipboard"
-              >
-                <Paperclip className="h-4 w-4" />
-              </button>
+              <div className="flex min-w-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => imageInputRef.current?.click()}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
+                  aria-label="Attach image"
+                  title="Attach an image or paste one from your clipboard"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </button>
+                {!authoringActive && (
+                  <label className="inline-flex min-w-0 items-center rounded-md border border-white/5 bg-zinc-900/60 px-1.5 text-[11px] text-zinc-400">
+                    <span className="sr-only">Generation mode</span>
+                    <select
+                      value={generationMode}
+                      onChange={(event) => onGenerationModeChange(event.target.value as GenerationMode)}
+                      disabled={generationActive || isLoading}
+                      className="h-6 max-w-[8rem] cursor-pointer bg-transparent pr-1 text-[11px] font-medium text-zinc-300 outline-none disabled:cursor-not-allowed disabled:opacity-60"
+                      title={generationMode === "regular"
+                        ? "Regular: one-shot generation"
+                        : "Progressive: staged generation with concept review before CAD"}
+                    >
+                      <option value="regular">Regular</option>
+                      <option value="progressive">Progressive</option>
+                    </select>
+                  </label>
+                )}
+              </div>
               <div className="flex items-center gap-1.5">
                 {canFinishPrompt && (
                   <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">

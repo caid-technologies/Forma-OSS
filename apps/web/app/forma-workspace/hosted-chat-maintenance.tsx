@@ -8,7 +8,7 @@ export const HOSTED_CHAT_MAINTENANCE_MESSAGE = "Forma hosted chat is temporarily
 export const AUTHORING_MODE_ACTIVE_MESSAGE = "Forma Agent is authoring this workspace.";
 
 export const AUTHORING_MODE_HANDOFF_MESSAGE =
-  "Routed to Forma Agent — this change is being authored in your local session and will appear here when delivered.";
+  "Routed to Forma Agent — this change is being authored by the runtime assigned to this workspace and will appear here when delivered.";
 
 const LOCAL_WORKFLOW_COMMANDS = `forma-oss init <local-project-directory>
 forma-oss build "<your hardware prompt>" --path <local-project-directory>
@@ -77,8 +77,9 @@ export function AuthoringModeBanner({ compact = false }: { compact?: boolean }) 
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-zinc-100">{AUTHORING_MODE_ACTIVE_MESSAGE}</h2>
           <p className="mt-1.5 text-xs leading-5 text-zinc-400">
-            Forma keeps this workspace read-only while Forma Agent authors hardware locally. Change requests are
-            routed back to Forma Agent, and the updated project will appear here after delivery.
+            Forma keeps this workspace read-only while the assigned Forma Agent runtime authors hardware. Change
+            requests are routed through Forma Cloud to that runtime, and the updated project will appear here after
+            delivery.
           </p>
         </div>
       </div>

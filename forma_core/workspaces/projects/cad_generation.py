@@ -373,7 +373,8 @@ def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: 
 def _visual_gate_active(project: HardwareIR) -> bool:
     metadata = project.assembly_metadata or {}
     return bool(
-        metadata.get("visual_approval_policy")
+        metadata.get("design_brief_id")
+        or metadata.get("visual_approval_policy")
         or metadata.get(DESIGN_LIFECYCLE_METADATA_KEY)
     )
 

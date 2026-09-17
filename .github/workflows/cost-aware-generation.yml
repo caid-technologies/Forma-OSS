@@ -8,12 +8,23 @@ on:
       - "forma_core/workspaces/projects/design_lifecycle.py"
       - "forma_core/workspaces/projects/generation_mode.py"
       - "forma_core/workspaces/projects/output.py"
+      - "forma_core/workspaces/projects/models.py"
+      - "forma_core/workspaces/context/models.py"
+      - "forma_core/workers/generation.py"
+      - "forma_core/database.py"
+      - "apps/api/a2a.py"
+      - "apps/api/main.py"
+      - "apps/api/context_builds.py"
+      - "apps/api/context_gathering_api.py"
+      - "apps/web/app/forma-workspace.tsx"
+      - "apps/web/app/forma-workspace/home-chat-view.tsx"
       - "tests/agents/test_cost_aware_pipeline.py"
       - "tests/agents/test_generation_stages.py"
       - "tests/projects/test_cad_generation.py"
       - "tests/projects/test_design_lifecycle.py"
       - "tests/projects/test_hierarchical_cad.py"
       - "tests/projects/test_hierarchical_visuals.py"
+      - "tests/projects/test_generation_mode_requests.py"
       - ".github/workflows/cost-aware-generation.yml"
   workflow_dispatch:
 
@@ -45,3 +56,4 @@ jobs:
           tests/projects/test_design_lifecycle.py
           tests/projects/test_hierarchical_cad.py
           tests/projects/test_hierarchical_visuals.py
+          tests/projects/test_generation_mode_requests.py

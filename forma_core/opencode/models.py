@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import Enum
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator
 
 from forma_core.workspaces.projects.models import HardwareIR, ValidationIssue
 from forma_core.workspaces.projects.outcomes import DesignOutcome
+
+
+# OpenCode model IDs can themselves contain slashes (e.g. OpenRouter).
+OpenCodeModel = Annotated[str, Field(max_length=200, pattern=r"^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9][A-Za-z0-9_./:-]*$")]
 
 
 class OpenCodeSessionStatus(str, Enum):
@@ -102,6 +106,7 @@ class SubmitCommandRequest(BaseModel):
 
     message: str = Field(min_length=1, max_length=12_000)
     idempotency_key: str = Field(min_length=1, max_length=200)
+    model: OpenCodeModel | None = None
 
     @field_validator("message")
     @classmethod
@@ -128,6 +133,7 @@ class CommandResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     command_id: str
+    model: OpenCodeModel | None = None
     session_id: str
     project_id: UUID
     operation: OpenCodeOperation
@@ -150,6 +156,7 @@ class ConnectorCommand(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     command_id: str
+    model: OpenCodeModel | None = None
     session_id: str
     connector_id: str
     owner_user_id: str
@@ -231,6 +238,13 @@ class McpToolArguments(BaseModel):
     project_ir: JsonValue = None
 
 
+class GenerateImageArguments(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    prompt: str = Field(min_length=1, max_length=4000)
+    request_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 class AuthoringFieldError(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -302,7 +316,15 @@ class McpToolsListParams(McpRequestParams):
 
 class McpToolCallParams(McpRequestParams):
     name: str | None = None
-    arguments: McpToolArguments = Field(default_factory=McpToolArguments)
+    arguments: McpToolArguments | GenerateImageArguments = Field(default_factory=McpToolArguments)
+
+    @field_validator("arguments", mode="before")
+    @classmethod
+    def validate_tool_arguments(cls, value: object, info: ValidationInfo) -> McpToolArguments | GenerateImageArguments:
+        model = GenerateImageArguments if info.data.get("name") == "forma.opencode.generate_image" else McpToolArguments
+        if isinstance(value, BaseModel):
+            value = value.model_dump()
+        return model.model_validate(value)
 
 
 class McpJsonRpcRequest(BaseModel):

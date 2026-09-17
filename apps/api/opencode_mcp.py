@@ -10,12 +10,14 @@ from starlette.concurrency import run_in_threadpool
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
+from apps.api.opencode_images import ImageToolError, generate_project_image, image_metadata_for_agent, is_image_metadata
 from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
 from forma_core.debug import new_error_correlation_id
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import (
     McpJsonRpcRequest,
     McpToolArguments,
+    GenerateImageArguments,
     McpToolCallParams,
     ProjectToolResult,
     AuthoringFieldError,
@@ -62,6 +64,11 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
             "description": "Run deterministic Forma electrical validation for the session project.",
             "inputSchema": authoring_schema,
         },
+        {
+            "name": "forma.opencode.generate_image",
+            "description": "Generate one OpenAI concept image for the saved bound project and persist it in the project preview. Use only when the user requests an image. Read or create the project first. Reuse request_id for a retry; use a new ID for a new image. Images are not CAD or physical verification.",
+            "inputSchema": GenerateImageArguments.model_json_schema(),
+        },
     ]
 
 
@@ -100,6 +107,9 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
         result = await _call_tool(tool_name, arguments, capability)
     except PermissionError:
         return _error(request_id, -32003, "The OpenCode tool is outside the session scope.", "authorization_required")
+    except ImageToolError as exc:
+        result = {"code": exc.code, "message": exc.public_message}
+        return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
     except ValidationError as exc:
         # Never echo inputs, validator messages, context, or arbitrary mapping keys.
         schema = HardwareIR.model_json_schema()
@@ -121,10 +131,15 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
     return _result(request_id, {"content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
 
 
-async def _call_tool(name: str, arguments: McpToolArguments, capability: ConnectorCapability) -> dict[str, object]:
+async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArguments, capability: ConnectorCapability) -> dict[str, object]:
     allowed = {tool["name"] for tool in opencode_mcp_tools()}
     if name not in allowed:
         raise PermissionError("The requested tool is not part of the project-only surface.")
+    if name == "forma.opencode.generate_image":
+        if not isinstance(arguments, GenerateImageArguments):
+            raise ValueError("Image arguments are required.")
+        return await run_in_threadpool(generate_project_image, arguments, capability)
+    assert isinstance(arguments, McpToolArguments)
     project_id = capability.project_id
     owner_user_id = capability.owner_user_id
     user_context = UserContext(
@@ -170,7 +185,18 @@ async def _call_tool(name: str, arguments: McpToolArguments, capability: Connect
 
 
 def _compile(project: HardwareIR, project_id: str, user_context: UserContext) -> dict[str, object]:
-    metadata = dict(project.assembly_metadata or {})
+    from forma_core.workspaces.projects.state import ProjectStateError
+    # Images are authored by the server tool; a subsequent IR edit cannot erase
+    # them, replace their provenance or make the agent echo their base64 payloads.
+    metadata = {key: value for key, value in (project.assembly_metadata or {}).items() if not is_image_metadata(key)}
+    try:
+        previous = get_latest_project_revision(project_id, user_context.owner_user_id or "")
+    except ProjectStateError as exc:
+        if exc.code != "project_revision_not_found":
+            raise
+        previous = None
+    if previous is not None and isinstance(previous.state.assembly_metadata, dict):
+        metadata.update({key: value for key, value in previous.state.assembly_metadata.items() if is_image_metadata(key)})
     metadata.update({"project_id": project_id, "authoring_agent": "opencode"})
     project.assembly_metadata = metadata
     issues = validate_circuit(project.components, project.nets, project.requirements)
@@ -202,11 +228,13 @@ def _revision_identifier(revision: object | None) -> str | None:
 
 
 def _tool_result(project: HardwareIR, project_id: str, revision_id: str | None) -> dict[str, object]:
+    public_project = project.model_copy(deep=True)
+    public_project.assembly_metadata = image_metadata_for_agent(dict(project.assembly_metadata or {}))
     return {
         "project_id": project_id,
         "revision_id": revision_id,
         "design_outcome": evaluate_design_outcome(project).model_dump(mode="json"),
-        "project_ir": project.model_dump(mode="json"),
+        "project_ir": public_project.model_dump(mode="json"),
         "validation": _validation_result(project),
         "mermaid_code": generate_mermaid_chart(project),
         "svg_schematic": generate_svg_schematic(project),

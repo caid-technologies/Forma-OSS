@@ -118,6 +118,8 @@ def migrate_sqlite_schema(engine: Engine, *, import_legacy_jobs: bool = True) ->
             for row in connection.exec_driver_sql("PRAGMA table_info(opencode_commands)").fetchall()
         }
         if opencode_columns:
+            if "model" not in opencode_columns:
+                connection.execute(text("ALTER TABLE opencode_commands ADD COLUMN model VARCHAR(200)"))
             if "message_ciphertext" not in opencode_columns:
                 connection.execute(text("ALTER TABLE opencode_commands ADD COLUMN message_ciphertext TEXT"))
             if "message_key_id" not in opencode_columns:

@@ -24,6 +24,10 @@ from forma_core.persistence.providers import SQLiteProvider, SupabaseProvider, c
 from forma_core.user_integrations import decrypt_user_secret_text, encrypt_user_secret_text
 
 
+class CommandConflictError(ValueError):
+    """A retry key was reused with a different command payload."""
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -90,6 +94,7 @@ class StoredCommand:
     created_at: str
     updated_at: str
     completed_at: str | None
+    model: str | None = None
 
     def as_record(self) -> dict[str, object]:
         return {
@@ -110,6 +115,7 @@ class StoredCommand:
             "created_at": self.created_at,
             "updated_at": self.updated_at,
             "completed_at": self.completed_at,
+            "model": self.model,
         }
 
 
@@ -208,12 +214,13 @@ class OpenCodeStore:
         operation: OpenCodeOperation,
         idempotency_key: str,
         message: str,
+        model: str | None = None,
     ) -> StoredCommand:
         existing = self.find_command(session.session_id, idempotency_key)
         digest = hashlib.sha256(message.encode("utf-8")).hexdigest()
         if existing:
-            if existing.message_digest != digest:
-                raise ValueError("The command idempotency key was already used with another message.")
+            if existing.message_digest != digest or existing.model != model:
+                raise CommandConflictError("The command idempotency key was already used with another message or model.")
             if existing.message_ciphertext is None or existing.message_key_id is None:
                 ciphertext, key_id = encrypt_user_secret_text(message)
                 self._update_command_message(existing.command_id, ciphertext, key_id)
@@ -239,6 +246,7 @@ class OpenCodeStore:
             created_at=now,
             updated_at=now,
             completed_at=None,
+            model=model,
         )
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):
@@ -248,8 +256,8 @@ class OpenCodeStore:
                 connection.execute(
                     "INSERT INTO opencode_commands "
                     "(command_id, session_id, connector_id, owner_user_id, project_id, operation, idempotency_key, "
-                     "status, message_digest, message_ciphertext, message_key_id, attempt_count, lease_expires_at, lease_token_hash, created_at, updated_at, completed_at) "
-                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     "status, message_digest, message_ciphertext, message_key_id, attempt_count, lease_expires_at, lease_token_hash, created_at, updated_at, completed_at, model) "
+                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     tuple(command.as_record().values()),
                 )
         self.touch_session_activity(session.session_id)
@@ -618,6 +626,7 @@ def _command_from_record(record: dict[str, Any]) -> StoredCommand:
         message_ciphertext=record.get("message_ciphertext"), message_key_id=record.get("message_key_id"),
         attempt_count=int(record.get("attempt_count") or 0), lease_expires_at=record.get("lease_expires_at"), lease_token_hash=record.get("lease_token_hash"),
         created_at=str(record["created_at"]), updated_at=str(record["updated_at"]), completed_at=record.get("completed_at"),
+        model=record.get("model"),
     )
 
 
@@ -627,4 +636,5 @@ def _connector_command(command: StoredCommand, lease_token: str, message: str | 
         owner_user_id=command.owner_user_id, project_id=command.project_id, operation=command.operation,
         message=message, attempt_count=command.attempt_count, lease_expires_at=_parse_timestamp(command.lease_expires_at) or _now(),
         lease_token=lease_token,
+        model=command.model,
     )

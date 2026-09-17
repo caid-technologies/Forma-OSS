@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { ArrowRight, Eye, Terminal } from "lucide-react";
+import { OpenCodeModelPicker } from "./opencode-model-picker";
 
 export const HOSTED_CHAT_MAINTENANCE_MESSAGE = "Forma hosted chat is temporarily under maintenance.";
 
@@ -81,6 +82,7 @@ export function AuthoringModeBanner({ compact = false }: { compact?: boolean }) 
             requests are routed through Forma Cloud to that runtime, and the updated project will appear here after
             delivery.
           </p>
+          <OpenCodeModelPicker />
         </div>
       </div>
     </section>

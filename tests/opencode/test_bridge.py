@@ -129,6 +129,7 @@ class OpenCodeBridgeTests(unittest.IsolatedAsyncioTestCase):
             "forma.opencode.update_project",
             "forma.opencode.compile_project",
             "forma.opencode.validate_project",
+            "forma.opencode.generate_image",
         }, names)
         with patch.dict(os.environ, {"FORMA_OPENCODE_CAPABILITY_SECRET": "s" * 32}, clear=True):
             from forma_core.opencode.capabilities import ConnectorCapability

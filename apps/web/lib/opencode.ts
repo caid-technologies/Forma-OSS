@@ -188,6 +188,18 @@ export async function createOpenCodeSession(
   return parseSession(await responseJson(response));
 }
 
+export async function getOpenCodeSession(
+  apiUrl: string,
+  headers: Record<string, string>,
+  sessionId: string,
+): Promise<OpenCodeSession> {
+  const response = await fetch(`${apiUrl}/opencode/sessions/${encodeURIComponent(sessionId)}`, {
+    headers,
+    cache: "no-store",
+  });
+  return parseSession(await responseJson(response));
+}
+
 export async function submitOpenCodeCommand(
   apiUrl: string,
   headers: Record<string, string>,

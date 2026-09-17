@@ -14,7 +14,6 @@ from uuid import uuid4
 
 from forma_core.config import config
 from forma_core.workspaces.projects.design_lifecycle import (
-    DESIGN_LIFECYCLE_METADATA_KEY,
     RepresentationKind,
     RepresentationStatus,
     VisualApprovalPolicy,
@@ -26,6 +25,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
     representation_fingerprint,
     stable_artifact_id,
 )
+from forma_core.workspaces.projects.generation_mode import is_progressive_generation
 from forma_core.workspaces.projects.models import HardwareIR
 from forma_core.workspaces.projects.state import ProjectArtifact
 
@@ -371,12 +371,9 @@ def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: 
 
 
 def _visual_gate_active(project: HardwareIR) -> bool:
-    metadata = project.assembly_metadata or {}
-    return bool(
-        metadata.get("design_brief_id")
-        or metadata.get("visual_approval_policy")
-        or metadata.get(DESIGN_LIFECYCLE_METADATA_KEY)
-    )
+    """Return whether the project explicitly selected progressive generation."""
+
+    return is_progressive_generation(project)
 
 
 def _prepare_visual_gate(project: HardwareIR):
@@ -514,7 +511,7 @@ def ensure_native_cad_model(
     authoring_agent: str | None = None,
     workflow: str | None = None,
 ) -> bool:
-    """Generate component CAD then assembly CAD when the visual gate permits it."""
+    """Generate one-shot CAD by default, or hierarchical CAD in progressive mode."""
 
     explicit_solid = bool(project.mechanical and project.mechanical.cad_operations)
     if _has_authoritative_cad(project.cad_model) and not explicit_solid:
@@ -524,7 +521,8 @@ def ensure_native_cad_model(
         _set_cad_status(project, status="not_applicable", required=required)
         return False
 
-    if _visual_gate_active(project):
+    progressive = _visual_gate_active(project)
+    if progressive:
         lifecycle = _prepare_visual_gate(project)
         gate = lifecycle.visual_gate
         allowed = (
@@ -565,14 +563,14 @@ def ensure_native_cad_model(
         tree_path = root / "outputs" / "assembly.tree.json"
         adapter = _adapter_path()
 
-        # Bottom-up CAD: independently materialize component envelopes first so
-        # they are cacheable/reusable and assembly provenance can depend on them.
-        component_artifacts = _component_cad_artifacts(
-            project,
-            root=root,
-            adapter=adapter,
-            project_id=project_id,
-        )
+        component_artifacts: list[dict[str, Any]] = []
+        if progressive:
+            component_artifacts = _component_cad_artifacts(
+                project,
+                root=root,
+                adapter=adapter,
+                project_id=project_id,
+            )
 
         assembly_source = _cad_source(project)
         model_path.write_text(assembly_source, encoding="utf-8")
@@ -584,7 +582,7 @@ def ensure_native_cad_model(
             "adapter": CAD_ADAPTER_NAME,
             "source": "Native OpenCAD generated from agent-authored HardwareIR",
             "authoring_agent": authoring_agent,
-            "authoring_mode": "component-cad-then-assembly",
+            "authoring_mode": "component-cad-then-assembly" if progressive else "hardware-ir-to-opencad",
             "generated": True,
             "format": "step",
             "units": "mm",
@@ -598,18 +596,20 @@ def ensure_native_cad_model(
             "feature_tree_path": str(tree_path),
             "opencad_version": step_summary.get("opencad_version"),
             "meshes": [_stl_mesh(stl_path)],
-            "component_artifacts": component_artifacts,
-            "component_artifact_ids": [item["artifact_id"] for item in component_artifacts],
         }
+        if progressive:
+            project.cad_model.update({
+                "component_artifacts": component_artifacts,
+                "component_artifact_ids": [item["artifact_id"] for item in component_artifacts],
+            })
         if project_id:
             from forma_core.persistence.project_artifacts import ProjectArtifactStorage
 
-            # Persist actual STEP bytes before declaring success, independent of worker disk.
             ProjectArtifactStorage().put(project_id, checksum, step_bytes, "model/step")
             project.cad_model["stored_sha256"] = checksum
             project.cad_model["project_id"] = project_id
 
-        if _visual_gate_active(project):
+        if progressive:
             lifecycle = load_design_lifecycle(project)
             dependencies = [item["artifact_id"] for item in component_artifacts]
             if lifecycle.visual_gate.visual_artifact_id:
@@ -639,16 +639,14 @@ def ensure_native_cad_model(
         if workflow:
             from forma_core.agents.pipeline import emit_agent_pipeline_event
 
+            details = {"adapter": CAD_ADAPTER_NAME, "format": "step", "bytes": len(step_bytes)}
+            if progressive:
+                details["component_artifact_count"] = len(component_artifacts)
             emit_agent_pipeline_event(
                 workflow,
                 "cad_generation",
                 "completed",
-                details={
-                    "adapter": CAD_ADAPTER_NAME,
-                    "format": "step",
-                    "bytes": len(step_bytes),
-                    "component_artifact_count": len(component_artifacts),
-                },
+                details=details,
             )
         return True
     except Exception as exc:

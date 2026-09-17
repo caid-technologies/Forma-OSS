@@ -6,6 +6,7 @@ on:
       - "forma_core/agents/pipeline.py"
       - "forma_core/workspaces/projects/cad_generation.py"
       - "forma_core/workspaces/projects/design_lifecycle.py"
+      - "forma_core/workspaces/projects/generation_mode.py"
       - "forma_core/workspaces/projects/output.py"
       - "tests/agents/test_cost_aware_pipeline.py"
       - "tests/agents/test_generation_stages.py"

@@ -21,7 +21,6 @@ from forma_core.images import build_image_provider, build_project_visual_spec
 from forma_core.persistence.images import get_image_storage_config, upload_image_to_supabase_s3
 from forma_core.user_integrations import ResolvedIntegrationSettings
 from forma_core.workspaces.projects.design_lifecycle import (
-    DESIGN_LIFECYCLE_METADATA_KEY,
     RepresentationKind,
     RepresentationStatus,
     VisualApprovalPolicy,
@@ -35,6 +34,7 @@ from forma_core.workspaces.projects.design_lifecycle import (
     system_node_fingerprint,
     walk_system_nodes,
 )
+from forma_core.workspaces.projects.generation_mode import is_progressive_generation
 
 
 logger = logging.getLogger(__name__)
@@ -154,14 +154,9 @@ def attach_hardware_reference_image(
 
 
 def _visual_lifecycle_enabled(ir: Any) -> bool:
-    """Return whether generation should use the hierarchical visual/CAD lifecycle."""
+    """Use the hierarchical visual/CAD lifecycle only after explicit opt in."""
 
-    metadata = ir.assembly_metadata or {}
-    return bool(
-        metadata.get("design_brief_id")
-        or metadata.get("visual_approval_policy")
-        or metadata.get(DESIGN_LIFECYCLE_METADATA_KEY)
-    )
+    return is_progressive_generation(ir)
 
 
 def _visual_policy(ir: Any) -> VisualApprovalPolicy:
@@ -275,7 +270,7 @@ def _generate_system_visuals(
     lifecycle = load_design_lifecycle(ir)
     nodes = list(walk_system_nodes(architecture))
     if nodes:
-        nodes = nodes[1:]  # root is represented by the whole-system render below.
+        nodes = nodes[1:]
     records: list[Dict[str, Any]] = []
 
     for node in nodes:
@@ -332,8 +327,6 @@ def _generate_system_visuals(
         })
         uri = image_record.get("url")
         if not uri:
-            # Data URLs remain usable as a durable inline compatibility path when
-            # external image storage is disabled.
             uri = generated.data_url
         representation = register_system_visual(
             ir,
@@ -377,8 +370,6 @@ def _resume_auto_approved_cad(ir: Any) -> None:
             workflow="default",
         )
     except Exception:
-        # Required CAD failures must still surface; optional CAD remains a partial
-        # artifact failure exactly as it did before the hierarchical lifecycle.
         if bool(metadata.get("cad_required", False)):
             raise
         logger.exception("Deferred optional CAD generation failed after visual approval.")
@@ -393,7 +384,7 @@ def attach_product_image(
     storage_handler: ImageStorageHandler = store_project_image,
     settings: Optional[ResolvedIntegrationSettings] = None,
 ) -> None:
-    """Generate subsystem visuals, then a whole-system render, preserving legacy fields."""
+    """Generate product visuals, using hierarchical visuals only in progressive mode."""
 
     lifecycle_enabled = _visual_lifecycle_enabled(ir)
     if lifecycle_enabled:

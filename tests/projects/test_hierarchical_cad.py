@@ -24,7 +24,7 @@ from forma_core.workspaces.projects.models import (
 )
 
 
-def gated_project(*, policy: str = "auto_approve_visual") -> HardwareIR:
+def gated_project(*, policy: str = "auto_approve_visual", mode: str = "progressive") -> HardwareIR:
     return HardwareIR(
         system_architecture=SystemArchitecture(
             summary="Small controller",
@@ -68,6 +68,7 @@ def gated_project(*, policy: str = "auto_approve_visual") -> HardwareIR:
             ],
         ),
         assembly_metadata={
+            "generation_mode": mode,
             "design_brief_id": "22222222-2222-4222-8222-222222222222",
             "visual_approval_policy": policy,
         },
@@ -138,7 +139,6 @@ class HierarchicalCadTests(unittest.TestCase):
         ):
             self.assertTrue(ensure_native_cad_model(ir, project_id=None, required=False))
 
-        # U1 STEP is authored before assembly STEP/STL.
         self.assertEqual("U1.py", order[0])
         self.assertEqual("assembly.py", order[1])
         self.assertEqual("assembly.py", order[2])
@@ -171,6 +171,29 @@ class HierarchicalCadTests(unittest.TestCase):
             "waiting_for_visual_approval",
             ir.assembly_metadata["cad_generation"]["status"],
         )
+
+    def test_regular_mode_ignores_progressive_metadata_and_runs_one_shot_cad(self) -> None:
+        ir = gated_project(policy="require_approval", mode="regular")
+        order: list[str] = []
+
+        with tempfile.TemporaryDirectory() as workspace, patch.dict(
+            "os.environ",
+            {"FORMA_CAD_WORKSPACE": workspace},
+            clear=False,
+        ), patch(
+            "forma_core.workspaces.projects.cad_generation._adapter_path",
+            return_value=Path(__file__),
+        ), patch(
+            "forma_core.workspaces.projects.cad_generation._run_adapter",
+            side_effect=fake_run(order),
+        ):
+            self.assertTrue(ensure_native_cad_model(ir, project_id=None, required=False))
+
+        self.assertEqual(["assembly.py", "assembly.py"], order)
+        self.assertEqual("hardware-ir-to-opencad", ir.cad_model["authoring_mode"])
+        self.assertNotIn("component_artifact_ids", ir.cad_model)
+        self.assertNotIn("assembly_artifact_id", ir.cad_model)
+        self.assertEqual("succeeded", ir.assembly_metadata["cad_generation"]["status"])
 
 
 if __name__ == "__main__":

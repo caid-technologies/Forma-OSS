@@ -47,7 +47,7 @@ class FakeImageProvider:
         return [self._image(prompt, view_id="hero", label="Whole system")]
 
 
-def project(*, policy: str = "require_approval") -> HardwareIR:
+def project(*, policy: str = "require_approval", mode: str = "progressive") -> HardwareIR:
     return HardwareIR(
         system_architecture=SystemArchitecture(
             summary="Desk robot",
@@ -76,6 +76,7 @@ def project(*, policy: str = "require_approval") -> HardwareIR:
             ),
         ),
         assembly_metadata={
+            "generation_mode": mode,
             "project_id": "11111111-1111-4111-8111-111111111111",
             "design_brief_id": "22222222-2222-4222-8222-222222222222",
             "visual_approval_policy": policy,
@@ -149,8 +150,6 @@ class HierarchicalVisualTests(unittest.TestCase):
             storage_handler=fake_storage,
         )
 
-        # The per-system semantic fingerprints match, so only the aggregate
-        # system render needs to be regenerated.
         self.assertEqual(["project"], [kind for kind, _ in provider.calls])
         self.assertTrue(all(item.get("reused") for item in ir.assembly_metadata["system_visuals"]))
 
@@ -178,6 +177,28 @@ class HierarchicalVisualTests(unittest.TestCase):
         kwargs = ensure_cad.call_args.kwargs
         self.assertEqual("11111111-1111-4111-8111-111111111111", kwargs["project_id"])
         self.assertEqual("forma-generation-worker", kwargs["authoring_agent"])
+
+    def test_regular_mode_keeps_one_shot_visual_flow_even_with_progressive_metadata(self) -> None:
+        ir = project(policy="require_approval", mode="regular")
+        provider = FakeImageProvider()
+
+        with patch(
+            "forma_core.workspaces.projects.cad_generation.ensure_native_cad_model",
+            return_value=True,
+        ) as ensure_cad:
+            attach_product_image(
+                "Build a desk robot",
+                ir,
+                generate_image=True,
+                provider_factory=lambda **_: provider,
+                storage_handler=fake_storage,
+            )
+
+        self.assertEqual(["project"], [kind for kind, _ in provider.calls])
+        self.assertNotIn("system_visuals", ir.assembly_metadata)
+        self.assertNotIn("system_render_artifact_id", ir.assembly_metadata)
+        self.assertNotIn("visual_approval_status", ir.assembly_metadata)
+        ensure_cad.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from unittest.mock import patch
 from forma_core.config.runtime import (
     RuntimeConfigurationError,
     authoring_mode_enabled,
+    configured_agent_runtimes,
     deployment_mode,
     development_mode_enabled,
     hosted_chat_enabled,
@@ -86,6 +87,41 @@ class RuntimeStateTests(unittest.TestCase):
     def test_authoring_mode_flag_can_be_enabled_explicitly(self) -> None:
         with patch.dict(os.environ, {"FORMA_AUTHORING_MODE_ENABLED": "true"}, clear=True):
             self.assertTrue(authoring_mode_enabled())
+
+    def test_agent_runtime_inventory_uses_labels_and_keeps_default_first(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FORMA_OPENCODE_CONNECTOR_ID": "mini-pc-1",
+                "FORMA_AGENT_RUNTIMES": "laptop=Local PC,cloud=Cloud Runtime",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                [
+                    {"id": "mini-pc-1", "label": "Mini Pc 1"},
+                    {"id": "laptop", "label": "Local PC"},
+                    {"id": "cloud", "label": "Cloud Runtime"},
+                ],
+                configured_agent_runtimes(),
+            )
+
+    def test_agent_runtime_inventory_deduplicates_default_connector(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "FORMA_OPENCODE_CONNECTOR_ID": "mini-pc-1",
+                "FORMA_AGENT_RUNTIMES": "mini-pc-1=CAID Server,laptop=Local PC",
+            },
+            clear=True,
+        ):
+            self.assertEqual(
+                [
+                    {"id": "mini-pc-1", "label": "CAID Server"},
+                    {"id": "laptop", "label": "Local PC"},
+                ],
+                configured_agent_runtimes(),
+            )
 
 
 if __name__ == "__main__":

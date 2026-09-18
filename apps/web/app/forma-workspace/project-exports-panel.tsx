@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Download, FileBox, Loader2, Printer, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, Download, FileBox, FileJson, FileText, Loader2, Printer, RefreshCw, TriangleAlert } from "lucide-react";
 import { webConfig } from "../../lib/config";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { waitForExport, type GcodeExportResult } from "./export-job";
@@ -41,7 +41,19 @@ function errorMessage(payload: unknown, fallback: string): string {
   return typeof value.message === "string" ? value.message : fallback;
 }
 
-export default function ProjectExportsPanel({ projectId }: { projectId: string }) {
+type ProjectExportsPanelProps = {
+  projectId: string;
+  canDownloadAssets: boolean;
+  onDownloadJSON: () => void;
+  onDownloadMarkdown: () => void;
+};
+
+export default function ProjectExportsPanel({
+  projectId,
+  canDownloadAssets,
+  onDownloadJSON,
+  onDownloadMarkdown,
+}: ProjectExportsPanelProps) {
   const { authRequired, getToken, isLoaded, isSignedIn, openSignIn } = useFormaAuth();
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [selectedPrinterId, setSelectedPrinterId] = useState("");
@@ -166,9 +178,58 @@ export default function ProjectExportsPanel({ projectId }: { projectId: string }
 
   return <div className="h-full overflow-y-auto bg-[var(--forma-page)] p-4 sm:p-6">
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-      <div><p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Manufacturing exports</p>
-        <h2 className="mt-1 text-lg font-semibold text-[var(--forma-text-strong)]">Take the design out of Forma</h2>
-        <p className="mt-1 text-xs text-[var(--forma-text-muted)]">Download the stored STEP model or generate printer-specific G-code from the same geometry.</p></div>
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Project exports</p>
+        <h2 className="mt-1 text-lg font-semibold text-[var(--forma-text-strong)]">Download your project assets</h2>
+        <p className="mt-1 text-xs text-[var(--forma-text-muted)]">Project data, build documentation, CAD, and fabrication files live in one place.</p>
+      </div>
+      <section className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4">
+        <div className="mb-3">
+          <h3 className="text-sm font-semibold text-[var(--forma-text-strong)]">Project files</h3>
+          <p className="mt-1 text-xs text-[var(--forma-text-muted)]">Portable source data and builder-facing documentation.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={onDownloadJSON}
+            disabled={!canDownloadAssets}
+            title={canDownloadAssets ? "Download full project data" : "Files are available only on projects you generated."}
+            className="flex items-center justify-between gap-3 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-page)] p-3 text-left transition-colors hover:bg-[var(--forma-surface-muted)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <FileJson className="h-5 w-5 shrink-0 text-[rgb(var(--forma-cyan-rgb))]" />
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold text-[var(--forma-text-strong)]">Project JSON</span>
+                <span className="mt-1 block text-[10px] text-[var(--forma-text-muted)]">Full Hardware IR and project metadata (.json)</span>
+              </span>
+            </span>
+            <Download className="h-4 w-4 shrink-0 text-[var(--forma-text-muted)]" />
+          </button>
+          <button
+            type="button"
+            onClick={onDownloadMarkdown}
+            disabled={!canDownloadAssets}
+            title={canDownloadAssets ? "Download build documentation" : "Files are available only on projects you generated."}
+            className="flex items-center justify-between gap-3 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-page)] p-3 text-left transition-colors hover:bg-[var(--forma-surface-muted)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <span className="flex min-w-0 items-center gap-3">
+              <FileText className="h-5 w-5 shrink-0 text-[rgb(var(--forma-green-rgb))]" />
+              <span className="min-w-0">
+                <span className="block text-xs font-semibold text-[var(--forma-text-strong)]">Build documentation</span>
+                <span className="mt-1 block text-[10px] text-[var(--forma-text-muted)]">Assembly instructions and safety audit (.md)</span>
+              </span>
+            </span>
+            <Download className="h-4 w-4 shrink-0 text-[var(--forma-text-muted)]" />
+          </button>
+        </div>
+        {!canDownloadAssets && (
+          <p className="mt-3 text-[11px] text-[var(--forma-text-muted)]">Downloads are available only on projects you generated.</p>
+        )}
+      </section>
+      <div>
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Manufacturing</p>
+        <p className="mt-1 text-xs text-[var(--forma-text-muted)]">Download the stored STEP model or generate printer-specific G-code from the same geometry.</p>
+      </div>
       {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-400/25 bg-red-500/5 p-3 text-xs text-red-200">
         <TriangleAlert className="h-4 w-4 shrink-0" /><span className="flex-1">{error}</span>
         <button type="button" className="underline" disabled={busy} onClick={() => setRefresh((v) => v + 1)}>Refresh</button></div>}

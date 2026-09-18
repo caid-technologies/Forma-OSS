@@ -5,6 +5,7 @@ import { test } from "node:test";
 const workspace = readFileSync(new URL("../app/forma-workspace.tsx", import.meta.url), "utf8");
 const home = readFileSync(new URL("../app/forma-workspace/home-chat-view.tsx", import.meta.url), "utf8");
 const messages = readFileSync(new URL("../app/forma-workspace/conversation-message-list.tsx", import.meta.url), "utf8");
+const exportsPanel = readFileSync(new URL("../app/forma-workspace/project-exports-panel.tsx", import.meta.url), "utf8");
 const generationModeSelector = readFileSync(new URL("../app/forma-workspace/generation-mode-selector.tsx", import.meta.url), "utf8");
 const cad = readFileSync(new URL("../app/forma-workspace/cad-model-panel.tsx", import.meta.url), "utf8");
 const chat = workspace.slice(workspace.indexOf("function ChatWorkspace("), workspace.indexOf("function ChatProjectArtifact("));
@@ -27,6 +28,18 @@ test("both main chat entry points share the lightweight message card renderer", 
   assert.ok(messages.includes("<ProjectUpdateCard message={message} />"));
   assert.doesNotMatch(messages, /<ChatProjectArtifact|<CadModelPanel|<OpenCadViewport/);
 });
+test("exports live in the project tab bar and own all project download actions", () => {
+  assert.ok(workspace.includes('{ id: "exports", label: "Exports", icon: Download }'));
+  assert.ok(workspace.includes('case "exports":'));
+  assert.ok(workspace.includes("<ProjectExportsPanel"));
+  assert.ok(exportsPanel.includes("Project JSON"));
+  assert.ok(exportsPanel.includes("Build documentation"));
+  assert.ok(exportsPanel.includes("Download STEP"));
+  assert.ok(exportsPanel.includes("Download G-code"));
+  assert.doesNotMatch(home, /docs-export-menu/);
+  assert.doesNotMatch(surface, /surfaceTab|setSurfaceTab|>Exports<|>Project</);
+});
+
 test("surface preserves project tabs without the old fixed-height inline card", () => {
   assert.match(surface, /<ChatProjectSurface/);
   assert.match(surface, /<ProjectWorkspacePanel/);

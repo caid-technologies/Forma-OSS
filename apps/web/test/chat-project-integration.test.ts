@@ -55,6 +55,13 @@ test("fresh home chat stays writable for signed-out visitors and authenticates b
 
   assert.ok(gatherContext.indexOf("requireSignedInForGeneration") < gatherContext.indexOf("requireHostedChatEnabled"));
   assert.ok(generate.indexOf("requireSignedInForGeneration") < generate.indexOf("requireHostedChatEnabled"));
+
+  const startNewChat = workspace.slice(
+    workspace.indexOf("const startNewProjectChat ="),
+    workspace.indexOf("const openChatItem ="),
+  );
+  assert.doesNotMatch(startNewChat, /requireHostedChatEnabled/);
+  assert.ok(workspace.includes('const newChatDisabled = chatAccessState !== "ready" ||'));
 });
 
 test("CAD teardown cancels browser downloads and guards non-cancellable SDK work", () => {

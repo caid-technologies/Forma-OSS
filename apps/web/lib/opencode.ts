@@ -1,4 +1,14 @@
 export const FORMA_AGENT_RUNTIME_STORAGE_KEY = "forma.agent.runtime.connector_id";
+export const FORMA_AGENT_MODEL_STORAGE_KEY = "forma.agent.model";
+
+export function normalizeOpenCodeModel(value: string): string | null {
+  const model = value.trim();
+  if (!model) return null;
+  if (model.length > 200 || !/^[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_./:-]*$/.test(model)) {
+    throw new Error("Use a model ID in provider/model format.");
+  }
+  return model;
+}
 
 export type OpenCodeSession = {
   session_id: string;
@@ -9,6 +19,7 @@ export type OpenCodeSession = {
 };
 
 export type OpenCodeCommand = {
+  model?: string | null;
   command_id: string;
   session_id: string;
   project_id: string;
@@ -125,6 +136,7 @@ function parseCommand(value: unknown): OpenCodeCommand {
   if (!["queued", "leased", "running", "succeeded", "failed", "cancelled"].includes(status)) throw new Error("Forma Agent returned an invalid command status.");
   return {
     command_id: stringField(item, "command_id"),
+    model: typeof item.model === "string" ? normalizeOpenCodeModel(item.model) : null,
     session_id: stringField(item, "session_id"),
     project_id: stringField(item, "project_id"),
     operation: operation as OpenCodeCommand["operation"],
@@ -203,10 +215,11 @@ export async function submitOpenCodeCommand(
   sessionId: string,
   message: string,
 ): Promise<OpenCodeCommand> {
+  const model = typeof window === "undefined" ? null : normalizeOpenCodeModel(window.localStorage.getItem(FORMA_AGENT_MODEL_STORAGE_KEY) || "");
   const response = await fetch(`${apiUrl}/opencode/sessions/${encodeURIComponent(sessionId)}/commands`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message, idempotency_key: `web-${crypto.randomUUID()}` }),
+    body: JSON.stringify({ message, idempotency_key: `web-${crypto.randomUUID()}`, ...(model ? { model } : {}) }),
   });
   return parseCommand(await responseJson(response));
 }

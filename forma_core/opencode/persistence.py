@@ -37,6 +37,7 @@ class DBOpenCodeCommand(Base):
     message_digest = Column(String, nullable=False)
     message_ciphertext = Column(Text, nullable=True)
     message_key_id = Column(String, nullable=True)
+    model = Column(String(200), nullable=True)
     attempt_count = Column(Integer, nullable=False, default=0)
     lease_expires_at = Column(String, nullable=True)
     lease_token_hash = Column(String, nullable=True)

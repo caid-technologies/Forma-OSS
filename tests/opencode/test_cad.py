@@ -60,6 +60,7 @@ class CadApiTests(unittest.TestCase):
     def test_required_cad_failure_returns_tool_error_without_saving_draft(self):
         cap = ConnectorCapability("mini", "session", PROJECT_ID, "owner", 2_000_000_000, "nonce", frozenset({"mcp"}))
         with patch("apps.api.opencode_api._connector_capability", return_value=cap), patch(
+            "apps.api.opencode_mcp.get_latest_project_revision", return_value=None), patch(
             "apps.api.opencode_mcp.ensure_native_cad_model", side_effect=CadGenerationError("PRIVATE_DIAGNOSTIC")) as generate, patch(
             "apps.api.opencode_mcp._persist_mcp_compile") as persist:
             result = self.client.post("/api/opencode/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": cube().model_dump()}}})

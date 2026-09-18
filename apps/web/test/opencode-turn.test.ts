@@ -76,3 +76,35 @@ test("historical availability events after completion do not erase success", () 
   const completed = reduceOpenCodeTurn(initial, event("completed"), "command");
   assert.equal(reduceOpenCodeTurn(completed, event("connector_unavailable"), "command"), completed);
 });
+
+test("model selection is normalized and included in each command without changing session identity", async () => {
+  const { normalizeOpenCodeModel, submitOpenCodeCommand } = await import("../lib/opencode.ts");
+  assert.equal(normalizeOpenCodeModel("  "), null);
+  assert.equal(normalizeOpenCodeModel(" google/gemini-2.5-flash "), "google/gemini-2.5-flash");
+  assert.equal(normalizeOpenCodeModel("openrouter/anthropic/claude-sonnet-4"), "openrouter/anthropic/claude-sonnet-4");
+  assert.throws(() => normalizeOpenCodeModel("bare-model"), /provider\/model/);
+  const previousFetch = globalThis.fetch;
+  const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let selection = "google/gemini-2.5-flash";
+  const requests: { url: string; body: Record<string, unknown> }[] = [];
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: { getItem: () => selection } } });
+  globalThis.fetch = async (url, init) => {
+    const body = JSON.parse(String(init?.body));
+    requests.push({ url: String(url), body });
+    return Response.json({ command_id: "command", session_id: "same-chat", project_id: "project", operation: "project_message", status: "queued", model: body.model ?? null });
+  };
+  try {
+    assert.equal((await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "First")).model, selection);
+    selection = "openai/gpt-4.1";
+    assert.equal((await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "Next")).model, selection);
+    selection = "";
+    await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "Default");
+    assert.equal("model" in requests[2].body, false);
+    assert.ok(requests.every((request) => request.url.endsWith("/sessions/same-chat/commands")));
+    assert.equal(requests[0].body.model, "google/gemini-2.5-flash");
+  } finally {
+    globalThis.fetch = previousFetch;
+    if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);
+    else Reflect.deleteProperty(globalThis, "window");
+  }
+});

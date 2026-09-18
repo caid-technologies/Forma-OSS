@@ -19,6 +19,7 @@ import {
 import { shouldOfferFailedBuildRetry } from "../../lib/conversation-build-state";
 import ConversationMessageList, { type ConversationMessage } from "./conversation-message-list";
 import { AuthoringModeBanner } from "./hosted-chat-maintenance";
+import { OpenCodeModelPicker } from "./opencode-model-picker";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout from "./chat-project-layout";
 import GenerationModeSelector, { type GenerationMode } from "./generation-mode-selector";
@@ -315,6 +316,7 @@ export default function HomeChatView({
               aria-describedby={notice ? "generation-input-notice" : undefined}
               className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
             />
+            {authoringActive && <OpenCodeModelPicker />}
             <div className="mt-1 flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <button

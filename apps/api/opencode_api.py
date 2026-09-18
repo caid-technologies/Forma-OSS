@@ -38,7 +38,7 @@ from forma_core.opencode.models import (
     ValidationSummary,
 )
 from forma_core.opencode.public_events import project_public_event
-from forma_core.opencode.store import OpenCodeStore, StoredCommand, StoredSession
+from forma_core.opencode.store import CommandConflictError, OpenCodeStore, StoredCommand, StoredSession
 from forma_core.database import get_project_identity, get_latest_project_revision
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 
@@ -115,13 +115,17 @@ def submit_opencode_command(
     session = _owned_session(session_id, _owner(user))
     if session.status != OpenCodeSessionStatus.ACTIVE:
         raise _http_error(409, "opencode_session_closed", "The OpenCode session is no longer active.")
-    command = OPENCODE_STORE.create_command(
-        command_id=f"occ_{uuid4().hex}",
-        session=session,
-        operation=OpenCodeOperation.PROJECT_MESSAGE,
-        idempotency_key=request.idempotency_key,
-        message=request.message,
-    )
+    try:
+        command = OPENCODE_STORE.create_command(
+            command_id=f"occ_{uuid4().hex}",
+            session=session,
+            operation=OpenCodeOperation.PROJECT_MESSAGE,
+            idempotency_key=request.idempotency_key,
+            message=request.message,
+            model=request.model,
+        )
+    except CommandConflictError:
+        raise _http_error(409, "opencode_command_conflict", "This request key was already used with a different message or model.")
     _store_event(
         session,
         ConnectorEventInput(
@@ -343,6 +347,7 @@ def _command_response(command: StoredCommand) -> CommandResponse:
     return CommandResponse(
         command_id=command.command_id, session_id=command.session_id, project_id=command.project_id,
         operation=command.operation, status=command.status, attempt_count=command.attempt_count,
+        model=command.model,
         created_at=_datetime(command.created_at), updated_at=_datetime(command.updated_at),
     )
 

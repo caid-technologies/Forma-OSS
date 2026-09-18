@@ -5,6 +5,7 @@ import { test } from "node:test";
 const workspace = readFileSync(new URL("../app/forma-workspace.tsx", import.meta.url), "utf8");
 const home = readFileSync(new URL("../app/forma-workspace/home-chat-view.tsx", import.meta.url), "utf8");
 const messages = readFileSync(new URL("../app/forma-workspace/conversation-message-list.tsx", import.meta.url), "utf8");
+const generationModeSelector = readFileSync(new URL("../app/forma-workspace/generation-mode-selector.tsx", import.meta.url), "utf8");
 const cad = readFileSync(new URL("../app/forma-workspace/cad-model-panel.tsx", import.meta.url), "utf8");
 const chat = workspace.slice(workspace.indexOf("function ChatWorkspace("), workspace.indexOf("function ChatProjectArtifact("));
 const surface = workspace.slice(workspace.indexOf("function ChatProjectArtifact("), workspace.indexOf("function ProjectWorkspacePanel("));
@@ -40,9 +41,13 @@ test("main authoring, read-only, submit, stop and retry behavior remains wired",
   assert.match(home, /className=\{started\s*\? "relative/);
   assert.ok(home.includes("onSubmit={onSubmit}"));
 });
-test("home chat keeps the generation mode selector available during authoring mode", () => {
-  assert.ok(home.includes('<span className="sr-only">Generation mode</span>'));
-  assert.doesNotMatch(home, /!authoringActive[\s\S]{0,300}Generation mode/);
+test("home chat reuses one generation mode selector in every auth/authoring state", () => {
+  assert.equal((home.match(/<GenerationModeSelector\b/g) || []).length, 1);
+  assert.doesNotMatch(home, /<select[\s\S]{0,400}Regular/);
+  assert.ok(generationModeSelector.includes('<span className="sr-only">Generation mode</span>'));
+  assert.ok(generationModeSelector.includes('<option value="regular">Regular</option>'));
+  assert.ok(generationModeSelector.includes('<option value="progressive">Progressive</option>'));
+  assert.doesNotMatch(home, /!authoringActive[\s\S]{0,300}GenerationModeSelector/);
 });
 
 test("fresh home chat stays writable for signed-out visitors and authenticates before submit", () => {

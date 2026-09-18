@@ -21,8 +21,9 @@ import ConversationMessageList, { type ConversationMessage } from "./conversatio
 import { AuthoringModeBanner } from "./hosted-chat-maintenance";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout from "./chat-project-layout";
+import GenerationModeSelector, { type GenerationMode } from "./generation-mode-selector";
 
-export type GenerationMode = "regular" | "progressive";
+export type { GenerationMode } from "./generation-mode-selector";
 
 type HomeChatViewProps = {
   started: boolean;
@@ -325,21 +326,11 @@ export default function HomeChatView({
                 >
                   <Paperclip className="h-4 w-4" />
                 </button>
-                <label className="inline-flex min-w-0 items-center rounded-md border border-white/5 bg-zinc-900/60 px-1.5 text-[11px] text-zinc-400">
-                  <span className="sr-only">Generation mode</span>
-                  <select
-                    value={generationMode}
-                    onChange={(event) => onGenerationModeChange(event.target.value as GenerationMode)}
-                    disabled={generationActive || isLoading}
-                    className="h-6 max-w-[8rem] cursor-pointer bg-transparent pr-1 text-[11px] font-medium text-zinc-300 outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                    title={generationMode === "regular"
-                      ? "Regular: one-shot generation"
-                      : "Progressive: staged generation with concept review before CAD"}
-                  >
-                    <option value="regular">Regular</option>
-                    <option value="progressive">Progressive</option>
-                  </select>
-                </label>
+                <GenerationModeSelector
+                  value={generationMode}
+                  onChange={onGenerationModeChange}
+                  disabled={generationActive || isLoading}
+                />
               </div>
               <div className="flex items-center gap-1.5">
                 {canFinishPrompt && (

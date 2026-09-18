@@ -1,5 +1,4 @@
 export const FORMA_AGENT_RUNTIME_STORAGE_KEY = "forma.agent.runtime.connector_id";
-export const FORMA_AGENT_MODEL_STORAGE_KEY = "forma.agent.model";
 
 export function normalizeOpenCodeModel(value: string): string | null {
   const model = value.trim();
@@ -215,11 +214,10 @@ export async function submitOpenCodeCommand(
   sessionId: string,
   message: string,
 ): Promise<OpenCodeCommand> {
-  const model = typeof window === "undefined" ? null : normalizeOpenCodeModel(window.localStorage.getItem(FORMA_AGENT_MODEL_STORAGE_KEY) || "");
   const response = await fetch(`${apiUrl}/opencode/sessions/${encodeURIComponent(sessionId)}/commands`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ message, idempotency_key: `web-${crypto.randomUUID()}`, ...(model ? { model } : {}) }),
+    body: JSON.stringify({ message, idempotency_key: `web-${crypto.randomUUID()}` }),
   });
   return parseCommand(await responseJson(response));
 }

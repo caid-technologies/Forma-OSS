@@ -380,17 +380,10 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toHaveCount(0);
     await expect(composer).toBeVisible();
 
-    if (resultMode === "unpublished") await test.step("select an agent model without submitting a chat command", async () => {
-      const model = page.getByRole("textbox", { name: "Agent model", exact: true });
-      await model.fill("invalid-model");
-      await model.press("Enter");
-      await expect(page.getByRole("alert").filter({ hasText: "provider/model" })).toBeVisible();
-      expect(commandRequests).toEqual([]);
-      await model.fill("google/gemini-2.5-flash");
-      await model.press("Enter");
-      await expect(page.getByRole("combobox", { name: "Switch agent model" })).toHaveValue("google/gemini-2.5-flash");
-      expect(commandRequests).toEqual([]);
-    });
+    await expect(page.getByRole("textbox", { name: "Agent model", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("combobox", { name: "Switch agent model" })).toHaveCount(0);
+    // Old picker preferences must not override the configured runtime model.
+    await page.evaluate(() => localStorage.setItem("forma.agent.model", "google/gemini-2.5-flash"));
 
     await test.step("keep polling after connector_unavailable without loading the reserved project", async () => {
       await composer.fill("hi");
@@ -471,10 +464,8 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     }
 
     await test.step("send a second turn in the same session and original UI chat", async () => {
-      if (resultMode === "unpublished") {
-        await page.getByRole("textbox", { name: "Agent model", exact: true }).fill("openrouter/anthropic/claude-sonnet-4");
-        await page.getByRole("button", { name: "Apply", exact: true }).click();
-      }
+      await expect(page.getByRole("textbox", { name: "Agent model", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("combobox", { name: "Switch agent model" })).toHaveCount(0);
       await followUpComposer.fill("Are you still there?");
       await followUpComposer.press("Enter");
       await expect(secondAnswer).toBeVisible();
@@ -503,9 +494,9 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
         expect(projectProbes).toHaveLength(2);
       }
       expect(sessionRequests).toEqual([{ connector_id: "mini-pc-1" }]);
-      expect(commandRequests).toEqual(["hi", "Are you still there?"].map((message, index) => ({
+      expect(commandRequests).toEqual(["hi", "Are you still there?"].map((message) => ({
         path: `/opencode/sessions/${sessionId}/commands`,
-        body: { message, idempotency_key: expect.stringMatching(/^web-.+/), ...(resultMode === "unpublished" ? { model: ["google/gemini-2.5-flash", "openrouter/anthropic/claude-sonnet-4"][index] } : {}) },
+        body: { message, idempotency_key: expect.stringMatching(/^web-.+/) },
       })));
       expect(polls).toEqual([
         { turn: 1, cursor: 0 }, { turn: 1, cursor: 1 }, { turn: 1, cursor: 3 }, { turn: 2, cursor: 5 },
@@ -563,15 +554,8 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
       await expect(missingProject).toHaveCount(0);
       await expect(projectLinks).toHaveCount(0);
       await expect(projectOutput).toHaveCount(0);
-      if (resultMode === "unpublished") {
-        const model = page.getByRole("combobox", { name: "Switch agent model" });
-        await expect(model).toHaveValue("openrouter/anthropic/claude-sonnet-4");
-        await model.selectOption("google/gemini-2.5-flash");
-        await expect(page.getByRole("textbox", { name: "Agent model", exact: true })).toHaveValue("google/gemini-2.5-flash");
-        await page.getByRole("button", { name: "Runtime default", exact: true }).click();
-        await expect(model).toHaveValue("");
-        expect(await page.evaluate(() => localStorage.getItem("forma.agent.model"))).toBe("");
-      }
+      await expect(page.getByRole("textbox", { name: "Agent model", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("combobox", { name: "Switch agent model" })).toHaveCount(0);
     });
 
     expect(unexpectedRequests, "Every backend request must be mocked; no external requests may escape").toEqual([]);

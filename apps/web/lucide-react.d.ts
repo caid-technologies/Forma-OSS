@@ -32,6 +32,8 @@ declare module "lucide-react" {
   export const ExternalLink: LucideIcon;
   export const Eye: LucideIcon;
   export const FileBox: LucideIcon;
+  export const FileJson: LucideIcon;
+  export const FileText: LucideIcon;
   export const Film: LucideIcon;
   export const FlaskConical: LucideIcon;
   export const GitBranch: LucideIcon;

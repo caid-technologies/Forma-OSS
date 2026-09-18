@@ -21,8 +21,9 @@ import ConversationMessageList, { type ConversationMessage } from "./conversatio
 import { AuthoringModeBanner } from "./hosted-chat-maintenance";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout from "./chat-project-layout";
+import GenerationModeSelector, { type GenerationMode } from "./generation-mode-selector";
 
-export type GenerationMode = "regular" | "progressive";
+export type { GenerationMode } from "./generation-mode-selector";
 
 type HomeChatViewProps = {
   started: boolean;
@@ -133,7 +134,7 @@ export default function HomeChatView({
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
-      {!started && !authoringActive && (
+      {!started && (
         <div className="shrink-0">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 sm:mt-1 sm:text-3xl">
             Turn an idea into a hardware plan.
@@ -143,12 +144,6 @@ export default function HomeChatView({
           </p>
         </div>
       )}
-      {authoringActive && !started && (
-        <div className="mx-auto w-full max-w-2xl px-3 sm:px-4 md:px-0">
-          <AuthoringModeBanner />
-        </div>
-      )}
-
       <div
         className={`${
           started
@@ -182,7 +177,7 @@ export default function HomeChatView({
           </div>
         )}
 
-        {!started && !authoringActive && (
+        {!started && (
           <div className="mt-auto shrink-0 px-3 py-3 sm:px-4 md:order-2 md:mt-4 md:px-0 md:py-0">
             <div className="flex snap-x gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
               {examples.map((example) => (
@@ -331,23 +326,11 @@ export default function HomeChatView({
                 >
                   <Paperclip className="h-4 w-4" />
                 </button>
-                {!authoringActive && (
-                  <label className="inline-flex min-w-0 items-center rounded-md border border-white/5 bg-zinc-900/60 px-1.5 text-[11px] text-zinc-400">
-                    <span className="sr-only">Generation mode</span>
-                    <select
-                      value={generationMode}
-                      onChange={(event) => onGenerationModeChange(event.target.value as GenerationMode)}
-                      disabled={generationActive || isLoading}
-                      className="h-6 max-w-[8rem] cursor-pointer bg-transparent pr-1 text-[11px] font-medium text-zinc-300 outline-none disabled:cursor-not-allowed disabled:opacity-60"
-                      title={generationMode === "regular"
-                        ? "Regular: one-shot generation"
-                        : "Progressive: staged generation with concept review before CAD"}
-                    >
-                      <option value="regular">Regular</option>
-                      <option value="progressive">Progressive</option>
-                    </select>
-                  </label>
-                )}
+                <GenerationModeSelector
+                  value={generationMode}
+                  onChange={onGenerationModeChange}
+                  disabled={generationActive || isLoading}
+                />
               </div>
               <div className="flex items-center gap-1.5">
                 {canFinishPrompt && (

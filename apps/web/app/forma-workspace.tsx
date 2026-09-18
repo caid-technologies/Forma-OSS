@@ -97,6 +97,7 @@ import {
   type ProjectGalleryItem,
 } from "./forma-workspace/project-gallery";
 import CadModelPanel from "./forma-workspace/cad-model-panel";
+import ProjectExportsPanel from "./forma-workspace/project-exports-panel";
 import { projectCadModel, resolveCadModel } from "../lib/cad-model";
 import { FormaProjectBrowser, type FormaProjectSummary } from "@isayahc/forma-gui";
 import {
@@ -146,6 +147,7 @@ import {
   Box,
   CircuitBoard,
   BookOpen,
+  Download,
   Clapperboard,
 } from "lucide-react";
 
@@ -1547,6 +1549,7 @@ const workspaceTabs = [
   { id: "cad", label: "CAD", icon: Box },
   { id: "schematic", label: "Electrical", icon: CircuitBoard },
   { id: "assembly", label: "Documentation", icon: BookOpen },
+  { id: "exports", label: "Exports", icon: Download },
   { id: "video", label: "Media", icon: Clapperboard },
 ];
 
@@ -4576,7 +4579,7 @@ export function FormaWorkspace({
 
     const sourceProjectId = currentProjectId;
     const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
-    const targetNamespace = activeTab === "overview" ? null : workspaceNamespaceForTab(activeTab);
+    const targetNamespace = activeTab === "overview" || activeTab === "exports" ? null : workspaceNamespaceForTab(activeTab);
     const generationRun = beginGenerationRun("project-chat", sourceChatId);
     setActiveChatId(sourceChatId);
     rememberChatItem({
@@ -5622,11 +5625,17 @@ export function FormaWorkspace({
           <AssemblyPanel
             assembly={assembly}
             issues={issues}
-            onDownloadJSON={downloadJSONIR}
-            onDownloadMarkdown={downloadMarkdownDocs}
-            canDownloadAssets={currentProjectCanDownloadAssets}
           />
         );
+      case "exports":
+        return currentProjectId ? (
+          <ProjectExportsPanel
+            projectId={currentProjectId}
+            canDownloadAssets={currentProjectCanDownloadAssets}
+            onDownloadJSON={downloadJSONIR}
+            onDownloadMarkdown={downloadMarkdownDocs}
+          />
+        ) : null;
       case "video":
         return (
           <VideoPanel {...projectVideo} />

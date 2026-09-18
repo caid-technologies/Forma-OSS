@@ -54,11 +54,9 @@ test("full screen preserves the viewer, traps focus, and Escape restores the spl
   await page.keyboard.press("Shift+Tab");
   await expect(page.getByRole("button", { name: "Orbit camera" })).toBeFocused();
   await page.keyboard.press("Tab");
-  await expect(page.getByRole("dialog", { name: "Project workspace" }).getByRole("button", { name: "Project", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("button", { name: "Exports", exact: true })).toBeFocused();
-  await page.keyboard.press("Tab");
   await expect(page.getByRole("button", { name: "Exit project full screen", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Close project", exact: true })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByTestId("chat-project-layout")).toHaveAttribute("data-layout", "split");

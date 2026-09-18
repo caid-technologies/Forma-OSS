@@ -10,6 +10,22 @@ await build({
   bundle: true, platform: "browser", jsx: "automatic", sourcemap: true,
   outfile: join(directory, "fixture.js"),
   define: { "process.env.NODE_ENV": '"development"' },
+  plugins: [{
+    name: "workspace-fixture-stubs",
+    setup(build) {
+      // ChatProjectSurface imports the production exports panel, but the layout
+      // fixture never exercises exports. Stub that boundary so the browser-only
+      // esbuild fixture does not bundle Next's Node-only config dependencies.
+      build.onResolve({ filter: /project-exports-panel$/ }, (args) => ({
+        path: args.path,
+        namespace: "workspace-fixture-stub",
+      }));
+      build.onLoad({ filter: /.*/, namespace: "workspace-fixture-stub" }, () => ({
+        contents: "export default function ProjectExportsPanel() { return null; }",
+        loader: "js",
+      }));
+    },
+  }],
 });
 const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Forma workspace UI test</title><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>';
 const files = new Map([["/fixture.js", "text/javascript"], ["/fixture.css", "text/css"], ["/fixture.js.map", "application/json"]]);

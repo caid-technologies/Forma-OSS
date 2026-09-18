@@ -101,6 +101,73 @@ function event(
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
 
+for (const accessResult of ["enabled", "maintenance", "failed"] as const) {
+  test(`Chat access loading handles ${accessResult} without a maintenance flash`, async ({ page, baseURL }) => {
+    test.setTimeout(180_000);
+    const appOrigin = new URL(baseURL!).origin;
+    let releaseConfig!: () => void;
+    const configGate = new Promise<void>((resolve) => { releaseConfig = resolve; });
+    let configRequests = 0;
+
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === appOrigin && !/^\/api(?:\/|$)/.test(url.pathname)) {
+        await route.continue();
+        return;
+      }
+      const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+      if (path === "/runtime/config") {
+        configRequests += 1;
+        await configGate;
+        if (accessResult === "failed" && configRequests === 1) {
+          await route.fulfill({ status: 503, json: { detail: "Temporarily unavailable" } });
+        } else {
+          await route.fulfill({ json: {
+            ...runtimeConfig,
+            deployment: { ...runtimeConfig.deployment, authoring_access: accessResult !== "maintenance" },
+          } });
+        }
+        return;
+      }
+      if (["/projects", "/my/projects"].includes(path)) {
+        await route.fulfill({ json: { items: [], total: 0, has_more: false } });
+      } else if (["/chats", "/a2a/jobs", "/example-project-object-jobs"].includes(path)) {
+        await route.fulfill({ json: [] });
+      } else {
+        await route.fulfill({ json: { status: "ok", is_admin: false, steps: [], models: [] } });
+      }
+    });
+
+    try {
+      await page.goto("/", { waitUntil: "domcontentloaded", timeout: 120_000 });
+      const loading = page.getByRole("status").filter({ hasText: "Loading chat…" });
+      const maintenance = page.getByRole("status", { name: "Hosted chat maintenance" });
+      const composer = page.getByPlaceholder("Describe the product, constraints, references, and outputs you need…", { exact: true });
+      await expect(loading).toBeVisible();
+      await expect.poll(() => configRequests).toBe(1);
+      await expect(maintenance).toHaveCount(0);
+      await expect(composer).toHaveCount(0);
+      releaseConfig();
+
+      if (accessResult === "maintenance") {
+        await expect(maintenance).toBeVisible();
+        await expect(composer).toHaveCount(0);
+      } else {
+        if (accessResult === "failed") {
+          await expect(page.getByRole("alert").filter({ hasText: "Chat could not be loaded" })).toBeVisible();
+          await expect(maintenance).toHaveCount(0);
+          await page.getByRole("button", { name: "Retry loading chat" }).click();
+        }
+        await expect(composer).toBeVisible();
+        await expect(maintenance).toHaveCount(0);
+      }
+      await expect(loading).toHaveCount(0);
+    } finally {
+      releaseConfig();
+    }
+  });
+}
+
 for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidden", "unavailable", "malformed", "null-response", "network-error", "missing-revision"] as const) test(`OpenCode chat handles ${resultMode} project output`, async ({ page, baseURL }) => {
   const projectPublished = ["published", "draft", "wired"].includes(resultMode);
   const resultLoadFails = !projectPublished && resultMode !== "unpublished";
@@ -301,7 +368,7 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: false });
     const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: false });
 
-    await expect(page.getByRole("status", { name: "OpenCode is authoring this workspace.", exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toBeVisible();
     await expect(composer).toBeVisible();
 
     await test.step("keep polling after connector_unavailable without loading the reserved project", async () => {

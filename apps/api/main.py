@@ -145,6 +145,13 @@ from apps.api.a2a import (
 from forma_core.images import get_image_output_debug_config
 from forma_core.config.contract import resolve_runtime_contract
 from forma_core.workspaces.projects.iteration import ProjectIterator
+from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
+from forma_core.workspaces.projects.design_lifecycle import (
+    VisualApprovalStatus,
+    load_design_lifecycle,
+    record_visual_decision,
+)
+from forma_core.workspaces.projects.generation_mode import is_progressive_generation
 from forma_core.llm import LLMProviderConfigError
 from forma_core.llm import LLMProviderOutputError
 from forma_core.debug import api_error_detail, log_exception, new_error_correlation_id
@@ -2986,6 +2993,141 @@ def generate_project_video_prompt_endpoint(project_id: str, user: UserContext = 
     except Exception as e:
         logger.exception("Project video prompt generation failed for project_id=%s", project_id)
         raise HTTPException(status_code=500, detail=f"Video prompt generation failed: {str(e)}") from e
+
+
+class ProgressiveVisualDecisionRequest(BaseModel):
+    """Persist a human decision on the Progressive whole-system concept."""
+
+    decision: str
+    feedback: Optional[str] = None
+
+
+@app.post("/projects/{project_id}/visual-decision")
+def project_visual_decision_endpoint(
+    project_id: str,
+    request: ProgressiveVisualDecisionRequest,
+    user: UserContext = Depends(require_user_context),
+):
+    """Approve/reject a Progressive visual and optionally continue into CAD."""
+
+    require_hosted_chat_enabled()
+    owner_user_id = _require_authenticated_user(user)
+    try:
+        resolved = resolve_project_for_read(project_id, owner_user_id)
+    except ProjectReadError as exc:
+        raise HTTPException(status_code=404, detail="Project not found.") from exc
+
+    if resolved.source == "cli":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Progressive visual decisions are not supported for CLI-only projects.",
+        )
+
+    _require_project_owner(resolved.project, user)
+    try:
+        ensure_project_action_allowed(project_id, owner_user_id, "forma.iterate_project")
+    except WorkflowStateError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.as_dict()) from exc
+
+    if resolved.source == "canonical" and resolved.revision is not None:
+        ir = resolved.revision.state.model_copy(deep=True)
+        prompt = resolved.design_brief.summary if resolved.design_brief is not None else ""
+        chat_id = resolved.design_brief.conversation_id if resolved.design_brief is not None else None
+    else:
+        ir = HardwareIR.model_validate(resolved.project.hardware_ir)
+        prompt = str(getattr(resolved.project, "prompt", "") or "")
+        chat_id = getattr(resolved.project, "chat_id", None)
+
+    ir.assembly_metadata = {
+        **(ir.assembly_metadata or {}),
+        "project_id": project_id,
+        "chat_id": chat_id or (ir.assembly_metadata or {}).get("chat_id"),
+    }
+    if not is_progressive_generation(ir):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Visual decisions are only available for Progressive generation projects.",
+        )
+
+    lifecycle = load_design_lifecycle(ir)
+    if not lifecycle.visual_gate.visual_artifact_id:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No whole-system visual is available for review.",
+        )
+
+    decision = str(request.decision or "").strip().lower()
+    if decision not in {"approve", "revise", "continue_to_cad"}:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="decision must be approve, revise, or continue_to_cad.",
+        )
+    feedback = str(request.feedback or "").strip() or None
+    if decision == "revise" and not feedback:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Revision feedback is required when requesting changes.",
+        )
+
+    cad_generated = False
+    try:
+        if decision == "revise":
+            lifecycle = record_visual_decision(ir, approved=False, feedback=feedback)
+        else:
+            if lifecycle.visual_gate.status != VisualApprovalStatus.APPROVED:
+                lifecycle = record_visual_decision(ir, approved=True, feedback=feedback)
+            if decision == "continue_to_cad":
+                metadata = ir.assembly_metadata or {}
+                cad_generated = ensure_native_cad_model(
+                    ir,
+                    project_id=project_id,
+                    required=bool(metadata.get("cad_required", False)),
+                    authoring_agent="forma-progressive-review",
+                    workflow=str(metadata.get("workflow") or "default"),
+                )
+                lifecycle = load_design_lifecycle(ir)
+
+        ir.assembly_metadata = {
+            **(ir.assembly_metadata or {}),
+            "visual_approval_status": lifecycle.visual_gate.status.value,
+            "visual_approval_feedback": lifecycle.visual_gate.feedback,
+        }
+        persisted = persist_chat_project_revision(
+            project_id,
+            owner_user_id,
+            ir,
+            source_job_id=f"visual-decision-{uuid4().hex}",
+            prompt=prompt or getattr(getattr(ir, "overview", None), "title", "") or "Progressive design review",
+            chat_id=chat_id,
+        )
+        persisted_ir = persisted.state.model_copy(deep=True)
+        persisted_ir.assembly_metadata = {
+            **(persisted_ir.assembly_metadata or {}),
+            "project_id": project_id,
+            "chat_id": chat_id or (persisted_ir.assembly_metadata or {}).get("chat_id"),
+            "project_revision": persisted.revision,
+        }
+        persisted_lifecycle = load_design_lifecycle(persisted_ir)
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "chat_id": chat_id,
+            "decision": decision,
+            "cad_generated": cad_generated,
+            "visual_approval_status": persisted_lifecycle.visual_gate.status.value,
+            "project_ir": persisted_ir.model_dump(mode="json"),
+        }
+    except HTTPException:
+        raise
+    except (ValueError, ProjectStateError) as exc:
+        status_code = status.HTTP_409_CONFLICT if isinstance(exc, ProjectStateError) else status.HTTP_400_BAD_REQUEST
+        raise HTTPException(status_code=status_code, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Progressive visual decision failed for project_id=%s", project_id)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Could not apply the Progressive visual decision.",
+        ) from exc
 
 
 @app.post("/projects/{project_id}/iterate")

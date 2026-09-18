@@ -3871,9 +3871,9 @@ export function FormaWorkspace({
       void submitOpenCodeTurn({ chatId: requestChatId, message: text, assistantMessageId });
       return;
     }
-    if (!requireHostedChatEnabled()) return;
     if (contextSubmitting || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
+    if (!requireHostedChatEnabled()) return;
 
     const submittedPrompt = answer ?? prompt;
     const validation = validateGenerationInput(submittedPrompt, Boolean(selectedImage));
@@ -4118,9 +4118,9 @@ export function FormaWorkspace({
 
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!requireHostedChatEnabled()) return;
     if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
+    if (!requireHostedChatEnabled()) return;
     if (!selectedGenerationLlm) {
       setGenerationInputNotice("Turn on at least one model provider in Settings before building.");
       return;

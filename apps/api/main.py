@@ -3105,6 +3105,7 @@ def project_visual_decision_endpoint(
             **(persisted_ir.assembly_metadata or {}),
             "project_id": project_id,
             "chat_id": chat_id or (persisted_ir.assembly_metadata or {}).get("chat_id"),
+            "can_chat": True,
             "project_revision": persisted.revision,
         }
         persisted_lifecycle = load_design_lifecycle(persisted_ir)
@@ -3112,6 +3113,8 @@ def project_visual_decision_endpoint(
             "ok": True,
             "project_id": project_id,
             "chat_id": chat_id,
+            "can_chat": True,
+            "prompt": prompt,
             "decision": decision,
             "cad_generated": cad_generated,
             "visual_approval_status": persisted_lifecycle.visual_gate.status.value,

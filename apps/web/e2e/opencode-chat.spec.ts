@@ -377,7 +377,7 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: false });
     const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: false });
 
-    await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toHaveCount(0);
     await expect(composer).toBeVisible();
 
     if (resultMode === "unpublished") await test.step("select an agent model without submitting a chat command", async () => {

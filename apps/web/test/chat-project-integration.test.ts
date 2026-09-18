@@ -40,6 +40,11 @@ test("main authoring, read-only, submit, stop and retry behavior remains wired",
   assert.match(home, /className=\{started\s*\? "relative/);
   assert.ok(home.includes("onSubmit={onSubmit}"));
 });
+test("home chat keeps the generation mode selector available during authoring mode", () => {
+  assert.ok(home.includes('<span className="sr-only">Generation mode</span>'));
+  assert.doesNotMatch(home, /!authoringActive[\s\S]{0,300}Generation mode/);
+});
+
 test("fresh home chat stays writable for signed-out visitors and authenticates before submit", () => {
   assert.doesNotMatch(home, /HostedChatMaintenance/);
   assert.match(home, /\{\(!readOnly \|\| !started\) && \(\s*<form/);

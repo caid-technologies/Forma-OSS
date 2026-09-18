@@ -316,7 +316,7 @@ export default function HomeChatView({
               aria-describedby={notice ? "generation-input-notice" : undefined}
               className="min-h-[64px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500 sm:min-h-[72px] sm:leading-7"
             />
-            {authoringActive && !started && <OpenCodeModelPicker />}
+            {authoringActive && <OpenCodeModelPicker />}
             <div className="mt-1 flex items-center justify-between gap-2">
               <div className="flex min-w-0 items-center gap-2">
                 <button

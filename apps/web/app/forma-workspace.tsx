@@ -81,7 +81,6 @@ import HostedChatMaintenance, {
   AuthoringModeBanner,
   HOSTED_CHAT_MAINTENANCE_MESSAGE,
 } from "./forma-workspace/hosted-chat-maintenance";
-import { OpenCodeModelPicker } from "./forma-workspace/opencode-model-picker";
 import useChatAutoScroll from "./forma-workspace/use-chat-auto-scroll";
 import useChromeHeaderScroll from "./forma-workspace/use-chrome-header-scroll";
 import {
@@ -7859,7 +7858,6 @@ function ChatWorkspace({
                     placeholder={`Describe a change to ${activeNamespaceLabel.toLowerCase()}...`}
                     className="min-h-[72px] w-full resize-none border-none bg-transparent text-sm leading-6 text-zinc-100 outline-none placeholder:text-zinc-500"
                   />
-                  {authoringActive && <OpenCodeModelPicker />}
                   <div className="mt-1 flex items-center justify-end gap-1.5">
                     {!canStop && !retryMode && !isLoading && hasInput && (
                       <span className="prompt-composer-enter-hint hidden sm:inline" aria-hidden="true">

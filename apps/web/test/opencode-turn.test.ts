@@ -77,7 +77,7 @@ test("historical availability events after completion do not erase success", () 
   assert.equal(reduceOpenCodeTurn(completed, event("connector_unavailable"), "command"), completed);
 });
 
-test("model selection is normalized and included in each command without changing session identity", async () => {
+test("commands inherit the runtime model and ignore legacy browser selections", async () => {
   const { normalizeOpenCodeModel, submitOpenCodeCommand } = await import("../lib/opencode.ts");
   assert.equal(normalizeOpenCodeModel("  "), null);
   assert.equal(normalizeOpenCodeModel(" google/gemini-2.5-flash "), "google/gemini-2.5-flash");
@@ -94,14 +94,21 @@ test("model selection is normalized and included in each command without changin
     return Response.json({ command_id: "command", session_id: "same-chat", project_id: "project", operation: "project_message", status: "queued", model: body.model ?? null });
   };
   try {
-    assert.equal((await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "First")).model, selection);
-    selection = "openai/gpt-4.1";
-    assert.equal((await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "Next")).model, selection);
-    selection = "";
-    await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "Default");
-    assert.equal("model" in requests[2].body, false);
-    assert.ok(requests.every((request) => request.url.endsWith("/sessions/same-chat/commands")));
-    assert.equal(requests[0].body.model, "google/gemini-2.5-flash");
+    for (const saved of ["google/gemini-2.5-flash", "invalid-model", ""]) {
+      selection = saved;
+      assert.equal((await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "Next")).model, null);
+    }
+    Object.defineProperty(globalThis, "window", { configurable: true, value: {
+      get localStorage() { throw new Error("Browser storage unavailable"); },
+    } });
+    await submitOpenCodeCommand("https://forma.example", {}, "same-chat", "Next");
+    assert.equal(requests.length, 4);
+    for (const request of requests) {
+      assert.ok(request.url.endsWith("/sessions/same-chat/commands"));
+      assert.deepEqual(Object.keys(request.body).sort(), ["idempotency_key", "message"]);
+      assert.equal(request.body.message, "Next");
+      assert.match(String(request.body.idempotency_key), /^web-.+/);
+    }
   } finally {
     globalThis.fetch = previousFetch;
     if (previousWindow) Object.defineProperty(globalThis, "window", previousWindow);

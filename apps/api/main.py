@@ -399,14 +399,14 @@ def _resolved_client_runtime_config(
 
 
 def _runtime_config_settings(user: Optional[UserContext]) -> Optional[ResolvedIntegrationSettings]:
-    """Keep the allowlisted OpenCode surface available when stale BYOK data is unreadable."""
+    """Keep signed-in authoring available when stale BYOK data is unreadable."""
     try:
         return _resolve_user_integrations(user)
     except RuntimeError as exc:
         if not has_opencode_authoring_access(user):
             raise
         logger.warning(
-            "OpenCode allowlisted runtime config is using deployment defaults after user settings failed: %s",
+            "OpenCode runtime config is using deployment defaults after user settings failed: %s",
             exc,
         )
         return None

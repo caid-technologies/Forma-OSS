@@ -238,31 +238,20 @@ def clerk_user_email(user_id: str) -> Optional[str]:
     return profile.get("email") if profile else None
 
 
-def opencode_allowed_emails() -> frozenset[str]:
-    """Return the exact server-configured allowlist for hosted OpenCode."""
-    return frozenset(email.strip().lower() for email in _csv_env("FORMA_OPENCODE_ALLOWED_EMAILS") if "@" in email)
-
-
 def has_opencode_authoring_access(user: Optional[UserContext]) -> bool:
-    """Return whether this authenticated user is on the OpenCode allowlist."""
-    if user is None or not user.owner_user_id:
+    """Allow signed-in user accounts to author their own projects."""
+    if user is None or not user.is_authenticated or not user.owner_user_id:
         return False
     if user.provider == "local":
         return (config.get("FORMA_OPENCODE_ALLOW_LOCAL") or "").strip().lower() in {"1", "true", "yes", "on"}
-    if user.provider not in {"clerk", "forma-cli"}:
-        return False
-    # CLI subjects are the original Clerk user IDs; resolve the email again
-    # server-side because older device tokens may not carry email claims.
-    email = clerk_user_email(user.owner_user_id)
-    return bool(email and email.strip().lower() in opencode_allowed_emails())
+    return user.provider in {"clerk", "forma-cli"}
 
 
 async def require_opencode_authoring_access(request: Request) -> UserContext:
-    """Require a hosted Clerk or CLI user whose email is explicitly allowed.
+    """Require a signed-in hosted Clerk or Forma CLI user.
 
-    This intentionally does not use admin status or either service API key. For
-    CLI sessions, the email was captured from the Clerk-authenticated device
-    approval flow and stored server-side.
+    All user accounts are eligible; service API keys do not count as sign-in.
+    Project and session ownership are checked separately.
     """
     deployment = (config.get("FORMA_DEPLOYMENT_MODE") or "").strip().lower()
     try:
@@ -276,15 +265,10 @@ async def require_opencode_authoring_access(request: Request) -> UserContext:
             detail=_opencode_auth_error("opencode_hosted_only", "Hosted OpenCode access is unavailable."),
         )
     context = await require_user_context(request)
-    if (context.provider not in {"clerk", "forma-cli"} and not local_allowed) or not context.owner_user_id:
+    if (context.provider not in {"clerk", "forma-cli"} and not local_allowed) or not has_opencode_authoring_access(context):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=_opencode_auth_error("opencode_user_required", "A Clerk or Forma CLI user session is required."),
-        )
-    if not has_opencode_authoring_access(context):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=_opencode_auth_error("opencode_email_not_allowed", "This account is not enabled for hosted OpenCode."),
         )
     return context
 

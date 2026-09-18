@@ -4,14 +4,14 @@ The agent model and image model are independent. An OpenCode agent can use one
 provider for reasoning and Forma's backend image tool can use another image
 provider.
 
-For the current OpenAI-only rollout, use `FORMA_OPENCODE_MODEL=openai/gpt-5.6-sol`
+For the current OpenAI-first rollout, use `FORMA_OPENCODE_MODEL=openai/gpt-5.6-sol`
 on the connector service for the text/agent default, and configure the Forma
 backend with `IMAGE_PROVIDER=openai` plus an OpenAI image API key. Browser
 request-level model choices still override the connector default.
 
 ## Switch the agent model
 
-In the Forma Agent banner, enter a `provider/model` ID and select **Apply**.
+In the Forma Agent composer, enter a `provider/model` ID and select **Apply**.
 The selector remembers the last eight choices in this browser. Select an earlier
 choice to switch again, or select **Runtime default** to remove the override.
 Changes affect the next submitted command, including in an existing conversation.
@@ -64,6 +64,25 @@ responses to avoid putting them in the agent context.
 
 Configure these settings on the **Forma backend serving the restricted MCP URL**:
 
+### OpenAI
+
+```dotenv
+# Supply the key securely in the backend environment; do not commit it.
+IMAGE_PROVIDER=openai
+OPENAI_IMAGE_API_KEY=<your OpenAI API key>
+OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
+OPENAI_IMAGE_SIZE=1024x1024
+OPENAI_IMAGE_QUALITY=medium
+OPENAI_IMAGE_OUTPUT_FORMAT=png
+```
+
+`OPENAI_API_KEY` is the existing fallback if `OPENAI_IMAGE_API_KEY` is absent.
+The example explicitly selects `gpt-image-2.5-sunburst`; Forma's code-level
+fallback remains unchanged, so deployments can pin a different GPT Image model
+without a code change. OpenCode login credentials are not a substitute for the
+backend image API key.
+
 ### GMI Cloud
 
 ```dotenv
@@ -88,25 +107,6 @@ storage rather than depending on a temporary provider URL. Downloads require
 public HTTPS destinations, validate redirects, pin the resolved address while
 verifying TLS against the hostname, and accept only PNG, JPEG, or WebP up to
 30 MiB. Provider URLs and credentials are never included in tool responses.
-
-### OpenAI
-
-```dotenv
-# Supply the key securely in the backend environment; do not commit it.
-IMAGE_PROVIDER=openai
-OPENAI_IMAGE_API_KEY=<your OpenAI API key>
-OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
-OPENAI_IMAGE_SIZE=1024x1024
-OPENAI_IMAGE_QUALITY=medium
-OPENAI_IMAGE_OUTPUT_FORMAT=png
-```
-
-`OPENAI_API_KEY` is the existing fallback if `OPENAI_IMAGE_API_KEY` is absent.
-The example explicitly selects `gpt-image-2.5-sunburst`; Forma's code-level
-fallback remains unchanged, so deployments can pin a different GPT Image model
-without a code change. OpenCode login credentials are not a substitute for the
-backend image API key.
 
 Provider, model, endpoint, and credentials remain server-owned; the agent cannot
 override them in tool arguments. Without `IMAGE_PROVIDER`, the existing provider

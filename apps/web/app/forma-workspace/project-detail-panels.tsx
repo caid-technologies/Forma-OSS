@@ -8,10 +8,8 @@ import {
   Battery,
   Box,
   CheckCircle,
-  ChevronDown,
   Cpu,
   Database,
-  Download,
   ExternalLink,
   GitBranch,
   Monitor,
@@ -672,98 +670,16 @@ function issueSeverityTone(severity: unknown) {
 export function AssemblyPanel({
   assembly,
   issues,
-  onDownloadJSON,
-  onDownloadMarkdown,
-  canDownloadAssets,
 }: {
   assembly: any[];
   issues: any[];
-  onDownloadJSON: () => void;
-  onDownloadMarkdown: () => void;
-  canDownloadAssets: boolean;
 }) {
-  const [exportMenuOpen, setExportMenuOpen] = useState(false);
-  const exportMenuRef = useRef<HTMLDivElement>(null);
-  const exportButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    if (!exportMenuOpen) return;
-
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!exportMenuRef.current?.contains(event.target as Node)) setExportMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      setExportMenuOpen(false);
-      exportButtonRef.current?.focus();
-    };
-
-    document.addEventListener("mousedown", closeOnOutsideClick);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutsideClick);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [exportMenuOpen]);
-
   return (
     <div className="h-full min-w-0 overflow-y-auto overflow-x-hidden bg-[var(--forma-page)] px-4 py-5 text-[var(--forma-text)] sm:px-5 sm:py-6">
       <div className="mx-auto min-w-0 max-w-[890px]">
-        <div className="mb-6 flex flex-col gap-4 border-b border-[var(--forma-border)] pb-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <h2 className="break-words text-xl font-semibold tracking-tight text-[var(--forma-text-strong)]">Build Instructions</h2>
-            <p className="mt-2 text-xs text-[var(--forma-text-secondary)]">Sequential assembly from the generated hardware graph.</p>
-          </div>
-          <div ref={exportMenuRef} className="relative shrink-0">
-            <button
-              ref={exportButtonRef}
-              type="button"
-              onClick={() => setExportMenuOpen((open) => !open)}
-              disabled={!canDownloadAssets}
-              aria-haspopup="menu"
-              aria-expanded={exportMenuOpen}
-              aria-controls="docs-export-menu"
-              title={canDownloadAssets ? "Choose an export format" : "Files are available only on projects you generated."}
-              className="flex items-center justify-center gap-2 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 text-xs font-medium text-[var(--forma-text-body)] transition-colors hover:bg-[var(--forma-surface-muted)] hover:text-[var(--forma-text-strong)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-[var(--forma-surface)] disabled:hover:text-[var(--forma-text-body)]"
-            >
-              <Download className="h-4 w-4" />
-              Export
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${exportMenuOpen ? "rotate-180" : ""}`} />
-            </button>
-
-            {exportMenuOpen && (
-              <div
-                id="docs-export-menu"
-                role="menu"
-                className="absolute right-0 top-full z-30 mt-2 w-64 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-1 shadow-[var(--forma-card-shadow)]"
-              >
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    onDownloadJSON();
-                  }}
-                  className="block w-full rounded-lg px-3 py-3 text-left text-[var(--forma-text-strong)] transition-colors hover:bg-[var(--forma-surface-muted)]"
-                >
-                  <span className="block text-xs font-medium">Project JSON</span>
-                  <span className="mt-1 block text-[10px] font-medium text-[var(--forma-text-muted)]">Full project data (.json)</span>
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  onClick={() => {
-                    setExportMenuOpen(false);
-                    onDownloadMarkdown();
-                  }}
-                  className="block w-full rounded-lg border-t border-[var(--forma-border)] px-3 py-3 text-left text-[var(--forma-text-strong)] transition-colors hover:bg-[var(--forma-surface-muted)]"
-                >
-                  <span className="block text-xs font-medium">Markdown</span>
-                  <span className="mt-1 block text-[10px] font-medium text-[var(--forma-text-muted)]">Build instructions and safety audit (.md)</span>
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="mb-6 border-b border-[var(--forma-border)] pb-5">
+          <h2 className="break-words text-xl font-semibold tracking-tight text-[var(--forma-text-strong)]">Build Instructions</h2>
+          <p className="mt-2 text-xs text-[var(--forma-text-secondary)]">Sequential assembly from the generated hardware graph.</p>
         </div>
 
         <div className="grid gap-4 xl:grid-cols-[1fr_280px]">
@@ -835,6 +751,7 @@ export function AssemblyPanel({
     </div>
   );
 }
+
 
 export function PartsSidebar({ components, issues, isValid }: { components: any[]; issues: any[]; isValid: boolean }) {
   return (

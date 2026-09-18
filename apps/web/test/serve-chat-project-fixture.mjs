@@ -9,7 +9,8 @@ await build({
   entryPoints: ["test/fixtures/chat-project-workspace.tsx"],
   bundle: true, platform: "browser", jsx: "automatic", sourcemap: true,
   outfile: join(directory, "fixture.js"),
-  define: { "process.env.NODE_ENV": '"development"' },
+  define: { "process.env.NODE_ENV": '"development"', "process.env": '{"FORMA_AUTH_MODE":"local"}' },
+  alias: { "@clerk/nextjs": join(process.cwd(), "test/fixtures/clerk-local.ts") },
   plugins: [{
     name: "workspace-fixture-stubs",
     setup(build) {

@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 
 from fastapi import HTTPException
 
-from apps.api.auth import UserContext, has_opencode_authoring_access, require_opencode_authoring_access
+from apps.api.auth import UserContext
 from apps.api.main import _runtime_config_settings
 from apps.api.opencode_api import _record_connector_unavailable_if_stale, _require_owned_project, list_opencode_events
 from apps.api.opencode_mcp import handle_opencode_mcp_json_rpc, opencode_mcp_tools
@@ -21,45 +21,7 @@ from forma_core.opencode.store import OpenCodeStore, StoredSession
 
 
 class OpenCodeBridgeTests(unittest.IsolatedAsyncioTestCase):
-    def test_allowed_email_is_server_derived_and_exact(self) -> None:
-        user = UserContext(provider="clerk", subject="user_1", owner_user_id="user_1", is_authenticated=True, is_admin=True)
-        with patch.dict(os.environ, {"FORMA_DEPLOYMENT_MODE": "hosted", "FORMA_AUTH_MODE": "clerk", "FORMA_OPENCODE_ALLOWED_EMAILS": "isayahculbertson@gmail.com"}, clear=True), patch("apps.api.auth.require_user_context", new=AsyncMock(return_value=user)), patch("apps.api.auth.clerk_user_email", return_value="isayahculbertson@gmail.com"):
-            resolved = asyncio.run(require_opencode_authoring_access(object()))
-        self.assertEqual("user_1", resolved.owner_user_id)
-
-    def test_allowlist_defaults_to_deny_and_service_identity_cannot_bypass(self) -> None:
-        service = UserContext(provider="mcp-api-key", subject="mcp-service", owner_user_id=None, is_authenticated=True, is_admin=True)
-        with patch.dict(os.environ, {"FORMA_DEPLOYMENT_MODE": "hosted", "FORMA_AUTH_MODE": "clerk"}, clear=True), patch("apps.api.auth.require_user_context", new=AsyncMock(return_value=service)):
-            with self.assertRaises(HTTPException) as denied:
-                asyncio.run(require_opencode_authoring_access(object()))
-        self.assertEqual(403, denied.exception.status_code)
-        self.assertEqual("opencode_user_required", denied.exception.detail["code"])
-
-    def test_runtime_authoring_access_is_limited_to_the_exact_allowlisted_email(self) -> None:
-        allowed = UserContext(provider="clerk", subject="user_1", owner_user_id="user_1", is_authenticated=True, is_admin=False)
-        denied = UserContext(provider="clerk", subject="user_2", owner_user_id="user_2", is_authenticated=True, is_admin=False)
-        with patch.dict(os.environ, {"FORMA_OPENCODE_ALLOWED_EMAILS": "isayahculbertson@gmail.com"}, clear=True), patch(
-            "apps.api.auth.clerk_user_email",
-            side_effect=lambda user_id: "isayahculbertson@gmail.com" if user_id == "user_1" else "someone-else@example.com",
-        ):
-            self.assertTrue(has_opencode_authoring_access(allowed))
-            self.assertFalse(has_opencode_authoring_access(denied))
-
-    def test_allowlisted_cli_identity_can_use_runtime_authoring_access(self) -> None:
-        user = UserContext(
-            provider="forma-cli",
-            subject="user_1",
-            owner_user_id="user_1",
-            is_authenticated=True,
-            is_admin=False,
-        )
-        with patch.dict(os.environ, {"FORMA_OPENCODE_ALLOWED_EMAILS": "isayahculbertson@gmail.com"}, clear=True), patch(
-            "apps.api.auth.clerk_user_email",
-            return_value="isayahculbertson@gmail.com",
-        ):
-            self.assertTrue(has_opencode_authoring_access(user))
-
-    def test_allowlisted_runtime_config_falls_back_when_user_settings_are_unreadable(self) -> None:
+    def test_signed_in_runtime_config_falls_back_when_user_settings_are_unreadable(self) -> None:
         user = UserContext(provider="clerk", subject="user_1", owner_user_id="user_1", is_authenticated=True, is_admin=False)
         with patch("apps.api.main._resolve_user_integrations", side_effect=RuntimeError("key mismatch")), patch(
             "apps.api.main.has_opencode_authoring_access", return_value=True,

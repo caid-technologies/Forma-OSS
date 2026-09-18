@@ -30,6 +30,7 @@ DEVELOPMENT_MODE_ENV = "FORMA_DEVELOPMENT_MODE"
 LEGACY_DEVELOPMENT_MODE_ENV = "FORMA_DEV_MODE"
 HOSTED_CHAT_ENABLED_ENV = "FORMA_HOSTED_CHAT_ENABLED"
 AUTHORING_MODE_ENABLED_ENV = "FORMA_AUTHORING_MODE_ENABLED"
+AGENT_RUNTIMES_ENV = "FORMA_AGENT_RUNTIMES"
 DEPLOYMENT_MODES = {"local", "hosted"}
 BOOLEAN_VALUES = {"true": True, "false": False}
 
@@ -154,6 +155,39 @@ def authoring_mode_enabled() -> bool:
     return env_bool(AUTHORING_MODE_ENABLED_ENV, default=False)
 
 
+def configured_agent_runtimes() -> list[Dict[str, str]]:
+    """Return the credential-safe Forma Agent runtime inventory.
+
+    ``FORMA_AGENT_RUNTIMES`` accepts comma-separated ``connector-id=Display Name``
+    entries. The legacy ``FORMA_OPENCODE_CONNECTOR_ID`` remains the default and
+    is automatically included when it is not listed explicitly.
+    """
+
+    runtimes: list[Dict[str, str]] = []
+    seen: set[str] = set()
+    configured = (config.get(AGENT_RUNTIMES_ENV) or "").strip()
+    for raw_entry in configured.split(","):
+        entry = raw_entry.strip()
+        if not entry:
+            continue
+        connector_id, separator, display_name = entry.partition("=")
+        connector_id = connector_id.strip()
+        if not connector_id or connector_id in seen:
+            continue
+        label = display_name.strip() if separator else ""
+        if not label:
+            label = connector_id.replace("-", " ").replace("_", " ").strip().title()
+        runtimes.append({"id": connector_id, "label": label})
+        seen.add(connector_id)
+
+    default_connector_id = (config.get("FORMA_OPENCODE_CONNECTOR_ID") or "").strip()
+    if default_connector_id and default_connector_id not in seen:
+        label = default_connector_id.replace("-", " ").replace("_", " ").strip().title()
+        runtimes.insert(0, {"id": default_connector_id, "label": label})
+
+    return runtimes
+
+
 class HostedChatUnavailableError(RuntimeError):
     """Raised when hosted chat is disabled by deployment configuration."""
 
@@ -172,6 +206,7 @@ def deployment_runtime_config(
     state = runtime_state()
     deployment_enabled = state["deployment_mode"] == "hosted"
     live_generation_enabled = bool(llm_config.get("live_generation_enabled"))
+    default_connector_id = (config.get("FORMA_OPENCODE_CONNECTOR_ID") or "").strip() or None
     contract = {
         "enabled": deployment_enabled,
         "mode": state["deployment_mode"],
@@ -179,7 +214,8 @@ def deployment_runtime_config(
         "hosted_chat_enabled": hosted_chat_enabled(),
         "authoring_mode_enabled": authoring_mode_enabled(),
         "authoring_access": authoring_access,
-        "opencode_connector_id": (config.get("FORMA_OPENCODE_CONNECTOR_ID") or "").strip() or None,
+        "opencode_connector_id": default_connector_id,
+        "authoring_runtimes": configured_agent_runtimes(),
         "alpha_generation_gate_active": deployment_enabled and not live_generation_enabled,
         "generation_available": (not deployment_enabled) or live_generation_enabled,
     }
@@ -235,6 +271,7 @@ def generation_unavailable_detail(llm_config: Dict[str, Any]) -> Dict[str, Any]:
 
 
 __all__ = [
+    "AGENT_RUNTIMES_ENV",
     "ALPHA_GENERATION_UNAVAILABLE_MESSAGE",
     "AlphaGenerationUnavailableError",
     "AUTHORING_MODE_ENABLED_ENV",
@@ -248,6 +285,7 @@ __all__ = [
     "LEGACY_DEVELOPMENT_MODE_ENV",
     "RuntimeConfigurationError",
     "authoring_mode_enabled",
+    "configured_agent_runtimes",
     "deployment_mode",
     "deployment_mode_enabled",
     "deployment_runtime_config",

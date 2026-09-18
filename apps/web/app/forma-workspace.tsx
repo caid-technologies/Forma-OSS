@@ -25,6 +25,7 @@ import {
   type OpenCodeTurnState,
 } from "../lib/opencode";
 import { authoringModeEnabled, usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
+import ChatAccessStatus, { type ChatAccessLoadState } from "./forma-workspace/chat-access-status";
 import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import { GalleryImageRequests, GalleryPageCache, galleryPageKey } from "../lib/gallery-loading";
@@ -1793,6 +1794,13 @@ export function FormaWorkspace({
   const [selectedImageSource, setSelectedImageSource] = useState<"upload" | "clipboard">("upload");
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
   const [hostedChatEnabled, setHostedChatEnabled] = useState(DEFAULT_HOSTED_CHAT_ENABLED);
+  const [runtimeConfigState, setRuntimeConfigState] = useState<{ identityKey: string; status: ChatAccessLoadState }>({
+    identityKey: authIdentityKey,
+    status: "loading",
+  });
+  const chatAccessState = (authRequired && !authLoaded) || runtimeConfigState.identityKey !== authIdentityKey
+    ? "loading"
+    : runtimeConfigState.status;
   const [videoGenerationConfig, setVideoGenerationConfig] = useState<VideoGenerationConfig>({
     configured: null,
     reason: null,
@@ -1976,7 +1984,7 @@ export function FormaWorkspace({
       ? generationInputValidation.message
       : null);
   const hostedChatReadOnly = !hostedChatEnabled;
-  const chatReadOnly = hostedChatReadOnly && !authoringMode;
+  const chatReadOnly = chatAccessState !== "ready" || (hostedChatReadOnly && !authoringMode);
   const chatUnavailableReason = hostedChatReadOnly
     ? HOSTED_CHAT_MAINTENANCE_MESSAGE
     : authoringMode
@@ -2817,6 +2825,7 @@ export function FormaWorkspace({
   useEffect(() => {
     if (!authRequired || !authLoaded) return;
     generationLlmRequestIdRef.current += 1;
+    setRuntimeConfigState({ identityKey: authIdentityKey, status: "loading" });
     setGenerationLlmsLoaded(false);
     setGenerationLlms([]);
     setGenerationLlmKeyValue("");
@@ -2907,12 +2916,16 @@ export function FormaWorkspace({
   const fetchRuntimeConfig = async () => {
     const requestId = ++generationLlmRequestIdRef.current;
     const requestIsCurrent = () => generationLlmRequestIdRef.current === requestId;
+    setRuntimeConfigState({ identityKey: authIdentityKey, status: "loading" });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
       const res = await fetch(`${API_URL}/runtime/config`, {
         cache: "no-store",
         headers: await optionalAuthHeaders(),
+        signal: controller.signal,
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Runtime config request failed (${res.status})`);
 
       const config = (await res.json()) as RuntimeConfigContract;
       if (!requestIsCurrent()) return;
@@ -2971,9 +2984,14 @@ export function FormaWorkspace({
             : workflows[0].id,
         );
       }
+      setRuntimeConfigState({ identityKey: authIdentityKey, status: "ready" });
     } catch (e) {
-      if (requestIsCurrent()) console.error("Error fetching runtime config", e);
+      if (requestIsCurrent()) {
+        console.error("Error fetching runtime config", e);
+        setRuntimeConfigState({ identityKey: authIdentityKey, status: "error" });
+      }
     } finally {
+      window.clearTimeout(timeout);
       if (requestIsCurrent()) {
         setGenerationLlmsLoaded(true);
         setImageGenerationConfigLoaded(true);
@@ -6115,6 +6133,8 @@ export function FormaWorkspace({
             <UserIntegrationsPage embedded />
           ) : homeView === "about" ? (
             <AboutView />
+          ) : chatAccessState !== "ready" ? (
+            <ChatAccessStatus status={chatAccessState} onRetry={() => { void fetchRuntimeConfig(); }} />
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
@@ -6303,6 +6323,8 @@ export function FormaWorkspace({
                 onNamespaceChange={setActiveTab}
                 projectContent={projectNamespaceContent}
               />
+            ) : chatAccessState !== "ready" ? (
+              <ChatAccessStatus status={chatAccessState} onRetry={() => { void fetchRuntimeConfig(); }} />
             ) : (
               <ChatWorkspace
                 onOpenSidebar={() => setMobileSidebarOpen(true)}

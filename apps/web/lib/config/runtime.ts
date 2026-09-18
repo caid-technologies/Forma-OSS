@@ -10,6 +10,11 @@ export type RuntimeWorkflowOption = {
   uses_external_sources?: boolean;
 };
 
+export type AuthoringRuntimeOption = {
+  id: string;
+  label: string;
+};
+
 export type RuntimeConfigContract = {
   contract_version: number;
   authority: "backend" | string;
@@ -44,6 +49,7 @@ export type RuntimeConfigContract = {
     authoring_mode_enabled?: boolean;
     authoring_access?: boolean;
     opencode_connector_id?: string | null;
+    authoring_runtimes?: AuthoringRuntimeOption[];
   };
   video?: {
     generation?: { configured?: boolean; reason?: string | null };

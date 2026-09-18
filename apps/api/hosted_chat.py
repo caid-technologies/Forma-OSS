@@ -14,7 +14,7 @@ HOSTED_CHAT_UNAVAILABLE_CODE = "hosted_chat_unavailable"
 def require_hosted_chat_enabled(
     user: UserContext | None = None,
 ) -> None:
-    """Allow hosted chat globally or for explicitly allowlisted users."""
+    """Allow hosted chat globally or for signed-in authoring users."""
 
     try:
         ensure_hosted_chat_enabled()

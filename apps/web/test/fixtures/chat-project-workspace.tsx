@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import ChatProjectLayout, { ChatProjectSurface, ProjectUpdateCard } from "../../app/forma-workspace/chat-project-layout";
+import { FormaAuthProvider } from "../../lib/forma-auth";
 import "./chat-project-workspace.css";
 
 declare global {
@@ -60,4 +61,4 @@ function Fixture() {
 
 const root = document.getElementById("root");
 if (!root) throw new Error("Missing fixture root");
-createRoot(root).render(<Fixture />);
+createRoot(root).render(<FormaAuthProvider mode="local"><Fixture /></FormaAuthProvider>);

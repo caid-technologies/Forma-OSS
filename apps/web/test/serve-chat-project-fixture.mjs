@@ -9,7 +9,8 @@ await build({
   entryPoints: ["test/fixtures/chat-project-workspace.tsx"],
   bundle: true, platform: "browser", jsx: "automatic", sourcemap: true,
   outfile: join(directory, "fixture.js"),
-  define: { "process.env.NODE_ENV": '"development"' },
+  define: { "process.env.NODE_ENV": '"development"', "process.env": '{"FORMA_AUTH_MODE":"local"}' },
+  alias: { "@clerk/nextjs": join(process.cwd(), "test/fixtures/clerk-local.ts") },
 });
 const html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Forma workspace UI test</title><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script src="/fixture.js"></script></body></html>';
 const files = new Map([["/fixture.js", "text/javascript"], ["/fixture.css", "text/css"], ["/fixture.js.map", "application/json"]]);

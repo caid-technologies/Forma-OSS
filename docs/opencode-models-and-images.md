@@ -1,8 +1,13 @@
 # OpenCode model switching and project images
 
-The agent model and image model are independent. An OpenCode agent using a
-Google model can call Forma's image tool using GMI, OpenAI, or another configured
-image provider.
+The agent model and image model are independent. An OpenCode agent can use one
+provider for reasoning and Forma's backend image tool can use another image
+provider.
+
+For the current OpenAI-only rollout, use `FORMA_OPENCODE_MODEL=openai/gpt-5.6-sol`
+on the connector service for the text/agent default, and configure the Forma
+backend with `IMAGE_PROVIDER=openai` plus an OpenAI image API key. Browser
+request-level model choices still override the connector default.
 
 ## Switch the agent model
 
@@ -91,16 +96,17 @@ verifying TLS against the hostname, and accept only PNG, JPEG, or WebP up to
 IMAGE_PROVIDER=openai
 OPENAI_IMAGE_API_KEY=<your OpenAI API key>
 OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
-OPENAI_IMAGE_MODEL=gpt-image-2
+OPENAI_IMAGE_MODEL=gpt-image-2.5-sunburst
 OPENAI_IMAGE_SIZE=1024x1024
 OPENAI_IMAGE_QUALITY=medium
 OPENAI_IMAGE_OUTPUT_FORMAT=png
 ```
 
 `OPENAI_API_KEY` is the existing fallback if `OPENAI_IMAGE_API_KEY` is absent.
-The example keeps Forma's existing image-model default; choose another supported
-GPT Image model explicitly if your OpenAI project has access. OpenCode login
-credentials are not a substitute for the backend image API key.
+The example explicitly selects `gpt-image-2.5-sunburst`; Forma's code-level
+fallback remains unchanged, so deployments can pin a different GPT Image model
+without a code change. OpenCode login credentials are not a substitute for the
+backend image API key.
 
 Provider, model, endpoint, and credentials remain server-owned; the agent cannot
 override them in tool arguments. Without `IMAGE_PROVIDER`, the existing provider
@@ -129,9 +135,10 @@ Storage/provider errors return bounded messages without raw provider responses.
    service. Existing commands without a model remain compatible.
 4. Deploy the Forma web update after the connector. An older connector ignores
    the new model field and does not allow the image tool.
-5. Verify on the mini-PC: send two requests with different available model IDs,
-   return to Runtime default, generate one GMI image, reload the project, then
-   make a CAD edit and confirm the image remains. Repeat with OpenAI when used.
+5. Verify on the mini-PC: with `FORMA_OPENCODE_MODEL=openai/gpt-5.6-sol`,
+   send a request on Runtime default, then an explicit alternate model request,
+   return to Runtime default, generate one OpenAI image, reload the project, and
+   make a CAD edit to confirm the image remains.
 
 Local automated checks use simulated provider/connector responses. Live OpenCode
 model access, paid provider generation and Windows service rollout require host

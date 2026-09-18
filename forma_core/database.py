@@ -1568,6 +1568,7 @@ def create_project_generation_plan(
     *,
     provider_name: Optional[str] = None,
     model_name: Optional[str] = None,
+    generation_mode: str = "regular",
 ):
     """Create or replay the durable initial-generation plan for one frozen build."""
 
@@ -1581,6 +1582,12 @@ def create_project_generation_plan(
         WorkerOrchestrator,
         WorkerRequest,
     )
+    from forma_core.workspaces.projects.generation_mode import GenerationMode
+
+    try:
+        normalized_generation_mode = GenerationMode(str(generation_mode or "regular").strip().lower())
+    except ValueError as exc:
+        raise ValueError("generation_mode must be regular or progressive.") from exc
 
     owner = _normalize_user_id(owner_user_id)
     if not owner or owner != build.owner_user_id:
@@ -1610,7 +1617,16 @@ def create_project_generation_plan(
         capability_id=GENERATION_CAPABILITY_ID,
         input_contract_version=GENERATION_INPUT_VERSION,
         payload={"design_brief": build.brief_snapshot.model_dump(mode="json")},
-        metadata={"build_id": str(build.build_id), "cad_required": False},
+        metadata={
+            "build_id": str(build.build_id),
+            "cad_required": False,
+            "generation_mode": normalized_generation_mode.value,
+            **(
+                {"visual_approval_policy": "require_approval"}
+                if normalized_generation_mode == GenerationMode.PROGRESSIVE
+                else {}
+            ),
+        },
     )
     return orchestrator.create_plan([request], owner, max_concurrency=1, plan_id=plan_id)
 

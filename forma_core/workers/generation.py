@@ -463,6 +463,9 @@ class GenerationWorker:
                                 "prior_generation_run": prior_generation_run,
                                 "retry_stage": retry_stage,
                                 "stage_checkpoint": record_stage_checkpoint,
+                                "generation_mode": request.metadata.get("generation_mode", "regular"),
+                                "visual_approval_policy": request.metadata.get("visual_approval_policy"),
+                                "cad_required": bool(request.metadata.get("cad_required", False)),
                             },
                         )
 

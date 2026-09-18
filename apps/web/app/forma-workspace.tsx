@@ -71,7 +71,7 @@ import {
   formatBytes,
   isFinalVideoStatus,
 } from "./forma-workspace/admin-panels";
-import HomeChatView from "./forma-workspace/home-chat-view";
+import HomeChatView, { type GenerationMode } from "./forma-workspace/home-chat-view";
 import ChatProjectLayout, { ChatProjectSurface } from "./forma-workspace/chat-project-layout";
 import ConversationMessageList, {
   type ConversationMessage,
@@ -1824,6 +1824,9 @@ export function FormaWorkspace({
   const [authoringMode, setAuthoringMode] = useState(false);
   const [openCodeConnectorId, setOpenCodeConnectorId] = useState<string | null>(null);
   const [generateProductImage, setGenerateProductImage] = useState(false);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("regular");
+  const [visualDecisionBusy, setVisualDecisionBusy] = useState<"approve" | "revise" | "continue_to_cad" | null>(null);
+  const [visualDecisionError, setVisualDecisionError] = useState<string | null>(null);
   const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
   const [agentPipelineSteps, setAgentPipelineSteps] = useState<AgentPipelineStep[]>(defaultAgentPipelineSteps);
@@ -3918,6 +3921,7 @@ export function FormaWorkspace({
         body: JSON.stringify({
           conversation_id: requestChatId,
           text,
+          generation_mode: generationMode,
           attachments: imageData ? [{
             attachment_id: `context-image-${userMessageId}`,
             kind: "image",
@@ -4053,6 +4057,7 @@ export function FormaWorkspace({
         headers: await generationRequestHeaders(),
         body: JSON.stringify({
           conversation_id: requestChatId,
+          generation_mode: generationMode,
           requested_tool: "build_project",
         }),
       });
@@ -4159,7 +4164,7 @@ export function FormaWorkspace({
     const requestChatId = activeChatId || newBuildChatId();
     const generationRun = beginGenerationRun("chat", requestChatId);
 
-    if (!contextCheckpoint) {
+    if (!contextCheckpoint && generationMode !== "regular") {
       setGenerationInputNotice(null);
       try {
         const clarification = await requestHumanContextQuestions(
@@ -4316,6 +4321,7 @@ export function FormaWorkspace({
           client_job_id: frontendJobId,
           image_data: imageData || null,
           generate_image: generateProductImage,
+          generation_mode: generationMode,
         }),
       });
 
@@ -5300,7 +5306,48 @@ export function FormaWorkspace({
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
   const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
+  useEffect(() => {
+    const persistedMode = projectIR?.assembly_metadata?.generation_mode;
+    if (persistedMode === "regular" || persistedMode === "progressive") {
+      setGenerationMode(persistedMode);
+    }
+  }, [currentProjectId, projectIR?.assembly_metadata?.generation_mode]);
   const currentProjectCanDownloadAssets = currentUserOwnsProject;
+  const handleProgressiveVisualDecision = async (
+    decision: "approve" | "revise" | "continue_to_cad",
+    feedback?: string,
+  ) => {
+    if (!currentProjectId || !currentUserOwnsProject || visualDecisionBusy) return;
+    setVisualDecisionBusy(decision);
+    setVisualDecisionError(null);
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(currentProjectId)}/visual-decision`,
+        {
+          method: "POST",
+          headers: await generationRequestHeaders(),
+          body: JSON.stringify({ decision, feedback: feedback || null }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const payload = await response.json();
+      if (payload?.project_ir) {
+        setProjectIR(withProjectResponseMetadata(payload.project_ir, payload));
+      }
+      if (decision === "revise" && feedback?.trim()) {
+        setGenerationMode("progressive");
+        setPrompt(`Revise the current concept using this feedback: ${feedback.trim()}`);
+      }
+      if (decision === "continue_to_cad" && payload?.cad_generated) {
+        setActiveTab("cad");
+      }
+      void refreshProjectAndChatLists();
+    } catch (error) {
+      setVisualDecisionError(error instanceof Error ? error.message : "Could not update the Progressive concept review.");
+    } finally {
+      setVisualDecisionBusy(null);
+    }
+  };
   const ownerProjectChatId = projectIR && currentUserOwnsProject
     ? (chatIdFromIR(projectIR) || currentProjectId)
     : null;
@@ -5541,6 +5588,10 @@ export function FormaWorkspace({
             systemArchitecture={projectIR?.system_architecture || null}
             showModelName={formaDevMode}
             showImageSection={showProductImageSection}
+            canManageProgressiveReview={hostedChatEnabled && currentUserOwnsProject}
+            visualDecisionBusy={visualDecisionBusy}
+            visualDecisionError={visualDecisionError}
+            onVisualDecision={handleProgressiveVisualDecision}
           />
         );
       case "bom":
@@ -6132,8 +6183,10 @@ export function FormaWorkspace({
                 setPendingHumanContext(null);
                 setPrompt(example);
               }}
-              onSubmit={handleGatherContext}
-              canBuildNow={hostedChatEnabled && (() => {
+              generationMode={generationMode}
+              onGenerationModeChange={setGenerationMode}
+              onSubmit={authoringMode ? handleGatherContext : generationMode === "regular" ? handleGenerate : handleGatherContext}
+              canBuildNow={generationMode === "progressive" && hostedChatEnabled && (() => {
                 const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
                 const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
                 const state = contextWorkflowStates[activeChatId]

@@ -64,6 +64,10 @@ export function OverviewPanel({
   systemArchitecture,
   showModelName = false,
   showImageSection = true,
+  canManageProgressiveReview = false,
+  visualDecisionBusy = null,
+  visualDecisionError = null,
+  onVisualDecision,
 }: {
   title: string;
   description: string;
@@ -74,13 +78,30 @@ export function OverviewPanel({
   systemArchitecture?: Record<string, any> | null;
   showModelName?: boolean;
   showImageSection?: boolean;
+  canManageProgressiveReview?: boolean;
+  visualDecisionBusy?: "approve" | "revise" | "continue_to_cad" | null;
+  visualDecisionError?: string | null;
+  onVisualDecision?: (decision: "approve" | "revise" | "continue_to_cad", feedback?: string) => void | Promise<void>;
 }) {
   const imageKey = imageCandidates.map((candidate) => candidate.src).join("|");
   const [imageIndex, setImageIndex] = useState(0);
+  const [revisionFeedback, setRevisionFeedback] = useState("");
 
   useEffect(() => {
     setImageIndex(0);
   }, [imageKey]);
+
+  const visualGate = metadata?.design_lifecycle?.visual_gate || {};
+  const visualArtifactId = String(visualGate.visual_artifact_id || metadata.system_render_artifact_id || "");
+  const visualApprovalStatus = String(visualGate.status || metadata.visual_approval_status || "not_requested");
+  const persistedVisualFeedback = String(visualGate.feedback || metadata.visual_approval_feedback || "");
+  const progressiveReviewVisible = metadata.generation_mode === "progressive" && Boolean(visualArtifactId);
+  const cadStatus = String(metadata?.cad_generation?.status || "");
+  const cadComplete = cadStatus === "succeeded" || cadStatus === "provided";
+
+  useEffect(() => {
+    setRevisionFeedback(persistedVisualFeedback);
+  }, [persistedVisualFeedback, visualArtifactId]);
 
   const productImages = imageCandidates.filter((candidate) => !isHardwareReferenceCandidate(candidate));
   const referenceImages = imageCandidates.filter(isHardwareReferenceCandidate);
@@ -142,6 +163,99 @@ export function OverviewPanel({
               </button>
             ))}
           </div>
+        )}
+
+        {progressiveReviewVisible && (
+          <section data-testid="progressive-visual-review" className="mt-4 rounded-xl border border-[rgb(var(--forma-cyan-rgb)/0.32)] bg-[rgb(var(--forma-cyan-rgb)/0.06)] p-4 sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-[rgb(var(--forma-cyan-rgb))]">Progressive concept review</div>
+                <h2 className="mt-2 text-sm font-semibold text-[var(--forma-text-strong)]">
+                  {visualApprovalStatus === "approved"
+                    ? cadComplete ? "Concept approved and CAD is ready" : "Concept approved"
+                    : visualApprovalStatus === "rejected"
+                      ? "Revision requested"
+                      : "Review the whole-system concept before CAD"}
+                </h2>
+                <p className="mt-2 max-w-2xl text-xs leading-5 text-[var(--forma-text-secondary)]">
+                  {visualApprovalStatus === "approved"
+                    ? cadComplete
+                      ? "The approved concept has continued through the CAD stage."
+                      : "The visual is accepted. Continue when you are ready to spend the higher-cost CAD step."
+                    : visualApprovalStatus === "rejected"
+                      ? "Your feedback is saved. Describe the revision in chat to regenerate only the affected Progressive artifacts."
+                      : "Approve the concept, or record what should change before generating component and assembly CAD."}
+                </p>
+              </div>
+              <span className="shrink-0 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
+                {visualApprovalStatus.replaceAll("_", " ")}
+              </span>
+            </div>
+
+            {!cadComplete && visualApprovalStatus !== "approved" && (
+              <div className="mt-4">
+                <label htmlFor="progressive-revision-feedback" className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
+                  Revision feedback
+                </label>
+                <textarea
+                  id="progressive-revision-feedback"
+                  value={revisionFeedback}
+                  onChange={(event) => setRevisionFeedback(event.target.value)}
+                  disabled={Boolean(visualDecisionBusy) || !canManageProgressiveReview}
+                  placeholder="Example: make the enclosure lower, move the power connector to the rear, and keep the drivetrain unchanged."
+                  className="mt-2 min-h-[82px] w-full resize-y rounded-lg border border-[var(--forma-border)] bg-[var(--forma-page)] px-3 py-2.5 text-xs leading-5 text-[var(--forma-text-body)] outline-none transition focus:border-[rgb(var(--forma-cyan-rgb)/0.6)] disabled:cursor-not-allowed disabled:opacity-60"
+                />
+              </div>
+            )}
+
+            {persistedVisualFeedback && visualApprovalStatus === "rejected" && (
+              <div className="mt-3 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2.5 text-xs leading-5 text-[var(--forma-text-secondary)]">
+                <span className="font-semibold text-[var(--forma-text-strong)]">Saved feedback:</span> {persistedVisualFeedback}
+              </div>
+            )}
+
+            {visualDecisionError && (
+              <div role="alert" className="mt-3 rounded-lg border border-[rgb(var(--forma-red-rgb)/0.35)] bg-[rgb(var(--forma-red-rgb)/0.08)] px-3 py-2 text-xs text-[rgb(var(--forma-red-rgb))]">
+                {visualDecisionError}
+              </div>
+            )}
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              {visualApprovalStatus !== "approved" && (
+                <button
+                  type="button"
+                  onClick={() => void onVisualDecision?.("approve")}
+                  disabled={!canManageProgressiveReview || Boolean(visualDecisionBusy)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[rgb(var(--forma-cyan-rgb))] px-3 py-2 text-xs font-semibold text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <CheckCircle className="h-4 w-4" />
+                  {visualDecisionBusy === "approve" ? "Approving…" : "Approve concept"}
+                </button>
+              )}
+              {visualApprovalStatus !== "approved" && (
+                <button
+                  type="button"
+                  onClick={() => void onVisualDecision?.("revise", revisionFeedback.trim())}
+                  disabled={!canManageProgressiveReview || Boolean(visualDecisionBusy) || !revisionFeedback.trim()}
+                  className="inline-flex items-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 py-2 text-xs font-semibold text-[var(--forma-text-strong)] transition hover:border-[var(--forma-text-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Sliders className="h-4 w-4" />
+                  {visualDecisionBusy === "revise" ? "Saving…" : "Revise"}
+                </button>
+              )}
+              {visualApprovalStatus === "approved" && !cadComplete && (
+                <button
+                  type="button"
+                  onClick={() => void onVisualDecision?.("continue_to_cad")}
+                  disabled={!canManageProgressiveReview || Boolean(visualDecisionBusy)}
+                  className="inline-flex items-center gap-2 rounded-md bg-[var(--forma-text-strong)] px-3 py-2 text-xs font-semibold text-[var(--forma-page)] transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Wrench className="h-4 w-4" />
+                  {visualDecisionBusy === "continue_to_cad" ? "Generating CAD…" : "Continue to CAD"}
+                </button>
+              )}
+            </div>
+          </section>
         )}
 
         {showHardwareReference && (

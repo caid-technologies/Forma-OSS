@@ -376,6 +376,7 @@ def gather_project_context_endpoint(
                     str(project_id),
                     owner,
                     request.conversation_id,
+                    generation_mode=request.generation_mode,
                 )
 
                 execution_messages = {

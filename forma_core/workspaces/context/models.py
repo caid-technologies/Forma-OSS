@@ -58,6 +58,7 @@ class ContextGatheringRequest(BaseModel):
 
     conversation_id: NonEmptyString
     text: str = ""
+    generation_mode: Literal["regular", "progressive"] = "regular"
     attachments: list[ContextAttachment] = Field(default_factory=list)
     requested_tool: Literal["build_project", "render_project", "iterate_project"] | None = None
 

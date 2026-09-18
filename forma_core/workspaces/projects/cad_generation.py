@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+import re
 import struct
 import subprocess
 import sys
@@ -12,6 +13,19 @@ from typing import Any
 from uuid import uuid4
 
 from forma_core.config import config
+from forma_core.workspaces.projects.design_lifecycle import (
+    RepresentationKind,
+    RepresentationStatus,
+    VisualApprovalPolicy,
+    VisualApprovalStatus,
+    bootstrap_design_lifecycle,
+    load_design_lifecycle,
+    record_visual_decision,
+    register_cad_representation,
+    representation_fingerprint,
+    stable_artifact_id,
+)
+from forma_core.workspaces.projects.generation_mode import is_progressive_generation
 from forma_core.workspaces.projects.models import HardwareIR
 from forma_core.workspaces.projects.state import ProjectArtifact
 
@@ -213,6 +227,17 @@ for item in PLACEMENTS:
     rail = xy_prism(rail_x, rail_y, -HEIGHT / 2.0 - 0.5, rail_width, rail_depth, max(2.0, min(item["sz"] / 2.0, HEIGHT / 3.0)), item["ref_des"] + " mounting rail")
     model = model.union(rail, name=item["ref_des"] + " rail connected")
 
+    component = xy_prism(
+        item["x"] - item["sx"] / 2.0,
+        item["y"] - item["sy"] / 2.0,
+        item["z"] - item["sz"] / 2.0,
+        item["sx"],
+        item["sy"],
+        item["sz"],
+        item["ref_des"] + " component envelope",
+    )
+    model = model.union(component, name=item["ref_des"] + " placed component")
+
 model
 """ % (width, depth, height, wall, open_frame, placements)
 
@@ -345,6 +370,139 @@ def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: 
     project.assembly_metadata = metadata
 
 
+def _visual_gate_active(project: HardwareIR) -> bool:
+    """Return whether the project explicitly selected progressive generation."""
+
+    return is_progressive_generation(project)
+
+
+def _prepare_visual_gate(project: HardwareIR):
+    metadata = project.assembly_metadata or {}
+    raw_policy = metadata.get("visual_approval_policy")
+    policy = None
+    if raw_policy:
+        try:
+            policy = VisualApprovalPolicy(str(raw_policy))
+        except ValueError as exc:
+            raise CadGenerationError(f"Unknown visual approval policy: {raw_policy!r}.") from exc
+    return bootstrap_design_lifecycle(project, policy=policy)
+
+
+def _safe_component_slug(ref_des: str) -> str:
+    return re.sub(r"[^a-zA-Z0-9_-]+", "-", str(ref_des or "component")).strip("-") or "component"
+
+
+def _component_cad_source(payload: dict[str, Any]) -> str:
+    """Create a deterministic local-space envelope for one component placement."""
+
+    sx = max(1.0, float(payload["sx"]))
+    sy = max(1.0, float(payload["sy"]))
+    sz = max(1.0, float(payload["sz"]))
+    name = str(payload.get("label") or payload.get("ref_des") or "Component")
+    return """from opencad import Part, Sketch
+
+SX = %r
+SY = %r
+SZ = %r
+NAME = %r
+
+profile = Sketch(plane="XY", origin=(0.0, 0.0, -SZ / 2.0), name=NAME + " profile")
+profile.rect(SX, SY, origin=(-SX / 2.0, -SY / 2.0))
+model = Part(name=NAME).extrude(profile, depth=SZ, name=NAME)
+model
+""" % (sx, sy, sz, name)
+
+
+def _component_cad_artifacts(
+    project: HardwareIR,
+    *,
+    root: Path,
+    adapter: Path,
+    project_id: str | None,
+) -> list[dict[str, Any]]:
+    """Generate or reuse independently fingerprinted component CAD before assembly."""
+
+    placements = _placement_payload(project)
+    if not placements:
+        return []
+
+    component_dir = root / "components"
+    output_dir = root / "outputs" / "components"
+    component_dir.mkdir(parents=True, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    lifecycle = load_design_lifecycle(project)
+    topology_id = stable_artifact_id("project", RepresentationKind.TOPOLOGY)
+    component_lookup = {component.ref_des: component for component in project.components}
+    records: list[dict[str, Any]] = []
+
+    for placement in placements:
+        ref_des = str(placement["ref_des"])
+        slug = _safe_component_slug(ref_des)
+        component = component_lookup.get(ref_des)
+        source_fingerprint = representation_fingerprint(
+            placement,
+            component.model_dump(mode="json") if component is not None else None,
+        )
+        artifact_id = stable_artifact_id(ref_des, RepresentationKind.COMPONENT_CAD)
+        cached = lifecycle.by_id().get(artifact_id)
+        if (
+            cached is not None
+            and cached.status == RepresentationStatus.READY
+            and cached.source_fingerprint == source_fingerprint
+            and cached.uri
+            and Path(cached.uri).is_file()
+        ):
+            records.append({
+                "ref_des": ref_des,
+                "artifact_id": artifact_id,
+                "source_fingerprint": source_fingerprint,
+                "path": cached.uri,
+                "reused": True,
+                **cached.metadata,
+            })
+            continue
+
+        model_path = component_dir / f"{slug}.py"
+        step_path = output_dir / f"{slug}.step"
+        tree_path = output_dir / f"{slug}.tree.json"
+        model_path.write_text(_component_cad_source(placement), encoding="utf-8")
+        summary = _run_adapter(adapter, model_path, step_path, tree_path)
+        step_bytes = step_path.read_bytes()
+        checksum = hashlib.sha256(step_bytes).hexdigest()
+        if project_id:
+            from forma_core.persistence.project_artifacts import ProjectArtifactStorage
+
+            ProjectArtifactStorage().put(project_id, checksum, step_bytes, "model/step")
+        representation = register_cad_representation(
+            project,
+            node_id=ref_des,
+            kind=RepresentationKind.COMPONENT_CAD,
+            source_fingerprint=source_fingerprint,
+            uri=str(step_path),
+            depends_on=[topology_id],
+            metadata={
+                "ref_des": ref_des,
+                "sha256": checksum,
+                "bytes": len(step_bytes),
+                "model_source_path": str(model_path),
+                "feature_tree_path": str(tree_path),
+                "opencad_version": summary.get("opencad_version"),
+                "project_id": project_id,
+            },
+        )
+        lifecycle = load_design_lifecycle(project)
+        records.append({
+            "ref_des": ref_des,
+            "artifact_id": representation.artifact_id,
+            "source_fingerprint": source_fingerprint,
+            "path": str(step_path),
+            "sha256": checksum,
+            "bytes": len(step_bytes),
+            "reused": False,
+        })
+    return records
+
+
 def ensure_native_cad_model(
     project: HardwareIR,
     *,
@@ -353,7 +511,8 @@ def ensure_native_cad_model(
     authoring_agent: str | None = None,
     workflow: str | None = None,
 ) -> bool:
-    """Generate native CAD when requested, preserving legacy optional behavior."""
+    """Generate one-shot CAD by default, or hierarchical CAD in progressive mode."""
+
     explicit_solid = bool(project.mechanical and project.mechanical.cad_operations)
     if _has_authoritative_cad(project.cad_model) and not explicit_solid:
         _set_cad_status(project, status="provided", required=required)
@@ -361,6 +520,36 @@ def ensure_native_cad_model(
     if not _cad_is_applicable(project):
         _set_cad_status(project, status="not_applicable", required=required)
         return False
+
+    progressive = _visual_gate_active(project)
+    if progressive:
+        lifecycle = _prepare_visual_gate(project)
+        gate = lifecycle.visual_gate
+        allowed = (
+            gate.policy != VisualApprovalPolicy.STOP_BEFORE_CAD
+            and gate.status == VisualApprovalStatus.APPROVED
+        )
+        if not allowed:
+            status = (
+                "waiting_for_visual_approval"
+                if gate.policy != VisualApprovalPolicy.STOP_BEFORE_CAD
+                else "stopped_before_cad"
+            )
+            _set_cad_status(project, status=status, required=required)
+            if workflow:
+                from forma_core.agents.pipeline import emit_agent_pipeline_event
+
+                emit_agent_pipeline_event(
+                    workflow,
+                    "cad_generation",
+                    "deferred",
+                    details={
+                        "required": required,
+                        "visual_approval_policy": gate.policy.value,
+                        "visual_approval_status": gate.status.value,
+                    },
+                )
+            return False
 
     if workflow:
         from forma_core.agents.pipeline import emit_agent_pipeline_event
@@ -372,8 +561,19 @@ def ensure_native_cad_model(
         step_path = root / "outputs" / "assembly.step"
         stl_path = root / "outputs" / "assembly.stl"
         tree_path = root / "outputs" / "assembly.tree.json"
-        model_path.write_text(_cad_source(project), encoding="utf-8")
         adapter = _adapter_path()
+
+        component_artifacts: list[dict[str, Any]] = []
+        if progressive:
+            component_artifacts = _component_cad_artifacts(
+                project,
+                root=root,
+                adapter=adapter,
+                project_id=project_id,
+            )
+
+        assembly_source = _cad_source(project)
+        model_path.write_text(assembly_source, encoding="utf-8")
         step_summary = _run_adapter(adapter, model_path, step_path, tree_path)
         _run_adapter(adapter, model_path, stl_path)
         step_bytes = step_path.read_bytes()
@@ -382,7 +582,7 @@ def ensure_native_cad_model(
             "adapter": CAD_ADAPTER_NAME,
             "source": "Native OpenCAD generated from agent-authored HardwareIR",
             "authoring_agent": authoring_agent,
-            "authoring_mode": "hardware-ir-to-opencad",
+            "authoring_mode": "component-cad-then-assembly" if progressive else "hardware-ir-to-opencad",
             "generated": True,
             "format": "step",
             "units": "mm",
@@ -397,21 +597,56 @@ def ensure_native_cad_model(
             "opencad_version": step_summary.get("opencad_version"),
             "meshes": [_stl_mesh(stl_path)],
         }
-        if explicit_solid and project_id:
+        if progressive:
+            project.cad_model.update({
+                "component_artifacts": component_artifacts,
+                "component_artifact_ids": [item["artifact_id"] for item in component_artifacts],
+            })
+        if project_id:
             from forma_core.persistence.project_artifacts import ProjectArtifactStorage
-            # Persist actual STEP bytes before declaring success, independent of worker disk.
+
             ProjectArtifactStorage().put(project_id, checksum, step_bytes, "model/step")
             project.cad_model["stored_sha256"] = checksum
             project.cad_model["project_id"] = project_id
+
+        if progressive:
+            lifecycle = load_design_lifecycle(project)
+            dependencies = [item["artifact_id"] for item in component_artifacts]
+            if lifecycle.visual_gate.visual_artifact_id:
+                dependencies.append(lifecycle.visual_gate.visual_artifact_id)
+            assembly_representation = register_cad_representation(
+                project,
+                node_id="project",
+                kind=RepresentationKind.ASSEMBLY_CAD,
+                source_fingerprint=representation_fingerprint(
+                    assembly_source,
+                    [(item["artifact_id"], item["source_fingerprint"]) for item in component_artifacts],
+                ),
+                uri=str(step_path),
+                depends_on=dependencies,
+                metadata={
+                    "sha256": checksum,
+                    "bytes": len(step_bytes),
+                    "preview_path": str(stl_path),
+                    "model_source_path": str(model_path),
+                    "feature_tree_path": str(tree_path),
+                    "project_id": project_id,
+                },
+            )
+            project.cad_model["assembly_artifact_id"] = assembly_representation.artifact_id
+
         _set_cad_status(project, status="succeeded", required=required)
         if workflow:
             from forma_core.agents.pipeline import emit_agent_pipeline_event
 
+            details = {"adapter": CAD_ADAPTER_NAME, "format": "step", "bytes": len(step_bytes)}
+            if progressive:
+                details["component_artifact_count"] = len(component_artifacts)
             emit_agent_pipeline_event(
                 workflow,
                 "cad_generation",
                 "completed",
-                details={"adapter": CAD_ADAPTER_NAME, "format": "step", "bytes": len(step_bytes)},
+                details=details,
             )
         return True
     except Exception as exc:
@@ -434,6 +669,31 @@ def ensure_native_cad_model(
         return False
 
 
+def resume_native_cad_after_visual_decision(
+    project: HardwareIR,
+    *,
+    project_id: str | None,
+    approved: bool,
+    feedback: str | None = None,
+    required: bool = False,
+    authoring_agent: str | None = None,
+    workflow: str | None = None,
+) -> bool:
+    """Persist a visual decision and resume CAD only when policy permits it."""
+
+    record_visual_decision(project, approved=approved, feedback=feedback)
+    if not approved:
+        _set_cad_status(project, status="visual_rejected", required=required)
+        return False
+    return ensure_native_cad_model(
+        project,
+        project_id=project_id,
+        required=required,
+        authoring_agent=authoring_agent,
+        workflow=workflow,
+    )
+
+
 def cad_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifact | None:
     """Return the canonical revision artifact for a generated CAD model."""
     cad = project.cad_model
@@ -452,6 +712,8 @@ def cad_project_artifact(project: HardwareIR, project_id: str) -> ProjectArtifac
             "model_source_path": cad.get("model_source_path"),
             "feature_tree_path": cad.get("feature_tree_path"),
             "format": cad.get("format", "step"),
+            "component_artifact_ids": cad.get("component_artifact_ids") or [],
+            "assembly_artifact_id": cad.get("assembly_artifact_id"),
         },
     )
 
@@ -484,4 +746,5 @@ __all__ = [
     "cad_project_artifact",
     "ensure_native_cad_model",
     "mesh_project_artifact",
+    "resume_native_cad_after_visual_decision",
 ]

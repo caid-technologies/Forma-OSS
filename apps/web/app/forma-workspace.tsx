@@ -1985,11 +1985,6 @@ export function FormaWorkspace({
       : null);
   const hostedChatReadOnly = !hostedChatEnabled;
   const chatReadOnly = chatAccessState !== "ready" || (hostedChatReadOnly && !authoringMode);
-  const chatUnavailableReason = hostedChatReadOnly
-    ? HOSTED_CHAT_MAINTENANCE_MESSAGE
-    : authoringMode
-      ? AUTHORING_MODE_ACTIVE_MESSAGE
-      : undefined;
   const requireHostedChatEnabled = () => {
     if (hostedChatEnabled) return true;
     setGenerationInputNotice(HOSTED_CHAT_MAINTENANCE_MESSAGE);
@@ -2679,7 +2674,6 @@ export function FormaWorkspace({
   };
 
   const startNewProjectChat = () => {
-    if (!authoringMode && !requireHostedChatEnabled()) return;
     if (homeView === "chat" && !currentRouteProjectId && !currentProjectChatHasStarted()) return;
     const nextChatId = resetToNewProjectChat();
     router.push(chatRoute(nextChatId));
@@ -5509,7 +5503,8 @@ export function FormaWorkspace({
       goHome();
     }
   };
-  const newChatDisabled = chatReadOnly || (homeView === "chat" && !routedProjectId && !activeSidebarChatStarted);
+  const newChatDisabled = chatAccessState !== "ready" || (homeView === "chat" && !routedProjectId && !activeSidebarChatStarted);
+  const newChatDisabledReason = chatAccessState !== "ready" ? "Chat is still loading." : undefined;
   const homeChromeRef = useRef<HTMLDivElement>(null);
   const { headerAway: homeHeaderAway, bindCapture: bindHomeChromeScroll } = useChromeHeaderScroll(
     `${homeView}:${activeChatId || ""}:${activeSidebarChatStarted ? "started" : "new"}`
@@ -5790,7 +5785,7 @@ export function FormaWorkspace({
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5814,7 +5809,7 @@ export function FormaWorkspace({
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5866,7 +5861,7 @@ export function FormaWorkspace({
             activeChatId={null}
             onNewChat={startNewProjectChat}
              newChatDisabled={newChatDisabled}
-             newChatDisabledReason={chatUnavailableReason}
+             newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5890,7 +5885,7 @@ export function FormaWorkspace({
             activeChatId={null}
             onNewChat={startNewProjectChat}
              newChatDisabled={newChatDisabled}
-             newChatDisabledReason={chatUnavailableReason}
+             newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5944,7 +5939,7 @@ export function FormaWorkspace({
              activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5968,7 +5963,7 @@ export function FormaWorkspace({
              activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -6260,7 +6255,7 @@ export function FormaWorkspace({
            activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
-          newChatDisabledReason={chatUnavailableReason}
+          newChatDisabledReason={newChatDisabledReason}
                  readOnly={hostedChatReadOnly || authoringMode}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
@@ -6284,7 +6279,7 @@ export function FormaWorkspace({
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
-          newChatDisabledReason={chatUnavailableReason}
+          newChatDisabledReason={newChatDisabledReason}
            readOnly={chatReadOnly || authoringMode}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}

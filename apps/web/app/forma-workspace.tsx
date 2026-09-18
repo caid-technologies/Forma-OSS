@@ -25,6 +25,7 @@ import {
   type OpenCodeTurnState,
 } from "../lib/opencode";
 import { authoringModeEnabled, usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
+import ChatAccessStatus, { type ChatAccessLoadState } from "./forma-workspace/chat-access-status";
 import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
 import { GalleryImageRequests, GalleryPageCache, galleryPageKey } from "../lib/gallery-loading";
@@ -70,7 +71,7 @@ import {
   formatBytes,
   isFinalVideoStatus,
 } from "./forma-workspace/admin-panels";
-import HomeChatView from "./forma-workspace/home-chat-view";
+import HomeChatView, { type GenerationMode } from "./forma-workspace/home-chat-view";
 import ChatProjectLayout, { ChatProjectSurface } from "./forma-workspace/chat-project-layout";
 import ConversationMessageList, {
   type ConversationMessage,
@@ -1793,6 +1794,13 @@ export function FormaWorkspace({
   const [selectedImageSource, setSelectedImageSource] = useState<"upload" | "clipboard">("upload");
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
   const [hostedChatEnabled, setHostedChatEnabled] = useState(DEFAULT_HOSTED_CHAT_ENABLED);
+  const [runtimeConfigState, setRuntimeConfigState] = useState<{ identityKey: string; status: ChatAccessLoadState }>({
+    identityKey: authIdentityKey,
+    status: "loading",
+  });
+  const chatAccessState = (authRequired && !authLoaded) || runtimeConfigState.identityKey !== authIdentityKey
+    ? "loading"
+    : runtimeConfigState.status;
   const [videoGenerationConfig, setVideoGenerationConfig] = useState<VideoGenerationConfig>({
     configured: null,
     reason: null,
@@ -1816,6 +1824,9 @@ export function FormaWorkspace({
   const [authoringMode, setAuthoringMode] = useState(false);
   const [openCodeConnectorId, setOpenCodeConnectorId] = useState<string | null>(null);
   const [generateProductImage, setGenerateProductImage] = useState(false);
+  const [generationMode, setGenerationMode] = useState<GenerationMode>("regular");
+  const [visualDecisionBusy, setVisualDecisionBusy] = useState<"approve" | "revise" | "continue_to_cad" | null>(null);
+  const [visualDecisionError, setVisualDecisionError] = useState<string | null>(null);
   const [generationWorkflow, setGenerationWorkflow] = useState(DEFAULT_WORKFLOW_ID);
   const [generationWorkflows, setGenerationWorkflows] = useState<GenerationWorkflowOption[]>(defaultGenerationWorkflows);
   const [agentPipelineSteps, setAgentPipelineSteps] = useState<AgentPipelineStep[]>(defaultAgentPipelineSteps);
@@ -1973,12 +1984,7 @@ export function FormaWorkspace({
       ? generationInputValidation.message
       : null);
   const hostedChatReadOnly = !hostedChatEnabled;
-  const chatReadOnly = hostedChatReadOnly && !authoringMode;
-  const chatUnavailableReason = hostedChatReadOnly
-    ? HOSTED_CHAT_MAINTENANCE_MESSAGE
-    : authoringMode
-      ? AUTHORING_MODE_ACTIVE_MESSAGE
-      : undefined;
+  const chatReadOnly = chatAccessState !== "ready" || (hostedChatReadOnly && !authoringMode);
   const requireHostedChatEnabled = () => {
     if (hostedChatEnabled) return true;
     setGenerationInputNotice(HOSTED_CHAT_MAINTENANCE_MESSAGE);
@@ -2668,7 +2674,6 @@ export function FormaWorkspace({
   };
 
   const startNewProjectChat = () => {
-    if (!authoringMode && !requireHostedChatEnabled()) return;
     if (homeView === "chat" && !currentRouteProjectId && !currentProjectChatHasStarted()) return;
     const nextChatId = resetToNewProjectChat();
     router.push(chatRoute(nextChatId));
@@ -2814,6 +2819,7 @@ export function FormaWorkspace({
   useEffect(() => {
     if (!authRequired || !authLoaded) return;
     generationLlmRequestIdRef.current += 1;
+    setRuntimeConfigState({ identityKey: authIdentityKey, status: "loading" });
     setGenerationLlmsLoaded(false);
     setGenerationLlms([]);
     setGenerationLlmKeyValue("");
@@ -2904,12 +2910,16 @@ export function FormaWorkspace({
   const fetchRuntimeConfig = async () => {
     const requestId = ++generationLlmRequestIdRef.current;
     const requestIsCurrent = () => generationLlmRequestIdRef.current === requestId;
+    setRuntimeConfigState({ identityKey: authIdentityKey, status: "loading" });
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20_000);
     try {
       const res = await fetch(`${API_URL}/runtime/config`, {
         cache: "no-store",
         headers: await optionalAuthHeaders(),
+        signal: controller.signal,
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error(`Runtime config request failed (${res.status})`);
 
       const config = (await res.json()) as RuntimeConfigContract;
       if (!requestIsCurrent()) return;
@@ -2968,9 +2978,14 @@ export function FormaWorkspace({
             : workflows[0].id,
         );
       }
+      setRuntimeConfigState({ identityKey: authIdentityKey, status: "ready" });
     } catch (e) {
-      if (requestIsCurrent()) console.error("Error fetching runtime config", e);
+      if (requestIsCurrent()) {
+        console.error("Error fetching runtime config", e);
+        setRuntimeConfigState({ identityKey: authIdentityKey, status: "error" });
+      }
     } finally {
+      window.clearTimeout(timeout);
       if (requestIsCurrent()) {
         setGenerationLlmsLoaded(true);
         setImageGenerationConfigLoaded(true);
@@ -3850,9 +3865,9 @@ export function FormaWorkspace({
       void submitOpenCodeTurn({ chatId: requestChatId, message: text, assistantMessageId });
       return;
     }
-    if (!requireHostedChatEnabled()) return;
     if (contextSubmitting || activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
+    if (!requireHostedChatEnabled()) return;
 
     const submittedPrompt = answer ?? prompt;
     const validation = validateGenerationInput(submittedPrompt, Boolean(selectedImage));
@@ -3900,6 +3915,7 @@ export function FormaWorkspace({
         body: JSON.stringify({
           conversation_id: requestChatId,
           text,
+          generation_mode: generationMode,
           attachments: imageData ? [{
             attachment_id: `context-image-${userMessageId}`,
             kind: "image",
@@ -4035,6 +4051,7 @@ export function FormaWorkspace({
         headers: await generationRequestHeaders(),
         body: JSON.stringify({
           conversation_id: requestChatId,
+          generation_mode: generationMode,
           requested_tool: "build_project",
         }),
       });
@@ -4095,9 +4112,9 @@ export function FormaWorkspace({
 
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!requireHostedChatEnabled()) return;
     if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
+    if (!requireHostedChatEnabled()) return;
     if (!selectedGenerationLlm) {
       setGenerationInputNotice("Turn on at least one model provider in Settings before building.");
       return;
@@ -4141,7 +4158,7 @@ export function FormaWorkspace({
     const requestChatId = activeChatId || newBuildChatId();
     const generationRun = beginGenerationRun("chat", requestChatId);
 
-    if (!contextCheckpoint) {
+    if (!contextCheckpoint && generationMode !== "regular") {
       setGenerationInputNotice(null);
       try {
         const clarification = await requestHumanContextQuestions(
@@ -4298,6 +4315,7 @@ export function FormaWorkspace({
           client_job_id: frontendJobId,
           image_data: imageData || null,
           generate_image: generateProductImage,
+          generation_mode: generationMode,
         }),
       });
 
@@ -5282,7 +5300,48 @@ export function FormaWorkspace({
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
   const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
+  useEffect(() => {
+    const persistedMode = projectIR?.assembly_metadata?.generation_mode;
+    if (persistedMode === "regular" || persistedMode === "progressive") {
+      setGenerationMode(persistedMode);
+    }
+  }, [currentProjectId, projectIR?.assembly_metadata?.generation_mode]);
   const currentProjectCanDownloadAssets = currentUserOwnsProject;
+  const handleProgressiveVisualDecision = async (
+    decision: "approve" | "revise" | "continue_to_cad",
+    feedback?: string,
+  ) => {
+    if (!currentProjectId || !currentUserOwnsProject || visualDecisionBusy) return;
+    setVisualDecisionBusy(decision);
+    setVisualDecisionError(null);
+    try {
+      const response = await fetch(
+        `${API_URL}/projects/${encodeURIComponent(currentProjectId)}/visual-decision`,
+        {
+          method: "POST",
+          headers: await generationRequestHeaders(),
+          body: JSON.stringify({ decision, feedback: feedback || null }),
+        },
+      );
+      if (!response.ok) throw new Error(await readApiErrorMessage(response));
+      const payload = await response.json();
+      if (payload?.project_ir) {
+        setProjectIR(withProjectResponseMetadata(payload.project_ir, payload));
+      }
+      if (decision === "revise" && feedback?.trim()) {
+        setGenerationMode("progressive");
+        setPrompt(`Revise the current concept using this feedback: ${feedback.trim()}`);
+      }
+      if (decision === "continue_to_cad" && payload?.cad_generated) {
+        setActiveTab("cad");
+      }
+      void refreshProjectAndChatLists();
+    } catch (error) {
+      setVisualDecisionError(error instanceof Error ? error.message : "Could not update the Progressive concept review.");
+    } finally {
+      setVisualDecisionBusy(null);
+    }
+  };
   const ownerProjectChatId = projectIR && currentUserOwnsProject
     ? (chatIdFromIR(projectIR) || currentProjectId)
     : null;
@@ -5444,7 +5503,8 @@ export function FormaWorkspace({
       goHome();
     }
   };
-  const newChatDisabled = chatReadOnly || (homeView === "chat" && !routedProjectId && !activeSidebarChatStarted);
+  const newChatDisabled = chatAccessState !== "ready" || (homeView === "chat" && !routedProjectId && !activeSidebarChatStarted);
+  const newChatDisabledReason = chatAccessState !== "ready" ? "Chat is still loading." : undefined;
   const homeChromeRef = useRef<HTMLDivElement>(null);
   const { headerAway: homeHeaderAway, bindCapture: bindHomeChromeScroll } = useChromeHeaderScroll(
     `${homeView}:${activeChatId || ""}:${activeSidebarChatStarted ? "started" : "new"}`
@@ -5523,6 +5583,10 @@ export function FormaWorkspace({
             systemArchitecture={projectIR?.system_architecture || null}
             showModelName={formaDevMode}
             showImageSection={showProductImageSection}
+            canManageProgressiveReview={hostedChatEnabled && currentUserOwnsProject}
+            visualDecisionBusy={visualDecisionBusy}
+            visualDecisionError={visualDecisionError}
+            onVisualDecision={handleProgressiveVisualDecision}
           />
         );
       case "bom":
@@ -5721,7 +5785,7 @@ export function FormaWorkspace({
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5745,7 +5809,7 @@ export function FormaWorkspace({
             activeChatId={visibleChatRouteTransition.chatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5797,7 +5861,7 @@ export function FormaWorkspace({
             activeChatId={null}
             onNewChat={startNewProjectChat}
              newChatDisabled={newChatDisabled}
-             newChatDisabledReason={chatUnavailableReason}
+             newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5821,7 +5885,7 @@ export function FormaWorkspace({
             activeChatId={null}
             onNewChat={startNewProjectChat}
              newChatDisabled={newChatDisabled}
-             newChatDisabledReason={chatUnavailableReason}
+             newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5875,7 +5939,7 @@ export function FormaWorkspace({
              activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -5899,7 +5963,7 @@ export function FormaWorkspace({
              activeChatId={activeChatId}
             onNewChat={startNewProjectChat}
             newChatDisabled={newChatDisabled}
-            newChatDisabledReason={chatUnavailableReason}
+            newChatDisabledReason={newChatDisabledReason}
              readOnly={chatReadOnly || authoringMode}
             onOpenChat={openChatItem}
             onRenameChat={renameSidebarChat}
@@ -6064,6 +6128,8 @@ export function FormaWorkspace({
             <UserIntegrationsPage embedded />
           ) : homeView === "about" ? (
             <AboutView />
+          ) : chatAccessState !== "ready" ? (
+            <ChatAccessStatus status={chatAccessState} onRetry={() => { void fetchRuntimeConfig(); }} />
           ) : (
             <HomeChatView
               started={activeSidebarChatStarted}
@@ -6112,8 +6178,10 @@ export function FormaWorkspace({
                 setPendingHumanContext(null);
                 setPrompt(example);
               }}
-              onSubmit={handleGatherContext}
-              canBuildNow={hostedChatEnabled && (() => {
+              generationMode={generationMode}
+              onGenerationModeChange={setGenerationMode}
+              onSubmit={authoringMode ? handleGatherContext : generationMode === "regular" ? handleGenerate : handleGatherContext}
+              canBuildNow={generationMode === "progressive" && hostedChatEnabled && (() => {
                 const messages = activeChatId ? chatThreads[activeChatId] || chatMessages : chatMessages;
                 const contextMessage = [...messages].reverse().find((message) => Boolean(message.contextProjectId));
                 const state = contextWorkflowStates[activeChatId]
@@ -6187,7 +6255,7 @@ export function FormaWorkspace({
            activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
-          newChatDisabledReason={chatUnavailableReason}
+          newChatDisabledReason={newChatDisabledReason}
                  readOnly={hostedChatReadOnly || authoringMode}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
@@ -6211,7 +6279,7 @@ export function FormaWorkspace({
           activeChatId={activeSidebarChatId}
           onNewChat={startNewProjectChat}
           newChatDisabled={newChatDisabled}
-          newChatDisabledReason={chatUnavailableReason}
+          newChatDisabledReason={newChatDisabledReason}
            readOnly={chatReadOnly || authoringMode}
           onOpenChat={openChatItem}
           onRenameChat={renameSidebarChat}
@@ -6250,6 +6318,8 @@ export function FormaWorkspace({
                 onNamespaceChange={setActiveTab}
                 projectContent={projectNamespaceContent}
               />
+            ) : chatAccessState !== "ready" ? (
+              <ChatAccessStatus status={chatAccessState} onRetry={() => { void fetchRuntimeConfig(); }} />
             ) : (
               <ChatWorkspace
                 onOpenSidebar={() => setMobileSidebarOpen(true)}

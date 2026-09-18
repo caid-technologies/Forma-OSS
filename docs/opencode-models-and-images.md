@@ -1,7 +1,8 @@
-# OpenCode model switching and OpenAI images
+# OpenCode model switching and project images
 
 The agent model and image model are independent. An OpenCode agent using a
-Google model can call Forma's OpenAI image tool.
+Google model can call Forma's image tool using GMI, OpenAI, or another configured
+image provider.
 
 ## Switch the agent model
 
@@ -35,7 +36,7 @@ sessions. Use the Forma picker or an explicit service default for predictable
 hosted requests. Null commands deliberately inherit the default at execution
 time; only explicit command selections are pinned across retries.
 
-## Generate an OpenAI image
+## Generate an image
 
 Ask Forma Agent to generate a concept image of the saved project. The restricted
 MCP surface includes `forma.opencode.generate_image` with two arguments:
@@ -47,8 +48,9 @@ MCP surface includes `forma.opencode.generate_image` with two arguments:
 }
 ```
 
-The capability supplies project and owner identity. The tool calls the existing
-`OpenAIImageProvider`, generates one image, and attaches it to a project revision
+The capability supplies project and owner identity. The tool resolves the backend's
+`IMAGE_PROVIDER` through Forma's existing provider factory, generates one image,
+and attaches it to a project revision
 through Forma's existing image storage and project persistence. It does not run
 CAD generation. The project preview displays the saved image after the command
 completes and the workspace reloads the project. Future IR edits preserve that
@@ -57,8 +59,36 @@ responses to avoid putting them in the agent context.
 
 Configure these settings on the **Forma backend serving the restricted MCP URL**:
 
+### GMI Cloud
+
 ```dotenv
 # Supply the key securely in the backend environment; do not commit it.
+IMAGE_PROVIDER=gmi
+GMI_IMAGE_API_KEY=<your GMI API key>
+GMI_IMAGE_MODEL=gpt-image-2-generate
+GMI_IMAGE_SIZE=1024x1024
+GMI_IMAGE_QUALITY=medium
+GMI_IMAGE_OUTPUT_FORMAT=png
+```
+
+`GMI_API_KEY`, `GMI_CLOUD_API_KEY`, and `GMICLOUD_API_KEY` are existing key
+fallbacks. The provider handles request-queue submission and polling for this
+model. Other supported GMI models use their existing model-specific settings.
+Set `IMAGE_PROVIDER=gmi` explicitly when OpenAI credentials are also present.
+A missing GMI key fails the request; it never silently switches to OpenAI.
+
+GMI queue results can contain a temporary image URL. The tool downloads it before
+saving, so local projects retain inline data and remote projects use Forma's image
+storage rather than depending on a temporary provider URL. Downloads require
+public HTTPS destinations, validate redirects, pin the resolved address while
+verifying TLS against the hostname, and accept only PNG, JPEG, or WebP up to
+30 MiB. Provider URLs and credentials are never included in tool responses.
+
+### OpenAI
+
+```dotenv
+# Supply the key securely in the backend environment; do not commit it.
+IMAGE_PROVIDER=openai
 OPENAI_IMAGE_API_KEY=<your OpenAI API key>
 OPENAI_IMAGE_BASE_URL=https://api.openai.com/v1
 OPENAI_IMAGE_MODEL=gpt-image-2
@@ -70,8 +100,14 @@ OPENAI_IMAGE_OUTPUT_FORMAT=png
 `OPENAI_API_KEY` is the existing fallback if `OPENAI_IMAGE_API_KEY` is absent.
 The example keeps Forma's existing image-model default; choose another supported
 GPT Image model explicitly if your OpenAI project has access. OpenCode login
-credentials are not a substitute for the backend image API key. This tool uses
-OpenAI independently of `IMAGE_PROVIDER` used by other Forma generation flows.
+credentials are not a substitute for the backend image API key.
+
+Provider, model, endpoint, and credentials remain server-owned; the agent cannot
+override them in tool arguments. Without `IMAGE_PROVIDER`, the existing provider
+factory infers a provider from backend credentials, preferring OpenAI when both
+OpenAI and GMI keys are present. `IMAGE_PROVIDER=none` (or another disabled alias)
+disables this tool. `IMAGE_OUTPUT_ENABLED=false` disables automatic image output
+but still permits an explicit image-tool request with a configured provider.
 Images are generated only by an explicit tool call, not on every authoring turn.
 
 Reuse `request_id` for a retry of a saved image request. A completed request
@@ -88,17 +124,17 @@ Storage/provider errors return bounded messages without raw provider responses.
 
 1. Apply `20260917000100_opencode_command_model.sql` to Supabase before running
    the new backend. Existing SQLite databases add the nullable column on startup.
-2. Deploy the Forma backend and set its OpenAI image credentials/model.
+2. Deploy the Forma backend and set its image provider, credentials, and model.
 3. Deploy the paired `local-server-config` connector update and restart its
    service. Existing commands without a model remain compatible.
 4. Deploy the Forma web update after the connector. An older connector ignores
    the new model field and does not allow the image tool.
 5. Verify on the mini-PC: send two requests with different available model IDs,
-   return to Runtime default, generate one image, reload the project, then make
-   a CAD edit and confirm the image remains.
+   return to Runtime default, generate one GMI image, reload the project, then
+   make a CAD edit and confirm the image remains. Repeat with OpenAI when used.
 
 Local automated checks use simulated provider/connector responses. Live OpenCode
-model access, paid OpenAI generation and Windows service rollout require host
+model access, paid provider generation and Windows service rollout require host
 acceptance after deployment.
 
 ## References

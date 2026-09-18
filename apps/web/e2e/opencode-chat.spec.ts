@@ -101,6 +101,73 @@ function event(
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
 
+for (const accessResult of ["enabled", "maintenance", "failed"] as const) {
+  test(`Chat access loading handles ${accessResult} without a maintenance flash`, async ({ page, baseURL }) => {
+    test.setTimeout(180_000);
+    const appOrigin = new URL(baseURL!).origin;
+    let releaseConfig!: () => void;
+    const configGate = new Promise<void>((resolve) => { releaseConfig = resolve; });
+    let configRequests = 0;
+
+    await page.route("**/*", async (route) => {
+      const url = new URL(route.request().url());
+      if (url.origin === appOrigin && !/^\/api(?:\/|$)/.test(url.pathname)) {
+        await route.continue();
+        return;
+      }
+      const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+      if (path === "/runtime/config") {
+        configRequests += 1;
+        await configGate;
+        if (accessResult === "failed" && configRequests === 1) {
+          await route.fulfill({ status: 503, json: { detail: "Temporarily unavailable" } });
+        } else {
+          await route.fulfill({ json: {
+            ...runtimeConfig,
+            deployment: { ...runtimeConfig.deployment, authoring_access: accessResult !== "maintenance" },
+          } });
+        }
+        return;
+      }
+      if (["/projects", "/my/projects"].includes(path)) {
+        await route.fulfill({ json: { items: [], total: 0, has_more: false } });
+      } else if (["/chats", "/a2a/jobs", "/example-project-object-jobs"].includes(path)) {
+        await route.fulfill({ json: [] });
+      } else {
+        await route.fulfill({ json: { status: "ok", is_admin: false, steps: [], models: [] } });
+      }
+    });
+
+    try {
+      await page.goto("/", { waitUntil: "domcontentloaded", timeout: 120_000 });
+      const loading = page.getByRole("status").filter({ hasText: "Loading chat…" });
+      const maintenance = page.getByRole("status", { name: "Hosted chat maintenance" });
+      const composer = page.getByPlaceholder("Describe the product, constraints, references, and outputs you need…", { exact: true });
+      await expect(loading).toBeVisible();
+      await expect.poll(() => configRequests).toBe(1);
+      await expect(maintenance).toHaveCount(0);
+      await expect(composer).toHaveCount(0);
+      releaseConfig();
+
+      if (accessResult === "maintenance") {
+        await expect(maintenance).toBeVisible();
+        await expect(composer).toHaveCount(0);
+      } else {
+        if (accessResult === "failed") {
+          await expect(page.getByRole("alert").filter({ hasText: "Chat could not be loaded" })).toBeVisible();
+          await expect(maintenance).toHaveCount(0);
+          await page.getByRole("button", { name: "Retry loading chat" }).click();
+        }
+        await expect(composer).toBeVisible();
+        await expect(maintenance).toHaveCount(0);
+      }
+      await expect(loading).toHaveCount(0);
+    } finally {
+      releaseConfig();
+    }
+  });
+}
+
 for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidden", "unavailable", "malformed", "null-response", "network-error", "missing-revision"] as const) test(`OpenCode chat handles ${resultMode} project output`, async ({ page, baseURL }) => {
   const projectPublished = ["published", "draft", "wired"].includes(resultMode);
   const resultLoadFails = !projectPublished && resultMode !== "unpublished";
@@ -301,8 +368,20 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: false });
     const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: false });
 
-    await expect(page.getByRole("status", { name: "OpenCode is authoring this workspace.", exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toBeVisible();
     await expect(composer).toBeVisible();
+
+    if (resultMode === "unpublished") await test.step("select an agent model without submitting a chat command", async () => {
+      const model = page.getByRole("textbox", { name: "Agent model", exact: true });
+      await model.fill("invalid-model");
+      await model.press("Enter");
+      await expect(page.getByRole("alert").filter({ hasText: "provider/model" })).toBeVisible();
+      expect(commandRequests).toEqual([]);
+      await model.fill("google/gemini-2.5-flash");
+      await model.press("Enter");
+      await expect(page.getByRole("combobox", { name: "Switch agent model" })).toHaveValue("google/gemini-2.5-flash");
+      expect(commandRequests).toEqual([]);
+    });
 
     await test.step("keep polling after connector_unavailable without loading the reserved project", async () => {
       await composer.fill("hi");
@@ -383,6 +462,10 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     }
 
     await test.step("send a second turn in the same session and original UI chat", async () => {
+      if (resultMode === "unpublished") {
+        await page.getByRole("textbox", { name: "Agent model", exact: true }).fill("openrouter/anthropic/claude-sonnet-4");
+        await page.getByRole("button", { name: "Apply", exact: true }).click();
+      }
       await followUpComposer.fill("Are you still there?");
       await followUpComposer.press("Enter");
       await expect(secondAnswer).toBeVisible();
@@ -411,9 +494,9 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
         expect(projectProbes).toHaveLength(2);
       }
       expect(sessionRequests).toEqual([{ connector_id: "mini-pc-1" }]);
-      expect(commandRequests).toEqual(["hi", "Are you still there?"].map((message) => ({
+      expect(commandRequests).toEqual(["hi", "Are you still there?"].map((message, index) => ({
         path: `/opencode/sessions/${sessionId}/commands`,
-        body: { message, idempotency_key: expect.stringMatching(/^web-.+/) },
+        body: { message, idempotency_key: expect.stringMatching(/^web-.+/), ...(resultMode === "unpublished" ? { model: ["google/gemini-2.5-flash", "openrouter/anthropic/claude-sonnet-4"][index] } : {}) },
       })));
       expect(polls).toEqual([
         { turn: 1, cursor: 0 }, { turn: 1, cursor: 1 }, { turn: 1, cursor: 3 }, { turn: 2, cursor: 5 },
@@ -471,6 +554,15 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
       await expect(missingProject).toHaveCount(0);
       await expect(projectLinks).toHaveCount(0);
       await expect(projectOutput).toHaveCount(0);
+      if (resultMode === "unpublished") {
+        const model = page.getByRole("combobox", { name: "Switch agent model" });
+        await expect(model).toHaveValue("openrouter/anthropic/claude-sonnet-4");
+        await model.selectOption("google/gemini-2.5-flash");
+        await expect(page.getByRole("textbox", { name: "Agent model", exact: true })).toHaveValue("google/gemini-2.5-flash");
+        await page.getByRole("button", { name: "Runtime default", exact: true }).click();
+        await expect(model).toHaveValue("");
+        expect(await page.evaluate(() => localStorage.getItem("forma.agent.model"))).toBe("");
+      }
     });
 
     expect(unexpectedRequests, "Every backend request must be mocked; no external requests may escape").toEqual([]);

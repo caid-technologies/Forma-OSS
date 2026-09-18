@@ -1,16 +1,15 @@
-"""OpenAI concept images for the capability-bound OpenCode project."""
+"""Concept images for the capability-bound OpenCode project."""
 
 from __future__ import annotations
 
-import base64
-import binascii
 import hashlib
 import json
 
 from apps.api.a2a import _persist_mcp_compile
 from apps.api.auth import UserContext
+from apps.api.opencode_image_data import materialize_image
 from forma_core.database import get_latest_project_revision, get_project_revision_by_source_job
-from forma_core.image_providers import OpenAIImageProvider
+from forma_core.image_providers import build_image_provider
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import GenerateImageArguments
 from forma_core.persistence.images import upload_image_to_supabase_s3
@@ -69,23 +68,25 @@ def generate_project_image(arguments: GenerateImageArguments, capability: Connec
         raise ImageToolError("image_project_missing", "Create the bound project before generating an image.") from None
     if source is None:
         raise ImageToolError("image_project_missing", "Create the bound project before generating an image.")
-    provider = OpenAIImageProvider()
+    try:
+        # Explicit image requests use the same server-owned provider settings as
+        # Forma's other image flows, even when automatic image output is off.
+        # An explicitly disabled IMAGE_PROVIDER remains disabled.
+        provider = build_image_provider(force_enabled=True)
+    except Exception:
+        raise ImageToolError("image_provider_unavailable", "Image generation is not configured correctly on the Forma backend.") from None
     if not provider.is_configured:
-        raise ImageToolError("image_provider_unavailable", "OpenAI image generation is not configured on the Forma backend.")
+        raise ImageToolError("image_provider_unavailable", "Image generation is not configured on the Forma backend. Check IMAGE_PROVIDER and its image credentials.")
     try:
         image = provider.generate_project_image(arguments.prompt, source.state)
     except Exception:
-        raise ImageToolError("image_generation_failed", "OpenAI image generation failed. Check the backend image model and API access before retrying.") from None
+        raise ImageToolError("image_generation_failed", "Image generation failed. Check the backend image provider, model and API access before retrying.") from None
     if image is None:
-        raise ImageToolError("image_generation_failed", "OpenAI returned no image. No project changes were saved.")
+        raise ImageToolError("image_generation_failed", "The image provider returned no image. No project changes were saved.")
     try:
-        header, encoded = image.data_url.split(",", 1)
-        if header not in {"data:image/png;base64", "data:image/jpeg;base64", "data:image/webp;base64"} or len(encoded) > 40 * 1024 * 1024:
-            raise ValueError("unsupported image response")
-        if not base64.b64decode(encoded, validate=True):
-            raise ValueError("empty image response")
-    except (ValueError, binascii.Error):
-        raise ImageToolError("image_generation_failed", "OpenAI returned unusable image data. No project changes were saved.") from None
+        image_data, content_type = materialize_image(image.data_url)
+    except Exception:
+        raise ImageToolError("image_generation_failed", "The provider image could not be downloaded or contained unusable image data. No project changes were saved.") from None
     # Re-read before saving so a long provider call does not replace newer CAD
     # or other project edits with the input revision.
     latest = get_latest_project_revision(project_id, owner)
@@ -94,8 +95,8 @@ def generate_project_image(arguments: GenerateImageArguments, capability: Connec
     project = latest.state.model_copy(deep=True)
     try:
         stored = upload_image_to_supabase_s3(
-            image.data_url, project_id=project_id, prefix="product",
-            fallback_content_type=f"image/{image.output_format}", allow_remote_url=False,
+            image_data, project_id=project_id, prefix="product",
+            fallback_content_type=content_type, allow_remote_url=False,
         )
     except Exception:
         raise ImageToolError("image_storage_failed", "The image could not be stored. No project changes were saved.") from None
@@ -107,8 +108,8 @@ def generate_project_image(arguments: GenerateImageArguments, capability: Connec
         "product_image_provider": image.provider,
         "product_image_model": image.model,
         "product_image_size": image.size,
-        "product_image_output_format": image.output_format,
-        "product_image_content_type": f"image/{image.output_format}",
+        "product_image_output_format": content_type.removeprefix("image/"),
+        "product_image_content_type": content_type,
         "image_output_status": "succeeded",
         "image_output_provider": image.provider,
         "image_output_model": image.model,
@@ -121,7 +122,7 @@ def generate_project_image(arguments: GenerateImageArguments, capability: Connec
         metadata.update(stored.metadata("product_image"))
     else:
         # This is Forma's existing local/SQLite image persistence convention.
-        metadata["product_image_data"] = image.data_url
+        metadata["product_image_data"] = image_data
     project.assembly_metadata = metadata
     user = UserContext(provider="opencode-connector", subject=owner, owner_user_id=owner, is_authenticated=True, is_admin=False)
     _persist_mcp_compile(project, {

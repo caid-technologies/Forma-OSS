@@ -2,6 +2,7 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -34,7 +35,7 @@ class ModelSelectionTests(unittest.TestCase):
         self.addCleanup(reopened.close)
         leased = reopened.claim_next(connector_id="mini", session_id="chat")
         self.assertEqual("google/gemini-2.5-flash", leased.model)
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("UPDATE opencode_commands SET lease_expires_at = '2000-01-01T00:00:00Z' WHERE command_id = 'first'")
         retried = reopened.claim_next(connector_id="mini", session_id="chat")
         self.assertEqual(2, retried.attempt_count)
@@ -49,7 +50,7 @@ class ModelSelectionTests(unittest.TestCase):
     def test_existing_sqlite_database_migrates_with_default_inheritance(self):
         self.create("legacy")
         self.store.close()
-        with sqlite3.connect(self.path) as db:
+        with closing(sqlite3.connect(self.path)) as db, db:
             db.execute("ALTER TABLE opencode_commands DROP COLUMN model")
         reopened = OpenCodeStore(self.path)
         self.addCleanup(reopened.close)

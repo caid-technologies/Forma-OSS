@@ -66,7 +66,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         },
         {
             "name": "forma.opencode.generate_image",
-            "description": "Generate one OpenAI concept image for the saved bound project and persist it in the project preview. Use only when the user requests an image. Read or create the project first. Reuse request_id for a retry; use a new ID for a new image. Images are not CAD or physical verification.",
+            "description": "Generate one concept image using Forma's configured image provider (including GMI or OpenAI) and persist it in the saved bound project's preview. Use only when the user requests an image. Read or create the project first. Reuse request_id for a retry; use a new ID for a new image. Images are not CAD or physical verification.",
             "inputSchema": GenerateImageArguments.model_json_schema(),
         },
     ]

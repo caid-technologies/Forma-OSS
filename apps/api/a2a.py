@@ -56,6 +56,8 @@ from forma_core.workspaces.projects.models import (
 )
 from forma_core.workspaces.projects import ProjectStateError
 from forma_core.workspaces.projects.cad_generation import ensure_native_cad_model
+from forma_core.workspaces.projects.generation_mode import GenerationMode
+from forma_core.workspaces.projects.output import attach_product_image as attach_project_product_image
 from forma_core.observability import (
     get_langfuse_debug_config,
     propagate_observation_attributes,
@@ -951,6 +953,7 @@ def build_generation_response(
     past_job_context: Optional[PastJobContext] = None,
     project_id: Optional[str] = None,
     retry_stage: Optional[str] = None,
+    generation_mode: str = "regular",
     settings: Optional[ResolvedIntegrationSettings] = None,
 ) -> Dict[str, Any]:
     ensure_hosted_chat_enabled()
@@ -964,6 +967,14 @@ def build_generation_response(
     if len(prompt_text) > max_prompt_chars:
         raise ValueError("Prompt exceeds the configured length limit.")
     workflow_id = normalize_workflow_id(workflow)
+    try:
+        normalized_generation_mode = GenerationMode(str(generation_mode or "regular").strip().lower())
+    except ValueError as exc:
+        raise ValueError("generation_mode must be regular or progressive.") from exc
+    progressive_generation = normalized_generation_mode == GenerationMode.PROGRESSIVE
+    if progressive_generation:
+        # Progressive generation requires the visual artifact used by its review gate.
+        generate_image = True
     normalized_retry_stage = str(retry_stage or "").strip() or None
     prior_generation_run: Optional[Dict[str, Any]] = None
     retry_stage_replay = False
@@ -1046,6 +1057,7 @@ def build_generation_response(
         "has_reference_image": bool(image_data),
         "image_mime_type": image_mime_type,
         "generate_image": generate_image,
+        "generation_mode": normalized_generation_mode.value,
         "frontend_job_id": frontend_job_id,
         "external_source_provider": external_source_provider,
         "data_sources": normalized_data_sources,
@@ -1093,6 +1105,12 @@ def build_generation_response(
                     "prior_generation_run": prior_generation_run,
                     "retry_stage_replay": retry_stage_replay,
                     "cad_required": cad_required,
+                    "generation_mode": normalized_generation_mode.value,
+                    **(
+                        {"visual_approval_policy": "require_approval"}
+                        if progressive_generation
+                        else {}
+                    ),
                 },
                 persist_project=False,
             )
@@ -1104,6 +1122,7 @@ def build_generation_response(
                 "source_project_id": source_project_id or (ir.assembly_metadata or {}).get("source_project_id"),
                 "frontend_job_id": frontend_job_id or (ir.assembly_metadata or {}).get("frontend_job_id"),
                 "workflow": workflow_id,
+                "generation_mode": normalized_generation_mode.value,
                 "external_source_provider": external_source_provider or (ir.assembly_metadata or {}).get("external_source_provider"),
                 "data_sources": normalized_data_sources,
                 "past_jobs_context": past_jobs_metadata,
@@ -1139,7 +1158,15 @@ def build_generation_response(
 
             if generate_image:
                 emit_agent_pipeline_event(workflow_id, "image_generation", "started")
-            _attach_product_image(prompt_text, ir, generate_image=generate_image, settings=settings)
+            if progressive_generation:
+                attach_project_product_image(
+                    prompt_text,
+                    ir,
+                    generate_image=generate_image,
+                    settings=settings,
+                )
+            else:
+                _attach_product_image(prompt_text, ir, generate_image=generate_image, settings=settings)
             if generate_image:
                 image_status = (ir.assembly_metadata or {}).get("image_output_status")
                 emit_agent_pipeline_event(
@@ -1262,6 +1289,7 @@ async def call_forma_action(
             past_job_context,
             payload.get("project_id"),
             payload.get("retry_stage"),
+            generation_mode=payload.get("generation_mode", "regular"),
             settings=settings,
         )
 
@@ -2040,6 +2068,12 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     },
                     "image_data": {"type": "string", "description": "Optional data URL or base64 image"},
                     "generate_image": {"type": "boolean", "default": False},
+                    "generation_mode": {
+                        "type": "string",
+                        "enum": ["regular", "progressive"],
+                        "default": "regular",
+                        "description": "Regular runs one-shot generation; progressive uses the staged hierarchical lifecycle.",
+                    },
                     "external_source_provider": {
                         "type": "string",
                         "enum": ["firecrawl"],

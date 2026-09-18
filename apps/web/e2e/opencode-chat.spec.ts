@@ -301,7 +301,7 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
     const firstAnswer = page.getByRole("main").getByText(answers[0], { exact: false });
     const secondAnswer = page.getByRole("main").getByText(answers[1], { exact: false });
 
-    await expect(page.getByRole("status", { name: "OpenCode is authoring this workspace.", exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toBeVisible();
     await expect(composer).toBeVisible();
 
     await test.step("keep polling after connector_unavailable without loading the reserved project", async () => {

@@ -10,7 +10,6 @@ import {
   clampChatFraction, completedProjectReference, initialChatProjectLayout,
   linkedProjectPath, projectPaneVisible, type ProjectMessageReference,
 } from "../../lib/chat-project-layout";
-import ProjectExportsPanel from "./project-exports-panel";
 import styles from "./chat-project-layout.module.css";
 
 type ProjectWorkspaceContext = {
@@ -192,8 +191,6 @@ function ChatProjectLayoutSession({ conversationKey, projectId = null, project, 
 /** The same surface stays mounted when expanded; closing it unmounts the viewer. */
 export function ChatProjectSurface({ title, children }: { title: ReactNode; children: ReactNode }) {
   const workspace = useContext(ProjectWorkspace);
-  const [surfaceTab, setSurfaceTab] = useState<"project" | "exports">("project");
-  const canExport = Boolean(workspace?.projectId);
   return (
     <div className={styles.surface} data-testid="project-surface">
       <header className={styles.surfaceHeader}>
@@ -202,8 +199,6 @@ export function ChatProjectSurface({ title, children }: { title: ReactNode; chil
           <div className={styles.surfaceTitle}>{title}</div>
         </div>
         <div className={styles.actions} role="group" aria-label="Project surface">
-          <button type="button" className={styles.button} onClick={() => setSurfaceTab("project")} aria-pressed={surfaceTab === "project"}>Project</button>
-          <button type="button" className={styles.button} onClick={() => setSurfaceTab("exports")} aria-pressed={surfaceTab === "exports"} disabled={!canExport}>Exports</button>
           {workspace && (
             <>
               <button type="button" className={styles.button} onClick={workspace.toggleFullScreen} aria-pressed={workspace.fullScreen} aria-label={workspace.fullScreen ? "Exit project full screen" : "View project full screen"}>
@@ -215,11 +210,7 @@ export function ChatProjectSurface({ title, children }: { title: ReactNode; chil
           )}
         </div>
       </header>
-      <div className={styles.surfaceContent}>
-        {surfaceTab === "exports" && workspace?.projectId
-          ? <ProjectExportsPanel projectId={workspace.projectId} />
-          : children}
-      </div>
+      <div className={styles.surfaceContent}>{children}</div>
     </div>
   );
 }

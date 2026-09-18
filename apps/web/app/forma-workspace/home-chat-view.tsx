@@ -18,7 +18,7 @@ import {
 
 import { shouldOfferFailedBuildRetry } from "../../lib/conversation-build-state";
 import ConversationMessageList, { type ConversationMessage } from "./conversation-message-list";
-import HostedChatMaintenance, { AuthoringModeBanner } from "./hosted-chat-maintenance";
+import { AuthoringModeBanner } from "./hosted-chat-maintenance";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout from "./chat-project-layout";
 
@@ -133,7 +133,7 @@ export default function HomeChatView({
           : "w-full max-w-none"
       } flex min-h-0 flex-1 flex-col text-center`}
     >
-      {!started && !readOnly && (
+      {!started && !authoringActive && (
         <div className="shrink-0">
           <h1 className="text-2xl font-semibold tracking-tight text-zinc-100 sm:mt-1 sm:text-3xl">
             Turn an idea into a hardware plan.
@@ -143,9 +143,9 @@ export default function HomeChatView({
           </p>
         </div>
       )}
-      {(readOnly || authoringActive) && !started && (
+      {authoringActive && !started && (
         <div className="mx-auto w-full max-w-2xl px-3 sm:px-4 md:px-0">
-          {authoringActive ? <AuthoringModeBanner /> : <HostedChatMaintenance />}
+          <AuthoringModeBanner />
         </div>
       )}
 
@@ -167,7 +167,6 @@ export default function HomeChatView({
             onScroll={handleScroll}
             className="min-h-0 flex-1 space-y-4 overflow-x-hidden overflow-y-auto px-3 pb-5 pt-16 sm:px-4 sm:pb-6 md:pt-5"
           >
-            {readOnly && <HostedChatMaintenance compact />}
             {authoringActive && <AuthoringModeBanner compact />}
             <ConversationMessageList
               messages={messages}
@@ -183,7 +182,7 @@ export default function HomeChatView({
           </div>
         )}
 
-        {!started && !readOnly && (
+        {!started && !authoringActive && (
           <div className="mt-auto shrink-0 px-3 py-3 sm:px-4 md:order-2 md:mt-4 md:px-0 md:py-0">
             <div className="flex snap-x gap-3 overflow-x-auto pb-1 sm:grid sm:grid-cols-3 sm:overflow-visible sm:pb-0">
               {examples.map((example) => (
@@ -205,7 +204,7 @@ export default function HomeChatView({
           </div>
         )}
 
-        {!readOnly && (
+        {(!readOnly || !started) && (
           <form
             onSubmit={onSubmit}
             className={started

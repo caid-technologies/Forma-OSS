@@ -40,6 +40,30 @@ test("main authoring, read-only, submit, stop and retry behavior remains wired",
   assert.match(home, /className=\{started\s*\? "relative/);
   assert.ok(home.includes("onSubmit={onSubmit}"));
 });
+test("fresh home chat stays writable for signed-out visitors and authenticates before submit", () => {
+  assert.doesNotMatch(home, /HostedChatMaintenance/);
+  assert.match(home, /\{\(!readOnly \|\| !started\) && \(\s*<form/);
+
+  const gatherContext = workspace.slice(
+    workspace.indexOf("const submitGatherContext = async"),
+    workspace.indexOf("const handleGatherContext ="),
+  );
+  const generate = workspace.slice(
+    workspace.indexOf("const handleGenerate = async"),
+    workspace.indexOf("const handleProjectChatGenerate ="),
+  );
+
+  assert.ok(gatherContext.indexOf("requireSignedInForGeneration") < gatherContext.indexOf("requireHostedChatEnabled"));
+  assert.ok(generate.indexOf("requireSignedInForGeneration") < generate.indexOf("requireHostedChatEnabled"));
+
+  const startNewChat = workspace.slice(
+    workspace.indexOf("const startNewProjectChat ="),
+    workspace.indexOf("const openChatItem ="),
+  );
+  assert.doesNotMatch(startNewChat, /requireHostedChatEnabled/);
+  assert.ok(workspace.includes('const newChatDisabled = chatAccessState !== "ready" ||'));
+});
+
 test("CAD teardown cancels browser downloads and guards non-cancellable SDK work", () => {
   assert.match(cad, /controller\.abort\(\)/);
   assert.ok(cad.includes("fetch(url, { signal })"));

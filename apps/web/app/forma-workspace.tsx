@@ -5288,6 +5288,12 @@ export function FormaWorkspace({
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
   const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
+  useEffect(() => {
+    const persistedMode = projectIR?.assembly_metadata?.generation_mode;
+    if (persistedMode === "regular" || persistedMode === "progressive") {
+      setGenerationMode(persistedMode);
+    }
+  }, [currentProjectId, projectIR?.assembly_metadata?.generation_mode]);
   const currentProjectCanDownloadAssets = currentUserOwnsProject;
   const handleProgressiveVisualDecision = async (
     decision: "approve" | "revise" | "continue_to_cad",

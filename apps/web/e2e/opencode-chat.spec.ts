@@ -101,13 +101,14 @@ function event(
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
 
-for (const accessResult of ["enabled", "maintenance", "failed"] as const) {
+for (const accessResult of ["enabled", "disabled", "failed"] as const) {
   test(`Chat access loading handles ${accessResult} without a maintenance flash`, async ({ page, baseURL }) => {
     test.setTimeout(180_000);
     const appOrigin = new URL(baseURL!).origin;
     let releaseConfig!: () => void;
     const configGate = new Promise<void>((resolve) => { releaseConfig = resolve; });
     let configRequests = 0;
+    const mutationRequests: string[] = [];
 
     await page.route("**/*", async (route) => {
       const url = new URL(route.request().url());
@@ -116,6 +117,7 @@ for (const accessResult of ["enabled", "maintenance", "failed"] as const) {
         return;
       }
       const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+      if (route.request().method() === "POST") mutationRequests.push(path);
       if (path === "/runtime/config") {
         configRequests += 1;
         await configGate;
@@ -124,7 +126,7 @@ for (const accessResult of ["enabled", "maintenance", "failed"] as const) {
         } else {
           await route.fulfill({ json: {
             ...runtimeConfig,
-            deployment: { ...runtimeConfig.deployment, authoring_access: accessResult !== "maintenance" },
+            deployment: { ...runtimeConfig.deployment, authoring_access: accessResult !== "disabled" },
           } });
         }
         return;
@@ -149,9 +151,16 @@ for (const accessResult of ["enabled", "maintenance", "failed"] as const) {
       await expect(composer).toHaveCount(0);
       releaseConfig();
 
-      if (accessResult === "maintenance") {
-        await expect(maintenance).toBeVisible();
-        await expect(composer).toHaveCount(0);
+      if (accessResult === "disabled") {
+        // Fresh chats keep a writable composer; backend availability is checked
+        // on submission instead of replacing it with a maintenance banner.
+        await expect(composer).toBeVisible();
+        await expect(maintenance).toHaveCount(0);
+        await expect(page.getByRole("status", { name: "Forma Agent is authoring this workspace.", exact: true })).toHaveCount(0);
+        await composer.fill("Build a simple mechanical mounting bracket.");
+        await composer.press("Enter");
+        await expect(page.getByText("Forma hosted chat is temporarily under maintenance.", { exact: true })).toBeVisible();
+        expect(mutationRequests).toEqual([]);
       } else {
         if (accessResult === "failed") {
           await expect(page.getByRole("alert").filter({ hasText: "Chat could not be loaded" })).toBeVisible();

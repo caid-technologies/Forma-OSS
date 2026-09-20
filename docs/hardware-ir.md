@@ -36,6 +36,7 @@ Additional fields commonly populated at runtime:
 - **mechanical.component_placements** – per-component placement records for the 3D viewer.
 - **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
 - **mechanical.motion_intents** – agent-authored motion intent keyed by component references. Rigid revolute/prismatic intent is resolved into OpenCAD kinematic joints during CAD generation; `cad_model.kinematics` stores OpenCAD-evaluated pose tracks for MECH playback. Compliant intent remains separate from the rigid-joint contract.
+- **mechanical.mechanism_benchmark** – optional bounded additive-mechanism benchmark configuration for the print-in-place captive hinge or monolithic flexure hinge. Generated CAD records manufacturing metadata in `cad_model.mechanism`; flexure visualization uses a separate non-structural `cad_model.compliant_preview` contract.
 
 ## Key relationships
 - **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.

@@ -153,6 +153,28 @@ class CadGenerationTests(unittest.TestCase):
         self.assertAlmostEqual(1.57079632679, payload[0]["upper_limit"], places=9)
         self.assertEqual((0.0, 0.0, 1.0), payload[0]["axis"])
 
+    def test_cad_source_is_valid_python_with_null_optional_motion_fields(self) -> None:
+        project = mechanical_project()
+        project.mechanical.motion_intents = [
+            MechanicalMotionIntent(
+                motion_id="lid-hinge",
+                label="Open lid",
+                type="revolute",
+                target_ref="LID",
+                parent_ref="BASE",
+                axis="X",
+                pivot_mm=[-20, 0, 10],
+                min_deg=0,
+                max_deg=90,
+            )
+        ]
+
+        source = _cad_source(project)
+
+        compile(source, "assembly.py", "exec")
+        self.assertNotIn(" null", source)
+        self.assertIn("'notes': None", source)
+
     def test_cad_source_registers_motion_intent_as_opencad_joint(self) -> None:
         project = mechanical_project()
         project.mechanical.component_placements = [

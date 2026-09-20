@@ -184,14 +184,14 @@ fixed_stop = box(
     land_length,
     stop_thickness,
     leaf_thickness + stop_thickness,
-    (0.0, -(leaf_gap / 2.0 + stop_thickness / 2.0), stop_thickness / 2.0),
+    (0.0, -(leaf_gap / 2.0 + stop_thickness), stop_thickness / 2.0),
     "Fixed stop land",
 )
 moving_stop = box(
     land_length,
     stop_thickness,
     leaf_thickness + stop_thickness,
-    (0.0, leaf_gap / 2.0 + stop_thickness / 2.0, stop_thickness / 2.0),
+    (0.0, leaf_gap / 2.0 + stop_thickness, stop_thickness / 2.0),
     "Moving stop land",
 )
 fixed = fixed.union(fixed_stop, name="Fixed stop land joined")

@@ -7,13 +7,11 @@ import * as THREE from "three";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
-  motionRangeLabel,
-  motionValueAtProgress,
-  normalizeMechanicalMotions,
-  type MechanicalAxis,
-  type MechanicalMotionInput,
-  type NormalizedMechanicalMotion,
-} from "../lib/mechanical-motion";
+  normalizeOpenCadMotionTracks,
+  openCadMotionRangeLabel,
+  openCadSampleAtProgress,
+  type OpenCadMotionTrack,
+} from "../lib/opencad-motion-preview";
 import { sceneAppearanceForTheme, type MechanicalSceneAppearance, type MechanicalScenePalette } from "../lib/theme";
 import { useTheme } from "../lib/theme-provider";
 
@@ -70,7 +68,7 @@ type MechanicalSceneProps = {
   components: ComponentInstance[];
   placements?: PlacementInput[];
   relationships?: SpatialRelationshipInput[];
-  motions?: MechanicalMotionInput[];
+  kinematics?: unknown;
   features: string[];
   toggles: Record<string, boolean>;
   electricalActive: boolean;
@@ -583,51 +581,53 @@ function worldSize(sizeMm: [number, number, number], scale: number): [number, nu
   ];
 }
 
-function projectAxisToWorld(axis: MechanicalAxis) {
-  if (axis === "X") return new THREE.Vector3(1, 0, 0);
-  if (axis === "Y") return new THREE.Vector3(0, 0, 1);
-  return new THREE.Vector3(0, 1, 0);
+function projectQuaternionToWorld(
+  value: [number, number, number, number],
+) {
+  const projectQuaternion = new THREE.Quaternion(...value).normalize();
+  const projectRotation = new THREE.Matrix4().makeRotationFromQuaternion(projectQuaternion);
+  const basisSwap = new THREE.Matrix4().set(
+    1, 0, 0, 0,
+    0, 0, 1, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+  );
+  const worldRotation = basisSwap.clone().multiply(projectRotation).multiply(basisSwap);
+  return new THREE.Quaternion().setFromRotationMatrix(worldRotation).normalize();
 }
 
 function partMotionPose(
   spec: ScenePlacement,
   scale: number,
-  motion: NormalizedMechanicalMotion | null,
+  motion: OpenCadMotionTrack | null,
   progress: number,
 ) {
-  const position = new THREE.Vector3(...worldPosition(spec.positionMm, scale));
   const localQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(...spec.rotationRad));
 
   if (!motion) {
     return {
-      position: position.toArray() as [number, number, number],
+      position: worldPosition(spec.positionMm, scale),
       quaternion: localQuaternion,
     };
   }
 
-  const value = motionValueAtProgress(motion, progress);
-  const axis = projectAxisToWorld(motion.axis);
-
-  if (motion.type === "prismatic") {
-    position.add(axis.multiplyScalar(value / scale));
-    return {
-      position: position.toArray() as [number, number, number],
-      quaternion: localQuaternion,
-    };
-  }
-
-  // The project-to-world mapping swaps Y/Z, which flips handedness.
-  // Negating the angle keeps positive project-space rotation visually consistent.
-  const pivot = new THREE.Vector3(...worldPosition(motion.pivotMm, scale));
-  const jointQuaternion = new THREE.Quaternion().setFromAxisAngle(
-    axis,
-    -THREE.MathUtils.degToRad(value),
+  const sample = openCadSampleAtProgress(motion, progress);
+  const projectQuaternion = new THREE.Quaternion(
+    ...sample.transform.rotation_quaternion_xyzw,
+  ).normalize();
+  const projectPosition = new THREE.Vector3(...spec.positionMm)
+    .applyQuaternion(projectQuaternion)
+    .add(new THREE.Vector3(...sample.transform.translation_mm));
+  const worldQuaternion = projectQuaternionToWorld(
+    sample.transform.rotation_quaternion_xyzw,
   );
-  position.sub(pivot).applyQuaternion(jointQuaternion).add(pivot);
 
   return {
-    position: position.toArray() as [number, number, number],
-    quaternion: jointQuaternion.multiply(localQuaternion),
+    position: worldPosition(
+      projectPosition.toArray() as [number, number, number],
+      scale,
+    ),
+    quaternion: worldQuaternion.multiply(localQuaternion),
   };
 }
 
@@ -809,7 +809,7 @@ function PartWireframe({
   scale: number;
   selected: boolean;
   faded: boolean;
-  motion: NormalizedMechanicalMotion | null;
+  motion: OpenCadMotionTrack | null;
   motionProgress: number;
   motionActive: boolean;
   appearance: MechanicalSceneAppearance;
@@ -867,7 +867,7 @@ function PartTag({
 }: {
   placement: ScenePlacement;
   scale: number;
-  motion: NormalizedMechanicalMotion | null;
+  motion: OpenCadMotionTrack | null;
   motionProgress: number;
 }) {
   const position = partMotionPose(placement, scale, motion, motionProgress).position;
@@ -983,7 +983,7 @@ export default function MechanicalScene({
   components,
   placements = [],
   relationships = [],
-  motions = [],
+  kinematics,
   features,
   toggles,
   electricalActive,
@@ -1011,11 +1011,14 @@ export default function MechanicalScene({
     [components, dimensions, palette, placements]
   );
   const envelopeRef = useMemo(() => pickEnvelopeRef(scenePlacements, dimensions), [dimensions, scenePlacements]);
-  const normalizedMotions = useMemo(
-    () => normalizeMechanicalMotions(motions, new Set(scenePlacements.map((placement) => placement.refDes))),
-    [motions, scenePlacements],
+  const motionTracks = useMemo(
+    () => normalizeOpenCadMotionTracks(
+      kinematics,
+      new Set(scenePlacements.map((placement) => placement.refDes)),
+    ),
+    [kinematics, scenePlacements],
   );
-  const activeMotion = normalizedMotions[activeMotionIndex] || null;
+  const activeMotion = motionTracks[activeMotionIndex] || null;
   const visiblePlacements = useMemo(
     () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive, envelopeRef)),
     [electricalActive, envelopeRef, scenePlacements, toggles]
@@ -1051,19 +1054,19 @@ export default function MechanicalScene({
   const envelopeSelected = Boolean(selectedRef && selectedRef === envelopeRef);
 
   useEffect(() => {
-    if (!normalizedMotions.length) {
+    if (!motionTracks.length) {
       setMotionPlaying(false);
       setMotionProgress(0);
       setActiveMotionIndex(0);
       return;
     }
-    if (activeMotionIndex >= normalizedMotions.length) {
+    if (activeMotionIndex >= motionTracks.length) {
       setActiveMotionIndex(0);
       setMotionProgress(0);
       setMotionPlaying(false);
       motionDirectionRef.current = 1;
     }
-  }, [activeMotionIndex, normalizedMotions.length]);
+  }, [activeMotionIndex, motionTracks.length]);
 
   useEffect(() => {
     if (!motionPlaying || !activeMotion) return;
@@ -1354,11 +1357,11 @@ export default function MechanicalScene({
                 <div className="mt-1 truncate text-xs font-semibold text-[var(--forma-text-strong)]">{activeMotion.label}</div>
               </div>
               <span className="shrink-0 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
-                {activeMotion.type === "compliant" ? "compliant / approx" : activeMotion.type}
+                {activeMotion.type}
               </span>
             </div>
 
-            {normalizedMotions.length > 1 && (
+            {motionTracks.length > 1 && (
               <label className="mt-3 block">
                 <span className="sr-only">Select mechanical motion</span>
                 <select
@@ -1371,7 +1374,7 @@ export default function MechanicalScene({
                   }}
                   className="w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-page)] px-2.5 py-2 text-xs text-[var(--forma-text-body)] outline-none focus:border-[var(--forma-text-muted)]"
                 >
-                  {normalizedMotions.map((motion, index) => (
+                  {motionTracks.map((motion, index) => (
                     <option key={motion.id} value={index}>
                       {motion.label}
                     </option>
@@ -1381,8 +1384,8 @@ export default function MechanicalScene({
             )}
 
             <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
-              <span>{activeMotion.targetRef} / {activeMotion.axis}</span>
-              <span>{motionRangeLabel(activeMotion)}</span>
+              <span>{activeMotion.targetRef} / OpenCAD</span>
+              <span>{openCadMotionRangeLabel(activeMotion)}</span>
             </div>
 
             <input

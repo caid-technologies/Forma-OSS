@@ -203,6 +203,9 @@ class CadGenerationTests(unittest.TestCase):
         self.assertIn('"create_kinematic_joint"', source)
         self.assertIn('"joint_id": intent["motion_id"]', source)
         self.assertIn('"forma_target_ref": intent["target_ref"]', source)
+        self.assertIn('MOVING_REFS = {intent["target_ref"] for intent in MOTION_INTENTS}', source)
+        self.assertIn('if item["ref_des"] not in MOVING_REFS:', source)
+        self.assertIn("FORMA_EXPORT_SHAPE_IDS", source)
 
     def test_generation_persists_opencad_kinematics_payload(self) -> None:
         kinematics = {
@@ -344,7 +347,7 @@ class CadGenerationTests(unittest.TestCase):
             MechanicalPlacement(
                 ref_des="BASE",
                 label="Static base",
-                category="Mechanical",
+                category="Enclosure",
                 position=MechanicalVector3(x_mm=0, y_mm=0, z_mm=0),
                 size=MechanicalVector3(x_mm=40, y_mm=30, z_mm=4),
             ),

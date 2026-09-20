@@ -94,7 +94,7 @@ installing the skill, before asking an agent to create or export CAD:
 python .agents/skills/forma-hardware/scripts/cad.py setup
 ```
 
-The adapter pins OpenCAD `0.2.3` with the `occt` extra, reuses a compatible
+The adapter pins OpenCAD `0.2.4` with the `occt` extra, reuses a compatible
 native installation, and verifies OCCT before a model runs. See the skill's
 [CAD reference](../.agents/skills/forma-hardware/references/cad.md) for build
 commands, exact recovery diagnostics, and `FORMA_OPENCAD_REQUIREMENT` source

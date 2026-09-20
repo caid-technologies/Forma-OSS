@@ -1516,6 +1516,16 @@ const communityProjects = [
     description: "Compact controller example with display, sensor, and validated power rails.",
     file: "smart_thermostat.json",
   },
+  {
+    title: "Print-in-place hinge",
+    description: "Two-body captive hinge benchmark with explicit radial/axial clearance and OpenCAD motion.",
+    file: "print_in_place_hinge.json",
+  },
+  {
+    title: "Monolithic flexure",
+    description: "Single-solid compliant hinge benchmark with an explicitly approximate deformation preview.",
+    file: "monolithic_flexure_hinge.json",
+  },
 ];
 
 type ChatRouteTransition = {

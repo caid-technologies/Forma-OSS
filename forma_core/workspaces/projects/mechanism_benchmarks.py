@@ -282,8 +282,8 @@ flexure = box(
 model = left.union(flexure, name="Fixed region to flexure").union(right, name="Monolithic flexure body")
 FORMA_EXPORT_SHAPE_IDS = [model.shape_id]
 
-direction = -1.0 if PARAMS["bend_direction"] == "positive_z" else 1.0
-limit = math.radians(PARAMS["nominal_travel_deg"]) * direction
+axis_y = -1.0 if PARAMS["bend_direction"] == "positive_z" else 1.0
+limit = math.radians(PARAMS["nominal_travel_deg"])
 samples = []
 for sample_index in range(PARAMS["preview_samples"]):
     progress = sample_index / float(PARAMS["preview_samples"] - 1)
@@ -294,7 +294,7 @@ for sample_index in range(PARAMS["preview_samples"]):
         "unit": "radian",
         "transform": {
             "translation_mm": [0.0, 0.0, 0.0],
-            "rotation_quaternion_xyzw": [0.0, math.sin(angle / 2.0), 0.0, math.cos(angle / 2.0)],
+            "rotation_quaternion_xyzw": [0.0, axis_y * math.sin(angle / 2.0), 0.0, math.cos(angle / 2.0)],
         },
     })
 
@@ -315,7 +315,7 @@ FORMA_COMPLIANT_PREVIEW = {
         "lower_limit": 0.0,
         "upper_limit": limit,
         "unit": "radian",
-        "axis": [0.0, 1.0, 0.0],
+        "axis": [0.0, axis_y, 0.0],
         "notes": "Rigid-tip proxy around the flexure center; not structural validation.",
         "samples": samples,
     }],

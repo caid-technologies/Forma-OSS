@@ -61,7 +61,7 @@ class OpenCADRuntime:
         if added_model_directory:
             sys.path.insert(0, model_directory)
         try:
-            runpy.run_path(str(model), run_name="__main__")
+            model_globals = runpy.run_path(str(model), run_name="__main__")
         finally:
             if added_model_directory:
                 sys.path.remove(model_directory)
@@ -69,14 +69,43 @@ class OpenCADRuntime:
         if not context.last_shape_id:
             raise OpenCADError("The OpenCAD model produced no shape to export.")
 
-        operation = "export_stl" if output.suffix.lower() == ".stl" else "export_step"
-        result = registry_result_to_dict(
-            context.registry,
-            operation,
-            {"shape_id": context.last_shape_id, "filepath": str(output)},
-        )
-        if not result.get("ok"):
-            raise OpenCADError(f"CAD export failed: {result.get('message', 'unknown error')}")
+        export_shape_ids = model_globals.get("FORMA_EXPORT_SHAPE_IDS")
+        if not isinstance(export_shape_ids, list) or not export_shape_ids:
+            export_shape_ids = [context.last_shape_id]
+        export_shape_ids = [str(shape_id) for shape_id in export_shape_ids if shape_id]
+        if not export_shape_ids:
+            raise OpenCADError("The OpenCAD model produced no shapes to export.")
+
+        if len(export_shape_ids) == 1:
+            operation = "export_stl" if output.suffix.lower() == ".stl" else "export_step"
+            result = registry_result_to_dict(
+                context.registry,
+                operation,
+                {"shape_id": export_shape_ids[0], "filepath": str(output)},
+            )
+            if not result.get("ok"):
+                raise OpenCADError(f"CAD export failed: {result.get('message', 'unknown error')}")
+        else:
+            try:
+                import cadquery as cq
+
+                native_shapes = []
+                for shape_id in export_shape_ids:
+                    native = context.kernel.get_native_shape(shape_id)
+                    if native is None:
+                        raise OpenCADError(f"OpenCAD native shape '{shape_id}' is unavailable for multi-body export.")
+                    native_shapes.append(cq.Shape(native))
+                workplane = cq.Workplane("XY").newObject(native_shapes)
+                export_type = (
+                    cq.exporters.ExportTypes.STL
+                    if output.suffix.lower() == ".stl"
+                    else cq.exporters.ExportTypes.STEP
+                )
+                cq.exporters.export(workplane, str(output), exportType=export_type)
+            except OpenCADError:
+                raise
+            except Exception as exc:
+                raise OpenCADError(f"Multi-body CAD export failed: {exc}") from exc
         if tree_output is not None:
             context.save_tree_json(str(tree_output))
 

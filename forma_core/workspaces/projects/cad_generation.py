@@ -161,7 +161,7 @@ def _cad_source(project: HardwareIR) -> str:
     open_frame = "open" in enclosure_text and "enclosure" not in enclosure_text
     wall = max(1.5, min(3.0, min(width, depth, height) / 12.0))
     placements = json.dumps(_placement_payload(project), sort_keys=True)
-    motion_intents = json.dumps(_motion_intent_payload(project), sort_keys=True)
+    motion_intents = repr(_motion_intent_payload(project))
     return """from opencad import Part, Sketch, get_default_context
 
 

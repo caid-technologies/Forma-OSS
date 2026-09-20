@@ -14,9 +14,9 @@ def _notes(**overrides):
     return MechanicalNotes.model_validate(payload)
 
 
-def test_mechanical_notes_accept_revolute_and_prismatic_motions():
+def test_mechanical_notes_accept_revolute_and_prismatic_motion_intents():
     notes = _notes(
-        motions=[
+        motion_intents=[
             {
                 "motion_id": "lid",
                 "type": "revolute",
@@ -37,16 +37,16 @@ def test_mechanical_notes_accept_revolute_and_prismatic_motions():
         ]
     )
 
-    assert [motion.type for motion in notes.motions] == ["revolute", "prismatic"]
-    assert notes.motions[0].axis == "Z"
-    assert notes.motions[0].pivot_mm == [-40.0, 10.0, 0.0]
-    assert notes.motions[1].max_mm == 8
+    assert [motion.type for motion in notes.motion_intents] == ["revolute", "prismatic"]
+    assert notes.motion_intents[0].axis == "Z"
+    assert notes.motion_intents[0].pivot_mm == [-40.0, 10.0, 0.0]
+    assert notes.motion_intents[1].max_mm == 8
 
 
-def test_mechanical_motion_rejects_unknown_axes():
+def test_mechanical_motion_intent_rejects_unknown_axes():
     with pytest.raises(ValidationError):
         _notes(
-            motions=[
+            motion_intents=[
                 {
                     "type": "revolute",
                     "target_ref": "LID",

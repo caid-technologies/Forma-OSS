@@ -147,6 +147,9 @@ def _motion_intent_payload(project: HardwareIR) -> list[dict[str, Any]]:
 
 
 def _cad_source(project: HardwareIR) -> str:
+    if project.mechanical and project.mechanical.mechanism_benchmark is not None:
+        from forma_core.workspaces.projects.mechanism_benchmarks import mechanism_cad_source
+        return mechanism_cad_source(project.mechanical.mechanism_benchmark)
     if project.mechanical and project.mechanical.cad_operations:
         from forma_core.workspaces.projects.solid_cad import solid_cad_source
         return solid_cad_source(project.mechanical.cad_operations)
@@ -547,7 +550,7 @@ def _has_authoritative_cad(value: Any) -> bool:
 def _cad_is_applicable(project: HardwareIR) -> bool:
     if project.mechanical is None:
         return False
-    return bool(project.mechanical.cad_operations or project.mechanical.component_placements or project.components or project.mechanical.render_dimensions)
+    return bool(project.mechanical.mechanism_benchmark or project.mechanical.cad_operations or project.mechanical.component_placements or project.components or project.mechanical.render_dimensions)
 
 
 def _set_cad_status(project: HardwareIR, *, status: str, required: bool, error: str | None = None) -> None:
@@ -707,7 +710,7 @@ def ensure_native_cad_model(
 ) -> bool:
     """Generate one-shot CAD by default, or hierarchical CAD in progressive mode."""
 
-    explicit_solid = bool(project.mechanical and project.mechanical.cad_operations)
+    explicit_solid = bool(project.mechanical and (project.mechanical.cad_operations or project.mechanical.mechanism_benchmark))
     if _has_authoritative_cad(project.cad_model) and not explicit_solid:
         _set_cad_status(project, status="provided", required=required)
         return False
@@ -818,6 +821,8 @@ def ensure_native_cad_model(
             "feature_tree_path": str(tree_path),
             "opencad_version": step_summary.get("opencad_version"),
             "kinematics": step_summary.get("kinematics"),
+            "compliant_preview": step_summary.get("compliant_preview"),
+            "mechanism": step_summary.get("mechanism"),
             "exports": portable_exports,
             "meshes": [mesh],
         }

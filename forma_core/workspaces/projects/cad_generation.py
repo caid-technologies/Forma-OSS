@@ -346,6 +346,28 @@ def _stl_mesh(path: Path) -> dict[str, Any]:
     }
 
 
+def _stl_mesh_bytes(mesh: dict[str, Any]) -> bytes:
+    """Serialize a preview triangle mesh as deterministic binary STL."""
+
+    vertices = list(mesh.get("vertices") or [])
+    faces = list(mesh.get("faces") or [])
+    if len(vertices) % 3 or len(faces) % 3 or not vertices or not faces:
+        raise CadGenerationError("OpenCAD preview mesh is not valid for STL export.")
+    vertex_count = len(vertices) // 3
+    output = bytearray(b"Forma portable STL".ljust(80, b"\0"))
+    output.extend(struct.pack("<I", len(faces) // 3))
+    for index in range(0, len(faces), 3):
+        a, b, c = (int(faces[index + offset]) for offset in range(3))
+        if min(a, b, c) < 0 or max(a, b, c) >= vertex_count:
+            raise CadGenerationError("OpenCAD preview mesh contains an invalid STL face index.")
+        coords: list[float] = []
+        for vertex_id in (a, b, c):
+            offset = vertex_id * 3
+            coords.extend(float(vertices[offset + axis]) for axis in range(3))
+        output.extend(struct.pack("<12fH", 0.0, 0.0, 0.0, *coords, 0))
+    return bytes(output)
+
+
 def _obj_mesh_bytes(mesh: dict[str, Any]) -> bytes:
     """Serialize the preview triangle mesh as a portable OBJ in millimeters."""
 

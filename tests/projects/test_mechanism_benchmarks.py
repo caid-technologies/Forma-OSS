@@ -183,6 +183,17 @@ class MechanismBenchmarkTests(unittest.TestCase):
         self.assertIn("structural_validation", flexure_source)
         self.assertIn("FORMA_EXPORT_SHAPE_IDS = [model.shape_id]", flexure_source)
 
+
+    def test_example_projects_validate_as_hardware_ir(self) -> None:
+        repo_root = Path(__file__).resolve().parents[2]
+        for filename in ("print_in_place_hinge.json", "monolithic_flexure_hinge.json"):
+            with self.subTest(filename=filename):
+                project = HardwareIR.model_validate_json(
+                    (repo_root / "examples" / filename).read_text(encoding="utf-8")
+                )
+                self.assertIsNotNone(project.mechanical)
+                self.assertIsNotNone(project.mechanical.mechanism_benchmark)
+
     @unittest.skipUnless(
         os.environ.get("FORMA_CAD_RUN_INTEGRATION_TESTS") == "true",
         "Native OCCT integration gate",

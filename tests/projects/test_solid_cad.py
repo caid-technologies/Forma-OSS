@@ -1,4 +1,5 @@
 import hashlib
+import io
 import json
 import os
 from pathlib import Path
@@ -7,9 +8,11 @@ import sys
 import tempfile
 import unittest
 from unittest.mock import patch
+import zipfile
 
 from pydantic import ValidationError
 from forma_core.persistence.project_artifacts import ProjectArtifactStorage
+from forma_core.workspaces.projects import cad_generation
 from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
 from forma_core.workspaces.projects.models import HardwareIR
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
@@ -43,6 +46,25 @@ class SolidCadTests(unittest.TestCase):
         self.assertEqual(evaluate_design_outcome(cube()).project_readiness, "partial")
         self.assertEqual(evaluate_design_outcome(HardwareIR()).project_readiness, "draft")
 
+    def test_preview_mesh_serializes_to_obj_and_3mf(self):
+        mesh = {
+            "vertices": [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0, 0.0],
+            "faces": [0, 1, 2],
+        }
+        obj = cad_generation._obj_mesh_bytes(mesh)
+        self.assertIn(b"v 10 0 0", obj)
+        self.assertIn(b"f 1 2 3", obj)
+
+        three_mf = cad_generation._three_mf_mesh_bytes(mesh)
+        with zipfile.ZipFile(io.BytesIO(three_mf)) as archive:
+            self.assertEqual(
+                set(archive.namelist()),
+                {"[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"},
+            )
+            model = archive.read("3D/3dmodel.model")
+        self.assertIn(b'unit="millimeter"', model)
+        self.assertIn(b'<triangle v1="0" v2="1" v3="2"/>', model)
+
     def test_failed_regeneration_does_not_reuse_stale_preview(self):
         project = cube()
         project.cad_model = {"meshes": [{"vertices": [1, 2, 3]}], "stored_sha256": "old"}
@@ -71,9 +93,14 @@ class SolidCadTests(unittest.TestCase):
                 coords = mesh["vertices"][axis::3]
                 self.assertAlmostEqual(max(coords) - min(coords), 20, places=5)
             self.assertGreater(len(mesh["faces"]), 36)
-            stored = ProjectArtifactStorage().get(PROJECT_ID, first["stored_sha256"], "model/step").content
+            storage = ProjectArtifactStorage()
+            stored = storage.get(PROJECT_ID, first["stored_sha256"], "model/step").content
             self.assertEqual(stored, Path(first["path"]).read_bytes())
             self.assertEqual(hashlib.sha256(stored).hexdigest(), first["stored_sha256"])
+            self.assertEqual(set(first["exports"]), {"stl", "3mf", "obj"})
+            for descriptor in first["exports"].values():
+                portable = storage.get(PROJECT_ID, descriptor["sha256"], descriptor["media_type"]).content
+                self.assertEqual(hashlib.sha256(portable).hexdigest(), descriptor["sha256"])
             self.assertEqual(evaluate_design_outcome(project).project_readiness, "complete")
             project.mechanical.cad_operations[0].size.x_mm = 30
             ensure_native_cad_model(project, project_id=PROJECT_ID, required=True)

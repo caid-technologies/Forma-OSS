@@ -7,7 +7,7 @@ The Forma hardware skill manages OpenCAD for CAD-capable workflows. The base
 
 - OpenCAD: `0.2.3`
 - Required extra: `occt`
-- Exact managed requirement: `opencad[occt]==0.2.3`
+- Managed source: OpenCAD merged kinematics commit `ce31b40a3f6094a6993d9b7c0a734fb4df2eb161`
 - Python: `3.11+` for the Forma skill environment
 
 The OCCT extra is required for real STEP and STL exchange files. The analytic
@@ -22,8 +22,7 @@ workflow:
 python <skill-directory>/scripts/cad.py setup
 ```
 
-Setup first reuses an installed OpenCAD `0.2.3` runtime when its native OCCT
-backend is available. Otherwise it installs the exact managed requirement and
+Setup first reuses an installed OpenCAD `0.2.3` runtime only when both native OCCT and the rigid kinematics module are available. Otherwise it installs the pinned merged OpenCAD commit and
 verifies the backend before returning. To verify without changing the active
 Python environment:
 
@@ -59,6 +58,4 @@ mirror, or local package that still reports the supported `0.2.3` version, set
 FORMA_OPENCAD_REQUIREMENT='opencad[occt] @ file:///path/to/opencad-0.2.3-py3-none-any.whl' python <skill-directory>/scripts/cad.py setup
 ```
 
-The override changes only the package source/installer requirement. The
-adapter still rejects any runtime whose reported OpenCAD version is not
-`0.2.3` or whose OCCT backend cannot be constructed.
+The override changes only the package source/installer requirement. The adapter still rejects any runtime whose reported OpenCAD version is not `0.2.3`, whose OCCT backend cannot be constructed, or which does not expose the rigid kinematics module.

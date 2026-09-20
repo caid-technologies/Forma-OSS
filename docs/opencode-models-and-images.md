@@ -6,19 +6,18 @@ provider.
 
 For the current OpenAI-first rollout, use `FORMA_OPENCODE_MODEL=openai/gpt-5.6-sol`
 on the connector service for the text/agent default, and configure the Forma
-backend with `IMAGE_PROVIDER=openai` plus an OpenAI image API key. Browser
-request-level model choices still override the connector default.
+backend with `IMAGE_PROVIDER=openai` plus an OpenAI image API key. Browser chat
+requests inherit the runtime default and ignore previously saved browser model choices.
 
 ## Switch the agent model
 
-In the Forma Agent composer, enter a `provider/model` ID and select **Apply**.
-The selector remembers the last eight choices in this browser. Select an earlier
-choice to switch again, or select **Runtime default** to remove the override.
-Changes affect the next submitted command, including in an existing conversation.
-Queued commands keep their explicit model when leased again after a restart.
+Set `FORMA_OPENCODE_MODEL` to a `provider/model` ID in the connector service
+environment and restart the service. Leave it unset to use OpenCode's configured
+default. The chat composer does not expose model controls or send a model override.
+Previously queued commands with an explicit API model retain that selection
+when leased again after a restart.
 
-The list contains your saved choices, not a live catalogue of the mini-PC's
-credentials or model entitlements. Use `opencode models` on the runtime to find
+Use `opencode models` on the runtime to find
 IDs supported by its providers. The selected model must be usable by the account
 running the connector. An unavailable explicit model fails through OpenCode's
 normal error path; the connector does not retry it with another model.
@@ -33,11 +32,10 @@ The connector passes the resolved explicit choice as
 `model: { providerID, modelID }` to `POST /session/:id/prompt_async`.
 Model IDs may contain further slashes (for example, an OpenRouter model).
 The generated project policy continues to own the restricted agent and tools.
-The picker does not rewrite the user's global OpenCode config or credentials.
 
 OpenCode's interactive `/models` selection affects that OpenCode environment;
 the service can run under a different Windows account and creates fresh local
-sessions. Use the Forma picker or an explicit service default for predictable
+sessions. Use an explicit service default for predictable
 hosted requests. Null commands deliberately inherit the default at execution
 time; only explicit command selections are pinned across retries.
 
@@ -136,8 +134,8 @@ Storage/provider errors return bounded messages without raw provider responses.
 4. Deploy the Forma web update after the connector. An older connector ignores
    the new model field and does not allow the image tool.
 5. Verify on the mini-PC: with `FORMA_OPENCODE_MODEL=openai/gpt-5.6-sol`,
-   send a request on Runtime default, then an explicit alternate model request,
-   return to Runtime default, generate one OpenAI image, reload the project, and
+   send a chat request using the configured runtime model,
+   generate one OpenAI image, reload the project, and
    make a CAD edit to confirm the image remains.
 
 Local automated checks use simulated provider/connector responses. Live OpenCode

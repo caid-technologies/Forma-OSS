@@ -311,6 +311,65 @@ class CadGenerationTests(unittest.TestCase):
         ):
             self.assertIn(feature, source)
 
+
+    @unittest.skipUnless(
+        config.boolean("FORMA_CAD_RUN_INTEGRATION_TESTS"),
+        "Set FORMA_CAD_RUN_INTEGRATION_TESTS=true to run native OpenCAD integration tests.",
+    )
+    def test_motion_intent_generates_native_opencad_kinematics(self) -> None:
+        project = mechanical_project()
+        project.mechanical.component_placements = [
+            MechanicalPlacement(
+                ref_des="BASE",
+                label="Static base",
+                category="Mechanical",
+                position=MechanicalVector3(x_mm=0, y_mm=0, z_mm=0),
+                size=MechanicalVector3(x_mm=40, y_mm=30, z_mm=4),
+            ),
+            MechanicalPlacement(
+                ref_des="LID",
+                label="Hinged lid",
+                category="Mechanical",
+                position=MechanicalVector3(x_mm=0, y_mm=0, z_mm=10),
+                size=MechanicalVector3(x_mm=40, y_mm=30, z_mm=2),
+            ),
+        ]
+        project.mechanical.motion_intents = [
+            MechanicalMotionIntent(
+                motion_id="lid-hinge",
+                label="Open lid",
+                type="revolute",
+                parent_ref="BASE",
+                target_ref="LID",
+                axis="X",
+                pivot_mm=[-20, 0, 10],
+                min_deg=0,
+                max_deg=90,
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as workspace:
+            with patch.dict("os.environ", {"FORMA_CAD_WORKSPACE": workspace}, clear=False):
+                self.assertTrue(ensure_native_cad_model(
+                    project,
+                    project_id="55555555-5555-4555-8555-555555555555",
+                    required=True,
+                    authoring_agent="OpenCAD kinematics integration fixture",
+                ))
+
+        kinematics = project.cad_model.get("kinematics")
+        self.assertIsInstance(kinematics, dict)
+        self.assertEqual("opencad", kinematics["source"])
+        self.assertEqual(101, kinematics["sample_count"])
+        self.assertEqual(1, len(kinematics["tracks"]))
+        track = kinematics["tracks"][0]
+        self.assertEqual("lid-hinge", track["joint"]["id"])
+        self.assertEqual("LID", track["target_ref"])
+        self.assertEqual("BASE", track["parent_ref"])
+        self.assertEqual("radian", track["joint"]["unit"])
+        self.assertEqual(101, len(track["samples"]))
+        self.assertAlmostEqual(1.0, track["samples"][-1]["progress"])
+
     @unittest.skipUnless(
         config.boolean("FORMA_CAD_RUN_INTEGRATION_TESTS"),
         "Set FORMA_CAD_RUN_INTEGRATION_TESTS=true to run native OpenCAD integration tests.",

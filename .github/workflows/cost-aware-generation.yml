@@ -24,6 +24,7 @@ on:
       - "tests/projects/test_design_lifecycle.py"
       - "tests/projects/test_hierarchical_cad.py"
       - "tests/projects/test_hierarchical_visuals.py"
+      - "tests/projects/test_mechanical_motion.py"
       - "tests/projects/test_generation_mode_requests.py"
       - "tests/api/test_progressive_visual_decision.py"
       - ".github/workflows/cost-aware-generation.yml"
@@ -57,5 +58,6 @@ jobs:
           tests/projects/test_design_lifecycle.py
           tests/projects/test_hierarchical_cad.py
           tests/projects/test_hierarchical_visuals.py
+          tests/projects/test_mechanical_motion.py
           tests/projects/test_generation_mode_requests.py
           tests/api/test_progressive_visual_decision.py

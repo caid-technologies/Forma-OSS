@@ -1176,7 +1176,7 @@ export default function MechanicalScene({
               faded={Boolean(selectedRef) && placement.refDes !== selectedRef}
               motion={activeMotion?.targetRef === placement.refDes ? activeMotion : null}
               motionProgress={motionProgress}
-              motionActive={activeMotion?.targetRef === placement.refDes}
+              motionActive={Boolean(activeMotion?.targetRef === placement.refDes)}
               appearance={appearance}
               onSelect={(next) => setSelectedRef(next.refDes)}
               onHover={(next) => setHoveredRef(next?.refDes || null)}

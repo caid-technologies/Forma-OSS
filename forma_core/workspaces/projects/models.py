@@ -2,6 +2,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from typing import List, Optional, Dict, Any, Iterable, Mapping, Literal
 from datetime import datetime
 import re
+from forma_core.workspaces.projects.mechanism_benchmarks import MechanismBenchmark
 from forma_core.workspaces.projects.solid_cad import CadOperation
 
 # ==========================================
@@ -261,6 +262,7 @@ class MechanicalNotes(BaseModel):
     component_placements: List[MechanicalPlacement] = Field(default_factory=list, description="Per-component 3D placements for live Three.js rendering")
     spatial_relationships: List[MechanicalSpatialRelationship] = Field(default_factory=list, description="Physical offsets and alignment relationships between placed components")
     motion_intents: List[MechanicalMotionIntent] = Field(default_factory=list, description="Agent-authored motion intent resolved into OpenCAD kinematic joints during CAD generation")
+    mechanism_benchmark: Optional[MechanismBenchmark] = Field(None, description="Optional additive-mechanism benchmark with bounded print-in-place or monolithic-flexure parameters")
 
 class PinMappingEntry(BaseModel):
     mcu_pin: str = Field(..., description="MCU pin identifier, e.g., 'GPIO23'")

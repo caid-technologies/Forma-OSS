@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Download, FileBox, FileJson, FileText, Loader2, Printer, RefreshCw, TriangleAlert } from "lucide-react";
+import { CheckCircle2, ChevronDown, Download, FileBox, FileJson, FileText, Loader2, Printer, RefreshCw, TriangleAlert } from "lucide-react";
 import { webConfig } from "../../lib/config";
 import { useFormaAuth } from "../../lib/forma-auth";
 import { waitForExport, type GcodeExportResult } from "./export-job";
@@ -68,10 +68,12 @@ export default function ProjectExportsPanel({
   const [selectedPrinterId, setSelectedPrinterId] = useState("");
   const [result, setResult] = useState<GcodeExportResult | null>(null);
   const [loading, setLoading] = useState(false);
+  const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [sliceState, setSliceState] = useState<SliceState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const generation = useRef<AbortController | null>(null);
+  const downloadMenuRef = useRef<HTMLDivElement | null>(null);
   const canRead = isLoaded && (!authRequired || isSignedIn);
   const currentManifest = manifest?.project_id === projectId ? manifest : null;
   const selectedPrinter = currentManifest?.printers.find((p) => p.printer_id === selectedPrinterId);
@@ -117,6 +119,22 @@ export default function ProjectExportsPanel({
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [projectId, canRead, refresh, requestJson]);
+
+  useEffect(() => {
+    if (!downloadMenuOpen) return;
+    const closeOnOutsideClick = (event: PointerEvent) => {
+      if (!downloadMenuRef.current?.contains(event.target as Node)) setDownloadMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setDownloadMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutsideClick);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsideClick);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [downloadMenuOpen]);
 
   useEffect(() => {
     generation.current?.abort();
@@ -253,18 +271,60 @@ export default function ProjectExportsPanel({
               <p className="mt-1 text-[10px] text-[var(--forma-text-muted)]">STEP is the source of truth; STL, 3MF, and OBJ are generated from the same model.</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <button type="button" disabled={!currentManifest?.step} onClick={() => currentManifest && download(currentManifest.step.download_url, currentManifest.step.filename)}
-              className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="h-4 w-4" />Download STEP</button>
-            {MESH_EXPORT_FORMATS.map((format) => {
-              const artifact = currentManifest?.mesh_exports?.[format];
-              return <button key={format} type="button" disabled={!artifact}
-                title={artifact ? "Download " + format.toUpperCase() : format.toUpperCase() + " is not available for this project revision. Regenerate CAD to create it."}
-                onClick={() => artifact && download(artifact.download_url, artifact.filename)}
-                className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40">
-                <Download className="h-4 w-4" />Download {format.toUpperCase()}
-              </button>;
-            })}
+          <div ref={downloadMenuRef} className="relative shrink-0">
+            <button
+              type="button"
+              disabled={!currentManifest?.step}
+              onClick={() => setDownloadMenuOpen((open) => !open)}
+              aria-haspopup="menu"
+              aria-expanded={downloadMenuOpen}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:opacity-40"
+            >
+              <Download className="h-4 w-4" />
+              Download
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${downloadMenuOpen ? "rotate-180" : ""}`} />
+            </button>
+            {downloadMenuOpen && currentManifest && (
+              <div
+                role="menu"
+                aria-label="Download CAD format"
+                className="absolute right-0 top-full z-30 mt-2 w-48 overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-xl"
+              >
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => {
+                    setDownloadMenuOpen(false);
+                    download(currentManifest.step.download_url, currentManifest.step.filename);
+                  }}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--forma-surface-muted)]"
+                >
+                  <span className="font-medium">STEP</span>
+                  <span className="text-[10px] text-[var(--forma-text-muted)]">Source CAD</span>
+                </button>
+                {MESH_EXPORT_FORMATS.map((format) => {
+                  const artifact = currentManifest.mesh_exports?.[format];
+                  return <button
+                    key={format}
+                    type="button"
+                    role="menuitem"
+                    disabled={!artifact}
+                    title={artifact ? `Download ${format.toUpperCase()}` : `${format.toUpperCase()} is not available for this project revision.`}
+                    onClick={() => {
+                      if (!artifact) return;
+                      setDownloadMenuOpen(false);
+                      download(artifact.download_url, artifact.filename);
+                    }}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-[var(--forma-surface-muted)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <span className="font-medium">{format.toUpperCase()}</span>
+                    <span className="text-[10px] text-[var(--forma-text-muted)]">
+                      {format === "stl" ? "3D printing" : format === "3mf" ? "Print package" : "Mesh"}
+                    </span>
+                  </button>;
+                })}
+              </div>
+            )}
           </div>
         </div>
       </section>

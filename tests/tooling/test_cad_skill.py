@@ -64,7 +64,7 @@ class CadSkillTests(unittest.TestCase):
                 module.ensure_opencad()
 
         message = str(raised.exception)
-        command = 'python -m pip install "opencad[occt]==0.2.3"'
+        command = f'python -m pip install "{module.DEFAULT_OPENCAD_REQUIREMENT}"'
         self.assertIn(command, message)
         self.assertEqual(1, message.count(command))
 

@@ -10,9 +10,17 @@ type ExportPrinter = {
   printer_id: string; display_name: string; nozzle_mm: number; material: string;
   layer_height_mm: number; available: boolean; unavailable_reason?: string | null;
 };
+type DownloadableArtifact = {
+  filename: string;
+  sha256: string;
+  size_bytes?: number | null;
+  download_url: string;
+};
+type MeshExportFormat = "stl" | "3mf" | "obj";
 type Manifest = {
   project_id: string;
-  step: { filename: string; sha256: string; size_bytes?: number | null; download_url: string };
+  step: DownloadableArtifact;
+  mesh_exports?: Partial<Record<MeshExportFormat, DownloadableArtifact>>;
   printers: ExportPrinter[];
 };
 type SliceState = "idle" | "queued" | "running" | "completed" | "failed";
@@ -22,6 +30,7 @@ function normalizeApiUrl(value: string): string {
   return !trimmed ? "/api" : trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
 }
 const API_URL = normalizeApiUrl(webConfig.apiBaseUrl);
+const MESH_EXPORT_FORMATS: MeshExportFormat[] = ["stl", "3mf", "obj"];
 
 function formatBytes(value?: number | null): string {
   if (!value || value < 1) return "Size unavailable";
@@ -228,18 +237,35 @@ export default function ProjectExportsPanel({
       </section>
       <div>
         <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Manufacturing</p>
-        <p className="mt-1 text-xs text-[var(--forma-text-muted)]">Download the stored STEP model or generate printer-specific G-code from the same geometry.</p>
+        <p className="mt-1 text-xs text-[var(--forma-text-muted)]">Download the canonical STEP model, portable mesh formats, or generate printer-specific G-code from the same geometry.</p>
       </div>
       {error && <div role="alert" className="flex items-start gap-2 rounded-lg border border-red-400/25 bg-red-500/5 p-3 text-xs text-red-200">
         <TriangleAlert className="h-4 w-4 shrink-0" /><span className="flex-1">{error}</span>
         <button type="button" className="underline" disabled={busy} onClick={() => setRefresh((v) => v + 1)}>Refresh</button></div>}
       <section className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4">
-        <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-start gap-3">
-          <FileBox className="h-5 w-5" /><div><h3 className="text-sm font-semibold">STEP geometry</h3>
-            <p className="mt-1 text-xs text-[var(--forma-text-muted)]">{currentManifest?.step.filename || "assembly.step"} · {formatBytes(currentManifest?.step.size_bytes)}</p>
-            {sourceSha && <p className="mt-1 font-mono text-[10px]">sha256:{sourceSha.slice(0, 16)}…</p>}</div></div>
-          <button type="button" disabled={!currentManifest?.step} onClick={() => currentManifest && download(currentManifest.step.download_url, currentManifest.step.filename)}
-            className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="h-4 w-4" />Download STEP</button>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <FileBox className="h-5 w-5" />
+            <div>
+              <h3 className="text-sm font-semibold">CAD geometry</h3>
+              <p className="mt-1 text-xs text-[var(--forma-text-muted)]">{currentManifest?.step.filename || "assembly.step"} · {formatBytes(currentManifest?.step.size_bytes)}</p>
+              {sourceSha && <p className="mt-1 font-mono text-[10px]">sha256:{sourceSha.slice(0, 16)}…</p>}
+              <p className="mt-1 text-[10px] text-[var(--forma-text-muted)]">STEP is the source of truth; STL, 3MF, and OBJ are generated from the same model.</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <button type="button" disabled={!currentManifest?.step} onClick={() => currentManifest && download(currentManifest.step.download_url, currentManifest.step.filename)}
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="h-4 w-4" />STEP</button>
+            {MESH_EXPORT_FORMATS.map((format) => {
+              const artifact = currentManifest?.mesh_exports?.[format];
+              return <button key={format} type="button" disabled={!artifact}
+                title={artifact ? "Download " + format.toUpperCase() : format.toUpperCase() + " is not available for this project revision. Regenerate CAD to create it."}
+                onClick={() => artifact && download(artifact.download_url, artifact.filename)}
+                className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40">
+                <Download className="h-4 w-4" />{format.toUpperCase()}
+              </button>;
+            })}
+          </div>
         </div>
       </section>
       <section className="rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-4">

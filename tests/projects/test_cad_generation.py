@@ -9,12 +9,14 @@ from forma_core.config import config
 from forma_core.workspaces.projects.cad_generation import (
     CadGenerationError,
     _cad_source,
+    _motion_intent_payload,
     cad_project_artifact,
     ensure_native_cad_model,
 )
 from forma_core.workspaces.projects.models import (
     ComponentInstance,
     HardwareIR,
+    MechanicalMotionIntent,
     MechanicalNotes,
     MechanicalPlacement,
     MechanicalVector3,
@@ -119,6 +121,136 @@ def complex_mechanical_project() -> HardwareIR:
 
 
 class CadGenerationTests(unittest.TestCase):
+
+    def test_motion_intent_maps_only_rigid_motion_into_opencad_contract(self) -> None:
+        project = mechanical_project()
+        project.mechanical.motion_intents = [
+            MechanicalMotionIntent(
+                motion_id="hinge",
+                type="revolute",
+                target_ref="LID",
+                axis="Z",
+                pivot_mm=[10, 0, 0],
+                min_deg=0,
+                max_deg=90,
+            ),
+            MechanicalMotionIntent(
+                motion_id="flexure",
+                type="compliant",
+                target_ref="FLEX",
+                axis="Y",
+                pivot_mm=[0, 0, 0],
+                min_deg=0,
+                max_deg=20,
+            ),
+        ]
+
+        payload = _motion_intent_payload(project)
+
+        self.assertEqual(1, len(payload))
+        self.assertEqual("hinge", payload[0]["motion_id"])
+        self.assertEqual("revolute", payload[0]["type"])
+        self.assertAlmostEqual(1.57079632679, payload[0]["upper_limit"], places=9)
+        self.assertEqual((0.0, 0.0, 1.0), payload[0]["axis"])
+
+    def test_cad_source_is_valid_python_with_null_optional_motion_fields(self) -> None:
+        project = mechanical_project()
+        project.mechanical.motion_intents = [
+            MechanicalMotionIntent(
+                motion_id="lid-hinge",
+                label="Open lid",
+                type="revolute",
+                target_ref="LID",
+                parent_ref="BASE",
+                axis="X",
+                pivot_mm=[-20, 0, 10],
+                min_deg=0,
+                max_deg=90,
+            )
+        ]
+
+        source = _cad_source(project)
+
+        compile(source, "assembly.py", "exec")
+        self.assertNotIn(" null", source)
+        self.assertIn("'notes': None", source)
+
+    def test_cad_source_registers_motion_intent_as_opencad_joint(self) -> None:
+        project = mechanical_project()
+        project.mechanical.component_placements = [
+            MechanicalPlacement(
+                ref_des="LID",
+                label="Service lid",
+                category="Mechanical",
+                position=MechanicalVector3(x_mm=0, y_mm=0, z_mm=8),
+                size=MechanicalVector3(x_mm=30, y_mm=20, z_mm=2),
+            )
+        ]
+        project.mechanical.motion_intents = [
+            MechanicalMotionIntent(
+                motion_id="lid-hinge",
+                type="revolute",
+                target_ref="LID",
+                axis="Z",
+                pivot_mm=[-15, 0, 8],
+                min_deg=0,
+                max_deg=100,
+            )
+        ]
+
+        source = _cad_source(project)
+
+        self.assertIn('"create_kinematic_joint"', source)
+        self.assertIn('"joint_id": intent["motion_id"]', source)
+        self.assertIn('"forma_target_ref": intent["target_ref"]', source)
+        self.assertIn('MOVING_REFS = {intent["target_ref"] for intent in MOTION_INTENTS}', source)
+        self.assertIn('if item["ref_des"] not in MOVING_REFS:', source)
+        self.assertIn("FORMA_EXPORT_SHAPE_IDS", source)
+
+    def test_generation_persists_opencad_kinematics_payload(self) -> None:
+        kinematics = {
+            "source": "opencad",
+            "coordinate_system": "z-up",
+            "sample_count": 101,
+            "tracks": [{"target_ref": "LID", "joint": {"id": "lid-hinge"}, "samples": []}],
+        }
+        with tempfile.TemporaryDirectory() as workspace:
+            def fake_run(_adapter: Path, _model: Path, output: Path, tree: Path | None = None) -> dict:
+                if output.suffix == ".step":
+                    output.write_bytes(b"ISO-10303-21;HEADER;ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
+                    result = {"valid": True, "opencad_version": "0.2.4", "kinematics": kinematics}
+                else:
+                    output.write_text(
+                        "solid model\n"
+                        "facet normal 0 0 1\n"
+                        "outer loop\n"
+                        "vertex 0 0 0\n"
+                        "vertex 1 0 0\n"
+                        "vertex 0 1 0\n"
+                        "endloop\nendfacet\nendsolid model\n",
+                        encoding="ascii",
+                    )
+                    result = {"valid": True, "opencad_version": "0.2.4"}
+                if tree is not None:
+                    tree.write_text("{}", encoding="utf-8")
+                return result
+
+            project = mechanical_project()
+            with patch.dict("os.environ", {"FORMA_CAD_WORKSPACE": workspace}, clear=False), patch(
+                "forma_core.workspaces.projects.cad_generation._adapter_path",
+                return_value=Path(__file__),
+            ), patch(
+                "forma_core.workspaces.projects.cad_generation._run_adapter",
+                side_effect=fake_run,
+            ):
+                self.assertTrue(ensure_native_cad_model(
+                    project,
+                    project_id="44444444-4444-4444-8444-444444444444",
+                    required=True,
+                ))
+
+        self.assertEqual(kinematics, project.cad_model["kinematics"])
+
     def test_required_generation_publishes_native_model_and_revision_artifact(self) -> None:
         with tempfile.TemporaryDirectory() as workspace:
             def fake_run(_adapter: Path, _model: Path, output: Path, tree: Path | None = None) -> dict:
@@ -137,7 +269,7 @@ class CadGenerationTests(unittest.TestCase):
                     )
                 if tree is not None:
                     tree.write_text("{}", encoding="utf-8")
-                return {"valid": True, "opencad_version": "0.2.3"}
+                return {"valid": True, "opencad_version": "0.2.4"}
 
             project = mechanical_project()
             with patch.dict("os.environ", {"FORMA_CAD_WORKSPACE": workspace}, clear=False), patch(
@@ -203,6 +335,65 @@ class CadGenerationTests(unittest.TestCase):
             "mounting rail",
         ):
             self.assertIn(feature, source)
+
+
+    @unittest.skipUnless(
+        config.boolean("FORMA_CAD_RUN_INTEGRATION_TESTS"),
+        "Set FORMA_CAD_RUN_INTEGRATION_TESTS=true to run native OpenCAD integration tests.",
+    )
+    def test_motion_intent_generates_native_opencad_kinematics(self) -> None:
+        project = mechanical_project()
+        project.mechanical.component_placements = [
+            MechanicalPlacement(
+                ref_des="BASE",
+                label="Static base",
+                category="Enclosure",
+                position=MechanicalVector3(x_mm=0, y_mm=0, z_mm=0),
+                size=MechanicalVector3(x_mm=40, y_mm=30, z_mm=4),
+            ),
+            MechanicalPlacement(
+                ref_des="LID",
+                label="Hinged lid",
+                category="Mechanical",
+                position=MechanicalVector3(x_mm=0, y_mm=0, z_mm=10),
+                size=MechanicalVector3(x_mm=40, y_mm=30, z_mm=2),
+            ),
+        ]
+        project.mechanical.motion_intents = [
+            MechanicalMotionIntent(
+                motion_id="lid-hinge",
+                label="Open lid",
+                type="revolute",
+                parent_ref="BASE",
+                target_ref="LID",
+                axis="X",
+                pivot_mm=[-20, 0, 10],
+                min_deg=0,
+                max_deg=90,
+            )
+        ]
+
+        with tempfile.TemporaryDirectory() as workspace:
+            with patch.dict("os.environ", {"FORMA_CAD_WORKSPACE": workspace}, clear=False):
+                self.assertTrue(ensure_native_cad_model(
+                    project,
+                    project_id="55555555-5555-4555-8555-555555555555",
+                    required=True,
+                    authoring_agent="OpenCAD kinematics integration fixture",
+                ))
+
+        kinematics = project.cad_model.get("kinematics")
+        self.assertIsInstance(kinematics, dict)
+        self.assertEqual("opencad", kinematics["source"])
+        self.assertEqual(101, kinematics["sample_count"])
+        self.assertEqual(1, len(kinematics["tracks"]))
+        track = kinematics["tracks"][0]
+        self.assertEqual("lid-hinge", track["joint"]["id"])
+        self.assertEqual("LID", track["target_ref"])
+        self.assertEqual("BASE", track["parent_ref"])
+        self.assertEqual("radian", track["joint"]["unit"])
+        self.assertEqual(101, len(track["samples"]))
+        self.assertAlmostEqual(1.0, track["samples"][-1]["progress"])
 
     @unittest.skipUnless(
         config.boolean("FORMA_CAD_RUN_INTEGRATION_TESTS"),

@@ -16,9 +16,7 @@ runtime before writing or running the model:
 python <skill-directory>/scripts/cad.py setup
 ```
 
-The setup command reuses compatible OpenCAD `0.2.3` installations and installs
-`opencad[occt]==0.2.3` when needed. It verifies native OCCT before a generation
-job begins. Do not import OpenCAD from Forma's core package; use the adapter's
+The setup command reuses compatible OpenCAD `0.2.4` installations only when native OCCT and rigid kinematics are available. Otherwise it installs the pinned OpenCAD kinematics commit `ce31b40a3f6094a6993d9b7c0a734fb4df2eb161`. It verifies native OCCT before a generation job begins. Do not import OpenCAD from Forma's core package; use the adapter's
 `build` command for model execution and export.
 
 ## Workspace

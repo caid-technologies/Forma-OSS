@@ -5613,6 +5613,7 @@ export function FormaWorkspace({
             features={imageFeatures}
             metadata={projectIR?.assembly_metadata || {}}
             mechanical={projectIR?.mechanical || {}}
+            cadModel={currentCadModel && typeof currentCadModel === "object" ? currentCadModel as Record<string, any> : null}
           />
         );
       case "cad": {

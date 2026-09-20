@@ -1,5 +1,5 @@
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
-from typing import List, Optional, Dict, Any, Iterable, Mapping
+from typing import List, Optional, Dict, Any, Iterable, Mapping, Literal
 from datetime import datetime
 import re
 from forma_core.workspaces.projects.solid_cad import CadOperation
@@ -198,6 +198,42 @@ class MechanicalSpatialRelationship(BaseModel):
     offset_mm: Optional[float] = Field(None, description="Signed offset between components along the dominant axis")
     notes: Optional[str] = Field(None, description="Additional placement or clearance rationale")
 
+class MechanicalMotionIntent(BaseModel):
+    motion_id: Optional[str] = Field(None, description="Stable project-local identifier for this motion")
+    label: Optional[str] = Field(None, description="Human-readable name for the motion preview")
+    type: Literal["revolute", "prismatic", "compliant"] = Field(..., description="Authoring intent. Rigid revolute/prismatic intents are resolved and evaluated by OpenCAD; compliant intent is reserved for future deformation preview.")
+    target_ref: str = Field(..., description="Reference designator of the moving placement")
+    parent_ref: Optional[str] = Field(None, description="Optional reference designator of the stationary parent")
+    axis: Literal["X", "Y", "Z"] = Field("Z", description="Project-space motion axis")
+    pivot_mm: List[float] = Field(default_factory=lambda: [0.0, 0.0, 0.0], min_length=3, max_length=3, description="Project-space pivot [x, y, z] in millimeters")
+    min_deg: Optional[float] = Field(None, description="Minimum angular travel for revolute/compliant motion")
+    max_deg: Optional[float] = Field(None, description="Maximum angular travel for revolute/compliant motion")
+    min_mm: Optional[float] = Field(None, description="Minimum linear travel for prismatic motion")
+    max_mm: Optional[float] = Field(None, description="Maximum linear travel for prismatic motion")
+    notes: Optional[str] = Field(None, description="Motion intent, stops, clearances, or preview limitations")
+
+    @field_validator("axis", mode="before")
+    @classmethod
+    def normalize_axis(cls, value: Any) -> str:
+        axis = str(value or "Z").strip().upper()
+        if axis not in {"X", "Y", "Z"}:
+            raise ValueError("Mechanical motion axis must be X, Y, or Z")
+        return axis
+
+    @field_validator("pivot_mm", mode="before")
+    @classmethod
+    def normalize_pivot(cls, value: Any) -> Any:
+        if value is None:
+            return [0.0, 0.0, 0.0]
+        if isinstance(value, Mapping):
+            return [
+                value.get("x_mm", value.get("x", 0.0)),
+                value.get("y_mm", value.get("y", 0.0)),
+                value.get("z_mm", value.get("z", 0.0)),
+            ]
+        return value
+
+
 class MechanicalNotes(BaseModel):
     cad_operations: List[CadOperation] = Field(default_factory=list, max_length=32, description="Explicit solid CAD in millimeters, applied in order; first operation must add. Use for standalone solids (components/nets may be empty). An empty list retains the legacy enclosure generator.")
 
@@ -224,6 +260,7 @@ class MechanicalNotes(BaseModel):
     render_dimensions: Optional[MechanicalVector3] = Field(None, description="Overall live-render envelope dimensions in millimeters")
     component_placements: List[MechanicalPlacement] = Field(default_factory=list, description="Per-component 3D placements for live Three.js rendering")
     spatial_relationships: List[MechanicalSpatialRelationship] = Field(default_factory=list, description="Physical offsets and alignment relationships between placed components")
+    motion_intents: List[MechanicalMotionIntent] = Field(default_factory=list, description="Agent-authored motion intent resolved into OpenCAD kinematic joints during CAD generation")
 
 class PinMappingEntry(BaseModel):
     mcu_pin: str = Field(..., description="MCU pin identifier, e.g., 'GPIO23'")

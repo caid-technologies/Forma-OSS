@@ -6,6 +6,12 @@ import { ChevronDown, Maximize2, Minimize2 } from "lucide-react";
 import * as THREE from "three";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import {
+  normalizeOpenCadMotionTracks,
+  openCadMotionRangeLabel,
+  openCadSampleAtProgress,
+  type OpenCadMotionTrack,
+} from "../lib/opencad-motion-preview";
 import { sceneAppearanceForTheme, type MechanicalSceneAppearance, type MechanicalScenePalette } from "../lib/theme";
 import { useTheme } from "../lib/theme-provider";
 
@@ -62,6 +68,7 @@ type MechanicalSceneProps = {
   components: ComponentInstance[];
   placements?: PlacementInput[];
   relationships?: SpatialRelationshipInput[];
+  kinematics?: unknown;
   features: string[];
   toggles: Record<string, boolean>;
   electricalActive: boolean;
@@ -574,6 +581,56 @@ function worldSize(sizeMm: [number, number, number], scale: number): [number, nu
   ];
 }
 
+function projectQuaternionToWorld(
+  value: [number, number, number, number],
+) {
+  const projectQuaternion = new THREE.Quaternion(...value).normalize();
+  const projectRotation = new THREE.Matrix4().makeRotationFromQuaternion(projectQuaternion);
+  const basisSwap = new THREE.Matrix4().set(
+    1, 0, 0, 0,
+    0, 0, 1, 0,
+    0, 1, 0, 0,
+    0, 0, 0, 1,
+  );
+  const worldRotation = basisSwap.clone().multiply(projectRotation).multiply(basisSwap);
+  return new THREE.Quaternion().setFromRotationMatrix(worldRotation).normalize();
+}
+
+function partMotionPose(
+  spec: ScenePlacement,
+  scale: number,
+  motion: OpenCadMotionTrack | null,
+  progress: number,
+) {
+  const localQuaternion = new THREE.Quaternion().setFromEuler(new THREE.Euler(...spec.rotationRad));
+
+  if (!motion) {
+    return {
+      position: worldPosition(spec.positionMm, scale),
+      quaternion: localQuaternion,
+    };
+  }
+
+  const sample = openCadSampleAtProgress(motion, progress);
+  const projectQuaternion = new THREE.Quaternion(
+    ...sample.transform.rotation_quaternion_xyzw,
+  ).normalize();
+  const projectPosition = new THREE.Vector3(...spec.positionMm)
+    .applyQuaternion(projectQuaternion)
+    .add(new THREE.Vector3(...sample.transform.translation_mm));
+  const worldQuaternion = projectQuaternionToWorld(
+    sample.transform.rotation_quaternion_xyzw,
+  );
+
+  return {
+    position: worldPosition(
+      projectPosition.toArray() as [number, number, number],
+      scale,
+    ),
+    quaternion: worldQuaternion.multiply(localQuaternion),
+  };
+}
+
 function axisColor(axis: "X" | "Y" | "Z", palette: MechanicalScenePalette) {
   if (axis === "X") return palette.axisX;
   if (axis === "Y") return palette.axisY;
@@ -741,6 +798,9 @@ function PartWireframe({
   scale,
   selected,
   faded,
+  motion,
+  motionProgress,
+  motionActive,
   appearance,
   onSelect,
   onHover,
@@ -749,16 +809,22 @@ function PartWireframe({
   scale: number;
   selected: boolean;
   faded: boolean;
+  motion: OpenCadMotionTrack | null;
+  motionProgress: number;
+  motionActive: boolean;
   appearance: MechanicalSceneAppearance;
   onSelect: (placement: ScenePlacement) => void;
   onHover: (placement: ScenePlacement | null) => void;
 }) {
-  const position = worldPosition(spec.positionMm, scale);
+  const pose = useMemo(
+    () => partMotionPose(spec, scale, motion, motionProgress),
+    [motion, motionProgress, scale, spec],
+  );
   const size = useMemo(() => worldSize(spec.sizeMm, scale), [spec.sizeMm, scale]);
   const edges = useBoxEdges(size);
 
   return (
-    <group position={position} rotation={spec.rotationRad}>
+    <group position={pose.position} quaternion={pose.quaternion}>
       <mesh
         onClick={(event) => {
           event.stopPropagation();
@@ -778,23 +844,33 @@ function PartWireframe({
         <meshBasicMaterial
           color={spec.color}
           transparent
-          opacity={selected ? appearance.selectedFillOpacity : appearance.fillOpacity}
+          opacity={selected ? appearance.selectedFillOpacity : motionActive ? Math.max(appearance.fillOpacity, 0.16) : appearance.fillOpacity}
           depthWrite={false}
         />
       </mesh>
       <lineSegments geometry={edges}>
         <lineBasicMaterial
-          color={selected ? appearance.selectedEdge : spec.color}
+          color={selected || motionActive ? appearance.selectedEdge : spec.color}
           transparent
-          opacity={selected ? 1 : faded ? 0.3 : 0.85}
+          opacity={selected || motionActive ? 1 : faded ? 0.3 : 0.85}
         />
       </lineSegments>
     </group>
   );
 }
 
-function PartTag({ placement, scale }: { placement: ScenePlacement; scale: number }) {
-  const position = worldPosition(placement.positionMm, scale);
+function PartTag({
+  placement,
+  scale,
+  motion,
+  motionProgress,
+}: {
+  placement: ScenePlacement;
+  scale: number;
+  motion: OpenCadMotionTrack | null;
+  motionProgress: number;
+}) {
+  const position = partMotionPose(placement, scale, motion, motionProgress).position;
   const size = worldSize(placement.sizeMm, scale);
 
   return (
@@ -907,6 +983,7 @@ export default function MechanicalScene({
   components,
   placements = [],
   relationships = [],
+  kinematics,
   features,
   toggles,
   electricalActive,
@@ -922,6 +999,10 @@ export default function MechanicalScene({
   const [treeOpen, setTreeOpen] = useState(true);
   const [nativeFullscreen, setNativeFullscreen] = useState(false);
   const [fallbackFullscreen, setFallbackFullscreen] = useState(false);
+  const [activeMotionIndex, setActiveMotionIndex] = useState(0);
+  const [motionProgress, setMotionProgress] = useState(0);
+  const [motionPlaying, setMotionPlaying] = useState(false);
+  const motionDirectionRef = useRef(1);
   const isFullscreen = nativeFullscreen || fallbackFullscreen;
 
   const scale = Math.max(Math.max(dimensions.x_mm, dimensions.y_mm, dimensions.z_mm) / 9.6, 8);
@@ -930,6 +1011,14 @@ export default function MechanicalScene({
     [components, dimensions, palette, placements]
   );
   const envelopeRef = useMemo(() => pickEnvelopeRef(scenePlacements, dimensions), [dimensions, scenePlacements]);
+  const motionTracks = useMemo(
+    () => normalizeOpenCadMotionTracks(
+      kinematics,
+      new Set(scenePlacements.map((placement) => placement.refDes)),
+    ),
+    [kinematics, scenePlacements],
+  );
+  const activeMotion = motionTracks[activeMotionIndex] || null;
   const visiblePlacements = useMemo(
     () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive, envelopeRef)),
     [electricalActive, envelopeRef, scenePlacements, toggles]
@@ -963,6 +1052,52 @@ export default function MechanicalScene({
   );
   const envelopePlacement = envelopeRef ? scenePlacements.find((placement) => placement.refDes === envelopeRef) || null : null;
   const envelopeSelected = Boolean(selectedRef && selectedRef === envelopeRef);
+
+  useEffect(() => {
+    if (!motionTracks.length) {
+      setMotionPlaying(false);
+      setMotionProgress(0);
+      setActiveMotionIndex(0);
+      return;
+    }
+    if (activeMotionIndex >= motionTracks.length) {
+      setActiveMotionIndex(0);
+      setMotionProgress(0);
+      setMotionPlaying(false);
+      motionDirectionRef.current = 1;
+    }
+  }, [activeMotionIndex, motionTracks.length]);
+
+  useEffect(() => {
+    if (!motionPlaying || !activeMotion) return;
+
+    let frame = 0;
+    let lastStep = performance.now();
+    const frameInterval = 1000 / 30;
+
+    const tick = (now: number) => {
+      if (now - lastStep >= frameInterval) {
+        const deltaSeconds = Math.min((now - lastStep) / 1000, 0.1);
+        lastStep = now;
+        setMotionProgress((current) => {
+          const next = current + motionDirectionRef.current * deltaSeconds * 0.42;
+          if (next >= 1) {
+            motionDirectionRef.current = -1;
+            return 1;
+          }
+          if (next <= 0) {
+            motionDirectionRef.current = 1;
+            return 0;
+          }
+          return next;
+        });
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeMotion, motionPlaying]);
 
   useEffect(() => {
     const sync = () => setNativeFullscreen(document.fullscreenElement === containerRef.current);
@@ -1042,14 +1177,31 @@ export default function MechanicalScene({
               scale={scale}
               selected={placement.refDes === selectedRef}
               faded={Boolean(selectedRef) && placement.refDes !== selectedRef}
+              motion={activeMotion?.targetRef === placement.refDes ? activeMotion : null}
+              motionProgress={motionProgress}
+              motionActive={Boolean(activeMotion?.targetRef === placement.refDes)}
               appearance={appearance}
               onSelect={(next) => setSelectedRef(next.refDes)}
               onHover={(next) => setHoveredRef(next?.refDes || null)}
             />
           ))}
 
-          {selectedPlacement && !envelopeSelected && <PartTag placement={selectedPlacement} scale={scale} />}
-          {hoveredPlacement && hoveredPlacement.refDes !== envelopeRef && <PartTag placement={hoveredPlacement} scale={scale} />}
+          {selectedPlacement && !envelopeSelected && (
+            <PartTag
+              placement={selectedPlacement}
+              scale={scale}
+              motion={activeMotion?.targetRef === selectedPlacement.refDes ? activeMotion : null}
+              motionProgress={motionProgress}
+            />
+          )}
+          {hoveredPlacement && hoveredPlacement.refDes !== envelopeRef && (
+            <PartTag
+              placement={hoveredPlacement}
+              scale={scale}
+              motion={activeMotion?.targetRef === hoveredPlacement.refDes ? activeMotion : null}
+              motionProgress={motionProgress}
+            />
+          )}
 
           {toggles.structural &&
             focusedRelationships.map((relationship) => (
@@ -1196,6 +1348,90 @@ export default function MechanicalScene({
         >
           {selectedPlacement ? envelopeLabel : "Tap a part for more info"}
         </div>
+
+        {activeMotion && (
+          <div className="pointer-events-auto absolute right-3 top-14 w-[min(22rem,calc(100%-1.5rem))] rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)] backdrop-blur-sm sm:right-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Motion Preview</div>
+                <div className="mt-1 truncate text-xs font-semibold text-[var(--forma-text-strong)]">{activeMotion.label}</div>
+              </div>
+              <span className="shrink-0 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
+                {activeMotion.type}
+              </span>
+            </div>
+
+            {motionTracks.length > 1 && (
+              <label className="mt-3 block">
+                <span className="sr-only">Select mechanical motion</span>
+                <select
+                  value={activeMotionIndex}
+                  onChange={(event) => {
+                    setActiveMotionIndex(Number(event.target.value));
+                    setMotionProgress(0);
+                    setMotionPlaying(false);
+                    motionDirectionRef.current = 1;
+                  }}
+                  className="w-full rounded-md border border-[var(--forma-border)] bg-[var(--forma-page)] px-2.5 py-2 text-xs text-[var(--forma-text-body)] outline-none focus:border-[var(--forma-text-muted)]"
+                >
+                  {motionTracks.map((motion, index) => (
+                    <option key={motion.id} value={index}>
+                      {motion.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
+              <span>{activeMotion.targetRef} / OpenCAD</span>
+              <span>{openCadMotionRangeLabel(activeMotion)}</span>
+            </div>
+
+            <input
+              type="range"
+              min={0}
+              max={100}
+              step={1}
+              value={Math.round(motionProgress * 100)}
+              onChange={(event) => {
+                setMotionPlaying(false);
+                setMotionProgress(Number(event.target.value) / 100);
+              }}
+              aria-label={`Preview ${activeMotion.label} motion`}
+              className="mt-3 w-full accent-[var(--forma-text-strong)]"
+            />
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setMotionPlaying((playing) => !playing)}
+                aria-pressed={motionPlaying}
+                className="inline-flex h-8 flex-1 items-center justify-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--forma-text-strong)] transition hover:border-[var(--forma-text-muted)]"
+              >
+                <span aria-hidden="true" className="text-xs leading-none">{motionPlaying ? "Ⅱ" : "▶"}</span>
+                {motionPlaying ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMotionPlaying(false);
+                  setMotionProgress(0);
+                  motionDirectionRef.current = 1;
+                }}
+                aria-label="Reset motion preview"
+                title="Reset motion"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
+              >
+                <span aria-hidden="true" className="text-sm leading-none">↺</span>
+              </button>
+            </div>
+
+            {activeMotion.notes && (
+              <p className="mt-3 line-clamp-2 text-[10px] leading-snug text-[var(--forma-text-secondary)]">{activeMotion.notes}</p>
+            )}
+          </div>
+        )}
 
         {selectedPlacement && (
           <div className="absolute bottom-9 right-3 w-[min(21rem,calc(100%-1.5rem))] rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)] sm:bottom-10 sm:right-4">

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_OPENCAD_VERSION = "0.2.3"
+SUPPORTED_OPENCAD_VERSION = "0.2.4"
 OPENCAD_KINEMATICS_COMMIT = "ce31b40a3f6094a6993d9b7c0a734fb4df2eb161"
 DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@{OPENCAD_KINEMATICS_COMMIT}#subdirectory=packages/opencad"
 OPENCAD_REQUIREMENT_ENV = "FORMA_OPENCAD_REQUIREMENT"

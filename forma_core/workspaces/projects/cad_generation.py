@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 from pathlib import Path
 import re
@@ -11,6 +12,7 @@ import subprocess
 import sys
 from typing import Any
 from uuid import uuid4
+import zipfile
 
 from forma_core.config import config
 from forma_core.workspaces.projects.design_lifecycle import (
@@ -344,6 +346,107 @@ def _stl_mesh(path: Path) -> dict[str, Any]:
     }
 
 
+def _stl_mesh_bytes(mesh: dict[str, Any]) -> bytes:
+    """Serialize a preview triangle mesh as deterministic binary STL."""
+
+    vertices = list(mesh.get("vertices") or [])
+    faces = list(mesh.get("faces") or [])
+    if len(vertices) % 3 or len(faces) % 3 or not vertices or not faces:
+        raise CadGenerationError("OpenCAD preview mesh is not valid for STL export.")
+    vertex_count = len(vertices) // 3
+    output = bytearray(b"Forma portable STL".ljust(80, b"\0"))
+    output.extend(struct.pack("<I", len(faces) // 3))
+    for index in range(0, len(faces), 3):
+        a, b, c = (int(faces[index + offset]) for offset in range(3))
+        if min(a, b, c) < 0 or max(a, b, c) >= vertex_count:
+            raise CadGenerationError("OpenCAD preview mesh contains an invalid STL face index.")
+        coords: list[float] = []
+        for vertex_id in (a, b, c):
+            offset = vertex_id * 3
+            coords.extend(float(vertices[offset + axis]) for axis in range(3))
+        output.extend(struct.pack("<12fH", 0.0, 0.0, 0.0, *coords, 0))
+    return bytes(output)
+
+
+def _obj_mesh_bytes(mesh: dict[str, Any]) -> bytes:
+    """Serialize the preview triangle mesh as a portable OBJ in millimeters."""
+
+    vertices = list(mesh.get("vertices") or [])
+    faces = list(mesh.get("faces") or [])
+    if len(vertices) % 3 or len(faces) % 3 or not vertices or not faces:
+        raise CadGenerationError("OpenCAD preview mesh is not valid for OBJ export.")
+    lines = ["# Forma OpenCAD mesh", "# units: millimeter", "o assembly"]
+    for index in range(0, len(vertices), 3):
+        x, y, z = (float(vertices[index + offset]) for offset in range(3))
+        lines.append(f"v {x:.9g} {y:.9g} {z:.9g}")
+    vertex_count = len(vertices) // 3
+    for index in range(0, len(faces), 3):
+        a, b, c = (int(faces[index + offset]) for offset in range(3))
+        if min(a, b, c) < 0 or max(a, b, c) >= vertex_count:
+            raise CadGenerationError("OpenCAD preview mesh contains an invalid OBJ face index.")
+        lines.append(f"f {a + 1} {b + 1} {c + 1}")
+    return ("\n".join(lines) + "\n").encode("utf-8")
+
+
+def _three_mf_mesh_bytes(mesh: dict[str, Any]) -> bytes:
+    """Serialize the preview triangle mesh as a minimal standards-compliant 3MF package."""
+
+    vertices = list(mesh.get("vertices") or [])
+    faces = list(mesh.get("faces") or [])
+    if len(vertices) % 3 or len(faces) % 3 or not vertices or not faces:
+        raise CadGenerationError("OpenCAD preview mesh is not valid for 3MF export.")
+    vertex_count = len(vertices) // 3
+    vertex_xml = []
+    for index in range(0, len(vertices), 3):
+        x, y, z = (float(vertices[index + offset]) for offset in range(3))
+        vertex_xml.append(f'<vertex x="{x:.9g}" y="{y:.9g}" z="{z:.9g}"/>')
+    triangle_xml = []
+    for index in range(0, len(faces), 3):
+        a, b, c = (int(faces[index + offset]) for offset in range(3))
+        if min(a, b, c) < 0 or max(a, b, c) >= vertex_count:
+            raise CadGenerationError("OpenCAD preview mesh contains an invalid 3MF face index.")
+        triangle_xml.append(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>')
+
+    model = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<model unit="millimeter" xml:lang="en-US" '
+        'xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">'
+        '<metadata name="Title">Forma assembly</metadata>'
+        '<resources><object id="1" type="model"><mesh><vertices>'
+        + "".join(vertex_xml)
+        + '</vertices><triangles>'
+        + "".join(triangle_xml)
+        + '</triangles></mesh></object></resources><build><item objectid="1"/></build></model>'
+    ).encode("utf-8")
+    content_types = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+        '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+        '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>'
+        '</Types>'
+    ).encode("utf-8")
+    relationships = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        '<Relationship Target="/3D/3dmodel.model" Id="rel0" '
+        'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
+        '</Relationships>'
+    ).encode("utf-8")
+
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for name, content in (
+            ("[Content_Types].xml", content_types),
+            ("_rels/.rels", relationships),
+            ("3D/3dmodel.model", model),
+        ):
+            info = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o600 << 16
+            archive.writestr(info, content)
+    return output.getvalue()
+
+
 def _has_authoritative_cad(value: Any) -> bool:
     if value in (None, "", {}):
         return False
@@ -578,6 +681,34 @@ def ensure_native_cad_model(
         _run_adapter(adapter, model_path, stl_path)
         step_bytes = step_path.read_bytes()
         checksum = hashlib.sha256(step_bytes).hexdigest()
+        stl_bytes = stl_path.read_bytes()
+        mesh = _stl_mesh(stl_path)
+        obj_bytes = _obj_mesh_bytes(mesh)
+        three_mf_bytes = _three_mf_mesh_bytes(mesh)
+        obj_path = root / "outputs" / "assembly.obj"
+        three_mf_path = root / "outputs" / "assembly.3mf"
+        obj_path.write_bytes(obj_bytes)
+        three_mf_path.write_bytes(three_mf_bytes)
+        portable_exports = {
+            "stl": {
+                "filename": stl_path.name,
+                "sha256": hashlib.sha256(stl_bytes).hexdigest(),
+                "bytes": len(stl_bytes),
+                "media_type": "model/stl",
+            },
+            "3mf": {
+                "filename": three_mf_path.name,
+                "sha256": hashlib.sha256(three_mf_bytes).hexdigest(),
+                "bytes": len(three_mf_bytes),
+                "media_type": "model/3mf",
+            },
+            "obj": {
+                "filename": obj_path.name,
+                "sha256": hashlib.sha256(obj_bytes).hexdigest(),
+                "bytes": len(obj_bytes),
+                "media_type": "model/obj",
+            },
+        }
         project.cad_model = {
             "adapter": CAD_ADAPTER_NAME,
             "source": "Native OpenCAD generated from agent-authored HardwareIR",
@@ -595,7 +726,8 @@ def ensure_native_cad_model(
             "model_source_path": str(model_path),
             "feature_tree_path": str(tree_path),
             "opencad_version": step_summary.get("opencad_version"),
-            "meshes": [_stl_mesh(stl_path)],
+            "exports": portable_exports,
+            "meshes": [mesh],
         }
         if progressive:
             project.cad_model.update({
@@ -605,7 +737,15 @@ def ensure_native_cad_model(
         if project_id:
             from forma_core.persistence.project_artifacts import ProjectArtifactStorage
 
-            ProjectArtifactStorage().put(project_id, checksum, step_bytes, "model/step")
+            storage = ProjectArtifactStorage()
+            storage.put(project_id, checksum, step_bytes, "model/step")
+            for export_format, export_bytes in (
+                ("stl", stl_bytes),
+                ("3mf", three_mf_bytes),
+                ("obj", obj_bytes),
+            ):
+                descriptor = portable_exports[export_format]
+                storage.put(project_id, descriptor["sha256"], export_bytes, descriptor["media_type"])
             project.cad_model["stored_sha256"] = checksum
             project.cad_model["project_id"] = project_id
 

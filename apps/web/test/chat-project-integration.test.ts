@@ -36,7 +36,10 @@ test("exports live in the project tab bar and own all project download actions",
   assert.ok(workspace.includes("<ProjectExportsPanel"));
   assert.ok(exportsPanel.includes("Project JSON"));
   assert.ok(exportsPanel.includes("Build documentation"));
-  assert.ok(exportsPanel.includes("Download STEP"));
+  assert.ok(exportsPanel.includes('aria-haspopup="menu"'));
+  assert.ok(exportsPanel.includes('aria-label="Download CAD format"'));
+  assert.ok(exportsPanel.includes(">STEP</span>"));
+  assert.ok(exportsPanel.includes('["stl", "3mf", "obj"]'));
   assert.ok(exportsPanel.includes("Download G-code"));
   assert.doesNotMatch(projectPanels, /docs-export-menu/);
   assert.doesNotMatch(chatProjectLayout, /surfaceTab|setSurfaceTab|>Exports<|>Project</);

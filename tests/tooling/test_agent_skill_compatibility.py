@@ -63,7 +63,8 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
         script = SKILL_ROOT / "scripts" / "cad.py"
         content = script.read_text(encoding="utf-8")
         self.assertIn('SUPPORTED_OPENCAD_VERSION = "0.2.3"', content)
-        self.assertIn('DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt]=={SUPPORTED_OPENCAD_VERSION}"', content)
+        self.assertIn('OPENCAD_KINEMATICS_COMMIT = "ce31b40a3f6094a6993d9b7c0a734fb4df2eb161"', content)
+        self.assertIn("git+https://github.com/caid-technologies/OpenCAD.git@", content)
         self.assertIn('create_backend("occt", require_native=True)', content)
         self.assertIn("FORMA_OPENCAD_REQUIREMENT", content)
 

@@ -623,6 +623,7 @@ export function MechanicalPanel({
   const dimensions = mechanical.render_dimensions || visualSpec.external_dimensions_mm || metadata.render_dimensions || { x_mm: 100, y_mm: 60, z_mm: 36 };
   const placements = mechanical.component_placements || metadata.component_placements || [];
   const relationships = mechanical.spatial_relationships || metadata.spatial_relationships || [];
+  const motions = mechanical.motions || metadata.motions || [];
 
   return (
     <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[var(--forma-page)]">
@@ -631,6 +632,7 @@ export function MechanicalPanel({
         components={components}
         placements={placements}
         relationships={relationships}
+        motions={motions}
         features={features}
         toggles={toggles}
         setToggles={setToggles}

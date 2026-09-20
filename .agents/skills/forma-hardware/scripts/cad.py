@@ -24,7 +24,8 @@ from typing import Any
 
 
 SUPPORTED_OPENCAD_VERSION = "0.2.3"
-DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt]=={SUPPORTED_OPENCAD_VERSION}"
+OPENCAD_KINEMATICS_COMMIT = "ce31b40a3f6094a6993d9b7c0a734fb4df2eb161"
+DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@{OPENCAD_KINEMATICS_COMMIT}#subdirectory=packages/opencad"
 OPENCAD_REQUIREMENT_ENV = "FORMA_OPENCAD_REQUIREMENT"
 SUPPORTED_OUTPUT_SUFFIXES = {".step", ".stp", ".stl"}
 
@@ -40,8 +41,8 @@ class OpenCADRuntime:
     version: str
     requirement: str
 
-    def build_model(self, model: Path, output: Path, tree_output: Path | None) -> int:
-        """Run a model with OCCT and export its final shape."""
+    def build_model(self, model: Path, output: Path, tree_output: Path | None) -> dict[str, Any]:
+        """Run a model with OCCT and export its final shape plus kinematics."""
         try:
             from opencad.kernel.core.backend_factory import create_backend
             from opencad.kernel_adapter import registry_result_to_dict
@@ -78,7 +79,47 @@ class OpenCADRuntime:
             raise OpenCADError(f"CAD export failed: {result.get('message', 'unknown error')}")
         if tree_output is not None:
             context.save_tree_json(str(tree_output))
-        return len(context.tree.nodes) - 1
+
+        kinematics = None
+        joints = context.kernel.joint_store.all()
+        if joints:
+            from opencad.kinematics import evaluate_assembly_pose, evaluate_joint_pose
+
+            tracks = []
+            for joint in joints:
+                samples = []
+                for sample_index in range(101):
+                    progress = sample_index / 100.0
+                    pose = evaluate_joint_pose(joint, progress)
+                    transform = evaluate_assembly_pose(
+                        joints,
+                        {joint.id: progress},
+                    ).get(joint.child_shape_id, pose.transform)
+                    samples.append({
+                        "progress": progress,
+                        "value": pose.value,
+                        "unit": pose.unit.value,
+                        "transform": transform.model_dump(mode="json"),
+                    })
+                metadata = dict(joint.metadata or {})
+                tracks.append({
+                    "joint": joint.model_dump(mode="json"),
+                    "target_ref": metadata.get("forma_target_ref"),
+                    "parent_ref": metadata.get("forma_parent_ref"),
+                    "notes": metadata.get("notes"),
+                    "samples": samples,
+                })
+            kinematics = {
+                "source": "opencad",
+                "coordinate_system": "z-up",
+                "sample_count": 101,
+                "tracks": tracks,
+            }
+
+        return {
+            "features": len(context.tree.nodes) - 1,
+            "kinematics": kinematics,
+        }
 
 
 def _configured_requirement(requirement: str | None) -> str:
@@ -273,9 +314,9 @@ def build_cad_file(
     temporary_tree = _temporary_path(tree_path) if tree_path is not None else None
 
     try:
-        feature_count = runtime.build_model(model_path, temporary_output, temporary_tree)
+        build_summary = runtime.build_model(model_path, temporary_output, temporary_tree)
         summary = inspect_cad_file(temporary_output)
-        summary["features"] = feature_count
+        summary.update(build_summary)
         os.replace(temporary_output, output_path)
         summary["path"] = str(output_path)
         if tree_path is not None and temporary_tree is not None:

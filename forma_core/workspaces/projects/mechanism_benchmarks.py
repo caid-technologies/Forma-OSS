@@ -115,6 +115,7 @@ leaf_thickness = PARAMS["leaf_thickness_mm"]
 stop_thickness = PARAMS["stop_thickness_mm"]
 wall_thickness = PARAMS["wall_thickness_mm"]
 hole_radius = pin_radius + radial_clearance
+outer_knuckle_radius = hole_radius + wall_thickness
 leaf_gap = max(radial_clearance, 0.20)
 
 usable = length - 2.0 * axial_clearance
@@ -148,7 +149,7 @@ for x_start, label in (
     knuckle = x_tube(
         x_start,
         outer_knuckle_length,
-        barrel_radius,
+        outer_knuckle_radius,
         hole_radius,
         label,
     )
@@ -228,6 +229,7 @@ FORMA_MECHANISM_METADATA = {
     "clearance": {
         "radial_mm": radial_clearance,
         "axial_mm": axial_clearance,
+        "knuckle_wall_mm": wall_thickness,
     },
     "travel_deg": PARAMS["travel_deg"],
     "stop_thickness_mm": stop_thickness,

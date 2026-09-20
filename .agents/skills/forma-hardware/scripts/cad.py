@@ -145,9 +145,18 @@ class OpenCADRuntime:
                 "tracks": tracks,
             }
 
+        compliant_preview = model_globals.get("FORMA_COMPLIANT_PREVIEW")
+        if not isinstance(compliant_preview, dict):
+            compliant_preview = None
+        mechanism = model_globals.get("FORMA_MECHANISM_METADATA")
+        if not isinstance(mechanism, dict):
+            mechanism = None
+
         return {
             "features": len(context.tree.nodes) - 1,
             "kinematics": kinematics,
+            "compliant_preview": compliant_preview,
+            "mechanism": mechanism,
         }
 
 

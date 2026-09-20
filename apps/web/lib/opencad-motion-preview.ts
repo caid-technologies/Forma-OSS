@@ -13,7 +13,7 @@ export type OpenCadMotionSample = {
 export type OpenCadMotionTrack = {
   id: string;
   label: string;
-  type: "fixed" | "revolute" | "prismatic";
+  type: "fixed" | "revolute" | "prismatic" | "compliant";
   targetRef: string;
   parentRef?: string;
   lower: number;
@@ -57,7 +57,7 @@ function unit(value: unknown): OpenCadMotionSample["unit"] | null {
 }
 
 function type(value: unknown): OpenCadMotionTrack["type"] | null {
-  return value === "fixed" || value === "revolute" || value === "prismatic" ? value : null;
+  return value === "fixed" || value === "revolute" || value === "prismatic" || value === "compliant" ? value : null;
 }
 
 function parseSample(value: unknown): OpenCadMotionSample | null {
@@ -123,6 +123,54 @@ export function normalizeOpenCadMotionTracks(
       lower,
       upper,
       unit: jointUnit,
+      axis,
+      notes,
+      samples,
+    }];
+  });
+}
+
+
+export function normalizeCompliantPreviewTracks(
+  value: unknown,
+  validTargetRefs?: ReadonlySet<string>,
+): OpenCadMotionTrack[] {
+  const root = record(value);
+  if (root?.source !== "forma-compliant-approximation" || !Array.isArray(root.tracks)) return [];
+
+  return root.tracks.flatMap((candidate) => {
+    const track = record(candidate);
+    const trackType = type(track?.type);
+    const id = typeof track?.id === "string" ? track.id.trim() : "";
+    const label = typeof track?.label === "string" && track.label.trim() ? track.label.trim() : id;
+    const targetRef = typeof track?.target_ref === "string" ? track.target_ref.trim() : "";
+    const parentRef = typeof track?.parent_ref === "string" && track.parent_ref.trim()
+      ? track.parent_ref.trim()
+      : undefined;
+    const lower = finite(track?.lower_limit);
+    const upper = finite(track?.upper_limit);
+    const trackUnit = unit(track?.unit);
+    const axis = vector3(track?.axis);
+    const samples = Array.isArray(track?.samples)
+      ? track.samples.map(parseSample).filter((sample): sample is OpenCadMotionSample => Boolean(sample))
+      : [];
+    const notes = typeof track?.notes === "string" && track.notes.trim() ? track.notes.trim() : undefined;
+
+    if (trackType !== "compliant" || !id || !targetRef || lower === null || upper === null || !trackUnit || !axis || !samples.length) {
+      return [];
+    }
+    if (validTargetRefs && !validTargetRefs.has(targetRef)) return [];
+
+    samples.sort((a, b) => a.progress - b.progress);
+    return [{
+      id,
+      label,
+      type: "compliant",
+      targetRef,
+      parentRef,
+      lower,
+      upper,
+      unit: trackUnit,
       axis,
       notes,
       samples,

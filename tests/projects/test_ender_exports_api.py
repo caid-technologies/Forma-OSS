@@ -40,6 +40,8 @@ def rig(monkeypatch):
             "bytes": len(content),
             "media_type": media_type,
         }
+    state["exports"] = exports
+    state["meshes"] = []
     class Storage:
         def put(self, project_id, digest, content, media_type):
             saved[(project_id, digest, media_type)] = content
@@ -69,7 +71,10 @@ def rig(monkeypatch):
     monkeypatch.setattr(ender_exports, "_worker", lambda: SlicingWorker("https://worker.example", TOKEN, transport=httpx.MockTransport(handle)))
     monkeypatch.setattr(api, "get_project_identity", lambda pid: {"owner_user_id": "owner", "status": "active"})
     monkeypatch.setattr(api, "get_latest_project_revision", lambda *a: SimpleNamespace(state=SimpleNamespace(cad_model={
-        "format": "step", "stored_sha256": state["digest"], "exports": exports,
+        "format": "step",
+        "stored_sha256": state["digest"],
+        "exports": state["exports"],
+        "meshes": state["meshes"],
     })))
     monkeypatch.setattr(api, "ProjectArtifactStorage", Storage)
     monkeypatch.setattr(ender_exports, "ProjectArtifactStorage", Storage)
@@ -108,6 +113,24 @@ def test_manifest_generate_poll_persist_and_download(rig):
     assert downloaded.status_code == 200 and downloaded.content == GCODE
     assert hashlib.sha256(downloaded.content).hexdigest() == value["gcode"]["sha256"]
     assert (PROJECT, value["report_sha256"], "application/json") in saved
+
+
+def test_legacy_revision_preview_mesh_derives_all_portable_downloads(rig):
+    client, app, calls, saved, state = rig
+    state["exports"] = {}
+    state["meshes"] = [{
+        "vertices": [0.0, 0.0, 0.0, 10.0, 0.0, 0.0, 0.0, 10.0, 0.0],
+        "faces": [0, 1, 2],
+    }]
+    manifest = client.get(f"/projects/{PROJECT}/exports")
+    assert manifest.status_code == 200
+    exports = manifest.json()["mesh_exports"]
+    assert set(exports) == {"stl", "3mf", "obj"}
+    for name, descriptor in exports.items():
+        result = client.get(descriptor["download_url"])
+        assert result.status_code == 200
+        assert result.content
+        assert result.headers["content-type"] == api.MESH_EXPORT_MEDIA_TYPES[name]
 
 
 def test_wrong_owner_cannot_create_poll_or_download(rig):

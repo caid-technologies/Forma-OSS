@@ -2,7 +2,7 @@
 
 import { Html, OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { ChevronDown, Maximize2, Minimize2, Pause, Play, RotateCcw } from "lucide-react";
+import { ChevronDown, Maximize2, Minimize2 } from "lucide-react";
 import * as THREE from "three";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -1406,7 +1406,7 @@ export default function MechanicalScene({
                 aria-pressed={motionPlaying}
                 className="inline-flex h-8 flex-1 items-center justify-center gap-2 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] px-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--forma-text-strong)] transition hover:border-[var(--forma-text-muted)]"
               >
-                {motionPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                <span aria-hidden="true" className="text-xs leading-none">{motionPlaying ? "Ⅱ" : "▶"}</span>
                 {motionPlaying ? "Pause" : "Play"}
               </button>
               <button
@@ -1420,7 +1420,7 @@ export default function MechanicalScene({
                 title="Reset motion"
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-muted)] hover:text-[var(--forma-text-strong)]"
               >
-                <RotateCcw className="h-3.5 w-3.5" />
+                <span aria-hidden="true" className="text-sm leading-none">↺</span>
               </button>
             </div>
 

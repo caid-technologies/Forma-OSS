@@ -79,7 +79,7 @@ export type FormaMechanicalData = {
   external_dimensions_mm?: JsonObject | null;
   component_placements?: JsonObject[];
   spatial_relationships?: JsonObject[];
-  motions?: JsonObject[];
+  motion_intents?: JsonObject[];
   cad_sources?: FormaArtifact[];
   fabrication_cost_estimate_usd?: number;
   [key: string]: unknown;

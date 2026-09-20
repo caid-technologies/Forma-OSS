@@ -35,6 +35,7 @@ Additional fields commonly populated at runtime:
 - **mechanical.render_dimensions** – overall envelope dimensions used by the 3D viewer.
 - **mechanical.component_placements** – per-component placement records for the 3D viewer.
 - **mechanical.spatial_relationships** – helpful offsets/alignment relationships.
+- **mechanical.motions** – optional revolute, prismatic, or compliant motion definitions used by the MECH Motion Preview.
 
 ## Key relationships
 - **SystemArchitecture → SystemNode:** The complete product nests electrical, mechanical, firmware, and more specific systems. Each node records why it exists, its responsibilities, interfaces, abstract component roles, and detail owner.

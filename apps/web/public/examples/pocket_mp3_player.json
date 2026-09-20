@@ -137,7 +137,7 @@
       { "source_ref_des": "BTN2", "target_ref_des": "MCAP2", "relation": "cap centered over switch", "axis": "Y", "offset_mm": -1.5, "notes": "Button cap protrudes through the front bezel." },
       { "source_ref_des": "BTN3", "target_ref_des": "MCAP3", "relation": "cap centered over switch", "axis": "Y", "offset_mm": -1.5, "notes": "Button cap protrudes through the front bezel." }
     ],
-    "motions": [
+    "motion_intents": [
       {
         "motion_id": "rear-cover-hinge",
         "label": "Open rear service cover",

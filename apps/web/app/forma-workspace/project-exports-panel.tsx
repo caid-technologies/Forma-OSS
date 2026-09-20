@@ -255,14 +255,14 @@ export default function ProjectExportsPanel({
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             <button type="button" disabled={!currentManifest?.step} onClick={() => currentManifest && download(currentManifest.step.download_url, currentManifest.step.filename)}
-              className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="h-4 w-4" />STEP</button>
+              className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:opacity-40"><Download className="h-4 w-4" />Download STEP</button>
             {MESH_EXPORT_FORMATS.map((format) => {
               const artifact = currentManifest?.mesh_exports?.[format];
               return <button key={format} type="button" disabled={!artifact}
                 title={artifact ? "Download " + format.toUpperCase() : format.toUpperCase() + " is not available for this project revision. Regenerate CAD to create it."}
                 onClick={() => artifact && download(artifact.download_url, artifact.filename)}
                 className="inline-flex items-center gap-2 rounded-lg border border-[var(--forma-border)] px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-40">
-                <Download className="h-4 w-4" />{format.toUpperCase()}
+                <Download className="h-4 w-4" />Download {format.toUpperCase()}
               </button>;
             })}
           </div>

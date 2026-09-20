@@ -196,7 +196,7 @@
           "unit": "radian",
           "axis": [
             0,
-            1,
+            -1,
             0
           ],
           "notes": "Rigid-tip proxy around the flexure center; not structural validation.",
@@ -231,7 +231,7 @@
                 ],
                 "rotation_quaternion_xyzw": [
                   0,
-                  0.09584575252022398,
+                  -0.09584575252022398,
                   0,
                   0.9953961983671789
                 ]
@@ -249,7 +249,7 @@
                 ],
                 "rotation_quaternion_xyzw": [
                   0,
-                  0.1908089953765448,
+                  -0.1908089953765448,
                   0,
                   0.981627183447664
                 ]

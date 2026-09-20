@@ -200,6 +200,7 @@ WALL = %r
 OPEN_FRAME = %r
 PLACEMENTS = %s
 MOTION_INTENTS = %s
+MOVING_REFS = {intent["target_ref"] for intent in MOTION_INTENTS}
 PARTS = {}
 
 if OPEN_FRAME:
@@ -291,7 +292,14 @@ for item in PLACEMENTS:
         item["ref_des"] + " component envelope",
     )
     PARTS[item["ref_des"]] = component
-    model = model.union(component, name=item["ref_des"] + " placed component")
+    if item["ref_des"] not in MOVING_REFS:
+        model = model.union(component, name=item["ref_des"] + " placed component")
+
+FORMA_EXPORT_SHAPE_IDS = [model.shape_id] + [
+    PARTS[ref_des].shape_id
+    for ref_des in sorted(MOVING_REFS)
+    if ref_des in PARTS and PARTS[ref_des].shape_id
+]
 
 context = get_default_context()
 for intent in MOTION_INTENTS:

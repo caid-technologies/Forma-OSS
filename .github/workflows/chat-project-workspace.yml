@@ -65,8 +65,8 @@ jobs:
         run: npx --no-install eslint app/forma-workspace/chat-project-layout.tsx app/forma-workspace/conversation-message-list.tsx app/forma-workspace/home-chat-view.tsx app/forma-workspace/cad-model-panel.tsx lib/chat-project-layout.ts
       - name: Run layout and main-entry-point regression tests
         run: node --experimental-strip-types --test test/chat-project-layout.test.ts test/chat-project-integration.test.ts
-      - name: Run mechanical motion regression tests
-        run: node --experimental-strip-types --test test/mechanical-motion.test.ts
+      - name: Run OpenCAD motion preview regression tests
+        run: node --experimental-strip-types --test test/opencad-motion-preview.test.ts
       - name: Verify locked browser fixture tooling
         run: node -e "console.log('esbuild', require('esbuild').version); console.log(require.resolve('@playwright/test'))"
       - name: Install Chromium

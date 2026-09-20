@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  normalizeCompliantPreviewTracks,
   normalizeOpenCadMotionTracks,
   openCadMotionRangeLabel,
   openCadSampleAtProgress,
@@ -69,6 +70,7 @@ type MechanicalSceneProps = {
   placements?: PlacementInput[];
   relationships?: SpatialRelationshipInput[];
   kinematics?: unknown;
+  compliantPreview?: unknown;
   features: string[];
   toggles: Record<string, boolean>;
   electricalActive: boolean;
@@ -984,6 +986,7 @@ export default function MechanicalScene({
   placements = [],
   relationships = [],
   kinematics,
+  compliantPreview,
   features,
   toggles,
   electricalActive,
@@ -1011,13 +1014,13 @@ export default function MechanicalScene({
     [components, dimensions, palette, placements]
   );
   const envelopeRef = useMemo(() => pickEnvelopeRef(scenePlacements, dimensions), [dimensions, scenePlacements]);
-  const motionTracks = useMemo(
-    () => normalizeOpenCadMotionTracks(
-      kinematics,
-      new Set(scenePlacements.map((placement) => placement.refDes)),
-    ),
-    [kinematics, scenePlacements],
-  );
+  const motionTracks = useMemo(() => {
+    const validRefs = new Set(scenePlacements.map((placement) => placement.refDes));
+    return [
+      ...normalizeOpenCadMotionTracks(kinematics, validRefs),
+      ...normalizeCompliantPreviewTracks(compliantPreview, validRefs),
+    ];
+  }, [compliantPreview, kinematics, scenePlacements]);
   const activeMotion = motionTracks[activeMotionIndex] || null;
   const visiblePlacements = useMemo(
     () => scenePlacements.filter((placement) => visiblePlacement(placement, toggles, electricalActive, envelopeRef)),
@@ -1357,7 +1360,7 @@ export default function MechanicalScene({
                 <div className="mt-1 truncate text-xs font-semibold text-[var(--forma-text-strong)]">{activeMotion.label}</div>
               </div>
               <span className="shrink-0 rounded-md border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] px-2 py-1 text-[9px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
-                {activeMotion.type}
+                {activeMotion.type === "compliant" ? "compliant / approx" : activeMotion.type}
               </span>
             </div>
 
@@ -1384,7 +1387,7 @@ export default function MechanicalScene({
             )}
 
             <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-medium uppercase tracking-[0.12em] text-[var(--forma-text-muted)]">
-              <span>{activeMotion.targetRef} / OpenCAD</span>
+              <span>{activeMotion.targetRef} / {activeMotion.type === "compliant" ? "Forma preview" : "OpenCAD"}</span>
               <span>{openCadMotionRangeLabel(activeMotion)}</span>
             </div>
 

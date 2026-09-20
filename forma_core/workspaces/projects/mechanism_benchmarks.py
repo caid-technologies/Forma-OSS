@@ -282,7 +282,7 @@ flexure = box(
 model = left.union(flexure, name="Fixed region to flexure").union(right, name="Monolithic flexure body")
 FORMA_EXPORT_SHAPE_IDS = [model.shape_id]
 
-direction = 1.0 if PARAMS["bend_direction"] == "positive_z" else -1.0
+direction = -1.0 if PARAMS["bend_direction"] == "positive_z" else 1.0
 limit = math.radians(PARAMS["nominal_travel_deg"]) * direction
 samples = []
 for sample_index in range(PARAMS["preview_samples"]):

@@ -626,6 +626,7 @@ export function MechanicalPanel({
   const placements = mechanical.component_placements || metadata.component_placements || [];
   const relationships = mechanical.spatial_relationships || metadata.spatial_relationships || [];
   const kinematics = cadModel && typeof cadModel === "object" ? cadModel.kinematics : null;
+  const compliantPreview = cadModel && typeof cadModel === "object" ? cadModel.compliant_preview : null;
 
   return (
     <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[var(--forma-page)]">
@@ -635,6 +636,7 @@ export function MechanicalPanel({
         placements={placements}
         relationships={relationships}
         kinematics={kinematics}
+        compliantPreview={compliantPreview}
         features={features}
         toggles={toggles}
         setToggles={setToggles}

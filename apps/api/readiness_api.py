@@ -21,6 +21,12 @@ from forma_core.database import (
     initiate_project_build,
 )
 from forma_core.persistence.project_artifacts import ProjectArtifactStorage, ProjectArtifactStorageError
+from forma_core.workspaces.projects.cad_generation import (
+    CadGenerationError,
+    _obj_mesh_bytes,
+    _stl_mesh_bytes,
+    _three_mf_mesh_bytes,
+)
 from forma_core.workspaces.projects.fabrication.demo_printers import (
     demo_printer_capabilities,
     get_demo_printer,
@@ -144,24 +150,48 @@ def _load_step_bytes(project_id: str, cad: dict[str, Any]) -> tuple[str, bytes]:
 
 
 def _mesh_export_descriptor(cad: dict[str, Any], format_name: str) -> dict[str, Any] | None:
-    """Return one validated stored mesh-export descriptor from project CAD metadata."""
+    """Resolve a stored mesh export, or derive one from the revision preview mesh."""
 
     media_type = MESH_EXPORT_MEDIA_TYPES.get(format_name)
+    if not media_type:
+        return None
+
     exports = cad.get("exports")
     descriptor = exports.get(format_name) if isinstance(exports, dict) else None
-    if not media_type or not isinstance(descriptor, dict):
+    if isinstance(descriptor, dict):
+        digest = str(descriptor.get("sha256") or "").strip().lower()
+        if (
+            _GCODE_DIGEST_RE.fullmatch(digest)
+            and str(descriptor.get("media_type") or "").strip().lower() == media_type
+        ):
+            size_bytes = descriptor.get("bytes")
+            return {
+                "filename": f"assembly.{format_name}",
+                "sha256": digest,
+                "size_bytes": size_bytes if isinstance(size_bytes, int) and size_bytes >= 0 else None,
+                "media_type": media_type,
+            }
+
+    meshes = cad.get("meshes")
+    mesh = meshes[0] if isinstance(meshes, list) and meshes and isinstance(meshes[0], dict) else None
+    serializer = {
+        "stl": _stl_mesh_bytes,
+        "3mf": _three_mf_mesh_bytes,
+        "obj": _obj_mesh_bytes,
+    }.get(format_name)
+    if mesh is None or serializer is None:
         return None
-    digest = str(descriptor.get("sha256") or "").strip().lower()
-    if not _GCODE_DIGEST_RE.fullmatch(digest):
+    try:
+        content = serializer(mesh)
+    except CadGenerationError:
         return None
-    if str(descriptor.get("media_type") or "").strip().lower() != media_type:
-        return None
-    size_bytes = descriptor.get("bytes")
+    digest = hashlib.sha256(content).hexdigest()
     return {
         "filename": f"assembly.{format_name}",
         "sha256": digest,
-        "size_bytes": size_bytes if isinstance(size_bytes, int) and size_bytes >= 0 else None,
+        "size_bytes": len(content),
         "media_type": media_type,
+        "_content": content,
     }
 
 
@@ -280,9 +310,11 @@ def list_project_exports_endpoint(
         descriptor = _mesh_export_descriptor(cad, format_name)
         if descriptor:
             mesh_exports[format_name] = {
-                **descriptor,
-                "download_url": f"/projects/{project_key}/exports/mesh/{format_name}/{descriptor['sha256']}",
+                key: value for key, value in descriptor.items() if key != "_content"
             }
+            mesh_exports[format_name]["download_url"] = (
+                f"/projects/{project_key}/exports/mesh/{format_name}/{descriptor['sha256']}"
+            )
     return {
         "project_id": project_key,
         "step": {
@@ -335,21 +367,31 @@ def download_project_mesh_endpoint(
             "mesh_not_found",
             "The requested mesh artifact is not attached to this project.",
         )
-    try:
-        stored = ProjectArtifactStorage().get(project_key, digest, descriptor["media_type"])
-    except FileNotFoundError as exc:
-        raise _export_error(
-            status.HTTP_404_NOT_FOUND,
-            "mesh_not_found",
-            "The requested mesh artifact was not found.",
-        ) from exc
-    except (ProjectArtifactStorageError, OSError, ValueError) as exc:
-        raise _export_error(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            "artifact_storage_unavailable",
-            "The mesh artifact could not be retrieved.",
-        ) from exc
-    content = stored.content or b""
+    derived_content = descriptor.get("_content")
+    if isinstance(derived_content, bytes):
+        content = derived_content
+        try:
+            ProjectArtifactStorage().put(project_key, digest, content, descriptor["media_type"])
+        except (ProjectArtifactStorageError, OSError, ValueError):
+            # Legacy revisions remain downloadable from their persisted preview mesh
+            # even when the optional artifact cache is unavailable.
+            pass
+    else:
+        try:
+            stored = ProjectArtifactStorage().get(project_key, digest, descriptor["media_type"])
+        except FileNotFoundError as exc:
+            raise _export_error(
+                status.HTTP_404_NOT_FOUND,
+                "mesh_not_found",
+                "The requested mesh artifact was not found.",
+            ) from exc
+        except (ProjectArtifactStorageError, OSError, ValueError) as exc:
+            raise _export_error(
+                status.HTTP_503_SERVICE_UNAVAILABLE,
+                "artifact_storage_unavailable",
+                "The mesh artifact could not be retrieved.",
+            ) from exc
+        content = stored.content or b""
     if hashlib.sha256(content).hexdigest() != digest:
         raise _export_error(
             status.HTTP_503_SERVICE_UNAVAILABLE,

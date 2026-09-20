@@ -198,10 +198,10 @@ class MechanicalSpatialRelationship(BaseModel):
     offset_mm: Optional[float] = Field(None, description="Signed offset between components along the dominant axis")
     notes: Optional[str] = Field(None, description="Additional placement or clearance rationale")
 
-class MechanicalMotion(BaseModel):
+class MechanicalMotionIntent(BaseModel):
     motion_id: Optional[str] = Field(None, description="Stable project-local identifier for this motion")
     label: Optional[str] = Field(None, description="Human-readable name for the motion preview")
-    type: Literal["revolute", "prismatic", "compliant"] = Field(..., description="Motion model used by the MECH preview")
+    type: Literal["revolute", "prismatic", "compliant"] = Field(..., description="Authoring intent. Rigid revolute/prismatic intents are resolved and evaluated by OpenCAD; compliant intent is reserved for future deformation preview.")
     target_ref: str = Field(..., description="Reference designator of the moving placement")
     parent_ref: Optional[str] = Field(None, description="Optional reference designator of the stationary parent")
     axis: Literal["X", "Y", "Z"] = Field("Z", description="Project-space motion axis")
@@ -260,7 +260,7 @@ class MechanicalNotes(BaseModel):
     render_dimensions: Optional[MechanicalVector3] = Field(None, description="Overall live-render envelope dimensions in millimeters")
     component_placements: List[MechanicalPlacement] = Field(default_factory=list, description="Per-component 3D placements for live Three.js rendering")
     spatial_relationships: List[MechanicalSpatialRelationship] = Field(default_factory=list, description="Physical offsets and alignment relationships between placed components")
-    motions: List[MechanicalMotion] = Field(default_factory=list, description="Optional revolute, prismatic, or compliant motion previews for placed mechanical parts")
+    motion_intents: List[MechanicalMotionIntent] = Field(default_factory=list, description="Agent-authored motion intent resolved into OpenCAD kinematic joints during CAD generation")
 
 class PinMappingEntry(BaseModel):
     mcu_pin: str = Field(..., description="MCU pin identifier, e.g., 'GPIO23'")

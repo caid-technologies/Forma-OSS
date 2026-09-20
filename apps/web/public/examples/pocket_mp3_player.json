@@ -137,6 +137,32 @@
       { "source_ref_des": "BTN2", "target_ref_des": "MCAP2", "relation": "cap centered over switch", "axis": "Y", "offset_mm": -1.5, "notes": "Button cap protrudes through the front bezel." },
       { "source_ref_des": "BTN3", "target_ref_des": "MCAP3", "relation": "cap centered over switch", "axis": "Y", "offset_mm": -1.5, "notes": "Button cap protrudes through the front bezel." }
     ],
+    "motions": [
+      {
+        "motion_id": "rear-cover-hinge",
+        "label": "Open rear service cover",
+        "type": "revolute",
+        "target_ref": "MECH3",
+        "parent_ref": "MECH1",
+        "axis": "Z",
+        "pivot_mm": [-44, 9.6, 0],
+        "min_deg": 0,
+        "max_deg": 105,
+        "notes": "Preview the rear cover opening around its left-side service hinge."
+      },
+      {
+        "motion_id": "play-button-travel",
+        "label": "Press play button",
+        "type": "prismatic",
+        "target_ref": "MCAP1",
+        "parent_ref": "MECH2",
+        "axis": "Y",
+        "pivot_mm": [-18, -10.5, -7],
+        "min_mm": 0,
+        "max_mm": 1.5,
+        "notes": "Preview the printed cap travel toward the tactile switch."
+      }
+    ],
     "manufacturability_rating": "Moderate"
   },
   "constraints": [

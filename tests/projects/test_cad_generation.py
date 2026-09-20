@@ -193,7 +193,7 @@ class CadGenerationTests(unittest.TestCase):
             def fake_run(_adapter: Path, _model: Path, output: Path, tree: Path | None = None) -> dict:
                 if output.suffix == ".step":
                     output.write_bytes(b"ISO-10303-21;HEADER;ENDSEC;DATA;ENDSEC;END-ISO-10303-21;")
-                    result = {"valid": True, "opencad_version": "0.2.3", "kinematics": kinematics}
+                    result = {"valid": True, "opencad_version": "0.2.4", "kinematics": kinematics}
                 else:
                     output.write_text(
                         "solid model\n"
@@ -205,7 +205,7 @@ class CadGenerationTests(unittest.TestCase):
                         "endloop\nendfacet\nendsolid model\n",
                         encoding="ascii",
                     )
-                    result = {"valid": True, "opencad_version": "0.2.3"}
+                    result = {"valid": True, "opencad_version": "0.2.4"}
                 if tree is not None:
                     tree.write_text("{}", encoding="utf-8")
                 return result
@@ -244,7 +244,7 @@ class CadGenerationTests(unittest.TestCase):
                     )
                 if tree is not None:
                     tree.write_text("{}", encoding="utf-8")
-                return {"valid": True, "opencad_version": "0.2.3"}
+                return {"valid": True, "opencad_version": "0.2.4"}
 
             project = mechanical_project()
             with patch.dict("os.environ", {"FORMA_CAD_WORKSPACE": workspace}, clear=False), patch(

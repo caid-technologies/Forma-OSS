@@ -176,10 +176,11 @@ def _inspect_runtime(requirement: str) -> tuple[OpenCADRuntime | None, str]:
 
     try:
         from opencad.kernel.core.backend_factory import create_backend
+        from opencad.kinematics import evaluate_assembly_pose  # noqa: F401
 
         create_backend("occt", require_native=True)
     except Exception as exc:
-        return None, f"the native OCCT backend is unavailable: {exc}"
+        return None, f"the native OCCT/kinematics runtime is unavailable: {exc}"
 
     return OpenCADRuntime(version=runtime_version, requirement=requirement), ""
 

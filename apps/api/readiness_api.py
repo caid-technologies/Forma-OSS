@@ -49,6 +49,11 @@ from forma_core.workspaces.workflow import WorkflowStateError
 router = APIRouter(prefix="/projects/{project_id}", tags=["project-readiness"])
 GCODE_MEDIA_TYPE = "text/x.gcode"
 STEP_MEDIA_TYPE = "model/step"
+MESH_EXPORT_MEDIA_TYPES = {
+    "stl": "model/stl",
+    "3mf": "model/3mf",
+    "obj": "model/obj",
+}
 _GCODE_DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -136,6 +141,28 @@ def _load_step_bytes(project_id: str, cad: dict[str, Any]) -> tuple[str, bytes]:
     if hashlib.sha256(content).hexdigest() != digest:
         raise _export_error(status.HTTP_503_SERVICE_UNAVAILABLE, "step_integrity_failed", "The STEP artifact failed its integrity check.")
     return digest, content
+
+
+def _mesh_export_descriptor(cad: dict[str, Any], format_name: str) -> dict[str, Any] | None:
+    """Return one validated stored mesh-export descriptor from project CAD metadata."""
+
+    media_type = MESH_EXPORT_MEDIA_TYPES.get(format_name)
+    exports = cad.get("exports")
+    descriptor = exports.get(format_name) if isinstance(exports, dict) else None
+    if not media_type or not isinstance(descriptor, dict):
+        return None
+    digest = str(descriptor.get("sha256") or "").strip().lower()
+    if not _GCODE_DIGEST_RE.fullmatch(digest):
+        return None
+    if str(descriptor.get("media_type") or "").strip().lower() != media_type:
+        return None
+    size_bytes = descriptor.get("bytes")
+    return {
+        "filename": f"assembly.{format_name}",
+        "sha256": digest,
+        "size_bytes": size_bytes if isinstance(size_bytes, int) and size_bytes >= 0 else None,
+        "media_type": media_type,
+    }
 
 
 def _step_to_stl(step_content: bytes, directory: Path) -> ProjectArtifact:
@@ -244,10 +271,18 @@ def list_project_exports_endpoint(
     project_id: UUID,
     user: UserContext = Depends(require_user_context),
 ) -> dict[str, Any]:
-    """Describe downloadable STEP and supported printer-specific G-code targets."""
+    """Describe downloadable CAD formats and supported printer-specific G-code targets."""
     project_key = str(project_id)
     cad = _project_cad(project_key, _owner(user))
     digest = _step_digest(cad)
+    mesh_exports = {}
+    for format_name in MESH_EXPORT_MEDIA_TYPES:
+        descriptor = _mesh_export_descriptor(cad, format_name)
+        if descriptor:
+            mesh_exports[format_name] = {
+                **descriptor,
+                "download_url": f"/projects/{project_key}/exports/mesh/{format_name}/{descriptor['sha256']}",
+            }
     return {
         "project_id": project_key,
         "step": {
@@ -256,6 +291,7 @@ def list_project_exports_endpoint(
             "size_bytes": cad.get("bytes"),
             "download_url": f"/projects/{project_key}/exports/step/{digest}",
         },
+        "mesh_exports": mesh_exports,
         "printers": ender_exports.capabilities() if ender_exports.enabled() else demo_printer_capabilities(),
     }
 
@@ -276,6 +312,57 @@ def download_project_step_endpoint(
         content,
         media_type=STEP_MEDIA_TYPE,
         headers={"Content-Disposition": 'attachment; filename="assembly.step"', "Cache-Control": "private, no-store"},
+    )
+
+
+@router.get("/exports/mesh/{format_name}/{sha256}")
+def download_project_mesh_endpoint(
+    project_id: UUID,
+    format_name: str,
+    sha256: str,
+    user: UserContext = Depends(require_user_context),
+) -> Response:
+    """Download an authenticated project's stored STL, 3MF, or OBJ derivative."""
+
+    project_key = str(project_id)
+    cad = _project_cad(project_key, _owner(user))
+    normalized_format = format_name.strip().lower()
+    descriptor = _mesh_export_descriptor(cad, normalized_format)
+    digest = sha256.strip().lower()
+    if descriptor is None or digest != descriptor["sha256"]:
+        raise _export_error(
+            status.HTTP_404_NOT_FOUND,
+            "mesh_not_found",
+            "The requested mesh artifact is not attached to this project.",
+        )
+    try:
+        stored = ProjectArtifactStorage().get(project_key, digest, descriptor["media_type"])
+    except FileNotFoundError as exc:
+        raise _export_error(
+            status.HTTP_404_NOT_FOUND,
+            "mesh_not_found",
+            "The requested mesh artifact was not found.",
+        ) from exc
+    except (ProjectArtifactStorageError, OSError, ValueError) as exc:
+        raise _export_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "artifact_storage_unavailable",
+            "The mesh artifact could not be retrieved.",
+        ) from exc
+    content = stored.content or b""
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise _export_error(
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "mesh_integrity_failed",
+            "The mesh artifact failed its integrity check.",
+        )
+    return Response(
+        content,
+        media_type=descriptor["media_type"],
+        headers={
+            "Content-Disposition": f'attachment; filename="{descriptor["filename"]}"',
+            "Cache-Control": "private, no-store",
+        },
     )
 
 

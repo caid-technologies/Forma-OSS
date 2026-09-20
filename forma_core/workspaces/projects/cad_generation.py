@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -99,6 +100,52 @@ def _placement_payload(project: HardwareIR) -> list[dict[str, Any]]:
     ]
 
 
+
+def _motion_intent_payload(project: HardwareIR) -> list[dict[str, Any]]:
+    """Map Forma authoring intent into the rigid OpenCAD joint contract.
+
+    Forma owns component/reference intent. OpenCAD owns joint validation and
+    pose evaluation. Compliant intent is intentionally left for the future
+    deformation/simulation contract and is not coerced into a rigid joint.
+    """
+
+    mechanical = project.mechanical
+    if mechanical is None:
+        return []
+
+    axis_vectors = {
+        "X": (1.0, 0.0, 0.0),
+        "Y": (0.0, 1.0, 0.0),
+        "Z": (0.0, 0.0, 1.0),
+    }
+    resolved: list[dict[str, Any]] = []
+    for index, intent in enumerate(mechanical.motion_intents):
+        if intent.type == "compliant":
+            continue
+        axis = axis_vectors.get(str(intent.axis).upper())
+        if axis is None:
+            continue
+        if intent.type == "revolute":
+            lower = math.radians(float(intent.min_deg or 0.0))
+            upper = math.radians(float(intent.max_deg if intent.max_deg is not None else 90.0))
+        else:
+            lower = float(intent.min_mm or 0.0)
+            upper = float(intent.max_mm if intent.max_mm is not None else 10.0)
+        resolved.append({
+            "motion_id": intent.motion_id or f"{intent.target_ref}-{intent.type}-{index + 1}",
+            "label": intent.label or f"{intent.target_ref} {intent.type}",
+            "type": intent.type,
+            "target_ref": intent.target_ref,
+            "parent_ref": intent.parent_ref,
+            "axis": axis,
+            "origin_mm": tuple(float(value) for value in intent.pivot_mm),
+            "lower_limit": lower,
+            "upper_limit": upper,
+            "notes": intent.notes,
+        })
+    return resolved
+
+
 def _cad_source(project: HardwareIR) -> str:
     if project.mechanical and project.mechanical.cad_operations:
         from forma_core.workspaces.projects.solid_cad import solid_cad_source
@@ -114,7 +161,8 @@ def _cad_source(project: HardwareIR) -> str:
     open_frame = "open" in enclosure_text and "enclosure" not in enclosure_text
     wall = max(1.5, min(3.0, min(width, depth, height) / 12.0))
     placements = json.dumps(_placement_payload(project), sort_keys=True)
-    return """from opencad import Part, Sketch
+    motion_intents = json.dumps(_motion_intent_payload(project), sort_keys=True)
+    return """from opencad import Part, Sketch, get_default_context
 
 
 def xy_prism(x, y, z, length, width, height, name):
@@ -151,6 +199,8 @@ HEIGHT = %r
 WALL = %r
 OPEN_FRAME = %r
 PLACEMENTS = %s
+MOTION_INTENTS = %s
+PARTS = {}
 
 if OPEN_FRAME:
     model = xy_prism(-WIDTH / 2.0, -DEPTH / 2.0, -HEIGHT / 2.0, WIDTH, DEPTH, WALL, "Open frame base")
@@ -219,6 +269,8 @@ if led and not OPEN_FRAME:
     light = xz_round_prism(led["x"], -DEPTH / 2.0 - 1.0, led["z"], min(4.0, led["sx"] / 2.0), WALL + 2.0, "Status light opening")
     model = model.cut(light, name="Status light cutout")
 
+STATIC_ROOT_SHAPE_ID = model.shape_id
+
 for item in PLACEMENTS:
     if "enclosure" in (item["category"] + " " + item["label"]).lower():
         continue
@@ -238,10 +290,41 @@ for item in PLACEMENTS:
         item["sz"],
         item["ref_des"] + " component envelope",
     )
+    PARTS[item["ref_des"]] = component
     model = model.union(component, name=item["ref_des"] + " placed component")
 
+context = get_default_context()
+for intent in MOTION_INTENTS:
+    child = PARTS.get(intent["target_ref"])
+    parent = PARTS.get(intent.get("parent_ref")) if intent.get("parent_ref") else None
+    child_shape_id = child.shape_id if child is not None else None
+    parent_shape_id = parent.shape_id if parent is not None else STATIC_ROOT_SHAPE_ID
+    if not child_shape_id or not parent_shape_id:
+        continue
+    result = context.registry.call(
+        "create_kinematic_joint",
+        {
+            "joint_id": intent["motion_id"],
+            "type": intent["type"],
+            "parent_shape_id": parent_shape_id,
+            "child_shape_id": child_shape_id,
+            "axis": intent["axis"],
+            "origin_mm": intent["origin_mm"],
+            "lower_limit": intent["lower_limit"],
+            "upper_limit": intent["upper_limit"],
+            "label": intent["label"],
+            "metadata": {
+                "forma_target_ref": intent["target_ref"],
+                "forma_parent_ref": intent.get("parent_ref"),
+                "notes": intent.get("notes"),
+            },
+        },
+    )
+    if not result.ok:
+        raise RuntimeError("OpenCAD kinematic joint creation failed: " + result.message)
+
 model
-""" % (width, depth, height, wall, open_frame, placements)
+""" % (width, depth, height, wall, open_frame, placements, motion_intents)
 
 
 def _adapter_path() -> Path:
@@ -726,6 +809,7 @@ def ensure_native_cad_model(
             "model_source_path": str(model_path),
             "feature_tree_path": str(tree_path),
             "opencad_version": step_summary.get("opencad_version"),
+            "kinematics": step_summary.get("kinematics"),
             "exports": portable_exports,
             "meshes": [mesh],
         }

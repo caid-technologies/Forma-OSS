@@ -609,6 +609,7 @@ export function MechanicalPanel({
   features,
   metadata,
   mechanical,
+  cadModel,
 }: {
   toggles: Record<string, boolean>;
   setToggles: (value: any) => void;
@@ -618,12 +619,13 @@ export function MechanicalPanel({
   features: string[];
   metadata: Record<string, any>;
   mechanical: Record<string, any>;
+  cadModel?: Record<string, any> | null;
 }) {
   const visualSpec = metadata.product_visual_spec || {};
   const dimensions = mechanical.render_dimensions || visualSpec.external_dimensions_mm || metadata.render_dimensions || { x_mm: 100, y_mm: 60, z_mm: 36 };
   const placements = mechanical.component_placements || metadata.component_placements || [];
   const relationships = mechanical.spatial_relationships || metadata.spatial_relationships || [];
-  const motions = mechanical.motions || metadata.motions || [];
+  const kinematics = cadModel && typeof cadModel === "object" ? cadModel.kinematics : null;
 
   return (
     <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[var(--forma-page)]">
@@ -632,7 +634,7 @@ export function MechanicalPanel({
         components={components}
         placements={placements}
         relationships={relationships}
-        motions={motions}
+        kinematics={kinematics}
         features={features}
         toggles={toggles}
         setToggles={setToggles}

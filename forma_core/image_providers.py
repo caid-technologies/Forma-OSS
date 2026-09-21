@@ -1465,23 +1465,39 @@ def build_project_image_prompt(user_prompt: str, ir: Any) -> str:
         )
 
     prompt_parts = [
-        "Create a clean realistic product concept render for a safe low-voltage maker electronics build.",
-        "Show the assembled physical product and its requested silhouette, including visible controls, display openings, ports, structural parts, and any exposed low-voltage modules that belong in the design.",
+        "Create a clean realistic render of the existing hardware design described below.",
+        "Preserve the saved design's identity, silhouette, geometry, part count, relative proportions, materials, and mechanical relationships. This is a visualization, not a redesign.",
+        "Render only parts and features explicitly specified in the saved project. A purely mechanical design must remain purely mechanical.",
+        "Do not add circuit boards, displays, sensors, wiring, batteries, motors, lights, ports, or decorative technology unless they are explicitly part of this design. Do not infer electronics from the word hardware.",
         "Use a closed shell only when the requirements call for one. Do not default to a rectangular project box; curved, cylindrical, radial, wearable, folded, structural, and open-frame forms are equally valid.",
         "The rendered pixels must contain no text: no dimension lines or values, labels, annotations, captions, legends, watermarks, or logos.",
         "Do not include hands, people, wiring diagrams, schematic symbols, high-voltage equipment, medical devices, or weapons.",
         "Use a neutral studio background, believable materials, and a three-quarter product view.",
         f"Project title: {_truncate(title, 120)}",
-        f"Project description: {_truncate(description, 300)}",
-        f"User prompt: {_truncate(user_prompt, 220)}",
+        f"Project description: {_truncate(description, 2000)}",
+        f"Requested view or presentation: {_truncate(user_prompt, 4000)}",
     ]
 
     if physical_form and str(physical_form).strip().lower() != "unspecified":
-        prompt_parts.append(f"Authoritative physical form and silhouette: {_truncate(physical_form, 240)}")
+        prompt_parts.append(f"Authoritative physical form and silhouette: {_truncate(physical_form, 800)}")
+    metadata = getattr(ir, "assembly_metadata", None) or {}
+    source_prompt = metadata.get("source_prompt") if isinstance(metadata, dict) else None
+    if source_prompt and source_prompt != "OpenCode project":
+        prompt_parts.append(f"Original project brief: {_truncate(source_prompt, 2000)}")
+    if mechanical:
+        for field in ("cad_operations", "mechanism_benchmark"):
+            value = getattr(mechanical, field, None)
+            if value:
+                prompt_parts.append(f"Saved {field} (geometry reference, never depict as text): " + json.dumps(
+                    value, default=lambda item: item.model_dump(mode="json"), separators=(",", ":"),
+                ))
+        details = getattr(mechanical, "fabrication_details", None) or []
+        if details:
+            prompt_parts.append("Saved mechanical details: " + "; ".join(_limit_list(details, 12, item_limit=400)))
     if component_lines:
         prompt_parts.append("Main parts: " + "; ".join(component_lines))
     if constraints:
-        prompt_parts.append("Design constraints: " + "; ".join(_limit_list(constraints, 8)))
+        prompt_parts.append("Design constraints: " + "; ".join(_limit_list(constraints, 12, item_limit=400)))
     if fabrication_notes:
         prompt_parts.append("Fabrication notes: " + "; ".join(_limit_list(fabrication_notes, 5)))
     if dimensions:
@@ -2373,6 +2389,14 @@ def _spec_prompt_text(spec: Dict[str, Any]) -> str:
 
 
 def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict[str, Any]]:
+    if not getattr(ir, "components", None) and not getattr(ir, "nets", None):
+        # CAD-only projects have no electrical assembly to reveal. Do not seed
+        # their views with the electronics layout defaults in the visual spec.
+        base = build_project_image_prompt(user_prompt, ir)
+        return [
+            {"view_id": "case", "label": "Product exterior", "prompt": base + "\nRender the assembled exterior. Do not draw dimension lines or measurement arrows."},
+            {"view_id": "inside", "label": "Assembly inspection", "prompt": base + "\nShow the exact same assembly in a top-down inspection view, without inventing a shell or hidden internals. Only the camera may change; retain all saved parts and relationships. Do not draw dimension lines or measurement arrows."},
+        ]
     spec = build_project_visual_spec(user_prompt, ir)
     spec_text = _spec_prompt_text(spec)
     shared = [
@@ -2394,7 +2418,7 @@ def build_project_image_sequence_prompts(user_prompt: str, ir: Any) -> List[Dict
         "Prefer top-down transparent or ghosted inspection views for enclosed products and unobstructed top-down views for open products rather than dramatic perspective views.",
         "When a lid or top surface exists, do not fuse it with internal electronics or place visible internals under an opaque closed surface.",
         "The rendered pixels must contain no text: no dimension lines or values, measurement arrows, labels, annotations, captions, legends, component names, part numbers, watermarks, or logos.",
-        "Safe low-voltage maker electronics only. No hands, people, watermarks, brand logos, weapons, medical equipment, or mains-voltage hazards.",
+        "Render only the saved parts and features. Do not add electronics, controls, displays, or wiring absent from the spec. No hands, people, watermarks, brand logos, weapons, medical equipment, or mains-voltage hazards.",
     ]
 
     shared_text = "\n".join(shared)

@@ -25,6 +25,7 @@ import {
   type OpenCodeTurnState,
 } from "../lib/opencode";
 import { authoringModeEnabled, usableRuntimeLlmOptions, webConfig, type RuntimeConfigContract } from "../lib/config";
+import { hasConversationHistory, loadProjectChatHistory } from "../lib/project-chat-history";
 import ChatAccessStatus, { type ChatAccessLoadState } from "./forma-workspace/chat-access-status";
 import { calculateProjectCostMetrics, resolveProjectComponentInstances } from "../lib/project-cost-metrics";
 import { useFormaAuth } from "../lib/forma-auth";
@@ -553,14 +554,15 @@ function chatTitleFromMessages(messages: ChatMessage[], fallback = NEW_PROJECT_T
   return title.length > 80 ? `${title.slice(0, 77)}...` : title;
 }
 
-function persistableChatMessages(messages: ChatMessage[]): ChatMessage[] {
+function persistableChatMessages(messages: unknown[]): ChatMessage[] {
   return messages
     .map(normalizeChatMessage)
     .filter((message: ChatMessage | null): message is ChatMessage => Boolean(message))
+    .filter((message) => !message.id.startsWith("project-context:"))
     .slice(-MAX_PROJECT_CHAT_MESSAGES);
 }
 
-function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: ChatMessage[]): ChatMessage[] {
+function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: ChatMessage[], preferLocal = false): ChatMessage[] {
   const localById = new Map(localMessages.map((message) => [message.id, message]));
   const seen = new Set<string>();
   const merged: ChatMessage[] = [];
@@ -571,6 +573,10 @@ function mergeFetchedChatMessages(remoteMessages: ChatMessage[], localMessages: 
     const local = localById.get(remote.id);
     if (!local) {
       merged.push(remote);
+      return;
+    }
+    if (preferLocal) {
+      merged.push(local);
       return;
     }
 
@@ -1200,20 +1206,10 @@ function upsertChatListItem(items: ChatListItem[], item: Partial<ChatListItem> &
     .slice(0, MAX_CHAT_INDEX_ITEMS);
 }
 
-function initialProjectChatMessages(projectId: string, title: string, sourcePrompt?: string | null): ChatMessage[] {
+function initialProjectChatMessages(projectId: string, title: string): ChatMessage[] {
   const messages: ChatMessage[] = [];
-  if (sourcePrompt?.trim()) {
-    messages.push({
-      id: newChatMessageId(),
-      role: "user",
-      content: sourcePrompt.trim(),
-      status: "idle",
-      timestamp: chatTimestamp(),
-      projectId,
-    });
-  }
   messages.push({
-    id: newChatMessageId(),
+    id: `project-context:${projectId}`,
     role: "assistant",
     content: `${title || "Project"} is the active project for this chat.`,
     status: "success",
@@ -1734,6 +1730,8 @@ export function FormaWorkspace({
     userImageUrl,
   } = useFormaAuth();
   const chatStorageScope = authRequired ? `identity:${authIdentityKey}` : "local";
+  const chatStorageScopeRef = useRef(chatStorageScope);
+  useLayoutEffect(() => { chatStorageScopeRef.current = chatStorageScope; }, [chatStorageScope]);
   const galleryIdentityKey = JSON.stringify([API_URL, authRequired, authIdentityKey, Boolean(isSignedIn)]);
   const [prompt, setPrompt] = useState("");
   const [activeChatId, setActiveChatId] = useState(() => currentRouteChatId ? safeDecodeChatId(currentRouteChatId) : newBuildChatId());
@@ -1865,6 +1863,8 @@ export function FormaWorkspace({
   const fileInputRefCenter = useRef<HTMLInputElement>(null);
   const projectsSectionRef = useRef<HTMLElement>(null);
   const chatPersistenceTimersRef = useRef<Record<string, number>>({});
+  const chatPersistenceVersionsRef = useRef<Record<string, number>>({});
+  const pendingChatWritesRef = useRef(new Set<string>());
   const projectHistoryRequestIdRef = useRef(0);
   const myProjectHistoryRequestIdRef = useRef(0);
   const generationLlmRequestIdRef = useRef(0);
@@ -2055,18 +2055,32 @@ export function FormaWorkspace({
     );
   };
 
-  const ensureChatThread = (projectId: string | null, ir: any, sourcePrompt?: string | null, routedChatId?: string) => {
+  const ensureChatThread = async (projectId: string | null, ir: any, routedChatId?: string, signal?: AbortSignal) => {
     if (!projectId) return;
     const chatId = routedChatId || chatIdFromIR(ir) || projectId;
     setActiveChatId(chatId);
+    const cached = chatThreads[chatId] || readStoredChatThread(chatId, projectId, chatStorageScope);
+    let messages = cached;
+    if (!hasConversationHistory(cached)) {
+      try {
+        messages = persistableChatMessages(await loadProjectChatHistory({
+          apiUrl: API_URL, chatId, projectId, headers: await generationRequestHeaders(),
+          recoverOpenCode: authoringMode || ir?.assembly_metadata?.authoring_agent === "opencode", signal,
+        }));
+      } catch (error) {
+        if (!signal?.aborted && chatStorageScopeRef.current === chatStorageScope) {
+          setGenerationInputNotice("Previous messages could not be loaded. Reopen this chat to retry.");
+        }
+        return;
+      }
+    }
+    if (signal?.aborted || chatStorageScopeRef.current !== chatStorageScope) return;
     setChatThreads((current) => {
-      if (current[chatId]?.length) return current;
-      const storedMessages = readStoredChatThread(chatId, projectId, chatStorageScope);
-      const nextMessages = storedMessages.length
-        ? storedMessages
-        : initialProjectChatMessages(projectId, ir?.overview?.title || "Project", sourcePrompt);
-      writeStoredChatThread(chatId, nextMessages, chatStorageScope);
-      persistChatThread(chatId, nextMessages, ir?.overview?.title || null);
+      const nextMessages = messages.length
+        ? mergeFetchedChatMessages(messages, hasConversationHistory(current[chatId] || []) ? current[chatId] : [], true)
+        : hasConversationHistory(current[chatId] || []) ? current[chatId]
+        : initialProjectChatMessages(projectId, ir?.overview?.title || "Project");
+      if (hasConversationHistory(nextMessages)) writeStoredChatThread(chatId, nextMessages, chatStorageScope);
       return {
         ...current,
         [chatId]: nextMessages,
@@ -2607,17 +2621,20 @@ export function FormaWorkspace({
 
 
   const persistChatThread = (chatId: string | null, messages: ChatMessage[], explicitTitle?: string | null) => {
-    if (!hostedChatEnabled || (authRequired && !isSignedIn) || !chatId || typeof window === "undefined") return;
+    if (!(hostedChatEnabled || authoringMode) || (authRequired && !isSignedIn) || !chatId || typeof window === "undefined") return;
     const nextMessages = persistableChatMessages(messages);
-    if (!chatHasStarted(nextMessages)) return;
+    if (!chatHasStarted(nextMessages) || !hasConversationHistory(nextMessages)) return;
     const listedTitle = chatListItems.find((item) => item.chatId === chatId)?.title?.trim() || "";
     const title = explicitTitle?.trim()
       || (listedTitle && listedTitle !== NEW_PROJECT_TITLE ? listedTitle : chatTitleFromMessages(nextMessages));
     const existingTimer = chatPersistenceTimersRef.current[chatId];
     if (existingTimer) window.clearTimeout(existingTimer);
+    const version = (chatPersistenceVersionsRef.current[chatId] || 0) + 1;
+    chatPersistenceVersionsRef.current[chatId] = version;
+    pendingChatWritesRef.current.add(chatId);
     chatPersistenceTimersRef.current[chatId] = window.setTimeout(async () => {
       delete chatPersistenceTimersRef.current[chatId];
-      if (!hostedChatEnabled) return;
+      if (!(hostedChatEnabled || authoringMode) || chatStorageScopeRef.current !== chatStorageScope) return;
       try {
         const res = await fetch(`${API_URL}/chats/${encodeURIComponent(chatId)}`, {
           method: "PUT",
@@ -2630,6 +2647,8 @@ export function FormaWorkspace({
         });
         if (!res.ok) throw new Error(await readApiErrorMessage(res));
         const savedChat = await res.json();
+        if (chatStorageScopeRef.current !== chatStorageScope || chatPersistenceVersionsRef.current[chatId] !== version) return;
+        pendingChatWritesRef.current.delete(chatId);
         setPrivateChatItems((current) => mergeChatListItems(normalizePrivateChatItems([savedChat]), current));
       } catch (error) {
         console.error("Error saving private chat", error);
@@ -3176,6 +3195,10 @@ export function FormaWorkspace({
       return;
     }
 
+    const versions = { ...chatPersistenceVersionsRef.current };
+    const pending = new Set(pendingChatWritesRef.current);
+    const keepLocal = (chatId: string) => pending.has(chatId) || pendingChatWritesRef.current.has(chatId)
+      || versions[chatId] !== chatPersistenceVersionsRef.current[chatId];
     try {
       const res = await fetch(`${API_URL}/chats`, {
         headers: await generationRequestHeaders(),
@@ -3183,6 +3206,7 @@ export function FormaWorkspace({
       if (res.ok) {
         setAuthSecurityError(false);
         const chats = await res.json();
+        if (chatStorageScopeRef.current !== chatStorageScope) return;
         setPrivateChatItems(normalizePrivateChatItems(chats));
         const threadUpdates: Record<string, ChatMessage[]> = {};
         if (Array.isArray(chats)) {
@@ -3197,14 +3221,14 @@ export function FormaWorkspace({
           setChatThreads((current) => {
             const next = { ...current };
             Object.entries(threadUpdates).forEach(([chatId, remoteMessages]) => {
-              const mergedMessages = mergeFetchedChatMessages(remoteMessages, current[chatId] || []);
+              const mergedMessages = mergeFetchedChatMessages(remoteMessages, current[chatId] || [], keepLocal(chatId));
               next[chatId] = mergedMessages;
               writeStoredChatThread(chatId, mergedMessages, chatStorageScope);
             });
             return next;
           });
           if (activeChatId && threadUpdates[activeChatId]) {
-            setChatMessages((current) => mergeFetchedChatMessages(threadUpdates[activeChatId], current));
+            setChatMessages((current) => mergeFetchedChatMessages(threadUpdates[activeChatId], current, keepLocal(activeChatId)));
           }
         }
       } else if (isAuthOrSecurityHttpStatus(res.status)) {
@@ -4817,10 +4841,11 @@ export function FormaWorkspace({
       const ir = withProjectResponseMetadata(data.project_ir, data);
       options.onReadiness?.(data.project_readiness);
       if (isVisibleChat()) {
-        setProjectIR(ir);
         if (options.hydrateChat && canChatWithProjectIR(ir)) {
-          ensureChatThread(projectId, ir, data.prompt, options.chatId);
+          await ensureChatThread(projectId, ir, options.chatId, signal);
         }
+        if (signal?.aborted || !isVisibleChat()) return false;
+        setProjectIR(ir);
         setActiveTab(normalizeTab(options.tab || "") || "overview");
         if (shouldSyncRoute) syncProjectRoute(projectId);
       }
@@ -5007,10 +5032,11 @@ export function FormaWorkspace({
         const data = await res.json();
         if (controller.signal.aborted) return;
         const ir = withProjectResponseMetadata(data.project_ir, data);
-        setProjectIR(ir);
         if (canChatWithProjectIR(ir)) {
-          ensureChatThread(inlineChatProjectId, ir, data.prompt, currentRouteChatId ? safeDecodeChatId(currentRouteChatId) : undefined);
+          await ensureChatThread(inlineChatProjectId, ir, currentRouteChatId ? safeDecodeChatId(currentRouteChatId) : undefined, controller.signal);
         }
+        if (controller.signal.aborted) return;
+        setProjectIR(ir);
         setActiveTab("overview");
       } catch (error) {
         if (controller.signal.aborted) return;
@@ -5698,7 +5724,7 @@ export function FormaWorkspace({
     if (routedProjectId || routedChatId) return;
     if (!currentUserOwnsProject) return;
     if (!currentProjectId || currentProjectChatMessages.length) return;
-    ensureChatThread(currentProjectId, projectIR, projectIR?.assembly_metadata?.source_prompt);
+    void ensureChatThread(currentProjectId, projectIR);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routedProjectId, routedChatId, currentUserOwnsProject, currentProjectId, currentProjectChatMessages.length, projectIR]);
 
@@ -6500,7 +6526,8 @@ function buildChatListItems(projectHistory: any[], localChatItems: ChatListItem[
     .filter((project: any) => project?.project_id)
     .forEach((project: any) => {
       const projectId = String(project.project_id);
-      const chatId = String(project.chat_id || projectId).trim();
+      const conversation = localChatItems.find((item) => item.projectId === projectId);
+      const chatId = String(conversation?.chatId || project.chat_id || projectId).trim();
       if (!chatId) return;
 
       const existing = groups.get(chatId);

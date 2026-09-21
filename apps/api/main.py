@@ -2951,7 +2951,7 @@ def upsert_chat_endpoint(
     user: UserContext = Depends(require_user_context),
 ):
     """Creates or updates a private chat owned by the signed-in user."""
-    require_hosted_chat_enabled()
+    require_hosted_chat_enabled(user)
     owner_user_id = _require_authenticated_user(user)
     now = datetime.utcnow().isoformat() + "Z"
     chat = upsert_project_chat(

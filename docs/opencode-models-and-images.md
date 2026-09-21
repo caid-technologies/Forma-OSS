@@ -77,6 +77,36 @@ completes and the workspace reloads the project. Future IR edits preserve that
 image. Image bytes and storage URLs are omitted from restricted project-tool
 responses to avoid putting them in the agent context.
 
+Image prompts preserve the saved design's geometry, part count, materials and
+constraints. Mechanical designs are not described as electronics builds; boards,
+displays, wiring and other features must already belong to the saved design.
+The prompt includes saved CAD operations and mechanism parameters when present.
+CAD-only image sequences change the camera without inventing hidden internals.
+Images remain concept visualizations, not exact CAD renders. Request a new image
+after updating the backend; already saved images are not regenerated automatically.
+
+### Conversation continuity
+
+OpenCode conversations save through `/chats` even when legacy hosted generation
+is disabled. Opening a project reads its saved transcript before showing any
+project context; it never saves a fabricated user message from the project title.
+The chat list prefers the actual conversation already linked to the project.
+
+For projects affected before transcript persistence was enabled, the authenticated
+`GET /opencode/projects/{project_id}/history` endpoint recovers the last 40 recorded
+turns across sessions. It checks project ownership before decrypting user requests
+and returns only user messages and sanitized public agent replies. Reading this
+archive does not overwrite a saved transcript or start another agent command.
+Recovery depends on the retained command/event records and their existing
+encryption key; it cannot recover messages that were never recorded.
+
+New agent sessions inherit the original brief and up to 15 recent requests for
+the same owner, project and connector. Rendering or recompiling also preserves
+the original saved brief and chat identity. Deploy both the web frontend and
+backend for chat restoration; image prompt changes require the backend update.
+
+## Configure the image provider
+
 Configure these settings on the **Forma backend serving the restricted MCP URL**:
 
 ### OpenAI

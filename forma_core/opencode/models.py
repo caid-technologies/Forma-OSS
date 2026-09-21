@@ -129,6 +129,24 @@ class SessionResponse(BaseModel):
     updated_at: datetime
 
 
+class ProjectHistoryMessage(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    role: Literal["user", "assistant"]
+    content: str
+    status: Literal["idle", "success", "error", "cancelled"]
+    timestamp: str
+    projectId: str
+
+
+class ProjectHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: UUID
+    messages: tuple[ProjectHistoryMessage, ...]
+
+
 class CommandResponse(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

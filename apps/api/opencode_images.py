@@ -126,7 +126,7 @@ def generate_project_image(arguments: GenerateImageArguments, capability: Connec
     project.assembly_metadata = metadata
     user = UserContext(provider="opencode-connector", subject=owner, owner_user_id=owner, is_authenticated=True, is_admin=False)
     _persist_mcp_compile(project, {
-        "project_id": project_id, "prompt": metadata.get("source_prompt") or "OpenCode project",
+        "project_id": project_id,
         "authoring_agent": "opencode", "source_job_id": job_id,
     }, user)
     saved = get_project_revision_by_source_job(project_id, owner, job_id)

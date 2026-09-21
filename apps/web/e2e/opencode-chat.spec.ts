@@ -37,7 +37,7 @@ const publishedProject = {
     constraints: ["Power from 5V USB only."],
     validation: { critical: [], warning: [], info: [] },
     // Identity is supplied by the GET envelope, as consumed by withProjectResponseMetadata.
-    assembly_metadata: { workflow: "default", source_prompt: "hi" },
+    assembly_metadata: { workflow: "default", source_prompt: "hi", authoring_agent: "opencode" },
   },
 };
 
@@ -100,6 +100,53 @@ function event(
 
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
+
+test("recover old OpenCode history on a clean browser without saving a fallback chat", async ({ page, baseURL }) => {
+  test.setTimeout(180_000);
+  const appOrigin = new URL(baseURL!).origin;
+  const history = [
+    { id: "first:user", role: "user", content: "Create a plain rounded-tooth gear.", status: "idle" },
+    { id: "first:assistant", role: "assistant", content: "Saved your mechanical gear.", status: "success" },
+    { id: "second:user", role: "user", content: "Generate an image of the same gear.", status: "idle" },
+    { id: "second:assistant", role: "assistant", content: "Rendered the existing design.", status: "success" },
+  ].map((message) => ({ ...message, projectId, timestamp: "2026-09-21T06:20:00Z" }));
+  const mutations: string[] = [];
+  const unexpected: string[] = [];
+  let recoveries = 0;
+  await page.route("**/*", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.origin === appOrigin && !/^\/api(?:\/|$)/.test(url.pathname)) return route.continue();
+    const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+    if (!["GET", "OPTIONS"].includes(route.request().method())) mutations.push(path);
+    if (path === "/runtime/config") return route.fulfill({ json: runtimeConfig });
+    if (["/projects", "/my/projects"].includes(path)) return route.fulfill({ json: {
+      items: [{ ...publishedProject, title: "Rounded-Tooth Gear", created_at: "2026-09-21T06:20:00Z", visibility: "private" }], total: 1, has_more: false,
+    } });
+    if (path === `/projects/${projectId}`) return route.fulfill({ json: { ...publishedProject, prompt: "OpenCode project" } });
+    if (path === `/chats/${publishedProject.chat_id}`) return route.fulfill({ status: 404, json: { detail: "Chat not found" } });
+    if (path === `/opencode/projects/${projectId}/history`) {
+      recoveries += 1;
+      return route.fulfill({ json: { project_id: projectId, messages: history } });
+    }
+    if (["/chats", "/a2a/jobs", "/example-project-object-jobs"].includes(path)) return route.fulfill({ json: [] });
+    if (path === "/admin/session") return route.fulfill({ json: { is_admin: false } });
+    if (path === "/pipeline/steps") return route.fulfill({ json: { steps: [] } });
+    if (path === "/video/models") return route.fulfill({ json: { models: [], generation_configured: false } });
+    if (path === "/" || route.request().method() === "OPTIONS") return route.fulfill({ json: { status: "ok" } });
+    unexpected.push(`${route.request().method()} ${path}`);
+    return route.fulfill({ status: 501, json: { detail: "Unmocked endpoint" } });
+  });
+  await page.goto(`/chat/${publishedProject.chat_id}`, { waitUntil: "domcontentloaded", timeout: 120_000 });
+  for (const message of history) await expect(page.getByRole("main").getByText(message.content, { exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByText("OpenCode project", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("main").getByText(/ is the active project for this chat\.$/)).toHaveCount(0);
+  expect(recoveries).toBeGreaterThan(0);
+  await page.evaluate(() => localStorage.clear());
+  await page.reload({ waitUntil: "domcontentloaded" });
+  for (const message of history) await expect(page.getByRole("main").getByText(message.content, { exact: true })).toBeVisible();
+  expect(mutations).toEqual([]);
+  expect(unexpected).toEqual([]);
+});
 
 for (const accessResult of ["enabled", "disabled", "failed"] as const) {
   test(`Chat access loading handles ${accessResult} without a maintenance flash`, async ({ page, baseURL }) => {
@@ -210,6 +257,7 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
   const completedTurns: number[] = [];
   const projectProbes: { turn: number; afterCompletion: boolean }[] = [];
   const projectResponseStatuses: number[] = [];
+  const persistedChats = new Map<string, { chat_id: string; title: string; messages: { content: string; role: string; projectId?: string }[]; updated_at: string }>();
   let originalChatUrl = "";
   let releaseProgress!: () => void;
   let releaseCompletion!: () => void;
@@ -260,7 +308,23 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
       } });
       return;
     }
-    if (method === "GET" && ["/chats", "/a2a/jobs", "/example-project-object-jobs"].includes(path)) {
+    if (method === "GET" && path === "/chats") {
+      await route.fulfill({ json: [...persistedChats.values()] });
+      return;
+    }
+    if (method === "PUT" && path.startsWith("/chats/")) {
+      const chatId = decodeURIComponent(path.slice("/chats/".length));
+      const chat = { ...request.postDataJSON(), chat_id: chatId, updated_at: new Date().toISOString() };
+      persistedChats.set(chatId, chat);
+      await route.fulfill({ json: chat });
+      return;
+    }
+    if (method === "GET" && path.startsWith("/chats/")) {
+      const chat = persistedChats.get(decodeURIComponent(path.slice("/chats/".length)));
+      await route.fulfill({ status: chat ? 200 : 404, json: chat || { detail: "Chat not found" } });
+      return;
+    }
+    if (method === "GET" && ["/a2a/jobs", "/example-project-object-jobs"].includes(path)) {
       await route.fulfill({ json: [] });
       return;
     }
@@ -536,6 +600,22 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.getByRole("button", { name: "Show project", exact: true }).click();
       await expect(layout).toHaveAttribute("data-layout", "split");
+    });
+
+    if (resultMode === "published") await test.step("restore both turns from the server after clearing browser storage", async () => {
+      await page.clock.runFor(1_000);
+      const chatId = new URL(originalChatUrl).pathname.split("/").at(-1)!;
+      await expect.poll(() => persistedChats.get(chatId)?.messages.filter((message) => message.role === "user").map((message) => message.content)).toEqual(["hi", "Are you still there?"]);
+      expect(persistedChats.get(chatId)?.messages.map((message) => message.content)).toEqual(expect.arrayContaining(answers.map((answer) => expect.stringContaining(answer))));
+      await page.evaluate(() => localStorage.clear());
+      await page.reload({ waitUntil: "domcontentloaded" });
+      await expect(firstAnswer).toBeVisible();
+      await expect(secondAnswer).toBeVisible();
+      await expect(projectOutput).toBeVisible();
+      await expect(page).toHaveURL(originalChatUrl);
+      expect(commandRequests).toHaveLength(2);
+      expect(sessionRequests).toHaveLength(1);
+      await expect(page.getByRole("main").getByText("OpenCode project", { exact: true })).toHaveCount(0);
     });
 
     await test.step("New chat resets the rendered conversation with legacy hosted chat disabled", async () => {

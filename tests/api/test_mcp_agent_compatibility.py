@@ -206,6 +206,26 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual("private", result["visibility"])
         persist_revision.assert_called_once()
 
+    def test_opencode_revisions_preserve_the_original_brief_and_chat(self) -> None:
+        project_id = "12345678-1234-4234-8234-123456789012"
+        original = "A nylon mechanical gear with 36 rounded teeth, no electronics."
+        prior = HardwareIR.model_validate({"components": [], "nets": [], "assembly_metadata": {"source_prompt": original}})
+        project = HardwareIR.model_validate({"components": [], "nets": [], "assembly_metadata": {"source_prompt": "Render this project"}})
+        with (
+            patch("apps.api.a2a.get_project_identity", return_value={
+                "owner_user_id": "agent-user", "status": "active", "chat_id": "original-chat",
+                "created_at": "2026-01-01T00:00:00Z", "visibility": "private", "prompt": original,
+            }),
+            patch("apps.api.a2a.get_latest_project_revision", return_value=SimpleNamespace(state=prior)),
+            patch("apps.api.a2a.persist_chat_project_revision") as persist,
+        ):
+            result = _persist_mcp_compile(project, {
+                "project_id": project_id, "authoring_agent": "opencode", "prompt": "OpenCode project",
+            }, self._user())
+        self.assertEqual(original, persist.call_args.kwargs["prompt"])
+        self.assertEqual(original, project.assembly_metadata["source_prompt"])
+        self.assertEqual("original-chat", result["chat_id"])
+
     async def test_compile_project_persists_and_validates(self) -> None:
         with patch("apps.api.a2a.get_project_identity", return_value=None), patch(
             "apps.api.a2a.persist_legacy_project_projection"

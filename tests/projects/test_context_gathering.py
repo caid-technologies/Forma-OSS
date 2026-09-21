@@ -461,6 +461,39 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(2, response.json()["attempt"])
         reset.assert_awaited_once_with(execution["plan_id"], OWNER)
 
+    def test_pdf_uri_reference_remains_a_reference_without_server_fetching(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-pdf-uri"
+
+        with sqlite_repository(), patch(
+            "apps.api.context_gathering_api.extract_pdf_text_from_data_url",
+        ) as extract:
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={
+                    "conversation_id": conversation_id,
+                    "text": "Use this controller datasheet as a reference.",
+                    "attachments": [
+                        {
+                            "attachment_id": "datasheet-uri",
+                            "kind": "document",
+                            "name": "controller.pdf",
+                            "media_type": "application/pdf",
+                            "uri": "https://example.test/controller.pdf",
+                            "source": "url",
+                        }
+                    ],
+                },
+            )
+            brief = database.get_latest_design_brief(project_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        extract.assert_not_called()
+        reference = next(item for item in brief.references if item.reference_id == "datasheet-uri")
+        self.assertEqual("https://example.test/controller.pdf", reference.uri)
+        self.assertEqual("uploaded_document", reference.kind)
+        self.assertNotIn("text_extracted", reference.metadata)
+
     def test_pdf_attachment_extracts_text_without_persisting_inline_bytes(self) -> None:
         project_id = str(uuid.uuid4())
         conversation_id = "context-pdf"

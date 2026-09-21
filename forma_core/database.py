@@ -1454,6 +1454,16 @@ def get_project_revision_by_source_job(
     return ProjectStateService(_DATABASE_REPOSITORY).get_by_source_job(project_id, owner_user_id, source_job_id)
 
 
+def list_project_revisions(project_id: str, owner_user_id: str, *, limit: int = 21, before: int | None = None) -> List[ProjectRevision]:
+    """Return a bounded page of the owner's saved snapshots."""
+    return ProjectStateService(_DATABASE_REPOSITORY).list_revisions(project_id, owner_user_id, limit=limit, before=before)
+
+
+def get_project_revision_by_id(project_id: str, owner_user_id: str, revision_id: str) -> ProjectRevision:
+    """Resolve the immutable revision referenced by a chat result or history entry."""
+    return ProjectStateService(_DATABASE_REPOSITORY).get_revision_by_id(project_id, owner_user_id, revision_id)
+
+
 def list_latest_project_revisions(owner_user_id: str) -> List[ProjectRevision]:
     """List each owned project's latest immutable canonical revision."""
 

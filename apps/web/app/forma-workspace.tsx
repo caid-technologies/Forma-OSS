@@ -74,6 +74,9 @@ import {
 } from "./forma-workspace/admin-panels";
 import HomeChatView, { type GenerationMode } from "./forma-workspace/home-chat-view";
 import ChatProjectLayout, { ChatProjectSurface } from "./forma-workspace/chat-project-layout";
+import { ProjectHistoryProvider, useProjectHistory, type ProjectHistoryConfig } from "./forma-workspace/project-history";
+import ProjectRevisionPreview from "./forma-workspace/project-revision-preview";
+import { revisionId, revisionNumber, revisionFromProject } from "../lib/project-history";
 import ConversationMessageList, {
   type ConversationMessage,
 } from "./forma-workspace/conversation-message-list";
@@ -236,6 +239,7 @@ type ChatMessage = {
   status?: "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off";
   timestamp: string;
   projectId?: string | null;
+  revisionId?: string | null;
   pipelineProgress?: AgentPipelineProgress | null;
   imagePreview?: string | null;
   contextProjectId?: string | null;
@@ -510,6 +514,7 @@ function normalizeChatMessage(value: any): ChatMessage | null {
     status: normalizedStatus,
     timestamp: typeof value.timestamp === "string" && value.timestamp ? value.timestamp : chatTimestamp(),
     projectId: typeof value.projectId === "string" ? value.projectId : null,
+    revisionId: revisionId(value.revisionId ?? value.revision_id),
     pipelineProgress: normalizeAgentPipelineProgress(value.pipelineProgress),
     imagePreview: typeof value.imagePreview === "string" ? value.imagePreview : null,
     contextProjectId: typeof value.contextProjectId === "string"
@@ -1620,6 +1625,7 @@ function withProjectResponseMetadata(ir: any, response: any) {
       can_chat: Boolean(response?.can_chat ?? response?.canChat ?? ir.assembly_metadata?.can_chat ?? ir.assembly_metadata?.canChat),
       frontend_job_id: ir.assembly_metadata?.frontend_job_id || response?.job_id,
       source_prompt: ir.assembly_metadata?.source_prompt || response?.prompt,
+      canonical_revision_id: response?.revision_id || ir.assembly_metadata?.canonical_revision_id,
       ...timingMetadata,
     },
   };
@@ -3713,6 +3719,7 @@ export function FormaWorkspace({
           updateChatMessage(assistantMessageId, {
             content: readyMessage,
             status: "success",
+            ...revisionFromProject(ir),
             pipelineProgress: synchronizedProgress,
             projectId,
             contextProjectId: projectId,
@@ -3721,6 +3728,7 @@ export function FormaWorkspace({
           updateThreadMessage(chatId, assistantMessageId, {
             content: readyMessage,
             status: "success",
+            ...revisionFromProject(ir),
             pipelineProgress: synchronizedProgress,
             projectId,
             contextProjectId: projectId,
@@ -4455,6 +4463,7 @@ export function FormaWorkspace({
       updateChatMessage(assistantMessageId, {
         content: successMessage,
         status: "success",
+        ...revisionFromProject(ir),
         projectId,
       });
       if (projectId) {
@@ -4464,6 +4473,7 @@ export function FormaWorkspace({
         updateThreadMessage(requestChatId, assistantMessageId, {
           content: successMessage,
           status: "success",
+          ...revisionFromProject(ir),
           projectId,
         });
       }
@@ -4720,6 +4730,7 @@ export function FormaWorkspace({
       updateThreadMessage(sourceChatId, assistantMessageId, {
         content: successMessage,
         status: "success",
+        ...revisionFromProject(ir),
         projectId: sourceProjectId,
       });
 
@@ -4946,7 +4957,7 @@ export function FormaWorkspace({
                 createdAt: chatTimestamp(),
                 projectCount: 1,
               });
-              const projectPatch = { ...patch, projectId: terminalEvent.project_id };
+              const projectPatch = { ...patch, projectId: terminalEvent.project_id, revisionId: revisionId(terminalEvent.revision_id) };
               updateThreadMessage(turn.chatId, turn.assistantMessageId, projectPatch);
               if (activeChatIdRef.current === turn.chatId) updateChatMessage(turn.assistantMessageId, projectPatch);
               refreshProjectAndChatLists();
@@ -5421,6 +5432,17 @@ export function FormaWorkspace({
     () => currentProjectChatId ? chatThreads[currentProjectChatId] || [] : [],
     [chatThreads, currentProjectChatId]
   );
+  const projectVersionHistory: ProjectHistoryConfig = {
+    projectId: currentProjectId || "",
+    identityKey: authIdentityKey,
+    enabled: currentUserOwnsProject,
+    apiUrl: API_URL,
+    latestRevision: revisionNumber(projectIR?.assembly_metadata?.project_revision) || revisionNumber(projectIR?.assembly_metadata?.revision),
+    getHeaders: generationRequestHeaders,
+    loadLatest: (signal) => loadOldProject(currentProjectId, {
+      syncRoute: false, signal, tab: activeTab, chatId: currentProjectChatId || undefined,
+    }),
+  };
   const retryableProjectBuildMessage = useMemo(
     () => latestRetryableContextBuildMessage(currentProjectChatMessages),
     [currentProjectChatMessages],
@@ -6232,6 +6254,7 @@ export function FormaWorkspace({
               messages={chatMessages}
               renderPipelineProgress={renderConversationPipelineProgress}
               projectArtifactId={inlineChatProjectId}
+              history={projectVersionHistory}
               projectArtifact={
                 projectIR && inlineChatProjectId && currentProjectId === inlineChatProjectId
                   ? (
@@ -6383,6 +6406,7 @@ export function FormaWorkspace({
           <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
             {routedProjectId || isPublicExample ? (
               <ProjectDetailWorkspace
+                history={projectVersionHistory}
                 onOpenSidebar={() => setMobileSidebarOpen(true)}
                 projectId={currentProjectId}
                 projectTitle={projectTitle}
@@ -6398,6 +6422,7 @@ export function FormaWorkspace({
               <ChatAccessStatus status={chatAccessState} onRetry={() => { void fetchRuntimeConfig(); }} />
             ) : (
               <ChatWorkspace
+                history={projectVersionHistory}
                 onOpenSidebar={() => setMobileSidebarOpen(true)}
                 projectId={currentProjectId}
                 chatId={currentProjectChatId}
@@ -7707,6 +7732,7 @@ function VideoGalleryItem({
 }
 
 function ProjectDetailWorkspace({
+  history,
   onOpenSidebar,
   projectId,
   projectTitle,
@@ -7718,6 +7744,7 @@ function ProjectDetailWorkspace({
   onNamespaceChange,
   projectContent,
 }: {
+  history: ProjectHistoryConfig;
   onOpenSidebar: () => void;
   projectId: string | null;
   projectTitle: string;
@@ -7730,40 +7757,24 @@ function ProjectDetailWorkspace({
   projectContent: React.ReactNode;
 }) {
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col bg-[var(--forma-page)]">
-      <header className="workspace-chrome-header flex min-h-14 min-w-0 items-center gap-3 overflow-hidden px-3 pb-5 pt-2 sm:px-4">
-        <MobileSidebarButton onClick={onOpenSidebar} />
-        <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[rgb(var(--forma-green-rgb)/0.12)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--forma-green-rgb))]">
-              <Eye className="h-3 w-3" />
-              {owned ? "Your project" : "Public project"}
-            </span>
-            <EditableWorkspaceTitle
-              value={projectTitle}
-              canEdit={!readOnly && owned && Boolean(onRenameTitle)}
-              label="Project title"
-              onCommit={(title) => onRenameTitle?.(title)}
-            />
-          </div>
-        </div>
-      </header>
-
-      <section className="min-h-0 min-w-0 flex-1 overflow-hidden bg-[var(--forma-page)]" aria-label="Project workspace">
-        <ProjectWorkspacePanel
-          projectId={projectId}
-          namespaceTabs={namespaceTabs}
-          activeNamespace={activeNamespace}
-          onNamespaceChange={onNamespaceChange}
-        >
-          {projectContent}
-        </ProjectWorkspacePanel>
-      </section>
-    </div>
+    <ProjectHistoryProvider config={history}>
+      <ChatProjectArtifact
+        projectId={projectId}
+        projectTitle={projectTitle}
+        canEdit={!readOnly && owned}
+        onRenameTitle={onRenameTitle}
+        namespaceTabs={namespaceTabs}
+        activeNamespace={activeNamespace}
+        onNamespaceChange={onNamespaceChange}
+        projectContent={projectContent}
+        leading={<MobileSidebarButton onClick={onOpenSidebar} />}
+      />
+    </ProjectHistoryProvider>
   );
 }
 
 function ChatWorkspace({
+  history,
   onOpenSidebar,
   projectId,
   chatId,
@@ -7790,6 +7801,7 @@ function ChatWorkspace({
   onNamespaceChange,
   projectContent,
 }: {
+  history: ProjectHistoryConfig;
   onOpenSidebar: () => void;
   projectId: string | null;
   chatId: string | null;
@@ -7840,6 +7852,7 @@ function ChatWorkspace({
 
   return (
     <ChatProjectLayout
+      history={history}
       conversationKey={chatId || projectId || "project-chat"}
       projectId={projectId}
       project={(chatAvailable || readOnly) && projectId ? (
@@ -7989,6 +8002,7 @@ function ChatProjectArtifact({
   activeNamespace,
   onNamespaceChange,
   projectContent,
+  leading,
 }: {
   projectId: string | null;
   projectTitle: string;
@@ -7998,13 +8012,17 @@ function ChatProjectArtifact({
   activeNamespace: string;
   onNamespaceChange: (namespaceId: string) => void;
   projectContent: React.ReactNode;
+  leading?: React.ReactNode;
 }) {
+  const history = useProjectHistory();
+  const viewingSnapshot = Boolean(history?.selection);
   return (
     <ChatProjectSurface
+      leading={leading}
       title={(
         <EditableWorkspaceTitle
-          value={projectTitle}
-          canEdit={canEdit && Boolean(onRenameTitle)}
+          value={history?.selection?.snapshot?.title || projectTitle}
+          canEdit={!viewingSnapshot && canEdit && Boolean(onRenameTitle)}
           label="Project title"
           element="div"
           className="truncate text-xs font-semibold text-[var(--forma-text-strong)]"
@@ -8012,14 +8030,14 @@ function ChatProjectArtifact({
         />
       )}
     >
-      <ProjectWorkspacePanel
+      {viewingSnapshot ? <ProjectRevisionPreview /> : <ProjectWorkspacePanel
         projectId={projectId}
         namespaceTabs={namespaceTabs}
         activeNamespace={activeNamespace}
         onNamespaceChange={onNamespaceChange}
       >
         {projectContent}
-      </ProjectWorkspacePanel>
+      </ProjectWorkspacePanel>}
     </ChatProjectSurface>
   );
 }

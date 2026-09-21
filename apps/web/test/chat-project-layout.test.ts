@@ -43,8 +43,8 @@ test("only completed assistant project references produce cards", () => {
   assert.equal(completedProjectReference({ role: "assistant", projectId: "p1" }), "p1");
 });
 test("legacy project IDs are encoded, not treated as paths or executable URLs", () => {
-  assert.equal(linkedProjectPath("a/b?c#d"), "/projects/a%2Fb%3Fc%23d");
-  assert.equal(linkedProjectPath("javascript:alert(1)"), "/projects/javascript%3Aalert(1)");
+  assert.equal(linkedProjectPath("a/b?c#d"), "/project/a%2Fb%3Fc%23d");
+  assert.equal(linkedProjectPath("javascript:alert(1)"), "/project/javascript%3Aalert(1)");
 });
 test("new conversations receive independent primitive-only state", () => {
   const first = initialChatProjectLayout();

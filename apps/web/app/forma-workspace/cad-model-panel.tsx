@@ -1,11 +1,11 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Box, Download, LoaderCircle } from "lucide-react";
 import type { MeshPayload, OpenCadApiClient } from "opencad-viewport";
 
-import { nativeStepArtifact, resolveCadModel } from "../../lib/cad-model";
+import { nativeStepArtifact, nativeStepDownloadPath, resolveCadModel } from "../../lib/cad-model";
 import { webConfig } from "../../lib/config";
 
 const OpenCadViewport = dynamic(
@@ -20,10 +20,14 @@ type CadModelPanelProps = {
   cadModel: unknown;
   apiUrl?: string;
   getHeaders?: () => Promise<Record<string, string>>;
+  revisionId?: string;
 };
 
-export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModelPanelProps) {
+export default function CadModelPanel({ cadModel, apiUrl, getHeaders, revisionId }: CadModelPanelProps) {
   const descriptor = useMemo(() => resolveCadModel(cadModel), [cadModel]);
+  const artifact = useMemo(() => nativeStepArtifact(cadModel), [cadModel]);
+  const headersRef = useRef(getHeaders);
+  headersRef.current = getHeaders;
   const [meshes, setMeshes] = useState<MeshPayload[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -55,9 +59,11 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
         const { OpenCadApiClient } = await import("opencad-viewport");
         if (cancelled) return;
         const api = new OpenCadApiClient(apiBaseUrl, kernelUrl);
+        const snapshotUrl = artifact && apiUrl && revisionId ? `${apiUrl}${nativeStepDownloadPath(artifact, revisionId)}` : null;
+        const headers = snapshotUrl ? await headersRef.current?.() : undefined;
         const mesh = descriptor.kind === "shape"
           ? await api.getMesh(descriptor.shapeId)
-          : await loadFileMesh(api, descriptor.url, descriptor.filename, controller.signal);
+          : await loadFileMesh(api, snapshotUrl || descriptor.url, descriptor.filename, controller.signal, headers);
         if (cancelled) return;
         setMeshes([mesh]);
       } catch (reason) {
@@ -73,7 +79,7 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
       cancelled = true;
       controller.abort();
     };
-  }, [descriptor]);
+  }, [descriptor, artifact, apiUrl, revisionId]);
 
   if (!descriptor) {
     return <CadModelState icon={<Box className="h-7 w-7" />} message="No CAD model attached to this project." />;
@@ -82,9 +88,8 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
     return <CadModelState icon={<AlertTriangle className="h-7 w-7" />} message={descriptor.reason} />;
   }
   if (descriptor.kind === "meshes") {
-    const artifact = nativeStepArtifact(cadModel);
     return <div className="flex h-full min-h-[420px] flex-col">
-      {artifact && apiUrl && getHeaders && <StepDownload key={artifact.sha256} artifact={artifact} apiUrl={apiUrl} getHeaders={getHeaders} />}
+      {artifact && apiUrl && getHeaders && <StepDownload key={`${artifact.sha256}:${revisionId || "latest"}`} artifact={artifact} apiUrl={apiUrl} getHeaders={getHeaders} revisionId={revisionId} />}
       <div className="min-h-0 flex-1"><CadViewport meshes={descriptor.meshes} /></div>
     </div>;
   }
@@ -100,10 +105,11 @@ export default function CadModelPanel({ cadModel, apiUrl, getHeaders }: CadModel
   return <CadViewport meshes={meshes} />;
 }
 
-function StepDownload({ artifact, apiUrl, getHeaders }: {
+function StepDownload({ artifact, apiUrl, getHeaders, revisionId }: {
   artifact: { projectId: string; sha256: string };
   apiUrl: string;
   getHeaders: () => Promise<Record<string, string>>;
+  revisionId?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -111,7 +117,7 @@ function StepDownload({ artifact, apiUrl, getHeaders }: {
     setBusy(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/opencode/projects/${artifact.projectId}/cad/${artifact.sha256}`, {
+      const response = await fetch(`${apiUrl}${nativeStepDownloadPath(artifact, revisionId)}`, {
         headers: await getHeaders(), signal: AbortSignal.timeout(30_000),
       });
       if (!response.ok) throw new Error("The STEP file could not be downloaded. Refresh the project and try again.");
@@ -141,8 +147,9 @@ async function loadFileMesh(
   url: string,
   filename: string,
   signal: AbortSignal,
+  headers?: Record<string, string>,
 ): Promise<MeshPayload> {
-  const response = await fetch(url, { signal });
+  const response = await (headers ? fetch(url, { signal, headers }) : fetch(url, { signal }));
   if (!response.ok) throw new Error(`Could not fetch CAD model (${response.status}).`);
   const blob = await response.blob();
   signal.throwIfAborted();

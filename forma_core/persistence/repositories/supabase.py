@@ -425,6 +425,20 @@ class SupabaseRepository:
         )
         return _record(rows[0]) if rows else None
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> List[Any]:
+        query = (self._client.table("project_revisions").select("*")
+                 .eq("project_id", project_id).eq("owner_user_id", owner_user_id))
+        if before is not None:
+            query = query.lt("revision", before)
+        rows = query.order("revision", desc=True).limit(limit).execute().data or []
+        return [_record(row) for row in rows]
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Optional[Any]:
+        rows = (self._client.table("project_revisions").select("*")
+                .eq("project_id", project_id).eq("owner_user_id", owner_user_id)
+                .eq("id", revision_id).limit(1).execute().data or [])
+        return _record(rows[0]) if rows else None
+
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
         rows = (
             self._client.table("project_revisions")

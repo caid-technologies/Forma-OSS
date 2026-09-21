@@ -34,6 +34,7 @@ from forma_core.workspaces.context import (
     ContextGatheringRequest,
     ContextGatheringResponse,
 )
+from forma_core.workspaces.context.pdf import PdfContextError, extract_pdf_text_from_data_url
 from forma_core.workspaces.readiness import ReadinessError
 from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 
@@ -53,6 +54,50 @@ _CONTEXT_FREE_USER_TURN = re.compile(
 def _contains_project_context(text: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]+", " ", str(text or "").casefold()).strip()
     return bool(normalized and not _CONTEXT_FREE_USER_TURN.fullmatch(normalized))
+
+
+def _is_pdf_attachment(attachment) -> bool:
+    media_type = str(attachment.media_type or "").strip().lower()
+    name = str(attachment.name or "").strip().lower()
+    data_url = str(attachment.data_url or "").strip().lower()
+    return (
+        attachment.kind == "document"
+        and (
+            media_type == "application/pdf"
+            or name.endswith(".pdf")
+            or data_url.startswith("data:application/pdf")
+        )
+    )
+
+
+def _ingest_pdf_attachments(request: ContextGatheringRequest) -> ContextGatheringRequest:
+    """Extract PDF text while ensuring raw document bytes are never persisted."""
+
+    changed = False
+    attachments = []
+    for attachment in request.attachments:
+        if not _is_pdf_attachment(attachment):
+            attachments.append(attachment)
+            continue
+
+        extracted_text = attachment.extracted_text
+        if not extracted_text:
+            if not attachment.data_url:
+                raise PdfContextError("Uploaded PDF attachments must include inline file data.")
+            extracted_text = extract_pdf_text_from_data_url(attachment.data_url)
+
+        attachments.append(
+            attachment.model_copy(
+                update={
+                    "media_type": "application/pdf",
+                    "data_url": None,
+                    "extracted_text": extracted_text,
+                }
+            )
+        )
+        changed = True
+
+    return request.model_copy(update={"attachments": attachments}) if changed else request
 
 
 def _bootstrap_context_request(
@@ -128,6 +173,14 @@ def gather_project_context_endpoint(
     from forma_core.user_integrations import UserIntegrationStore
 
     require_hosted_chat_enabled(user)
+
+    try:
+        request = _ingest_pdf_attachments(request)
+    except PdfContextError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "pdf_ingest_failed", "message": str(exc)},
+        ) from exc
 
     try:
         agent = context_gathering_agent(user)
@@ -488,6 +541,7 @@ def gather_project_context_endpoint(
             "uri": item.uri,
             "source": item.source,
             "hasInlineData": bool(item.data_url),
+            "textExtracted": bool(item.extracted_text),
         }
         for item in request.attachments
     ]

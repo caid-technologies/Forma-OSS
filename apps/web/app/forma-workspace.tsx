@@ -7050,7 +7050,7 @@ function VideoPanel({
               <div className="mt-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 text-xs leading-5 text-[var(--forma-text-secondary)]">
                 {canOpenAssets
                   ? "Video generation and review are unavailable during hosted chat maintenance. Saved videos remain available for viewing."
-                  : "Read-only project. Video actions are available only to the owner."}
+                  : "Video actions are available only to the owner."}
               </div>
             )}
 
@@ -7139,7 +7139,7 @@ function VideoPanel({
             <div className="mb-5 rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-3 text-xs leading-5 text-[var(--forma-text-secondary)]">
               {canOpenAssets
                 ? "Video generation and review are unavailable during hosted chat maintenance. Saved videos remain available for viewing."
-                : "Read-only project. Video actions are available only to the owner."}
+                : "Video actions are available only to the owner."}
             </div>
           )}
 
@@ -7826,7 +7826,7 @@ function ChatWorkspace({
     generationActive: canStop,
   });
   const primaryActionLabel = readOnly
-    ? "Hosted chat is read-only during maintenance"
+    ? "Hosted chat is temporarily under maintenance"
     : canStop
       ? "Stop project update"
       : retryMode
@@ -7866,9 +7866,7 @@ function ChatWorkspace({
                 ? "OpenCode authoring"
                 : chatAvailable
                   ? "Project chat"
-                  : readOnly
-                    ? "Read-only during maintenance"
-                    : "Read-only project"}
+                  : "Project"}
             </span>
             <EditableWorkspaceTitle
               value={projectTitle}

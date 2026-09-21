@@ -33,7 +33,7 @@ export default function HostedChatMaintenance({ compact = false }: { compact?: b
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-zinc-100">{HOSTED_CHAT_MAINTENANCE_MESSAGE}</h2>
           <p className="mt-1.5 text-xs leading-5 text-zinc-400">
-            Existing chats are available in read-only mode. Create and validate your project locally with Forma-OSS,
+            You can still view existing chats. Create and validate your project locally with Forma-OSS,
             then upload it to Forma Cloud when you want to view or share it online.
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -77,8 +77,7 @@ export function AuthoringModeBanner({ compact = false }: { compact?: boolean }) 
         <div className="min-w-0 flex-1">
           <h2 className="text-sm font-semibold text-zinc-100">{AUTHORING_MODE_ACTIVE_MESSAGE}</h2>
           <p className="mt-1.5 text-xs leading-5 text-zinc-400">
-            Forma keeps this workspace read-only while the assigned Forma Agent runtime authors hardware. Change
-            requests are routed through Forma Cloud to that runtime, and the updated project will appear here after
+            Change requests are routed to your assigned Forma Agent. The updated project will appear here after
             delivery.
           </p>
         </div>

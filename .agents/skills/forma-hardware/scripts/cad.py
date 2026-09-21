@@ -24,7 +24,7 @@ from typing import Any
 
 
 SUPPORTED_OPENCAD_VERSION = "0.2.4"
-OPENCAD_KINEMATICS_COMMIT = "ce31b40a3f6094a6993d9b7c0a734fb4df2eb161"
+OPENCAD_KINEMATICS_COMMIT = "1c417752eb42d29b951784e80f65ac79c3fb6e0e"
 DEFAULT_OPENCAD_REQUIREMENT = f"opencad[occt] @ git+https://github.com/caid-technologies/OpenCAD.git@{OPENCAD_KINEMATICS_COMMIT}#subdirectory=packages/opencad"
 OPENCAD_REQUIREMENT_ENV = "FORMA_OPENCAD_REQUIREMENT"
 SUPPORTED_OUTPUT_SUFFIXES = {".step", ".stp", ".stl"}
@@ -111,7 +111,36 @@ class OpenCADRuntime:
 
         kinematics = None
         joints = context.kernel.joint_store.all()
-        if joints:
+        program = model_globals.get("FORMA_MOTION_PROGRAM")
+        if joints and isinstance(program, dict):
+            from opencad.kinematics import GearCoupling, evaluate_assembly_pose, evaluate_joint_pose, resolve_gear_progress
+
+            couplings = [GearCoupling.model_validate(item) for item in program["gear_couplings"]]
+            count = int(program["sample_count"])
+            if not 3 <= count <= 15001:
+                raise OpenCADError("Mechanism sample count must be between 3 and 15001.")
+            tracks = [{
+                "joint": joint.model_dump(mode="json"),
+                "target_ref": joint.metadata.get("forma_target_ref"),
+                "samples": [],
+            } for joint in joints]
+            for sample_index in range(count):
+                progress = sample_index / (count - 1)
+                inputs = {program["driver_joint_id"]: progress}
+                resolved = resolve_gear_progress(joints, inputs, couplings)
+                transforms = evaluate_assembly_pose(joints, inputs, gear_couplings=couplings)
+                for joint, track in zip(joints, tracks):
+                    pose = evaluate_joint_pose(joint, resolved.get(joint.id, 0.0))
+                    track["samples"].append({
+                        "progress": progress, "value": pose.value, "unit": pose.unit.value,
+                        "transform": transforms[joint.child_shape_id].model_dump(mode="json"),
+                    })
+            kinematics = {
+                "source": "opencad", "coordinate_system": "z-up", "sample_count": count,
+                "tracks": tracks,
+                "mechanism": {key: program[key] for key in ("id", "label", "loop", "duration_seconds", "gear_couplings")},
+            }
+        elif joints:
             from opencad.kinematics import evaluate_assembly_pose, evaluate_joint_pose
 
             tracks = []
@@ -145,6 +174,17 @@ class OpenCADRuntime:
                 "tracks": tracks,
             }
 
+        articulated_bodies = []
+        for body in model_globals.get("FORMA_PREVIEW_BODIES", []):
+            if body["shape_id"] not in export_shape_ids:
+                raise OpenCADError("An articulated preview body is absent from the exported assembly.")
+            mesh = context.kernel.tessellate(body["shape_id"], deflection=0.1)
+            articulated_bodies.append({
+                **body, "coordinate_system": "z-up", "units": "mm",
+                "mesh": {"shapeId": body["shape_id"], "name": body["name"],
+                         "vertices": mesh.vertices, "faces": mesh.faces},
+            })
+
         compliant_preview = model_globals.get("FORMA_COMPLIANT_PREVIEW")
         if not isinstance(compliant_preview, dict):
             compliant_preview = None
@@ -155,6 +195,7 @@ class OpenCADRuntime:
         return {
             "features": len(context.tree.nodes) - 1,
             "kinematics": kinematics,
+            "articulated_bodies": articulated_bodies or None,
             "compliant_preview": compliant_preview,
             "mechanism": mechanism,
         }
@@ -215,6 +256,8 @@ def _inspect_runtime(requirement: str) -> tuple[OpenCADRuntime | None, str]:
     try:
         from opencad.kernel.core.backend_factory import create_backend
         from opencad.kinematics import evaluate_assembly_pose  # noqa: F401
+        from opencad.kinematics import GearCoupling, resolve_gear_progress  # noqa: F401
+        from opencad.gears import SpurGearSpec, spur_gear  # noqa: F401
 
         create_backend("occt", require_native=True)
     except Exception as exc:

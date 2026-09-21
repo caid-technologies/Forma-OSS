@@ -636,6 +636,7 @@ export function MechanicalPanel({
         placements={placements}
         relationships={relationships}
         kinematics={kinematics}
+        articulatedBodies={cadModel?.articulated_bodies}
         compliantPreview={compliantPreview}
         features={features}
         toggles={toggles}

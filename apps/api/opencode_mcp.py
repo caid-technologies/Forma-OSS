@@ -56,7 +56,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         },
         {
             "name": "forma.opencode.compile_project",
-            "description": "Compile and persist Hardware IR. For solid CAD, author mechanical.cad_operations (exact mm box/cylinder add/cut operations; optional engraved axis labels). CAD-only projects need no components or nets. This exports real STEP plus preview meshes and stores the STEP artifact; check cad_generation and cad_model before claiming availability. Correct schema errors and critical validation findings. Report the saved revision and project_readiness; draft/partial is not a completed design or physical verification.",
+            "description": "Compile and persist Hardware IR. For solid CAD, author mechanical.cad_operations (exact mm box/cylinder add/cut operations; optional engraved axis labels). For two meshing gears, set mechanical.mechanism_benchmark.kind to spur_gear_pair, with driver_teeth/driven_teeth, module_mm, pressure_angle_deg, face_width_mm, bore_diameter_mm, backlash_mm and cycle_seconds as needed (defaults: 20/40 teeth, module 2 mm). This generates real separate gear meshes and synchronized OpenCAD motion; do not approximate gears as boxes or independently driven placements. CAD-only projects need no components or nets. This exports real STEP plus preview meshes and stores the STEP artifact; check cad_generation and cad_model before claiming availability. Correct schema errors and critical validation findings. Report the saved revision and project_readiness; draft/partial is not a completed design or physical verification.",
             "inputSchema": authoring_schema,
         },
         {

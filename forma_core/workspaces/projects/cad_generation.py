@@ -821,6 +821,7 @@ def ensure_native_cad_model(
             "feature_tree_path": str(tree_path),
             "opencad_version": step_summary.get("opencad_version"),
             "kinematics": step_summary.get("kinematics"),
+            "articulated_bodies": step_summary.get("articulated_bodies"),
             "compliant_preview": step_summary.get("compliant_preview"),
             "mechanism": step_summary.get("mechanism"),
             "exports": portable_exports,

@@ -15,6 +15,8 @@ import {
 } from "../lib/opencad-motion-preview";
 import { sceneAppearanceForTheme, type MechanicalSceneAppearance, type MechanicalScenePalette } from "../lib/theme";
 import { useTheme } from "../lib/theme-provider";
+import { normalizeArticulatedMotion } from "../lib/articulated-motion";
+import ArticulatedMotionScene from "./articulated-motion-scene";
 
 type Dimensions = { x_mm: number; y_mm: number; z_mm: number };
 
@@ -70,6 +72,7 @@ type MechanicalSceneProps = {
   placements?: PlacementInput[];
   relationships?: SpatialRelationshipInput[];
   kinematics?: unknown;
+  articulatedBodies?: unknown;
   compliantPreview?: unknown;
   features: string[];
   toggles: Record<string, boolean>;
@@ -980,7 +983,16 @@ function LayerChip({
   );
 }
 
-export default function MechanicalScene({
+export default function MechanicalScene(props: MechanicalSceneProps) {
+  const motion = useMemo(() => normalizeArticulatedMotion(props.articulatedBodies, props.kinematics), [props.articulatedBodies, props.kinematics]);
+  if (motion) return <ArticulatedMotionScene motion={motion} />;
+  if (Array.isArray(props.articulatedBodies) && props.articulatedBodies.length) {
+    return <div role="status" className="p-6 text-sm text-[var(--forma-text-secondary)]">Motion preview is unavailable because the saved meshes and motion tracks do not match. Regenerate the CAD model to restore the preview.</div>;
+  }
+  return <PlacementMechanicalScene {...props} />;
+}
+
+function PlacementMechanicalScene({
   dimensions,
   components,
   placements = [],

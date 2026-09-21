@@ -1029,6 +1029,7 @@ class WebResearchHardwarePipeline:
         {research_context}
 
         Populate physical_form with the requested overall shape, silhouette, and form factor. Treat explicit human shape context as authoritative and do not default to a rectangular project box. If the project is exposed, structural, or open-frame, do not invent a closed case.
+        For a requested two-gear motion example, use mechanism_benchmark with kind spur_gear_pair. Set driver_teeth and driven_teeth (defaults 20/40), module_mm (default 2), face_width_mm (default 8), and cycle_seconds (default 6) to match the request. OpenCAD generates separate gear bodies and coupled motion; do not substitute boxes or independent motion_intents.
         Use CAD/enclosure URLs only when present in research or well-known source data. If no source exists, keep cad_sources empty.
         Return MechanicalNotes.
         """

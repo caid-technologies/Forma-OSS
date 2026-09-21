@@ -10,6 +10,7 @@ import {
   ArrowUpRight,
   KeyRound,
   Paperclip,
+  FileText,
   RefreshCw,
   Settings,
   Square,
@@ -49,7 +50,9 @@ type HomeChatViewProps = {
   needsGenerationProvider: boolean;
   needsImageProvider: boolean;
   selectedImage: string | null;
+  selectedDocumentName: string | null;
   onRemoveImage: () => void;
+  onRemoveDocument: () => void;
   notice: string | null;
   prompt: string;
   onPromptChange: (prompt: string) => void;
@@ -90,7 +93,9 @@ export default function HomeChatView({
   needsGenerationProvider,
   needsImageProvider,
   selectedImage,
+  selectedDocumentName,
   onRemoveImage,
+  onRemoveDocument,
   notice,
   prompt,
   onPromptChange,
@@ -125,8 +130,8 @@ export default function HomeChatView({
         : "Check hardware idea";
 
   useEffect(() => {
-    if (selectedImage) promptRef.current?.focus();
-  }, [selectedImage]);
+    if (selectedImage || selectedDocumentName) promptRef.current?.focus();
+  }, [selectedImage, selectedDocumentName]);
 
   return (
     <ChatProjectLayout conversationKey={conversationKey} projectId={projectArtifactId} project={started ? projectArtifact : null} history={history}>
@@ -143,7 +148,7 @@ export default function HomeChatView({
             Turn an idea into a hardware plan.
           </h1>
           <p className="mx-auto mt-1.5 max-w-xl text-xs leading-relaxed text-zinc-400 sm:text-sm">
-            Upload a photo, sketch, or short description. Get parts, wiring, cost, and build steps.
+            Upload a photo, sketch, PDF, or short description. Get parts, wiring, cost, and build steps.
           </p>
         </div>
       )}
@@ -266,7 +271,7 @@ export default function HomeChatView({
               promptRunning ? "prompt-composer-illuminate" : "prompt-composer-idle"
             }`}
           >
-            <input ref={imageInputRef} type="file" accept="image/*" onChange={onImageChange} className="hidden" />
+            <input ref={imageInputRef} type="file" accept="image/*,application/pdf,.pdf" onChange={onImageChange} className="hidden" />
             {selectedImage && (
               <div className="mb-2 flex items-start gap-2 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-1.5 pr-2">
                 <Image
@@ -293,6 +298,27 @@ export default function HomeChatView({
                 </button>
               </div>
             )}
+            {selectedDocumentName && (
+              <div className="mb-2 flex items-start gap-2 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface-muted)] p-2 pr-2">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--forma-page)] text-zinc-300">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1 py-0.5">
+                  <div className="truncate text-xs font-medium text-[var(--forma-text-strong)]">{selectedDocumentName}</div>
+                  <div className="mt-0.5 text-[11px] leading-4 text-[var(--forma-text-muted)]">
+                    PDF context · text will be extracted before the build.
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={onRemoveDocument}
+                  className="rounded-md p-1.5 text-[var(--forma-text-muted)] transition-colors hover:bg-[var(--forma-page)] hover:text-[var(--forma-text-strong)]"
+                  aria-label="Remove PDF"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
             <textarea
               ref={promptRef}
               value={prompt}
@@ -312,7 +338,9 @@ export default function HomeChatView({
               placeholder={
                 selectedImage
                   ? "Add constraints, references, or what you want from this image…"
-                  : "Describe the product, constraints, references, and outputs you need…"
+                  : selectedDocumentName
+                    ? "Tell Forma what to build or what to use from this PDF…"
+                    : "Describe the product, constraints, references, and outputs you need…"
               }
               aria-invalid={Boolean(notice)}
               aria-describedby={notice ? "generation-input-notice" : undefined}
@@ -324,8 +352,8 @@ export default function HomeChatView({
                   type="button"
                   onClick={() => imageInputRef.current?.click()}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-zinc-200"
-                  aria-label="Attach image"
-                  title="Attach an image or paste one from your clipboard"
+                  aria-label="Attach image or PDF"
+                  title="Attach an image or PDF, or paste an image from your clipboard"
                 >
                   <Paperclip className="h-4 w-4" />
                 </button>

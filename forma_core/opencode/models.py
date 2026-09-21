@@ -138,6 +138,7 @@ class ProjectHistoryMessage(BaseModel):
     status: Literal["idle", "success", "error", "cancelled"]
     timestamp: str
     projectId: str
+    revisionId: str | None = None
 
 
 class ProjectHistoryResponse(BaseModel):

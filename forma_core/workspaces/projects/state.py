@@ -140,6 +140,10 @@ class ProjectStateRepository(Protocol):
 
     def get_latest_project_revision(self, project_id: str, owner_user_id: str) -> Any | None: ...
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> list[Any]: ...
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Any | None: ...
+
     def get_project_revision(
         self,
         project_id: str,
@@ -217,6 +221,21 @@ class ProjectStateService:
         job_id = str(source_job_id or "").strip()
         record = self._repository.get_project_revision_by_source_job(project, owner, job_id)
         return _revision_from_record(record) if record is not None else None
+
+    def list_revisions(self, project_id: str | UUID, owner_user_id: str, *, limit: int = 21, before: int | None = None) -> list[ProjectRevision]:
+        """Page immutable snapshots in descending version order within one owner/project."""
+        project = str(_canonical_uuid(project_id, "project_id"))
+        records = self._repository.list_project_revisions(project, owner_user_id.strip(), limit=limit, before=before)
+        return [_revision_from_record(record) for record in records]
+
+    def get_revision_by_id(self, project_id: str | UUID, owner_user_id: str, revision_id: str | UUID) -> ProjectRevision:
+        """Read an exact snapshot, never substituting the latest project state."""
+        project = str(_canonical_uuid(project_id, "project_id"))
+        revision = str(_canonical_uuid(revision_id, "revision_id"))
+        record = self._repository.get_project_revision_by_id(project, owner_user_id.strip(), revision)
+        if record is None:
+            raise ProjectStateError("project_revision_not_found", "Project revision not found.")
+        return _revision_from_record(record)
 
     def require_frozen_design_brief(
         self,
@@ -318,6 +337,7 @@ class ProjectStateService:
                 context={"project_id": project},
             )
 
+        revision_uuid = uuid4()
         state = draft.state.model_copy(deep=True)
         metadata = dict(state.assembly_metadata or {})
         supplied_project = str(metadata.get("project_id") or "").strip()
@@ -338,6 +358,8 @@ class ProjectStateService:
             **metadata,
             "project_id": project,
             "revision": 1,
+            "project_revision": 1,
+            "canonical_revision_id": str(revision_uuid),
             "design_brief_id": str(brief_uuid),
             "design_brief_version": design_brief_version,
             "source_job_id": job_id,
@@ -345,7 +367,7 @@ class ProjectStateService:
         normalized_draft = draft.model_copy(update={"state": state, "components": list(state.components)})
         revision = ProjectRevision(
             **normalized_draft.model_dump(),
-            revision_id=uuid4(),
+            revision_id=revision_uuid,
             project_id=project_uuid,
             owner_user_id=owner,
             revision=1,
@@ -451,6 +473,7 @@ class ProjectStateService:
 
         next_revision = parent.revision + 1
 
+        revision_uuid = uuid4()
         state = draft.state.model_copy(deep=True)
         metadata = dict(state.assembly_metadata or {})
 
@@ -468,6 +491,8 @@ class ProjectStateService:
             **metadata,
             "project_id": project,
             "revision": next_revision,
+            "project_revision": next_revision,
+            "canonical_revision_id": str(revision_uuid),
             "design_brief_id": str(brief_id),
             "design_brief_version": brief_version,
             "source_job_id": job_id,
@@ -482,7 +507,7 @@ class ProjectStateService:
 
         revision = ProjectRevision(
             **normalized.model_dump(),
-            revision_id=uuid4(),
+            revision_id=revision_uuid,
             project_id=project_uuid,
             owner_user_id=owner,
             revision=next_revision,

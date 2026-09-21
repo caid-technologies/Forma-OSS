@@ -8,7 +8,8 @@ test("desktop has one independent project pane and inline references, not inline
   await expect(page.getByTestId("model-canvas")).toHaveCount(1);
   await expect(page.getByTestId("message-scroller").locator("canvas")).toHaveCount(0);
   await expect(page.getByTestId("project-update-card")).toHaveCount(2);
-  await expect(page.getByRole("link", { name: /Open linked project/ })).toHaveAttribute("href", "/projects/archived%2Fcontroller");
+  // Project detail uses /project; the slash inside this ID remains encoded.
+  await expect(page.getByRole("link", { name: /Open linked project/ })).toHaveAttribute("href", "/project/archived%2Fcontroller");
   const chat = await page.getByTestId("chat-pane").boundingBox();
   const project = await page.getByTestId("project-pane").boundingBox();
   expect(chat && project && project.x > chat.x + chat.width).toBeTruthy();

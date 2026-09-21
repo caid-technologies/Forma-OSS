@@ -495,6 +495,24 @@ class SqlAlchemyRepository:
                 .first()
             )
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> List[Any]:
+        with self._session() as session:
+            query = session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id,
+                DBProjectRevision.owner_user_id == owner_user_id,
+            )
+            if before is not None:
+                query = query.filter(DBProjectRevision.revision < before)
+            return query.order_by(DBProjectRevision.revision.desc()).limit(limit).all()
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Optional[Any]:
+        with self._session() as session:
+            return session.query(DBProjectRevision).filter(
+                DBProjectRevision.project_id == project_id,
+                DBProjectRevision.owner_user_id == owner_user_id,
+                DBProjectRevision.id == revision_id,
+            ).first()
+
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]:
         with self._session() as session:
             rows = (

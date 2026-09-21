@@ -459,17 +459,18 @@ class OpenCodeStore:
             events = (provider.client.table("opencode_events").select("event_json")
                       .eq("project_id", project_id).eq("owner_user_id", owner_user_id)
                       .gte("created_at", commands[0].created_at)
-                      .in_("event_json->>kind", ["assistant_message", "failed", "cancelled"])
+                      .in_("event_json->>kind", ["assistant_message", "completed", "failed", "cancelled"])
                       .order("created_at", desc=True).limit(2000).execute().data or [])
         else:
             with closing(provider.connect_dbapi()) as connection:
                 events = [dict(row) for row in connection.execute(
                     "SELECT event_json FROM opencode_events WHERE project_id = ? AND owner_user_id = ? "
-                    "AND created_at >= ? AND json_extract(event_json, '$.kind') IN ('assistant_message','failed','cancelled') "
+                    "AND created_at >= ? AND json_extract(event_json, '$.kind') IN ('assistant_message','completed','failed','cancelled') "
                     "ORDER BY created_at DESC LIMIT 2000", (project_id, owner_user_id, commands[0].created_at),
                 ).fetchall()]
         answers: dict[str, PublicEvent] = {}
         failures: dict[str, PublicEvent] = {}
+        completions: dict[str, PublicEvent] = {}
         for row in events:
             payload = row["event_json"]
             event = PublicEvent.model_validate(json.loads(payload) if isinstance(payload, str) else payload)
@@ -478,6 +479,8 @@ class OpenCodeStore:
                 answers.setdefault(command_id, event)
             elif event.kind == OpenCodeEventKind.FAILED:
                 failures.setdefault(command_id, event)
+            elif event.kind == OpenCodeEventKind.COMPLETED:
+                completions.setdefault(command_id, event)
         messages = []
         for command in commands:
             text = self._command_message(command)
@@ -502,6 +505,8 @@ class OpenCodeStore:
             messages.append(ProjectHistoryMessage(
                 id=f"{command.command_id}:assistant", role="assistant", content=content, status=status,
                 timestamp=command.completed_at or command.updated_at, projectId=project_id,
+                revisionId=completions[command.command_id].revision_id
+                if status == "success" and command.command_id in completions else None,
             ))
         return tuple(messages)
 

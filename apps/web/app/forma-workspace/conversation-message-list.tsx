@@ -25,6 +25,7 @@ export type ConversationMessage = {
   status?: "idle" | "loading" | "success" | "error" | "cancelled" | "handed-off";
   timestamp: string;
   projectId?: string | null;
+  revisionId?: string | null;
   pipelineProgress?: unknown;
   imagePreview?: string | null;
   contextProjectId?: string | null;

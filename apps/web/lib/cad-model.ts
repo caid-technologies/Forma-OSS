@@ -221,6 +221,13 @@ export function nativeStepArtifact(value: unknown): { projectId: string; sha256:
   return { projectId, sha256 };
 }
 
+export function nativeStepDownloadPath(artifact: { projectId: string; sha256: string }, revisionId?: string): string {
+  const project = encodeURIComponent(artifact.projectId);
+  return revisionId
+    ? `/projects/${project}/history/${encodeURIComponent(revisionId)}/cad/${artifact.sha256}`
+    : `/opencode/projects/${project}/cad/${artifact.sha256}`;
+}
+
 export function resolveCadModel(value: unknown): CadModelDescriptor | null {
   if (value === null || value === undefined || value === "") return null;
 

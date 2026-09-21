@@ -29,6 +29,7 @@ export type ProjectMessageReference = {
   role: string;
   status?: string;
   projectId?: string | null;
+  revisionId?: string | null;
 };
 
 export function completedProjectReference(message: ProjectMessageReference): string | null {
@@ -39,6 +40,6 @@ export function completedProjectReference(message: ProjectMessageReference): str
   return id || null;
 }
 
-export function linkedProjectPath(projectId: string): string {
-  return `/projects/${encodeURIComponent(projectId)}`;
+export function linkedProjectPath(projectId: string, revisionId?: string | null): string {
+  return `/project/${encodeURIComponent(projectId)}${revisionId ? `?revision=${encodeURIComponent(revisionId)}` : ""}`;
 }

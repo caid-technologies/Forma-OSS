@@ -21,6 +21,7 @@ import ConversationMessageList, { type ConversationMessage } from "./conversatio
 import { AuthoringModeBanner } from "./hosted-chat-maintenance";
 import useChatAutoScroll from "./use-chat-auto-scroll";
 import ChatProjectLayout from "./chat-project-layout";
+import type { ProjectHistoryConfig } from "./project-history";
 import GenerationModeSelector, { type GenerationMode } from "./generation-mode-selector";
 
 export type { GenerationMode } from "./generation-mode-selector";
@@ -33,6 +34,7 @@ type HomeChatViewProps = {
   renderPipelineProgress: (message: ConversationMessage) => ReactNode;
   projectArtifact?: ReactNode;
   projectArtifactId?: string | null;
+  history?: ProjectHistoryConfig;
   examples: string[];
   onSelectExample: (example: string) => void;
   generationMode: GenerationMode;
@@ -73,6 +75,7 @@ export default function HomeChatView({
   renderPipelineProgress,
   projectArtifact,
   projectArtifactId,
+  history,
   examples,
   onSelectExample,
   generationMode,
@@ -126,7 +129,7 @@ export default function HomeChatView({
   }, [selectedImage]);
 
   return (
-    <ChatProjectLayout conversationKey={conversationKey} projectId={projectArtifactId} project={started ? projectArtifact : null}>
+    <ChatProjectLayout conversationKey={conversationKey} projectId={projectArtifactId} project={started ? projectArtifact : null} history={history}>
     <section
       className={`${
         !started

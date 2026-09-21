@@ -125,6 +125,10 @@ class ApplicationRepository(Protocol):
 
     def list_latest_project_revisions(self, owner_user_id: str) -> List[Any]: ...
 
+    def list_project_revisions(self, project_id: str, owner_user_id: str, *, limit: int, before: int | None = None) -> List[Any]: ...
+
+    def get_project_revision_by_id(self, project_id: str, owner_user_id: str, revision_id: str) -> Optional[Any]: ...
+
     def get_project_revision(
         self,
         project_id: str,

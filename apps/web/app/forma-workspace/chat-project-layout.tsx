@@ -11,6 +11,11 @@ import {
   linkedProjectPath, projectPaneVisible, type ProjectMessageReference,
 } from "../../lib/chat-project-layout";
 import styles from "./chat-project-layout.module.css";
+import { revisionId } from "../../lib/project-history";
+import {
+  ProjectHistoryProvider, ProjectHistoryButton, ProjectHistoryBody, ProjectVersionLabel, useProjectHistory,
+  type ProjectHistoryConfig,
+} from "./project-history";
 
 type ProjectWorkspaceContext = {
   projectId: string | null;
@@ -27,11 +32,14 @@ type ChatProjectLayoutProps = {
   projectId?: string | null;
   project?: ReactNode;
   children: ReactNode;
+  history?: ProjectHistoryConfig;
 };
 
 /** One session owns one viewer slot. Changing chats releases the previous subtree. */
 export default function ChatProjectLayout(props: ChatProjectLayoutProps) {
-  return <ChatProjectLayoutSession key={props.conversationKey} {...props} />;
+  return <ProjectHistoryProvider key={props.conversationKey} config={props.history?.projectId === props.projectId ? props.history : undefined}>
+    <ChatProjectLayoutSession key={props.conversationKey} {...props} />
+  </ProjectHistoryProvider>;
 }
 
 function ChatProjectLayoutSession({ conversationKey, projectId = null, project, children }: ChatProjectLayoutProps) {
@@ -44,6 +52,7 @@ function ChatProjectLayoutSession({ conversationKey, projectId = null, project, 
   const projectDomId = useId();
   const chatDomId = useId();
   const hasProject = Boolean(project);
+  const selectedRevision = useProjectHistory()?.selection?.id;
   const visible = projectPaneVisible(state, hasProject, wide);
   const fullScreen = visible && state.fullScreen;
   const chatHidden = visible && (!wide || fullScreen);
@@ -67,6 +76,10 @@ function ChatProjectLayoutSession({ conversationKey, projectId = null, project, 
     openerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setState((current) => ({ ...current, desktopOpen: true, narrowPane: "project" }));
   }, []);
+
+  useEffect(() => {
+    if (selectedRevision) openProject();
+  }, [selectedRevision, openProject]);
 
   const closeProject = useCallback(() => {
     setState((current) => ({ ...current, desktopOpen: false, narrowPane: "chat", fullScreen: false }));
@@ -189,16 +202,18 @@ function ChatProjectLayoutSession({ conversationKey, projectId = null, project, 
 }
 
 /** The same surface stays mounted when expanded; closing it unmounts the viewer. */
-export function ChatProjectSurface({ title, children }: { title: ReactNode; children: ReactNode }) {
+export function ChatProjectSurface({ title, children, leading }: { title: ReactNode; children: ReactNode; leading?: ReactNode }) {
   const workspace = useContext(ProjectWorkspace);
   return (
     <div className={styles.surface} data-testid="project-surface">
-      <header className={styles.surfaceHeader}>
+      <header className={`${styles.surfaceHeader} ${leading ? styles.standaloneHeader : ""}`}>
+        {leading}
         <div className={styles.identity}>
-          <div className={styles.eyebrow}><Layers className={styles.icon} /> Current project</div>
+          <div className={styles.eyebrow}><Layers className={styles.icon} /> <ProjectVersionLabel /></div>
           <div className={styles.surfaceTitle}>{title}</div>
         </div>
         <div className={styles.actions} role="group" aria-label="Project surface">
+          <ProjectHistoryButton />
           {workspace && (
             <>
               <button type="button" className={styles.button} onClick={workspace.toggleFullScreen} aria-pressed={workspace.fullScreen} aria-label={workspace.fullScreen ? "Exit project full screen" : "View project full screen"}>
@@ -210,7 +225,7 @@ export function ChatProjectSurface({ title, children }: { title: ReactNode; chil
           )}
         </div>
       </header>
-      <div className={styles.surfaceContent}>{children}</div>
+      <ProjectHistoryBody>{children}</ProjectHistoryBody>
     </div>
   );
 }
@@ -218,20 +233,26 @@ export function ChatProjectSurface({ title, children }: { title: ReactNode; chil
 /** References only: never mount project/CAD content inside a message. */
 export function ProjectUpdateCard({ message }: { message: ProjectMessageReference }) {
   const workspace = useContext(ProjectWorkspace);
+  const history = useProjectHistory();
   const id = completedProjectReference(message);
   if (!id) return null;
   const current = Boolean(workspace?.hasProject && workspace.projectId === id);
+  const savedRevision = revisionId(message.revisionId);
   const content = <>
     <Layers className={styles.cardIcon} />
     <span className={styles.cardText}>
-      <span className={styles.cardTitle}>{current ? "View current project" : "Open linked project"}</span>
-      <span className={styles.cardNote}>Latest saved state · not a historical snapshot</span>
+      <span className={styles.cardTitle}>{savedRevision ? "View this revision" : current ? "View current project" : "Open linked project"}</span>
+      <span className={styles.cardNote}>{savedRevision ? "Saved version from this response" : "Latest saved state · version not recorded for this message"}</span>
     </span>
     <ArrowUpRight className={styles.icon} />
   </>;
-  return current
-    ? <button type="button" className={styles.card} onClick={workspace?.openProject} data-testid="project-update-card">{content}</button>
-    : <a className={styles.card} href={linkedProjectPath(id)} data-testid="project-update-card">{content}</a>;
+  return current && (!savedRevision || history)
+    ? <button type="button" className={styles.card} onClick={() => {
+      workspace?.openProject();
+      if (savedRevision && history) { history.setOpen(true); history.select(savedRevision); }
+      else if (history?.selection) history.returnToLatest();
+    }} data-testid="project-update-card">{content}</button>
+    : <a className={styles.card} href={linkedProjectPath(id, savedRevision)} data-testid="project-update-card">{content}</a>;
 }
 
 function makeBackgroundInert(pane: HTMLElement): () => void {

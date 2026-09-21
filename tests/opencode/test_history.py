@@ -87,6 +87,26 @@ class ProjectHistoryTests(unittest.TestCase):
         claimed = self.store.claim_next(connector_id="mini", session_id="new")
         self.assertEqual(["Mechanical only; no electronics."], [item.message for item in claimed.conversation_context])
 
+    def test_recovered_assistant_result_keeps_its_exact_revision_after_later_turns(self):
+        session = self.session("revision-history")
+        expected = []
+        for index in range(2):
+            command = self.command(session, f"revision-command-{index}", f"Change {index}")
+            self.event(command, "1", f"Saved change {index}")
+            saved_id = str(uuid4())
+            expected.append(saved_id)
+            completion = project_public_event(
+                ConnectorEventInput(event_id=f"{command.command_id}:2", kind="completed"),
+                sequence=self.store.next_event_sequence(session.session_id), session_id=session.session_id,
+                project_id=UUID(self.project_id),
+                created_at=datetime.fromisoformat(command.created_at.replace("Z", "+00:00")) + timedelta(seconds=2),
+            ).model_copy(update={"revision_id": saved_id})
+            self.store.add_event(completion)
+            self.finish(command)
+        messages = self.store.project_history(self.project_id, "owner")
+        self.assertEqual([message.revisionId for message in messages if message.role == "assistant"], expected)
+        self.assertTrue(all(message.revisionId is None for message in messages if message.role == "user"))
+
     def test_history_endpoint_checks_ownership_before_decrypting_any_messages(self):
         user = UserContext(provider="clerk", subject="owner", owner_user_id="owner",
                            is_authenticated=True, is_admin=False)

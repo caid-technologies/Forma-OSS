@@ -444,11 +444,6 @@ function ChatSidebarRow({
               <Pin className={`h-3 w-3 shrink-0 ${active ? "text-emerald-400" : "text-zinc-500"}`} aria-hidden="true" />
             )}
             <div className="truncate">{chat.title}</div>
-            {readOnly && (
-              <span className="shrink-0 rounded border border-cyan-300/20 px-1 py-0.5 text-[9px] font-medium text-cyan-300">
-                Read-only
-              </span>
-            )}
           </div>
         )}
         {chat.projectCount > 1 && (
@@ -478,8 +473,8 @@ function ChatSidebarRow({
           onStartRename();
         }}
         className={`flex min-w-0 flex-1 items-center gap-2.5 rounded-lg py-2 text-left ${compact ? "justify-center px-0" : "px-3"}`}
-        title={activity ? `${chat.title}${readOnly ? " (read-only during maintenance)" : ""}: ${activity.label}` : readOnly ? `${chat.title} (read-only during maintenance)` : waiting ? `${chat.title} is waiting` : canRename ? `${chat.title}. Double-click to rename.` : chat.title}
-        aria-label={`Open chat ${chat.title}${readOnly ? " (read-only)" : ""}${activity ? ` (${activity.label})` : waiting ? " (waiting)" : ""}${chat.pinned ? ", pinned" : ""}`}
+        title={activity ? `${chat.title}: ${activity.label}` : waiting ? `${chat.title} is waiting` : canRename ? `${chat.title}. Double-click to rename.` : chat.title}
+        aria-label={`Open chat ${chat.title}${activity ? ` (${activity.label})` : waiting ? " (waiting)" : ""}${chat.pinned ? ", pinned" : ""}`}
       >
         {titleBlock}
       </button>
@@ -704,7 +699,7 @@ export function ChatSidebar({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <SidebarSectionLabel compact={compact}>{readOnly ? "Chats (read-only)" : "Chats"}</SidebarSectionLabel>
+          <SidebarSectionLabel compact={compact}>Chats</SidebarSectionLabel>
           <div className="space-y-0.5">
             {chatsLoading ? (
               Array.from({ length: compact ? 5 : 7 }, (_, index) => (

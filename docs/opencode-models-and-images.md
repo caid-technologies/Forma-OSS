@@ -39,6 +39,23 @@ sessions. Use an explicit service default for predictable
 hosted requests. Null commands deliberately inherit the default at execution
 time; only explicit command selections are pinned across retries.
 
+### Vertex tool schema compatibility
+
+The restricted `update_project`, `compile_project`, and `validate_project` tools
+advertise `project_ir` as a **JSON string**. Serialize the complete HardwareIR
+object into that argument; its parameter description includes the canonical
+HardwareIR JSON Schema, including nested requirements and recursive definitions.
+The backend decodes and validates it with the same HardwareIR model after
+capability authorization. Older callers can continue sending an object.
+
+This avoids an OpenCode Vertex adapter limitation that drops `$ref`/`$defs` from
+function parameters. With an embedded object schema, Vertex can reject fields
+such as `project_ir.overview` for lacking a type before the agent runs any tool.
+That also blocks image requests, because the request advertises the authoring
+tools alongside the image tool. Updating the backend and restarting it refreshes
+the tool definitions for new OpenCode sessions; changing credentials or the
+image model does not address this schema error.
+
 ## Generate an image
 
 Ask Forma Agent to generate a concept image of the saved project. The restricted

@@ -66,7 +66,7 @@ jobs:
       - name: Run layout and main-entry-point regression tests
         run: node --experimental-strip-types --test test/chat-project-layout.test.ts test/chat-project-integration.test.ts
       - name: Run OpenCAD motion preview regression tests
-        run: node --experimental-strip-types --test test/opencad-motion-preview.test.ts
+        run: node --experimental-strip-types --test test/opencad-motion-preview.test.ts test/articulated-motion.test.ts
       - name: Verify locked browser fixture tooling
         run: node -e "console.log('esbuild', require('esbuild').version); console.log(require.resolve('@playwright/test'))"
       - name: Install Chromium

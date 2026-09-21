@@ -7,7 +7,7 @@ The Forma hardware skill manages OpenCAD for CAD-capable workflows. The base
 
 - OpenCAD: `0.2.4`
 - Required extra: `occt`
-- Managed source: OpenCAD merged kinematics commit `ce31b40a3f6094a6993d9b7c0a734fb4df2eb161`
+- Managed source: OpenCAD gear motion commit `1c417752eb42d29b951784e80f65ac79c3fb6e0e`
 - Python: `3.11+` for the Forma skill environment
 
 The OCCT extra is required for real STEP and STL exchange files. The analytic
@@ -22,7 +22,7 @@ workflow:
 python <skill-directory>/scripts/cad.py setup
 ```
 
-Setup first reuses an installed OpenCAD `0.2.4` runtime only when both native OCCT and the rigid kinematics module are available. Otherwise it installs the pinned merged OpenCAD commit and
+Setup first reuses an installed OpenCAD `0.2.4` runtime only when native OCCT, rigid kinematics, spur gears and gear coupling are available. Otherwise it installs the pinned OpenCAD gear-motion commit and
 verifies the backend before returning. To verify without changing the active
 Python environment:
 

@@ -72,6 +72,11 @@ function meshesFromValue(value: unknown): MeshPayload[] {
   const record = asRecord(value);
   if (!record) return [];
 
+  if (Array.isArray(record.articulated_bodies)) {
+    const meshes = record.articulated_bodies.flatMap(meshesFromValue);
+    if (meshes.length) return meshes;
+  }
+
   for (const key of ["meshes", "mesh_payloads", "render_meshes"]) {
     if (key in record) {
       const meshes = meshesFromValue(record[key]);

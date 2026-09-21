@@ -262,7 +262,7 @@ class MechanicalNotes(BaseModel):
     component_placements: List[MechanicalPlacement] = Field(default_factory=list, description="Per-component 3D placements for live Three.js rendering")
     spatial_relationships: List[MechanicalSpatialRelationship] = Field(default_factory=list, description="Physical offsets and alignment relationships between placed components")
     motion_intents: List[MechanicalMotionIntent] = Field(default_factory=list, description="Agent-authored motion intent resolved into OpenCAD kinematic joints during CAD generation")
-    mechanism_benchmark: Optional[MechanismBenchmark] = Field(None, description="Optional additive-mechanism benchmark with bounded print-in-place or monolithic-flexure parameters")
+    mechanism_benchmark: Optional[MechanismBenchmark] = Field(None, description="Bounded mechanism: print_in_place_hinge, monolithic_flexure_hinge, or spur_gear_pair. For two meshing gears use spur_gear_pair (defaults: 20/40 teeth, module 2 mm). CAD generation creates real gear bodies and synchronized OpenCAD poses.")
 
 class PinMappingEntry(BaseModel):
     mcu_pin: str = Field(..., description="MCU pin identifier, e.g., 'GPIO23'")

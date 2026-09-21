@@ -1517,6 +1517,11 @@ const communityProjects = [
     file: "smart_thermostat.json",
   },
   {
+    title: "Two meshing gears",
+    description: "20/40-tooth OpenCAD gears with real meshes and synchronized 2:1 rotation.",
+    file: "spur_gear_pair.json",
+  },
+  {
     title: "Print-in-place hinge",
     description: "Two-body captive hinge benchmark with explicit radial/axial clearance and OpenCAD motion.",
     file: "print_in_place_hinge.json",

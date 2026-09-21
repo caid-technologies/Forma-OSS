@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Annotated, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from forma_core.workspaces.projects.gear_benchmark import SpurGearPairBenchmark, gear_pair_source
 
 
 class PrintInPlaceHingeBenchmark(BaseModel):
@@ -72,12 +73,14 @@ class MonolithicFlexureBenchmark(BaseModel):
 
 
 MechanismBenchmark = Annotated[
-    Union[PrintInPlaceHingeBenchmark, MonolithicFlexureBenchmark],
+    Union[PrintInPlaceHingeBenchmark, MonolithicFlexureBenchmark, SpurGearPairBenchmark],
     Field(discriminator="kind"),
 ]
 
 
 def mechanism_cad_source(benchmark: MechanismBenchmark) -> str:
+    if isinstance(benchmark, SpurGearPairBenchmark):
+        return gear_pair_source(benchmark)
     if isinstance(benchmark, PrintInPlaceHingeBenchmark):
         return _print_in_place_hinge_source(benchmark)
     if isinstance(benchmark, MonolithicFlexureBenchmark):

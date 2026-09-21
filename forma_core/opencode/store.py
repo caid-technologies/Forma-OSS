@@ -18,6 +18,8 @@ from forma_core.opencode.models import (
     OpenCodeCommandStatus,
     OpenCodeOperation,
     OpenCodeSessionStatus,
+    OpenCodeEventKind,
+    ProjectHistoryMessage,
     PublicEvent,
 )
 from forma_core.persistence.providers import SQLiteProvider, SupabaseProvider, create_sqlite_provider
@@ -395,26 +397,27 @@ class OpenCodeStore:
         return self._with_context(command, lease_token, message)
 
     def _with_context(self, command: StoredCommand, lease_token: str, message: str) -> ConnectorCommand:
-        """Rehydrate earlier user requests from encrypted storage, scoped to this conversation.
+        """Rehydrate earlier user requests for the same owner, project and runtime.
 
         Include the original brief plus the 15 most recent requests. Cancelled attempts
         still contain requirements; queued future commands must never enter this prompt.
+        Browser reloads create new sessions, not new project requirements.
         Nothing is written back as plaintext or added to public events.
         """
         provider = self._ensure_provider()
         if isinstance(provider, SupabaseProvider):
             def query():
                 return (provider.client.table("opencode_commands").select("*")
-                        .eq("session_id", command.session_id).eq("project_id", command.project_id)
+                        .eq("project_id", command.project_id)
                         .eq("owner_user_id", command.owner_user_id).eq("connector_id", command.connector_id)
                         .eq("operation", OpenCodeOperation.PROJECT_MESSAGE.value)
                         .lt("created_at", command.created_at))
             first = query().order("created_at").limit(1).execute().data or []
             recent = query().order("created_at", desc=True).limit(15).execute().data or []
         else:
-            sql = ("SELECT * FROM opencode_commands WHERE session_id = ? AND project_id = ? "
+            sql = ("SELECT * FROM opencode_commands WHERE project_id = ? "
                    "AND owner_user_id = ? AND connector_id = ? AND operation = ? AND created_at < ? ")
-            params = (command.session_id, command.project_id, command.owner_user_id, command.connector_id,
+            params = (command.project_id, command.owner_user_id, command.connector_id,
                       OpenCodeOperation.PROJECT_MESSAGE.value, command.created_at)
             with closing(provider.connect_dbapi()) as connection:
                 first = [dict(row) for row in connection.execute(sql + "ORDER BY created_at LIMIT 1", params).fetchall()]
@@ -429,6 +432,78 @@ class OpenCodeStore:
         result = _connector_command(command, lease_token, message)
         result.conversation_context = tuple(context)
         return result
+
+    def project_history(self, project_id: str, owner_user_id: str) -> tuple[ProjectHistoryMessage, ...]:
+        """Recover the last 40 turns without publishing ciphertext or internal events.
+
+        Callers must authorize project access first. Both queries also enforce
+        owner/project scope; recovery never writes a replacement chat record.
+        """
+        provider = self._ensure_provider()
+        if isinstance(provider, SupabaseProvider):
+            rows = (provider.client.table("opencode_commands").select("*")
+                    .eq("project_id", project_id).eq("owner_user_id", owner_user_id)
+                    .eq("operation", OpenCodeOperation.PROJECT_MESSAGE.value)
+                    .order("created_at", desc=True).limit(40).execute().data or [])
+        else:
+            with closing(provider.connect_dbapi()) as connection:
+                rows = [dict(row) for row in connection.execute(
+                    "SELECT * FROM opencode_commands WHERE project_id = ? AND owner_user_id = ? "
+                    "AND operation = ? ORDER BY created_at DESC LIMIT 40",
+                    (project_id, owner_user_id, OpenCodeOperation.PROJECT_MESSAGE.value),
+                ).fetchall()]
+        if not rows:
+            return ()
+        commands = sorted((_command_from_record(row) for row in rows), key=lambda command: command.created_at)
+        if isinstance(provider, SupabaseProvider):
+            events = (provider.client.table("opencode_events").select("event_json")
+                      .eq("project_id", project_id).eq("owner_user_id", owner_user_id)
+                      .gte("created_at", commands[0].created_at)
+                      .in_("event_json->>kind", ["assistant_message", "failed", "cancelled"])
+                      .order("created_at", desc=True).limit(2000).execute().data or [])
+        else:
+            with closing(provider.connect_dbapi()) as connection:
+                events = [dict(row) for row in connection.execute(
+                    "SELECT event_json FROM opencode_events WHERE project_id = ? AND owner_user_id = ? "
+                    "AND created_at >= ? AND json_extract(event_json, '$.kind') IN ('assistant_message','failed','cancelled') "
+                    "ORDER BY created_at DESC LIMIT 2000", (project_id, owner_user_id, commands[0].created_at),
+                ).fetchall()]
+        answers: dict[str, PublicEvent] = {}
+        failures: dict[str, PublicEvent] = {}
+        for row in events:
+            payload = row["event_json"]
+            event = PublicEvent.model_validate(json.loads(payload) if isinstance(payload, str) else payload)
+            command_id = event.event_id.partition(":")[0]
+            if event.kind == OpenCodeEventKind.ASSISTANT_MESSAGE and event.message:
+                answers.setdefault(command_id, event)
+            elif event.kind == OpenCodeEventKind.FAILED:
+                failures.setdefault(command_id, event)
+        messages = []
+        for command in commands:
+            text = self._command_message(command)
+            if text:
+                messages.append(ProjectHistoryMessage(
+                    id=f"{command.command_id}:user", role="user", content=text, status="idle",
+                    timestamp=command.created_at, projectId=project_id,
+                ))
+            answer = answers.get(command.command_id)
+            if command.status == OpenCodeCommandStatus.FAILED:
+                failure = failures.get(command.command_id)
+                content = failure.error.message if failure and failure.error else "Forma Agent could not complete the project request."
+                status = "error"
+            elif command.status == OpenCodeCommandStatus.CANCELLED:
+                content, status = "Forma Agent was stopped.", "cancelled"
+            elif command.status == OpenCodeCommandStatus.SUCCEEDED:
+                content = answer.message if answer else "Forma Agent finished responding."
+                status = "success"
+            else:
+                # Active turns are observed through the live event stream.
+                continue
+            messages.append(ProjectHistoryMessage(
+                id=f"{command.command_id}:assistant", role="assistant", content=content, status=status,
+                timestamp=command.completed_at or command.updated_at, projectId=project_id,
+            ))
+        return tuple(messages)
 
     def heartbeat(self, command: StoredCommand, lease_token: str) -> StoredCommand:
         self._require_lease(command, lease_token)

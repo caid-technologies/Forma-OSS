@@ -35,9 +35,27 @@ logger = logging.getLogger(__name__)
 
 def opencode_mcp_tools() -> list[dict[str, object]]:
     """Return only project authoring tools, never the broad Forma MCP registry."""
-    project_ir_schema = HardwareIR.model_json_schema()
-    definitions = project_ir_schema.pop("$defs", {})
-    authoring_schema = {"type": "object", "properties": {"project_ir": project_ir_schema}, "required": ["project_ir"], "$defs": definitions, "additionalProperties": False}
+    # OpenCode's Vertex adapter drops $ref/$defs, leaving untyped parameters
+    # that reject the entire request, even when it only needs the image tool.
+    # HardwareIR has recursive and arbitrary JSON fields, so flattening its
+    # schema would narrow the contract. Carry it as JSON text instead, retain
+    # the full schema as authoring guidance, and validate after authorization.
+    authoring_schema = {
+        "type": "object",
+        "properties": {
+            "project_ir": {
+                "type": "string",
+                "description": (
+                    "The complete HardwareIR object serialized as a JSON string, "
+                    "without Markdown fences. The decoded object must follow "
+                    "this JSON Schema: "
+                    + json.dumps(HardwareIR.model_json_schema(), separators=(",", ":"))
+                ),
+            },
+        },
+        "required": ["project_ir"],
+        "additionalProperties": False,
+    }
     return [
         {
             "name": "forma.opencode.create_project",
@@ -66,7 +84,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         },
         {
             "name": "forma.opencode.generate_image",
-            "description": "Generate one concept image using Forma's configured image provider (including GMI or OpenAI) and persist it in the saved bound project's preview. Use only when the user requests an image. Read or create the project first. Reuse request_id for a retry; use a new ID for a new image. Images are not CAD or physical verification.",
+            "description": "Generate one concept image of the saved design using Forma's configured image provider and persist it in the project's preview. Use only when the user requests an image. Read the project first; preserve its geometry, part count, materials, and constraints. Do not redesign it or add electronics or other absent features. Reuse request_id for a retry; use a new ID for a new image. Images are not CAD or physical verification.",
             "inputSchema": GenerateImageArguments.model_json_schema(),
         },
     ]
@@ -169,7 +187,12 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
         project = revision.state
         return _tool_result(project, project_id, _revision_identifier(revision))
     try:
-        project = HardwareIR.model_validate(arguments.project_ir)
+        # Accept object arguments from older clients and existing sessions too.
+        project = (
+            HardwareIR.model_validate_json(arguments.project_ir)
+            if isinstance(arguments.project_ir, str)
+            else HardwareIR.model_validate(arguments.project_ir)
+        )
     except TypeError as exc:
         # Legacy normalization can raise TypeError before Pydantic wraps it.
         raise ValidationError.from_exception_data("HardwareIR", [{
@@ -213,7 +236,7 @@ def _compile(project: HardwareIR, project_id: str, user_context: UserContext) ->
         return _tool_result(existing.state, project_id, _revision_identifier(existing))
     _persist_mcp_compile(
         project,
-        {"project_id": project_id, "prompt": "OpenCode project", "visibility": "private", "authoring_agent": "opencode", "source_job_id": source_job_id},
+        {"project_id": project_id, "visibility": "private", "authoring_agent": "opencode", "source_job_id": source_job_id},
         user_context,
     )
     revision = get_latest_project_revision(project_id, user_context.owner_user_id or "")

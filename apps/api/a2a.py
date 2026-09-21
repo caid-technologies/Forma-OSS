@@ -2347,6 +2347,15 @@ def _persist_mcp_compile(
 
     title = str((project.overview.title if project.overview else "") or "").strip() or "Untitled Forma Project"
     prompt = str(arguments.get("prompt") or metadata.get("source_prompt") or title).strip()
+    if arguments.get("authoring_agent") == "opencode" and existing is not None:
+        # Rendering or revising a design must not replace its originating brief
+        # with a tool-operation label or an agent-authored metadata value.
+        original_prompt = next((text for value in (existing_metadata.get("source_prompt"), existing.get("prompt"))
+                                if (text := str(value or "").strip()) and text != "OpenCode project"), "")
+        if original_prompt:
+            prompt = original_prompt
+        elif prompt == "OpenCode project":
+            prompt = title
     visibility = str(
         arguments.get("visibility")
         or (existing.get("visibility") if isinstance(existing, dict) else None)

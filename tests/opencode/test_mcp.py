@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import unittest
+from itertools import product
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -19,26 +21,53 @@ from forma_core.opencode.models import (
     McpToolCallParams,
     McpToolsListParams,
 )
+from forma_core.workspaces.projects.models import HardwareIR
 from tests.opencode.test_outcomes import wired_project
 
 
 class OpenCodeMcpModelTests(unittest.TestCase):
-    def test_authoring_schema_has_resolvable_root_refs_and_nested_requirements(self) -> None:
-        schema = opencode_mcp_tools()[2]["inputSchema"]
-        self.assertIn("project_ir", schema["required"])
-        self.assertIn("pin_type", schema["$defs"]["PinDefinition"]["required"])
+    def test_tool_parameters_do_not_depend_on_provider_reference_support(self) -> None:
         def check(value):
-            if isinstance(value, dict):
-                if "$ref" in value:
-                    node = schema
-                    for key in value["$ref"].removeprefix("#/").split("/"):
-                        node = node[key]
-                for child in value.values():
-                    check(child)
-            elif isinstance(value, list):
-                for child in value:
-                    check(child)
-        check(schema)
+            self.assertIn(value["type"], {"object", "array", "string", "number", "integer", "boolean"})
+            self.assertFalse({"$ref", "$defs", "anyOf", "oneOf", "allOf"}.intersection(value))
+            for child in value.get("properties", {}).values():
+                check(child)
+            if "items" in value:
+                check(value["items"])
+
+        for tool in opencode_mcp_tools():
+            with self.subTest(tool=tool["name"]):
+                check(tool["inputSchema"])
+
+    def test_authoring_string_retains_complete_schema_guidance(self) -> None:
+        for tool in opencode_mcp_tools():
+            if tool["name"] not in {
+                "forma.opencode.update_project", "forma.opencode.compile_project",
+                "forma.opencode.validate_project",
+            }:
+                continue
+            with self.subTest(tool=tool["name"]):
+                schema = tool["inputSchema"]
+                self.assertEqual(["project_ir"], schema["required"])
+                argument = schema["properties"]["project_ir"]
+                self.assertEqual("string", argument["type"])
+                guidance = json.loads(argument["description"].split("JSON Schema: ", 1)[1])
+                self.assertEqual(HardwareIR.model_json_schema(), guidance)
+                self.assertIn("pin_type", guidance["$defs"]["PinDefinition"]["required"])
+
+                def check(value):
+                    if isinstance(value, dict):
+                        if "$ref" in value:
+                            node = guidance
+                            for key in value["$ref"].removeprefix("#/").split("/"):
+                                node = node[key]
+                        for child in value.values():
+                            check(child)
+                    elif isinstance(value, list):
+                        for child in value:
+                            check(child)
+
+                check(guidance)
 
     def test_revision_identifier_uses_canonical_revision_id(self) -> None:
         revision = type("Revision", (), {"revision_id": "revision-1"})()
@@ -78,16 +107,17 @@ class OpenCodeMcpModelTests(unittest.TestCase):
 
 class OpenCodeMcpHttpTests(unittest.TestCase):
     def test_nested_authoring_errors_are_actionable_and_do_not_echo_secrets(self) -> None:
-        for ir, expected in (
+        cases = (
             ({"overview": {"title": "SECRET_CANARY"}}, ["project_ir", "overview", "description"]),
             ({"components": [{"ref_des": "SECRET_CANARY"}]}, ["project_ir", "components", 0, "rationale"]),
             ({"part_definitions": [{"part_definition_id": "p", "part_number": "p", "name": "p", "category": "Module", "pins": [{"pin_id": "SECRET_CANARY"}]}]}, ["project_ir", "part_definitions", 0, "pins", 0, "pin_type"]),
             ({"part_definitions": [{"part_definition_id": "p", "part_number": "p", "name": "p", "category": "Module", "dimensions_mm": {"SECRET_CANARY": "PRIVATE_VALUE"}}]}, ["project_ir", "part_definitions", 0, "dimensions_mm", "<key>"]),
-        ):
-            with self.subTest(expected=expected), patch("apps.api.opencode_mcp._persist_mcp_compile") as persist:
+        )
+        for (ir, expected), encoded in product(cases, (False, True)):
+            with self.subTest(expected=expected, encoded=encoded), patch("apps.api.opencode_mcp._persist_mcp_compile") as persist:
                 response = self.client.post("/api/opencode/mcp", json={
                     "jsonrpc": "2.0", "id": "bad", "method": "tools/call",
-                    "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": ir}},
+                    "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": json.dumps(ir) if encoded else ir}},
                 })
                 self.assertEqual(200, response.status_code)
                 self.assertTrue(response.json()["result"]["isError"])
@@ -100,12 +130,29 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
 
     def test_invalid_ir_cannot_bypass_authorization(self) -> None:
         self.authorize.side_effect = HTTPException(status_code=403, detail="denied")
-        response = self.client.post("/api/opencode/mcp", json={
-            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-            "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": {"overview": {}}}},
-        })
-        self.assertEqual(403, response.status_code)
-        self.assertNotIn("hardware_ir_invalid", response.text)
+        for ir in ({"overview": {}}, '{"overview": {}}', '{"SECRET_CANARY":'):
+            with self.subTest(ir=ir):
+                response = self.client.post("/api/opencode/mcp", json={
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": ir}},
+                })
+                self.assertEqual(403, response.status_code)
+                self.assertNotIn("hardware_ir_invalid", response.text)
+
+    def test_invalid_encoded_ir_returns_safe_validation_errors_without_saving(self) -> None:
+        for ir in ('{"SECRET_CANARY":', "null", "[]", '"SECRET_CANARY"', "42"):
+            with self.subTest(ir=ir), patch("apps.api.opencode_mcp._persist_mcp_compile") as persist:
+                response = self.client.post("/api/opencode/mcp", json={
+                    "jsonrpc": "2.0", "id": "bad-json", "method": "tools/call",
+                    "params": {"name": "forma.opencode.compile_project", "arguments": {"project_ir": ir}},
+                })
+                self.assertEqual(200, response.status_code)
+                result = response.json()["result"]
+                self.assertTrue(result["isError"])
+                self.assertEqual("hardware_ir_invalid", result["structuredContent"]["code"])
+                self.assertEqual(["project_ir"], result["structuredContent"]["errors"][0]["path"])
+                self.assertNotIn("SECRET_CANARY", response.text)
+                persist.assert_not_called()
 
     def test_bad_authoring_call_in_batch_does_not_block_corrected_call(self) -> None:
         response = self.client.post("/api/opencode/mcp", json=[
@@ -357,6 +404,44 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
             self.assertTrue(result["validation"]["is_valid"])
             persist.assert_called_once()
 
+    def test_encoded_ir_preserves_recursive_and_arbitrary_fields_for_all_authoring_tools(self) -> None:
+        project_ir = wired_project().model_dump(mode="json")
+        node = {
+            "system_id": "product", "name": "Product", "domain": "product",
+            "purpose": "Exercise the complete authoring contract", "children": [],
+        }
+        # Deeper than Vertex's recursive-reference expansion limit.
+        for index in range(4):
+            node = {**node, "system_id": f"product.level{index}", "children": [node]}
+        project_ir["system_architecture"] = {"summary": "Nested systems", "root": node}
+        project_ir["assembly_metadata"] = {"custom": {"values": [None, True, 1.5, "µm"]}}
+        project_ir["cad_model"] = {"custom_payload": [False, {"mesh": []}]}
+        expected = HardwareIR.model_validate(project_ir)
+
+        for operation in ("validate", "update", "compile"):
+            with self.subTest(operation=operation), \
+                 patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
+                 patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
+                 patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
+                 patch("apps.api.opencode_mcp.ensure_native_cad_model"):
+                response = self.client.post("/api/opencode/mcp", json={
+                    "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                    "params": {"name": f"forma.opencode.{operation}_project", "arguments": {"project_ir": json.dumps(project_ir)}},
+                })
+                self.assertEqual(200, response.status_code, response.text)
+                result = response.json()["result"]["structuredContent"]
+                validation = result if operation == "validate" else result["validation"]
+                self.assertTrue(validation["is_valid"])
+                if operation == "validate":
+                    persist.assert_not_called()
+                else:
+                    persist.assert_called_once()
+                    saved = persist.call_args.args[0]
+                    self.assertEqual(expected.system_architecture, saved.system_architecture)
+                    self.assertEqual(expected.assembly_metadata["custom"], saved.assembly_metadata["custom"])
+                    self.assertEqual(expected.cad_model, saved.cad_model)
+                    self.assertEqual("complete", result["design_outcome"]["project_readiness"])
+
     def test_pinless_saved_shape_is_invalid_through_validate_update_and_compile(self) -> None:
         project_ir = {
             "part_definitions": [{
@@ -374,15 +459,15 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
             "is_valid": True,
             "validation": {"critical": [], "warning": [], "info": []},
         }
-        for operation in ("validate", "update", "compile"):
-            with self.subTest(operation=operation), \
+        for operation, encoded in product(("validate", "update", "compile"), (False, True)):
+            with self.subTest(operation=operation, encoded=encoded), \
                  patch("apps.api.opencode_mcp._persist_mcp_compile") as persist, \
                  patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), \
                  patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=None), \
                  patch("apps.api.opencode_mcp.ensure_native_cad_model"):
                 response = self.client.post("/api/opencode/mcp", json={
                     "jsonrpc": "2.0", "id": 1, "method": "tools/call",
-                    "params": {"name": f"forma.opencode.{operation}_project", "arguments": {"project_ir": project_ir}},
+                    "params": {"name": f"forma.opencode.{operation}_project", "arguments": {"project_ir": json.dumps(project_ir) if encoded else project_ir}},
                 })
                 self.assertEqual(200, response.status_code, response.text)
                 result = response.json()["result"]["structuredContent"]

@@ -32,6 +32,7 @@ from forma_core.opencode.models import (
     OpenCodeOperation,
     OpenCodeSessionStatus,
     PublicEvent,
+    ProjectHistoryResponse,
     SessionResponse,
     SubmitCommandRequest,
     McpJsonRpcRequest,
@@ -46,6 +47,20 @@ from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 router = APIRouter(prefix="/opencode", tags=["opencode"])
 OPENCODE_STORE = OpenCodeStore()
 OPENCODE_SESSION_DISCOVERY_IDLE_SECONDS = 15 * 60
+
+
+@router.get("/projects/{project_id}/history", response_model=ProjectHistoryResponse)
+def get_opencode_project_history(
+    project_id: UUID,
+    response: Response,
+    user: UserContext = Depends(require_opencode_authoring_access),
+) -> ProjectHistoryResponse:
+    owner = _owner(user)
+    _require_owned_project(str(project_id), owner)
+    response.headers["Cache-Control"] = "private, no-store"
+    return ProjectHistoryResponse(
+        project_id=project_id, messages=OPENCODE_STORE.project_history(str(project_id), owner),
+    )
 
 
 @router.get("/projects/{project_id}/cad/{sha256}")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI, HTTPException
@@ -60,6 +61,7 @@ def authoring_client():
     app = FastAPI()
     app.include_router(opencode_api.router)
     app.add_api_route("/runtime/config", main.runtime_config_endpoint)
+    app.add_api_route("/chats/{chat_id}", main.upsert_chat_endpoint, methods=["PUT"])
     store = OpenCodeStore(":memory:")
     environment = {
         "FORMA_DEPLOYMENT_MODE": "hosted",
@@ -97,6 +99,20 @@ def test_signed_in_non_admin_can_create_a_project_session_and_queue_generation(a
     assert queued.json()["status"] == "queued"
     command = store.claim_next(connector_id="mini-pc-1", session_id=session["session_id"])
     assert command.message == "Build a mechanical bracket"
+
+
+def test_authoring_user_can_save_chat_while_legacy_hosted_generation_is_disabled(authoring_client):
+    client, _ = authoring_client
+    message = {"id": "original", "role": "user", "content": "Keep the gear mechanical"}
+    with patch("apps.api.main.upsert_project_chat", side_effect=lambda **record: SimpleNamespace(**record)) as save:
+        response = client.put("/chats/gear-chat", headers={"Authorization": "Bearer new-user"},
+                              json={"title": "Gear", "messages": [message]})
+        assert response.status_code == 200, response.text
+        assert response.json()["messages"][0]["content"] == message["content"]
+        assert save.call_args.kwargs["owner_user_id"] == "new-user"
+        save.reset_mock()
+        assert client.put("/chats/gear-chat", json={"title": "Gear", "messages": [message]}).status_code == 401
+        save.assert_not_called()
 
 
 def test_signed_out_requests_cannot_create_or_submit_generation(authoring_client):
@@ -153,6 +169,13 @@ def test_signed_in_users_cannot_access_another_users_session_or_project(authorin
         assert client.post(
             "/opencode/sessions", json={"connector_id": "mini-pc-1", "project_id": session["project_id"]}, headers=headers,
         ).status_code == 404
+        history_path = f"/opencode/projects/{session['project_id']}/history"
+        assert client.get(history_path, headers=headers).status_code == 404
+        assert client.get(history_path).status_code == 401
+        history = client.get(history_path, headers={"Authorization": "Bearer owner"})
+        assert history.status_code == 200
+        assert history.json()["messages"] == []
+        assert history.headers["cache-control"] == "private, no-store"
 
 
 def test_runtime_config_enables_authoring_only_for_signed_in_users(authoring_client):

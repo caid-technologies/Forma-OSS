@@ -1817,6 +1817,11 @@ export function FormaWorkspace({
   const [deliveredSignal, setDeliveredSignal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [selectedImageSource, setSelectedImageSource] = useState<"upload" | "clipboard">("upload");
+  const [selectedDocument, setSelectedDocument] = useState<{
+    name: string;
+    mediaType: "application/pdf";
+    dataUrl: string;
+  } | null>(null);
   const [generationInputNotice, setGenerationInputNotice] = useState<string | null>(null);
   const [hostedChatEnabled, setHostedChatEnabled] = useState(DEFAULT_HOSTED_CHAT_ENABLED);
   const [runtimeConfigState, setRuntimeConfigState] = useState<{ identityKey: string; status: ChatAccessLoadState }>({
@@ -1983,10 +1988,13 @@ export function FormaWorkspace({
     return null;
   }, [activeChatId, chatMessages, chatThreads]);
   const generationInputValidation = useMemo(
-    () => validateGenerationInput(pendingHumanContext?.basePrompt || prompt, Boolean(selectedImage)),
-    [pendingHumanContext, prompt, selectedImage]
+    () => validateGenerationInput(
+      pendingHumanContext?.basePrompt || prompt,
+      Boolean(selectedImage || selectedDocument),
+    ),
+    [pendingHumanContext, prompt, selectedDocument, selectedImage]
   );
-  const hasGenerationInput = Boolean(prompt.trim() || selectedImage || pendingHumanContext);
+  const hasGenerationInput = Boolean(prompt.trim() || selectedImage || selectedDocument || pendingHumanContext);
   const selectedGenerationWorkflow = useMemo(
     () => generationWorkflows.find((workflow) => workflow.id === generationWorkflow) || generationWorkflows[0] || defaultGenerationWorkflows[0],
     [generationWorkflow, generationWorkflows]
@@ -2007,7 +2015,7 @@ export function FormaWorkspace({
   const needsGenerationProvider = generationLlmsLoaded && providerSetup.llmRequired && (!authRequired || authLoaded);
   const needsImageProvider = imageGenerationConfigLoaded && providerSetup.imageRequired && (!authRequired || authLoaded);
   const visibleContextInputNotice =
-    generationInputNotice || ((prompt.trim() || selectedImage) && !generationInputValidation.isValid
+    generationInputNotice || ((prompt.trim() || selectedImage || selectedDocument) && !generationInputValidation.isValid
       ? generationInputValidation.message
       : null);
   const hostedChatReadOnly = !hostedChatEnabled;
@@ -3424,9 +3432,38 @@ export function FormaWorkspace({
     // sync cancels obsolete IDs/scope; the separate cleanup handles unmount.
   }, [formaDevMode, homeView, imageScopeKey, currentRouteProjectId, myProjectHistory, optionalAuthHeaders, visibleProjectHistory, projectGalleryImages, projectIR, visibleProjectGalleryIds]);
 
-  const attachImageFile = (file: File, source: "upload" | "clipboard" = "upload") => {
+  const attachReferenceFile = (file: File, source: "upload" | "clipboard" = "upload") => {
+    const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    if (isPdf) {
+      const maxPdfBytes = 2 * 1024 * 1024;
+      if (file.size > maxPdfBytes) {
+        setGenerationInputNotice("PDF context files are limited to 2 MB. Split or compress the PDF and try again.");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string") {
+          setGenerationInputNotice("Forma could not read that PDF. Try exporting it again.");
+          return;
+        }
+        setSelectedImage(null);
+        setSelectedDocument({
+          name: file.name || "reference.pdf",
+          mediaType: "application/pdf",
+          dataUrl: reader.result,
+        });
+        setGenerationMode("progressive");
+        setGenerationInputNotice("PDF attached. Forma will extract its text into project context.");
+      };
+      reader.onerror = () => {
+        setGenerationInputNotice("Forma could not read that PDF. Try uploading it again.");
+      };
+      reader.readAsDataURL(file);
+      return;
+    }
+
     if (!file.type.startsWith("image/")) {
-      setGenerationInputNotice("Only image files can be attached as hardware references.");
+      setGenerationInputNotice("Attach an image or PDF as a hardware reference.");
       return;
     }
     const reader = new FileReader();
@@ -3436,6 +3473,7 @@ export function FormaWorkspace({
         return;
       }
       setGenerationInputNotice(null);
+      setSelectedDocument(null);
       setSelectedImage(reader.result);
       setSelectedImageSource(source);
     };
@@ -3447,7 +3485,7 @@ export function FormaWorkspace({
 
   const handleImageChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) attachImageFile(file, "upload");
+    if (file) attachReferenceFile(file, "upload");
   };
 
   const handleImagePaste = (event: React.ClipboardEvent<HTMLTextAreaElement>) => {
@@ -3455,13 +3493,20 @@ export function FormaWorkspace({
       || Array.from(event.clipboardData.items)
         .find((item) => item.type.startsWith("image/"))
         ?.getAsFile();
-    if (imageFile) attachImageFile(imageFile, "clipboard");
+    if (imageFile) attachReferenceFile(imageFile, "clipboard");
   };
 
   const removeSelectedImage = () => {
     setGenerationInputNotice(null);
     setSelectedImage(null);
     setSelectedImageSource("upload");
+    if (fileInputRefSidebar.current) fileInputRefSidebar.current.value = "";
+    if (fileInputRefCenter.current) fileInputRefCenter.current.value = "";
+  };
+
+  const removeSelectedDocument = () => {
+    setGenerationInputNotice(null);
+    setSelectedDocument(null);
     if (fileInputRefSidebar.current) fileInputRefSidebar.current.value = "";
     if (fileInputRefCenter.current) fileInputRefCenter.current.value = "";
   };
@@ -6298,7 +6343,9 @@ export function FormaWorkspace({
               needsGenerationProvider={false}
               needsImageProvider={false}
               selectedImage={selectedImage}
+              selectedDocumentName={selectedDocument?.name || null}
               onRemoveImage={removeSelectedImage}
+              onRemoveDocument={removeSelectedDocument}
               notice={visibleContextInputNotice}
               prompt={prompt}
               onPromptChange={(value) => {

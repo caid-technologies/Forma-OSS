@@ -41,6 +41,17 @@ export default function ArticulatedMotionScene({ motion }: { motion: Articulated
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
+  const [graphicsAvailable, setGraphicsAvailable] = useState<boolean | null>(null);
+  useEffect(() => {
+    // Probe before mounting Canvas: renderer creation errors are asynchronous.
+    try {
+      const context = document.createElement("canvas").getContext("webgl2");
+      setGraphicsAvailable(context !== null);
+      context?.getExtension("WEBGL_lose_context")?.loseContext();
+    } catch {
+      setGraphicsAvailable(false);
+    }
+  }, []);
   const bounds = useMemo(() => {
     const box = new THREE.Box3();
     const point = new THREE.Vector3();
@@ -66,6 +77,14 @@ export default function ArticulatedMotionScene({ motion }: { motion: Articulated
     return () => cancelAnimationFrame(frame);
   }, [playing, motion]);
   useEffect(() => { if (!motion.loop && progress >= 1) setPlaying(false); }, [motion.loop, progress]);
+
+  if (graphicsAvailable !== true) {
+    return (
+      <div role="status" className="flex h-full min-h-[420px] items-center justify-center p-8 text-center text-sm text-[var(--forma-text-muted)]">
+        {graphicsAvailable === null ? "Preparing 3D motion…" : "3D motion needs WebGL graphics support. Enable graphics acceleration in your browser or open this example in a browser with WebGL enabled."}
+      </div>
+    );
+  }
 
   return (
     <div className="relative h-full min-h-[420px] w-full bg-[var(--forma-page)]" aria-label="Articulated CAD motion preview">

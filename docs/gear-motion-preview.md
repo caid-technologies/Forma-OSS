@@ -8,6 +8,8 @@ One Play button drives both real OpenCAD meshes. The blue gear makes two turns
 while the orange gear makes one in the opposite direction over six seconds.
 White orientation markers make complete turns visible. Selecting either body
 does not change playback. Pause, scrub and Reset apply to the whole pair.
+The saved example opens even when the chat backend is unavailable. Rendering
+requires WebGL 2; browsers without graphics support show an explanatory message.
 
 In chat, request: "Create two meshing gears: 20 and 40 teeth, module 2 mm,
 8 mm thick. Animate the 2:1 reduction in MECH." The authoring agent should set

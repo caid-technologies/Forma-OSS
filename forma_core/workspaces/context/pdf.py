@@ -90,7 +90,7 @@ def extract_pdf_text_from_data_url(
         if not page_text:
             continue
 
-        chunk = f"[PDF page {index}]\n{page_text}"
+        chunk = page_text
         if len(chunk) > remaining:
             if remaining > 0:
                 chunks.append(chunk[:remaining].rstrip())

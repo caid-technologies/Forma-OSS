@@ -30,6 +30,7 @@ from forma_core.llm import build_llm_provider
 from forma_core.config import config
 from forma_core.user_integrations import UserIntegrationStore, resolve_user_integration_settings
 from forma_core.workspaces.context import (
+    ContextAttachment,
     ContextBuildExecution,
     ContextGatheringRequest,
     ContextGatheringResponse,
@@ -56,7 +57,7 @@ def _contains_project_context(text: str) -> bool:
     return bool(normalized and not _CONTEXT_FREE_USER_TURN.fullmatch(normalized))
 
 
-def _is_pdf_attachment(attachment) -> bool:
+def _is_pdf_attachment(attachment: ContextAttachment) -> bool:
     media_type = str(attachment.media_type or "").strip().lower()
     name = str(attachment.name or "").strip().lower()
     data_url = str(attachment.data_url or "").strip().lower()

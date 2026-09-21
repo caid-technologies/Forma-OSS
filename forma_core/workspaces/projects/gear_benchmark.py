@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class SpurGearPairBenchmark(BaseModel):
-    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False, str_strip_whitespace=True)
     kind: Literal["spur_gear_pair"] = "spur_gear_pair"
     driver_ref: str = Field("GEAR_DRIVER", min_length=1)
     driven_ref: str = Field("GEAR_DRIVEN", min_length=1)

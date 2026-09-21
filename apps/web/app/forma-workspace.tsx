@@ -5317,6 +5317,7 @@ export function FormaWorkspace({
   const projectTitle = projectIR?.overview?.title || "Untitled Hardware Project";
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
+  const isPublicExample = projectIR?.assembly_metadata?.status === "example" && !currentProjectId;
   const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
   useEffect(() => {
     const persistedMode = projectIR?.assembly_metadata?.generation_mode;
@@ -6330,7 +6331,7 @@ export function FormaWorkspace({
         />
 
           <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
-            {routedProjectId ? (
+            {routedProjectId || isPublicExample ? (
               <ProjectDetailWorkspace
                 onOpenSidebar={() => setMobileSidebarOpen(true)}
                 projectId={currentProjectId}

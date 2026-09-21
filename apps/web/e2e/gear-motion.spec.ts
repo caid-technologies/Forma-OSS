@@ -2,7 +2,8 @@ import { expect, test } from "@playwright/test";
 
 test.use({ serviceWorkers: "block" });
 
-test("gear example plays, pauses, scrubs and reopens both real bodies", async ({ page, baseURL }, testInfo) => {
+for (const backendAvailable of [true, false]) {
+test(`gear example plays, pauses, scrubs and reopens both real bodies (backend available: ${backendAvailable})`, async ({ page, baseURL }, testInfo) => {
   test.setTimeout(180_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -11,6 +12,7 @@ test("gear example plays, pauses, scrubs and reopens both real bodies", async ({
     const url = new URL(route.request().url());
     if (url.origin === origin && !url.pathname.startsWith("/api/")) return route.continue();
     const path = url.pathname.replace(/^\/api(?=\/|$)/, "");
+    if (!backendAvailable) return route.fulfill({ status: 503, json: { detail: "Backend unavailable" } });
     if (path === "/runtime/config") return route.fulfill({ json: {
       contract_version: 1, authority: "backend", forma_dev_mode: false,
       generation: { ready: true, available: true, reason: null, selected_llm: null, llm_options: [] },
@@ -55,3 +57,4 @@ test("gear example plays, pauses, scrubs and reopens both real bodies", async ({
   await expect(view.getByRole("button", { name: "Driven gear", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
+}

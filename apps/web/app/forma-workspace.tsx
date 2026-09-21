@@ -1749,8 +1749,11 @@ export function FormaWorkspace({
   const [liveChatMessageIds, setLiveChatMessageIds] = useState<Set<string>>(() => new Set());
   useEffect(() => setLiveChatMessageIds(new Set()), [authIdentityKey]);
   const [projectChatInput, setProjectChatInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [activeGeneration, setActiveGeneration] = useState<ActiveGenerationState | null>(null);
+  const [workspaceLoading, setIsLoading] = useState(false);
+  const [generationRuns, setGenerationRuns] = useState<Record<string, ActiveGenerationState>>({});
+  const activeGeneration = generationRuns[activeChatId] || null;
+  const isLoading = workspaceLoading || Boolean(activeGeneration);
+  const hasGenerationRuns = Object.keys(generationRuns).length > 0;
   const [activeTab, setActiveTab] = useState("overview");
   const [projectIR, setProjectIR] = useState<any>(null);
   const currentCadModel = projectCadModel(projectIR);
@@ -1873,7 +1876,7 @@ export function FormaWorkspace({
   const pipelineStepsRequestStartedRef = useRef(false);
   const pipelineStepsLastRequestedWorkflowRef = useRef<string | null>(null);
   const recoveryJobMissesRef = useRef(new Map<string, { misses: number; retryAfter: number }>());
-  const activeGenerationRef = useRef<ActiveGenerationRun | null>(null);
+  const generationRunsRef = useRef(new Map<string, ActiveGenerationRun>());
   const openCodeSessionsRef = useRef<Record<string, OpenCodeSession>>({});
   const openCodeCursorsRef = useRef<Record<string, number>>({});
   const openCodePollTimersRef = useRef<Record<string, number>>({});
@@ -2563,16 +2566,17 @@ export function FormaWorkspace({
   });
   const waitingGenerationJobKey = useMemo(() => {
     const jobIds = new Set<string>();
+    const liveJobIds = new Set(Object.values(generationRuns).map((run) => run.jobId));
     const collect = (messages: ChatMessage[]) => {
       messages.forEach((message) => {
         const jobId = message.status === "loading" && !message.buildPlanId ? message.pipelineProgress?.jobId : null;
-        if (jobId && !jobId.startsWith("generation-") && jobId !== activeGeneration?.jobId) jobIds.add(jobId);
+        if (jobId && !jobId.startsWith("generation-") && !liveJobIds.has(jobId)) jobIds.add(jobId);
       });
     };
     collect(chatMessages);
     Object.values(chatThreads).forEach(collect);
     return Array.from(jobIds).join("\n");
-  }, [activeGeneration?.jobId, chatMessages, chatThreads]);
+  }, [generationRuns, chatMessages, chatThreads]);
   const pendingContextBuildMessage = useMemo(
     () => [...chatMessages].reverse().find((message) => (
       message.status === "loading"
@@ -2722,6 +2726,7 @@ export function FormaWorkspace({
       return;
     }
     setActiveChatId(item.chatId);
+    setGenerationInputNotice(null);
     setActiveTab("overview");
     const storedMessages = readStoredChatThread(item.chatId, null, chatStorageScope);
     if (storedMessages.length) {
@@ -2749,6 +2754,7 @@ export function FormaWorkspace({
       return;
     }
     setActiveChatId(chatId);
+    setGenerationInputNotice(null);
     setActiveTab("overview");
     setChatRouteTransition({
       chatId,
@@ -2910,7 +2916,7 @@ export function FormaWorkspace({
   }, [generationWorkflow]);
 
   useEffect(() => {
-    if (!isLoading) return;
+    if (!isLoading && !hasGenerationRuns) return;
 
     const intervalId = window.setInterval(() => {
       const nowMs = Date.now();
@@ -2930,7 +2936,7 @@ export function FormaWorkspace({
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [isLoading]);
+  }, [isLoading, hasGenerationRuns]);
 
   const checkServerStatus = async () => {
     try {
@@ -3464,17 +3470,16 @@ export function FormaWorkspace({
       openCodeSessionId: null,
       cancelled: false,
     };
-    activeGenerationRef.current = run;
-    setActiveGeneration({ kind, jobId: null });
-    setIsLoading(true);
+    generationRunsRef.current.set(chatId, run);
+    setGenerationRuns((current) => ({ ...current, [chatId]: { kind, jobId: null } }));
     return run;
   };
 
   const setGenerationRunJob = (run: ActiveGenerationRun, jobId: string, assistantMessageId: string) => {
     run.jobId = jobId;
     run.assistantMessageId = assistantMessageId;
-    if (activeGenerationRef.current === run) {
-      setActiveGeneration({ kind: run.kind, jobId });
+    if (generationRunsRef.current.get(run.chatId) === run) {
+      setGenerationRuns((current) => ({ ...current, [run.chatId]: { kind: run.kind, jobId } }));
     }
   };
 
@@ -3485,7 +3490,7 @@ export function FormaWorkspace({
     chatId: string,
     assistantMessageId: string,
   ) => {
-    const active = activeGenerationRef.current;
+    const active = generationRunsRef.current.get(chatId);
     if (active?.kind === "context-build" && active.planId === planId) return active;
     const run = beginGenerationRun("context-build", chatId);
     run.projectId = projectId;
@@ -3496,10 +3501,13 @@ export function FormaWorkspace({
 
   const finishGenerationRun = (run: ActiveGenerationRun) => {
     if (run.assistantMessageId) trackLiveChatMessage(run.assistantMessageId, "idle");
-    if (activeGenerationRef.current !== run) return;
-    activeGenerationRef.current = null;
-    setActiveGeneration(null);
-    setIsLoading(false);
+    if (generationRunsRef.current.get(run.chatId) !== run) return;
+    generationRunsRef.current.delete(run.chatId);
+    setGenerationRuns((current) => {
+      const next = { ...current };
+      delete next[run.chatId];
+      return next;
+    });
   };
 
   const cancelGenerationJob = async (jobId: string) => {
@@ -3570,7 +3578,7 @@ export function FormaWorkspace({
     const projectId = message.contextProjectId;
     const planId = message.buildPlanId;
     if (!projectId || !planId) return;
-    const active = activeGenerationRef.current;
+    const active = generationRunsRef.current.get(activeChatId);
     if (active?.kind === "context-build" && active.planId === planId) {
       stopActiveGeneration();
       return;
@@ -3583,8 +3591,8 @@ export function FormaWorkspace({
     void cancelContextBuild(projectId, planId);
   };
 
-  const stopActiveGeneration = () => {
-    const run = activeGenerationRef.current;
+  const stopActiveGeneration = (chatId = activeChatId) => {
+    const run = generationRunsRef.current.get(chatId);
     if (!run) return;
 
     run.cancelled = true;
@@ -3605,6 +3613,8 @@ export function FormaWorkspace({
         : "Generation stopped. You can send another message whenever you're ready.",
     );
     if (authoringMode && run.openCodeSessionId) {
+      window.clearTimeout(openCodePollTimersRef.current[run.openCodeSessionId]);
+      delete openCodePollTimersRef.current[run.openCodeSessionId];
       delete openCodeSessionsRef.current[run.chatId];
       void generationRequestHeaders()
         .then((headers) => cancelOpenCodeSession(API_URL, headers, run.openCodeSessionId || ""))
@@ -3804,7 +3814,7 @@ export function FormaWorkspace({
     const planId = message.buildPlanId;
     const jobId = message.buildJobId;
     const chatId = activeChatId;
-    if (!projectId || !planId || !jobId || !chatId || activeGenerationRef.current) return;
+    if (!projectId || !planId || !jobId || !chatId || generationRunsRef.current.has(chatId)) return;
 
     setResettingBuildMessageId(message.id);
     setGenerationInputNotice(null);
@@ -3884,6 +3894,7 @@ export function FormaWorkspace({
   // call executeContextBuild; execution belongs to explicit submit/retry actions.
 
   const submitGatherContext = async (answer?: string) => {
+    if (generationRunsRef.current.has(activeChatId)) return;
     if (authoringMode) {
       if (selectedImage) {
         setGenerationInputNotice("Image attachments are not available in OpenCode authoring yet.");
@@ -3907,7 +3918,7 @@ export function FormaWorkspace({
       void submitOpenCodeTurn({ chatId: requestChatId, message: text, assistantMessageId });
       return;
     }
-    if (contextSubmitting || activeGenerationRef.current) return;
+    if (contextSubmitting) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!requireHostedChatEnabled()) return;
 
@@ -4069,7 +4080,7 @@ export function FormaWorkspace({
       setGenerationInputNotice(AUTHORING_MODE_ACTIVE_MESSAGE);
       return;
     }
-    if (contextBuildStarting || contextSubmitting || activeGenerationRef.current) return;
+    if (contextBuildStarting || contextSubmitting || generationRunsRef.current.has(activeChatId)) return;
     const requestChatId = activeChatId;
     const availableMessages = requestChatId
       ? chatThreads[requestChatId] || chatMessages
@@ -4154,7 +4165,7 @@ export function FormaWorkspace({
 
   const handleGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (activeGenerationRef.current) return;
+    if (generationRunsRef.current.has(activeChatId)) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!requireHostedChatEnabled()) return;
     if (!selectedGenerationLlm) {
@@ -4548,6 +4559,7 @@ export function FormaWorkspace({
 
   const handleProjectChatGenerate = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (generationRunsRef.current.has(currentProjectChatId || activeChatId)) return;
     if (authoringMode) {
       const handoffProjectId = currentProjectId;
       const handoffMessage = projectChatInput.trim();
@@ -4601,7 +4613,6 @@ export function FormaWorkspace({
       return;
     }
     if (!requireHostedChatEnabled()) return;
-    if (activeGenerationRef.current) return;
     if (!(await requireSignedInForGeneration())) return;
     if (!currentUserOwnsProject) {
       setGenerationInputNotice("You can only chat with projects you own.");
@@ -4958,7 +4969,9 @@ export function FormaWorkspace({
         openCodePollTimersRef.current[turn.sessionId] = window.setTimeout(poll, 1500);
       } catch (error) {
         if (turn.run.cancelled || turn.run.controller.signal.aborted) return;
-        setGenerationInputNotice(error instanceof Error ? error.message : "OpenCode events could not be loaded.");
+        if (activeChatIdRef.current === turn.chatId) {
+          setGenerationInputNotice(error instanceof Error ? error.message : "OpenCode events could not be loaded.");
+        }
         openCodePollTimersRef.current[turn.sessionId] = window.setTimeout(poll, 3000);
       }
     };
@@ -4976,6 +4989,7 @@ export function FormaWorkspace({
     projectId?: string | null;
     assistantMessageId: string;
   }) => {
+    if (generationRunsRef.current.has(chatId)) return;
     if (!openCodeConnectorId) {
       const error = "OpenCode authoring is not configured for this deployment.";
       updateChatMessage(assistantMessageId, { content: error, status: "error" });
@@ -4987,25 +5001,35 @@ export function FormaWorkspace({
     run.assistantMessageId = assistantMessageId;
     try {
       const headers = await generationRequestHeaders();
+      if (run.cancelled) return;
       let session = openCodeSessionsRef.current[chatId];
       if (!session) {
         session = await createOpenCodeSession(API_URL, headers, openCodeConnectorId, projectId);
+        // Stop may be clicked before session creation responds. Do not enqueue
+        // a command or replace a newer run's session after that cancellation.
+        if (run.cancelled) {
+          await cancelOpenCodeSession(API_URL, headers, session.session_id);
+          return;
+        }
         openCodeSessionsRef.current[chatId] = session;
         openCodeCursorsRef.current[session.session_id] = 0;
       }
       run.projectId = session.project_id;
       run.openCodeSessionId = session.session_id;
       const command = await submitOpenCodeCommand(API_URL, headers, session.session_id, message);
-      run.jobId = command.command_id;
-      setActiveGeneration({ kind: run.kind, jobId: command.command_id });
-      setGenerationInputNotice("Sent to OpenCode. Live authoring status will appear here.");
+      if (run.cancelled) return;
+      setGenerationRunJob(run, command.command_id, assistantMessageId);
+      if (activeChatIdRef.current === chatId) {
+        setGenerationInputNotice("Sent to OpenCode. Live authoring status will appear here.");
+      }
       pollOpenCodeTurn({ chatId, sessionId: session.session_id, commandId: command.command_id, assistantMessageId, run });
     } catch (error) {
+      if (run.cancelled) return;
       const messageText = error instanceof Error ? error.message : "OpenCode could not accept this request.";
       updateChatMessage(assistantMessageId, { content: messageText, status: "error" });
       updateThreadMessage(chatId, assistantMessageId, { content: messageText, status: "error" });
       finishGenerationRun(run);
-      setGenerationInputNotice(messageText);
+      if (activeChatIdRef.current === chatId) setGenerationInputNotice(messageText);
     }
   };
 
@@ -6260,7 +6284,7 @@ export function FormaWorkspace({
               }}
                generationActive={(hostedChatEnabled || authoringMode) && Boolean(activeGeneration || pendingContextBuildMessage)}
               onStop={() => {
-                if (activeGenerationRef.current) stopActiveGeneration();
+                if (generationRunsRef.current.has(activeChatId)) stopActiveGeneration();
                 else if (pendingContextBuildMessage) stopContextBuildMessage(pendingContextBuildMessage);
               }}
               canRetryFailedBuild={hostedChatEnabled && Boolean(retryableContextBuildMessage)}
@@ -6384,9 +6408,9 @@ export function FormaWorkspace({
                 input={projectChatInput}
                 setInput={setProjectChatInput}
                 onSubmit={handleProjectChatGenerate}
-                 isLoading={(hostedChatEnabled || authoringMode) && isLoading}
-                 canStop={(hostedChatEnabled || authoringMode) && activeGeneration?.kind === "project-chat"}
-                onStop={stopActiveGeneration}
+                 isLoading={(hostedChatEnabled || authoringMode) && (isLoading || Boolean(generationRuns[currentProjectChatId]))}
+                 canStop={(hostedChatEnabled || authoringMode) && generationRuns[currentProjectChatId]?.kind === "project-chat"}
+                onStop={() => stopActiveGeneration(currentProjectChatId)}
                 canRetryFailedBuild={hostedChatEnabled && Boolean(retryableProjectBuildMessage)}
                 retryingFailedBuild={hostedChatEnabled && resettingBuildMessageId === retryableProjectBuildMessage?.id}
                 onRetryFailedBuild={() => {
@@ -7910,7 +7934,11 @@ function ChatWorkspace({
                     )}
                     <button
                       type={canStop || retryMode ? "button" : "submit"}
-                      onClick={canStop ? onStop : retryMode ? onRetryFailedBuild : undefined}
+                      onClick={canStop || retryMode ? (event) => {
+                        event.preventDefault();
+                        if (canStop) onStop();
+                        else onRetryFailedBuild();
+                      } : undefined}
                       disabled={retryMode ? retryingFailedBuild : !canStop && (isLoading || !projectId || !hasInput)}
                       className={`prompt-composer-send inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
                         retryMode || (!canStop && !isLoading && hasInput) ? "is-ready" : ""

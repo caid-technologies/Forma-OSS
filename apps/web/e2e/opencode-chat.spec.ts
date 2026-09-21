@@ -101,6 +101,162 @@ function event(
 // FORMA_AUTH_MODE=local must be supplied to the local web server, not mocked in the browser.
 test.use({ serviceWorkers: "block" });
 
+for (const scenario of ["concurrent chats", "stop during session creation"] as const) {
+  test(`OpenCode isolates running state and cancellation: ${scenario}`, async ({ page, baseURL }) => {
+    test.setTimeout(180_000);
+    const appOrigin = new URL(baseURL!).origin;
+    const sessions: OpenCodeSession[] = [];
+    const commands: Array<{ sessionId: string; text: string }> = [];
+    const cancellations: string[] = [];
+    const completed = new Set<string>();
+    const observedCompletions = new Set<string>();
+    const chats = new Map<string, Record<string, unknown>>();
+    const unexpected: string[] = [];
+    const browserErrors: string[] = [];
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+    let releaseSession!: () => void;
+    const sessionGate = new Promise<void>((resolve) => { releaseSession = resolve; });
+
+    await page.route("**/*", async (route) => {
+      const request = route.request();
+      const url = new URL(request.url());
+      if (url.origin === appOrigin && !/^\/api(?:\/|$)/.test(url.pathname)) return route.continue();
+      const path = url.pathname.replace(/^\/api(?=\/|$)/, "") || "/";
+      const method = request.method();
+      if (path === "/runtime/config") return route.fulfill({ json: runtimeConfig });
+      if (["/projects", "/my/projects"].includes(path)) return route.fulfill({ json: { items: [], total: 0, has_more: false } });
+      if (path === "/chats") return route.fulfill({ json: [...chats.values()] });
+      if (path.startsWith("/chats/")) {
+        const id = decodeURIComponent(path.slice("/chats/".length));
+        if (method === "PUT") chats.set(id, { ...request.postDataJSON(), created_at: new Date().toISOString() });
+        return route.fulfill({ status: chats.has(id) ? 200 : 404, json: chats.get(id) || { detail: "Chat not found" } });
+      }
+      if (["/a2a/jobs", "/example-project-object-jobs"].includes(path)) return route.fulfill({ json: [] });
+      if (path === "/admin/session") return route.fulfill({ json: { is_admin: false } });
+      if (path === "/pipeline/steps") return route.fulfill({ json: { steps: [] } });
+      if (path === "/video/models") return route.fulfill({ json: { models: [], generation_configured: false } });
+      if (path === "/" || method === "OPTIONS") return route.fulfill({ json: { status: "ok" } });
+      if (path === "/opencode/sessions" && method === "POST") {
+        const session: OpenCodeSession = {
+          session_id: `isolated-session-${sessions.length + 1}`,
+          connector_id: "mini-pc-1",
+          project_id: `isolated-project-${sessions.length + 1}`,
+          owner_user_id: "local-user",
+          status: "active",
+        };
+        sessions.push(session);
+        if (scenario === "stop during session creation" && sessions.length === 1) await sessionGate;
+        return route.fulfill({ json: session });
+      }
+      const session = sessions.find((item) => path.startsWith(`/opencode/sessions/${item.session_id}/`));
+      if (session && path.endsWith("/commands") && method === "POST") {
+        commands.push({ sessionId: session.session_id, text: request.postDataJSON().message });
+        return route.fulfill({ json: {
+          command_id: `${session.session_id}-command`, session_id: session.session_id,
+          project_id: session.project_id, operation: "project_message", status: "queued",
+        } satisfies OpenCodeCommand });
+      }
+      if (session && path.endsWith("/cancel") && method === "POST") {
+        cancellations.push(session.session_id);
+        return route.fulfill({ json: { ...session, status: "cancelled" } });
+      }
+      if (session && path.endsWith("/events")) {
+        const cursor = Number(url.searchParams.get("cursor"));
+        const events = completed.has(session.session_id) ? [
+          event(2, "assistant_message", { session_id: session.session_id, project_id: session.project_id, message: `Answer for ${session.session_id}` }),
+          event(3, "completed", { session_id: session.session_id, project_id: session.project_id, event_id: `${session.session_id}-command:terminal`, status: "succeeded" }),
+        ].filter((item) => item.sequence > cursor) : cursor === 0 ? [
+          event(1, "working", { session_id: session.session_id, project_id: session.project_id, status: "running" }),
+        ] : [];
+        return route.fulfill({ json: { events, next_cursor: events.at(-1)?.sequence ?? cursor } });
+      }
+      const project = sessions.find((item) => path === `/projects/${item.project_id}`);
+      if (project) {
+        observedCompletions.add(project.session_id);
+        return route.fulfill({ status: 404, json: { detail: "Conversation did not create a project" } });
+      }
+      unexpected.push(`${method} ${path}`);
+      return route.fulfill({ status: 501, json: { detail: "Unmocked endpoint" } });
+    });
+
+    try {
+      await page.goto("/", { waitUntil: "domcontentloaded", timeout: 120_000 });
+      const composer = page.getByPlaceholder("Describe the product, constraints, references, and outputs you need…", { exact: true });
+      const stop = page.getByRole("button", { name: "Stop generation", exact: true });
+      const newChat = page.getByRole("button", { name: "New chat", exact: true });
+      await expect(composer).toBeVisible();
+      await composer.fill("First independent request");
+      await composer.press("Enter");
+      await expect.poll(() => sessions.length).toBe(1);
+      await expect(stop).toBeVisible();
+      await expect(page).toHaveURL(/\/chat\/[^/?#]+$/);
+
+      if (scenario === "stop during session creation") {
+        await stop.click();
+        await expect(stop).toHaveCount(0);
+        // Start a replacement before the old create-session response arrives.
+        await composer.fill("Replacement request");
+        await composer.press("Enter");
+        await expect.poll(() => commands.length).toBe(1);
+        releaseSession();
+        await expect.poll(() => cancellations).toEqual([sessions[0].session_id]);
+        await expect(stop).toBeVisible();
+        expect(commands.map((command) => command.sessionId)).toEqual([sessions[1].session_id]);
+        await stop.click();
+        await expect.poll(() => cancellations).toEqual(sessions.map((session) => session.session_id));
+        await expect(stop).toHaveCount(0);
+      } else {
+        await expect.poll(() => commands.length).toBe(1);
+        await newChat.click();
+        await expect(stop).toHaveCount(0);
+        await composer.fill("Second independent request");
+        await expect(page.getByRole("button", { name: /Generate project/ })).toBeEnabled();
+        await composer.press("Enter");
+        await expect.poll(() => commands.length).toBe(2);
+        await expect(stop).toBeVisible();
+        // Enter cannot append another turn to a chat that is already running.
+        await composer.fill("Duplicate request must not be submitted");
+        await composer.press("Enter");
+        await expect(composer).toHaveValue("Duplicate request must not be submitted");
+        expect(commands).toHaveLength(2);
+
+        await page.getByRole("button", { name: /^Open chat First independent request/ }).click();
+        await expect(stop).toBeVisible();
+        await stop.click();
+        await expect.poll(() => cancellations).toEqual([sessions[0].session_id]);
+        await expect(stop).toHaveCount(0);
+        await page.getByRole("button", { name: /^Open chat Second independent request/ }).click();
+        await expect(stop).toBeVisible();
+
+        await newChat.click();
+        await expect(stop).toHaveCount(0);
+        await composer.fill("Third independent request");
+        await composer.press("Enter");
+        await expect.poll(() => commands.length).toBe(3);
+        const thirdChatPath = new URL(page.url()).pathname;
+        completed.add(sessions[1].session_id);
+        await expect.poll(() => observedCompletions.has(sessions[1].session_id)).toBe(true);
+        await expect(stop).toBeVisible();
+        await expect(page).toHaveURL(new URL(thirdChatPath, baseURL!).href);
+        await expect(page.getByRole("main").getByText(`Answer for ${sessions[1].session_id}`, { exact: false })).toHaveCount(0);
+        await page.screenshot({ path: "test-results/opencode-isolated-running-chat.png", fullPage: true });
+        await page.getByRole("button", { name: /^Open chat Second independent request/ }).click();
+        await expect(stop).toHaveCount(0);
+        await expect(page.getByRole("main").getByText(`Answer for ${sessions[1].session_id}`, { exact: false })).toBeVisible();
+        await page.getByRole("button", { name: /^Open chat Third independent request/ }).click();
+        await expect(stop).toBeVisible();
+        await stop.click();
+        await expect.poll(() => cancellations).toEqual([sessions[0].session_id, sessions[2].session_id]);
+        await expect(stop).toHaveCount(0);
+      }
+      expect(unexpected).toEqual([]);
+      expect(browserErrors).toEqual([]);
+    } finally {
+      releaseSession();
+    }
+  });
+}
+
 test("recover old OpenCode history on a clean browser without saving a fallback chat", async ({ page, baseURL }) => {
   test.setTimeout(180_000);
   const appOrigin = new URL(baseURL!).origin;

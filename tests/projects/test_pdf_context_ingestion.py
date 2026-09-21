@@ -28,7 +28,7 @@ class _Reader:
 
 
 class PdfContextIngestionTests(unittest.TestCase):
-    def test_extracts_page_text_with_page_boundaries(self) -> None:
+    def test_extracts_page_text_without_synthetic_requirement_markers(self) -> None:
         reader = _Reader([
             _Page("Motor voltage: 12 V.\nUse an M3 mount."),
             _Page("Maximum enclosure width: 80 mm."),
@@ -36,10 +36,9 @@ class PdfContextIngestionTests(unittest.TestCase):
         with patch("forma_core.workspaces.context.pdf.PdfReader", return_value=reader):
             text = extract_pdf_text_from_data_url(_pdf_data_url())
 
-        self.assertIn("[PDF page 1]", text)
         self.assertIn("Motor voltage: 12 V.", text)
-        self.assertIn("[PDF page 2]", text)
         self.assertIn("Maximum enclosure width: 80 mm.", text)
+        self.assertNotIn("[PDF page", text)
 
     def test_rejects_image_only_pdf_without_extractable_text(self) -> None:
         with patch(

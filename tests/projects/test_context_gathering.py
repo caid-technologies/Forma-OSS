@@ -461,6 +461,53 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         self.assertEqual(2, response.json()["attempt"])
         reset.assert_awaited_once_with(execution["plan_id"], OWNER)
 
+    def test_pdf_attachment_extracts_text_without_persisting_inline_bytes(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-pdf"
+        pdf_data_url = "data:application/pdf;base64,JVBERi0xLjQK"
+
+        with sqlite_repository(), patch(
+            "apps.api.context_gathering_api.extract_pdf_text_from_data_url",
+            return_value="The enclosure must fit within 80 mm. Use M3 fasteners.",
+        ) as extract:
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={
+                    "conversation_id": conversation_id,
+                    "text": "Use the attached datasheet as project context.",
+                    "attachments": [
+                        {
+                            "attachment_id": "datasheet-pdf",
+                            "kind": "document",
+                            "name": "datasheet.pdf",
+                            "media_type": "application/pdf",
+                            "data_url": pdf_data_url,
+                            "source": "upload",
+                        }
+                    ],
+                },
+            )
+            brief = database.get_latest_design_brief(project_id, OWNER)
+            chat = database.get_project_chat(conversation_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        extract.assert_called_once_with(pdf_data_url)
+        self.assertIn("The enclosure must fit within 80 mm.", brief.requirements)
+        reference = next(item for item in brief.references if item.reference_id == "datasheet-pdf")
+        self.assertEqual("uploaded_document", reference.kind)
+        self.assertEqual("application/pdf", reference.media_type)
+        self.assertTrue(reference.metadata["text_extracted"])
+        self.assertNotIn("data_url", reference.metadata)
+
+        user_message = next(
+            message
+            for message in chat.messages
+            if isinstance(message, dict) and message.get("role") == "user"
+        )
+        attachment = user_message["attachments"][0]
+        self.assertFalse(attachment["hasInlineData"])
+        self.assertTrue(attachment["textExtracted"])
+
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())
         conversation_id = "context-chat-1"

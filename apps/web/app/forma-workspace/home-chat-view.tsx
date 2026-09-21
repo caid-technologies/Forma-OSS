@@ -340,7 +340,11 @@ export default function HomeChatView({
                 )}
                 <button
                   type={generationActive || retryMode ? "button" : "submit"}
-                  onClick={generationActive ? onStop : retryMode ? onRetryFailedBuild : undefined}
+                  onClick={generationActive || retryMode ? (event) => {
+                    event.preventDefault();
+                    if (generationActive) onStop();
+                    else onRetryFailedBuild();
+                  } : undefined}
                   disabled={retryMode ? retryingFailedBuild : !generationActive && (isLoading || !hasGenerationInput || !generationReady)}
                   className={`prompt-composer-send flex h-7 w-7 items-center justify-center rounded-md transition-colors disabled:cursor-not-allowed ${
                     canFinishPrompt || retryMode ? "is-ready" : ""

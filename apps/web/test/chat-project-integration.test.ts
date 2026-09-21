@@ -52,7 +52,8 @@ test("surface preserves project tabs without the old fixed-height inline card", 
 });
 test("main authoring, read-only, submit, stop and retry behavior remains wired", () => {
   assert.ok(chat.includes("onSubmit={onSubmit}"));
-  assert.ok(chat.includes("onClick={canStop ? onStop : retryMode ? onRetryFailedBuild : undefined}"));
+  assert.ok(chat.includes("if (canStop) onStop();"));
+  assert.ok(chat.includes("else onRetryFailedBuild();"));
   assert.ok(chat.includes('assistantLabel={authoringActive ? "OpenCode" : "Forma"}'));
   assert.ok(chat.includes("canEdit={chatAvailable && Boolean(onRenameTitle)}"));
   assert.ok(chat.includes("!chatAvailable && !readOnly"));

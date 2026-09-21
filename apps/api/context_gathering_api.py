@@ -60,13 +60,13 @@ def _contains_project_context(text: str) -> bool:
 def _is_pdf_attachment(attachment: ContextAttachment) -> bool:
     media_type = str(attachment.media_type or "").strip().lower()
     name = str(attachment.name or "").strip().lower()
-    data_url = str(attachment.data_url or "").strip().lower()
+    data_url_prefix = str(attachment.data_url or "").strip()[:64].lower()
     return (
         attachment.kind == "document"
         and (
             media_type == "application/pdf"
             or name.endswith(".pdf")
-            or data_url.startswith("data:application/pdf")
+            or data_url_prefix.startswith("data:application/pdf")
         )
     )
 
@@ -82,9 +82,12 @@ def _ingest_pdf_attachments(request: ContextGatheringRequest) -> ContextGatherin
             continue
 
         extracted_text = attachment.extracted_text
+        if not extracted_text and not attachment.data_url:
+            # A URI-only PDF remains a reference. There are no document bytes
+            # available here to extract without introducing server-side fetching.
+            attachments.append(attachment)
+            continue
         if not extracted_text:
-            if not attachment.data_url:
-                raise PdfContextError("Uploaded PDF attachments must include inline file data.")
             extracted_text = extract_pdf_text_from_data_url(attachment.data_url)
 
         attachments.append(

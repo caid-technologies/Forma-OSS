@@ -18,5 +18,6 @@ dependencies = [
     "huggingface-hub>=0.34.0",
     "Pillow>=10.0.0",
     "pypdf>=5.0.0",
+    "pypdfium2>=4.30.0",
     "redis>=5.0.0",
 ]

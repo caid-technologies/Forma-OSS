@@ -103,6 +103,7 @@ def _ingest_pdf_attachments(request: ContextGatheringRequest) -> ContextGatherin
                 update={
                     "attachment_id": source_id,
                     "media_type": "application/pdf",
+                    "uri": attachment.uri or f"urn:forma:pdf:{result.source_digest}",
                     "data_url": None,
                     "extracted_text": result.text,
                     "metadata": document_metadata,

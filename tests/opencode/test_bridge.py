@@ -157,6 +157,29 @@ class OpenCodeBridgeTests(unittest.IsolatedAsyncioTestCase):
         finally:
             store.close()
 
+    def test_diagnostic_schema_rejects_raw_fields_and_oversized_codes(self) -> None:
+        base = {
+            "event_id": "command-1:terminal",
+            "kind": "failed",
+            "status": "failed",
+            "diagnostic": {
+                "category": "unknown",
+                "code": "OPENCODE_PROMPT_FAILED",
+                "phase": "authoring",
+                "retryable": False,
+            },
+        }
+        with self.assertRaises(Exception):
+            ConnectorEventInput.model_validate({
+                **base,
+                "diagnostic": {**base["diagnostic"], "raw_response": "secret-canary"},
+            })
+        with self.assertRaises(Exception):
+            ConnectorEventInput.model_validate({
+                **base,
+                "diagnostic": {**base["diagnostic"], "code": "X" * 81},
+            })
+
     def test_restricted_mcp_surface_excludes_forbidden_tools(self) -> None:
         names = {str(tool["name"]) for tool in opencode_mcp_tools()}
         self.assertEqual({

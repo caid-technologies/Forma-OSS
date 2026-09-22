@@ -306,7 +306,7 @@ export default function HomeChatView({
                 <div className="min-w-0 flex-1 py-0.5">
                   <div className="truncate text-xs font-medium text-[var(--forma-text-strong)]">{selectedDocumentName}</div>
                   <div className="mt-0.5 text-[11px] leading-4 text-[var(--forma-text-muted)]">
-                    PDF context · text will be extracted before the build.
+                    PDF context · text and relevant visual pages will be extracted before the build.
                   </div>
                 </div>
                 <button

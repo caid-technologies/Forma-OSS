@@ -4,7 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState,
   type CSSProperties, type ReactNode,
 } from "react";
-import { ArrowUpRight, Layers, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
+import { ArrowUpRight, Check, Layers, Maximize2, MessageSquare, Minimize2, Share2, X } from "lucide-react";
 import {
   CHAT_PROJECT_SPLIT_MIN_WIDTH, MAX_CHAT_FRACTION, MIN_CHAT_FRACTION,
   clampChatFraction, completedProjectReference, initialChatProjectLayout,
@@ -202,7 +202,14 @@ function ChatProjectLayoutSession({ conversationKey, projectId = null, project, 
 }
 
 /** The same surface stays mounted when expanded; closing it unmounts the viewer. */
-export function ChatProjectSurface({ title, children, leading }: { title: ReactNode; children: ReactNode; leading?: ReactNode }) {
+export function ChatProjectSurface({ title, children, leading, projectId, shareTitle, isPrivate = false }: {
+  title: ReactNode;
+  children: ReactNode;
+  leading?: ReactNode;
+  projectId?: string | null;
+  shareTitle?: string;
+  isPrivate?: boolean;
+}) {
   const workspace = useContext(ProjectWorkspace);
   return (
     <div className={styles.surface} data-testid="project-surface">
@@ -213,6 +220,7 @@ export function ChatProjectSurface({ title, children, leading }: { title: ReactN
           <div className={styles.surfaceTitle}>{title}</div>
         </div>
         <div className={styles.actions} role="group" aria-label="Project surface">
+          {projectId && <ShareProjectButton projectId={projectId} title={shareTitle || "Forma project"} isPrivate={isPrivate} />}
           <ProjectHistoryButton />
           {workspace && (
             <>
@@ -228,6 +236,41 @@ export function ChatProjectSurface({ title, children, leading }: { title: ReactN
       <ProjectHistoryBody>{children}</ProjectHistoryBody>
     </div>
   );
+}
+
+function ShareProjectButton({ projectId, title, isPrivate }: { projectId: string; title: string; isPrivate: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  const share = async () => {
+    const url = new URL(`/project/${encodeURIComponent(projectId)}`, window.location.origin).href;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // Browsers may reject the share sheet; offer a link instead.
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2500);
+    } catch {
+      window.prompt("Copy project link", url);
+    }
+  };
+
+  return <button
+    type="button"
+    className={styles.button}
+    onClick={() => { void share(); }}
+    aria-label={copied ? "Project link copied" : "Share project"}
+    title={isPrivate ? "Share link (only people with access can open this private project)" : "Share project link"}
+  >
+    {copied ? <Check className={styles.icon} /> : <Share2 className={styles.icon} />}
+    <span className={styles.buttonLabel}>{copied ? "Copied" : "Share"}</span>
+  </button>;
 }
 
 /** References only: never mount project/CAD content inside a message. */

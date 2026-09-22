@@ -33,6 +33,8 @@ from forma_core.opencode.models import (
     OpenCodeSessionStatus,
     PublicEvent,
     ProjectHistoryResponse,
+    OperatorFailureDiagnostic,
+    SessionDiagnosticsResponse,
     SessionResponse,
     SubmitCommandRequest,
     McpJsonRpcRequest,
@@ -60,6 +62,48 @@ def get_opencode_project_history(
     response.headers["Cache-Control"] = "private, no-store"
     return ProjectHistoryResponse(
         project_id=project_id, messages=OPENCODE_STORE.project_history(str(project_id), owner),
+    )
+
+
+@router.get("/sessions/{session_id}/diagnostics", response_model=SessionDiagnosticsResponse)
+def get_opencode_session_diagnostics(
+    session_id: str,
+    response: Response,
+    user: UserContext = Depends(require_opencode_authoring_access),
+) -> SessionDiagnosticsResponse:
+    owner = _owner(user)
+    session = _owned_session(session_id, owner)
+    response.headers["Cache-Control"] = "private, no-store"
+
+    after = max(0, session.next_event_sequence - 201)
+    events = OPENCODE_STORE.list_events(session.session_id, after, 200)
+    latest = next(
+        (event for event in reversed(events) if event.kind == OpenCodeEventKind.FAILED and event.diagnostic is not None),
+        None,
+    )
+    failure = None
+    if latest is not None and latest.diagnostic is not None:
+        command_id = latest.event_id.partition(":")[0]
+        diagnostic = latest.diagnostic
+        failure = OperatorFailureDiagnostic(
+            timestamp=latest.created_at,
+            connector_id=session.connector_id,
+            session_id=session.session_id,
+            command_id=command_id,
+            correlation_id=latest.error.correlation_id if latest.error else command_id,
+            category=diagnostic.category,
+            code=diagnostic.code,
+            phase=diagnostic.phase,
+            retryable=diagnostic.retryable,
+            provider=diagnostic.provider,
+            model=diagnostic.model,
+        )
+    return SessionDiagnosticsResponse(
+        connector_id=session.connector_id,
+        session_id=session.session_id,
+        project_id=UUID(session.project_id),
+        last_successful_poll_at=_datetime(session.last_heartbeat_at) if session.last_heartbeat_at else None,
+        latest_failure=failure,
     )
 
 

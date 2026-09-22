@@ -537,6 +537,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         reference = next(item for item in brief.references if item.reference_id == "datasheet-pdf")
         self.assertEqual("uploaded_document", reference.kind)
         self.assertEqual("application/pdf", reference.media_type)
+        self.assertEqual("urn:forma:pdf:datasheetdigest", reference.uri)
         self.assertTrue(reference.metadata["text_extracted"])
         self.assertNotIn("data_url", reference.metadata)
 

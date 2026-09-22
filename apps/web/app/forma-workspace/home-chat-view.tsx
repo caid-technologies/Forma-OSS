@@ -399,7 +399,6 @@ export default function HomeChatView({
 
           </form>
         )}
-        {started && !readOnly && <div className="h-40 shrink-0 md:hidden" aria-hidden="true" />}
       </div>
     </section>
     </ChatProjectLayout>

@@ -127,8 +127,9 @@ def _page_vector_score(page: Any) -> int:
 
 def _visual_priority(signal: PdfPageSignal) -> int:
     text_length = len(signal.text)
+    has_graphics = signal.image_count > 0 or signal.vector_score >= 8
     likely_visual = (
-        text_length < 120
+        (text_length < 120 and has_graphics)
         or signal.image_count >= 2
         or signal.vector_score >= 20
         or (signal.image_count >= 1 and text_length < 1200)

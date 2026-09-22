@@ -59,7 +59,7 @@ function SnapshotContent({ snapshot, apiUrl, getHeaders }: {
     switch (tab) {
       case "overview": return <OverviewPanel title={snapshot.title} description={ir.overview?.description || ""} imageCandidates={images}
         features={features} metrics={metrics} metadata={metadata} systemArchitecture={ir.system_architecture} showImageSection={images.length > 0} />;
-      case "mechanical": return <MechanicalPanel toggles={toggles} setToggles={setToggles} electricalActive={electrical}
+      case "mechanical": return <MechanicalPanel systemArchitecture={ir.system_architecture} toggles={toggles} setToggles={setToggles} electricalActive={electrical}
         setElectricalActive={setElectrical} components={components} features={features} metadata={metadata} mechanical={ir.mechanical || {}}
         cadModel={cad && typeof cad === "object" ? cad as Record<string, any> : null} />;
       case "cad": return <CadModelPanel cadModel={cad} apiUrl={apiUrl} getHeaders={getHeaders} revisionId={snapshot.revision_id} />;

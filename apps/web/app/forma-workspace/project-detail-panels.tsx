@@ -610,6 +610,7 @@ export function MechanicalPanel({
   metadata,
   mechanical,
   cadModel,
+  systemArchitecture,
 }: {
   toggles: Record<string, boolean>;
   setToggles: (value: any) => void;
@@ -620,6 +621,7 @@ export function MechanicalPanel({
   metadata: Record<string, any>;
   mechanical: Record<string, any>;
   cadModel?: Record<string, any> | null;
+  systemArchitecture?: Record<string, unknown> | null;
 }) {
   const visualSpec = metadata.product_visual_spec || {};
   const dimensions = mechanical.render_dimensions || visualSpec.external_dimensions_mm || metadata.render_dimensions || { x_mm: 100, y_mm: 60, z_mm: 36 };
@@ -631,6 +633,7 @@ export function MechanicalPanel({
   return (
     <div className="relative h-full min-h-[420px] w-full overflow-hidden bg-[var(--forma-page)]">
       <MechanicalScene
+        systemArchitecture={systemArchitecture}
         dimensions={dimensions}
         components={components}
         placements={placements}

@@ -5751,6 +5751,7 @@ export function FormaWorkspace({
       case "mechanical":
         return (
           <MechanicalPanel
+            systemArchitecture={projectIR?.system_architecture}
             toggles={mechToggles}
             setToggles={setMechToggles}
             electricalActive={mechElectricalActive}

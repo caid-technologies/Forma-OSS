@@ -4,6 +4,8 @@ import { OrbitControls } from "@react-three/drei";
 import { Canvas } from "@react-three/fiber";
 import { useEffect, useMemo, useState } from "react";
 import * as THREE from "three";
+import SystemHierarchy from "./system-hierarchy";
+import styles from "./mechanical-scene.module.css";
 
 import { advanceMechanismProgress, type ArticulatedBody, type ArticulatedMotion } from "../lib/articulated-motion";
 import { openCadSampleAtProgress, type OpenCadMotionTrack } from "../lib/opencad-motion-preview";
@@ -37,7 +39,7 @@ function MovingBody({ body, track, progress, selected, onSelect }: {
   );
 }
 
-export default function ArticulatedMotionScene({ motion }: { motion: ArticulatedMotion }) {
+export default function ArticulatedMotionScene({ motion, systemArchitecture }: { motion: ArticulatedMotion; systemArchitecture?: Record<string, unknown> | null }) {
   const [progress, setProgress] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
@@ -87,7 +89,9 @@ export default function ArticulatedMotionScene({ motion }: { motion: Articulated
   }
 
   return (
-    <div className="relative h-full min-h-[420px] w-full bg-[var(--forma-page)]" aria-label="Articulated CAD motion preview">
+    <div className={`${styles.layout} relative h-full w-full bg-[var(--forma-page)]`} aria-label="Articulated CAD motion preview">
+      <div className={styles.panes}>
+      <div className={styles.viewport}>
       <Canvas camera={{ position: [bounds.center.x + bounds.radius * 0.7, bounds.center.y - bounds.radius * 1.5, bounds.center.z + bounds.radius * 1.7], up: [0, 0, 1], fov: 42, near: 0.1, far: bounds.radius * 30 }} onPointerMissed={() => setSelected(null)}>
         <ambientLight intensity={1.4} />
         <directionalLight position={[50, -60, 150]} intensity={2.5} />
@@ -95,15 +99,18 @@ export default function ArticulatedMotionScene({ motion }: { motion: Articulated
         {motion.bodies.map((body) => <MovingBody key={body.shapeId} body={body} track={motion.tracks.find((t) => t.targetRef === body.targetRef)!} progress={progress} selected={selected === body.targetRef} onSelect={() => setSelected(body.targetRef)} />)}
         <OrbitControls target={bounds.center} minDistance={bounds.radius * 0.7} maxDistance={bounds.radius * 6} enableDamping />
       </Canvas>
-      <div className="absolute left-3 top-3 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-3 text-xs text-[var(--forma-text-strong)]">
+      </div>
+      <aside className={styles.sidebar} aria-label="Components and motion controls">
+      <SystemHierarchy architecture={systemArchitecture} />
+      <div className="m-3 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-3 text-xs text-[var(--forma-text-strong)]">
         <div className="mb-2 font-semibold">Assembly</div>
         {motion.bodies.map((body) => (
-          <button type="button" key={body.targetRef} aria-pressed={selected === body.targetRef} onClick={() => setSelected(body.targetRef)} className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-[var(--forma-surface-muted)]">
+          <button type="button" key={body.targetRef} aria-pressed={selected === body.targetRef} onClick={() => setSelected(body.targetRef)} className="flex min-h-11 w-full items-center gap-2 rounded px-2 py-1.5 text-left hover:bg-[var(--forma-surface-muted)]">
             <span className="h-2 w-2 rounded-full" style={{ backgroundColor: body.color }} />{body.name}
           </button>
         ))}
       </div>
-      <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-3 text-xs text-[var(--forma-text-strong)] sm:left-auto sm:w-80">
+      <div className="m-3 rounded-xl border border-[var(--forma-border)] bg-[var(--forma-surface)] p-3 text-xs text-[var(--forma-text-strong)]">
         <div className="font-semibold">Motion Preview · {motion.label}</div>
         <div className="mt-1 text-[var(--forma-text-muted)]">{motion.bodies.length} synchronized parts · {motion.durationSeconds}s{motion.loop ? " loop" : ""}</div>
         <input type="range" min={0} max={1000} step={1} value={Math.round(progress * 1000)} aria-label="Mechanism timeline" className="my-3 w-full" onChange={(event) => { setPlaying(false); setProgress(Number(event.target.value) / 1000); }} />
@@ -114,6 +121,8 @@ export default function ArticulatedMotionScene({ motion }: { motion: Articulated
         <div className="mt-2 flex justify-between font-mono text-[10px] text-[var(--forma-text-muted)]">
           {motion.tracks.map((track) => <output key={track.id} aria-label={`${track.targetRef} angle`}>{(openCadSampleAtProgress(track, progress).value * 180 / Math.PI).toFixed(1)}°</output>)}
         </div>
+      </div>
+      </aside>
       </div>
     </div>
   );

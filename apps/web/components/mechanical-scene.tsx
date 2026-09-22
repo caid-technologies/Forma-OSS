@@ -17,6 +17,8 @@ import { sceneAppearanceForTheme, type MechanicalSceneAppearance, type Mechanica
 import { useTheme } from "../lib/theme-provider";
 import { normalizeArticulatedMotion } from "../lib/articulated-motion";
 import ArticulatedMotionScene from "./articulated-motion-scene";
+import SystemHierarchy from "./system-hierarchy";
+import styles from "./mechanical-scene.module.css";
 
 type Dimensions = { x_mm: number; y_mm: number; z_mm: number };
 
@@ -67,6 +69,7 @@ type SpatialRelationshipInput = {
 };
 
 type MechanicalSceneProps = {
+  systemArchitecture?: Record<string, unknown> | null;
   dimensions: Dimensions;
   components: ComponentInstance[];
   placements?: PlacementInput[];
@@ -937,21 +940,26 @@ function RelationshipLink({
   );
 }
 
+/** Resolve the same visibility layer for both rendering and tree selection. */
+function placementLayer(placement: ScenePlacement, envelopeRef: string | null): string {
+  const key = categoryKey(placement.category);
+  const layer = placement.layer.toLowerCase();
+  if (placement.refDes === envelopeRef || layer === "enclosure" || isEnclosureLabel(placement.label)) return "enclosure";
+  if (layer === "structural") return "structural";
+  if (key === "3d print" || layer === "print") return "print";
+  if (key === "mechanical" || layer === "mechanism") return "mechanism";
+  if (layer === "misc") return "misc";
+  return "electrical";
+}
+
 function visiblePlacement(
   placement: ScenePlacement,
   toggles: Record<string, boolean>,
   electricalActive: boolean,
   envelopeRef: string | null
-) {
-  const key = categoryKey(placement.category);
-  const layer = placement.layer.toLowerCase();
-
-  if (placement.refDes === envelopeRef || layer === "enclosure" || isEnclosureLabel(placement.label)) return Boolean(toggles.enclosure);
-  if (layer === "structural") return Boolean(toggles.structural);
-  if (key === "3d print" || layer === "print") return Boolean(toggles.print);
-  if (key === "mechanical" || layer === "mechanism") return Boolean(toggles.mechanism);
-  if (layer === "misc") return Boolean(toggles.misc);
-  return electricalActive;
+): boolean {
+  const layer = placementLayer(placement, envelopeRef);
+  return layer === "electrical" ? electricalActive : Boolean(toggles[layer]);
 }
 
 function LayerChip({
@@ -985,7 +993,7 @@ function LayerChip({
 
 export default function MechanicalScene(props: MechanicalSceneProps) {
   const motion = useMemo(() => normalizeArticulatedMotion(props.articulatedBodies, props.kinematics), [props.articulatedBodies, props.kinematics]);
-  if (motion) return <ArticulatedMotionScene motion={motion} />;
+  if (motion) return <ArticulatedMotionScene motion={motion} systemArchitecture={props.systemArchitecture} />;
   if (Array.isArray(props.articulatedBodies) && props.articulatedBodies.length) {
     return <div role="status" className="p-6 text-sm text-[var(--forma-text-secondary)]">Motion preview is unavailable because the saved meshes and motion tracks do not match. Regenerate the CAD model to restore the preview.</div>;
   }
@@ -993,6 +1001,7 @@ export default function MechanicalScene(props: MechanicalSceneProps) {
 }
 
 function PlacementMechanicalScene({
+  systemArchitecture,
   dimensions,
   components,
   placements = [],
@@ -1041,7 +1050,7 @@ function PlacementMechanicalScene({
   const partPlacements = useMemo(() => visiblePlacements.filter((placement) => placement.refDes !== envelopeRef), [envelopeRef, visiblePlacements]);
   const visiblePlacementMap = useMemo(() => new Map(visiblePlacements.map((placement) => [placement.refDes, placement])), [visiblePlacements]);
   const sceneRelationships = useMemo(() => normalizeRelationships(relationships, visiblePlacements), [relationships, visiblePlacements]);
-  const hierarchy = useMemo(() => buildHierarchy(visiblePlacements, dimensions, envelopeRef), [dimensions, envelopeRef, visiblePlacements]);
+  const hierarchy = useMemo(() => buildHierarchy(scenePlacements, dimensions, envelopeRef), [dimensions, envelopeRef, scenePlacements]);
   const legend = useMemo(() => legendCounts(visiblePlacements, envelopeRef, palette), [envelopeRef, palette, visiblePlacements]);
   const layers = useMemo(() => layerToggles(palette), [palette]);
   const sceneRadius = useMemo(() => {
@@ -1065,7 +1074,6 @@ function PlacementMechanicalScene({
         : [],
     [sceneRelationships, selectedPlacement]
   );
-  const envelopePlacement = envelopeRef ? scenePlacements.find((placement) => placement.refDes === envelopeRef) || null : null;
   const envelopeSelected = Boolean(selectedRef && selectedRef === envelopeRef);
 
   useEffect(() => {
@@ -1120,11 +1128,6 @@ function PlacementMechanicalScene({
     return () => document.removeEventListener("fullscreenchange", sync);
   }, []);
 
-  // The tree panel covers most of a phone screen, so it starts collapsed there.
-  useEffect(() => {
-    if (window.innerWidth < 640) setTreeOpen(false);
-  }, []);
-
   useEffect(() => {
     if (!fallbackFullscreen) return;
     const previousOverflow = document.body.style.overflow;
@@ -1168,16 +1171,18 @@ function PlacementMechanicalScene({
     setToggles({ ...toggles, [key]: !toggles[key] });
   };
 
-  const envelopeLabel = envelopePlacement?.label || "Mechanical envelope";
   const dimensionLabel = `${Math.round(dimensions.x_mm)} × ${Math.round(dimensions.y_mm)} × ${Math.round(dimensions.z_mm)} mm`;
 
   return (
     <div
       ref={containerRef}
-      className={`overflow-hidden bg-[var(--forma-page)] ${
+      data-fullscreen={isFullscreen}
+      className={`${styles.layout} overflow-hidden bg-[var(--forma-page)] ${
         fallbackFullscreen ? "fixed inset-0 z-[100] h-[100dvh] w-screen" : isFullscreen ? "relative h-[100dvh] w-screen" : "relative h-full w-full"
       }`}
     >
+      <div className={styles.panes}>
+      <div className={styles.viewport} aria-label="3D model viewport">
       <Canvas camera={{ position: [10.5, 7.6, 11.5], fov: 38 }} dpr={[1, 2]} onPointerMissed={() => setSelectedRef(null)}>
         <SceneEnvironment appearance={appearance} sceneRadius={sceneRadius} />
         <ResponsiveCamera sceneRadius={sceneRadius} />
@@ -1237,12 +1242,13 @@ function PlacementMechanicalScene({
           autoRotateSpeed={0.26}
         />
       </Canvas>
+      </div>
 
-      <div className="pointer-events-none absolute inset-0 z-30">
-        <div className="pointer-events-auto absolute left-3 top-3 flex max-h-[calc(100%-4.5rem)] w-[min(19rem,calc(100%-1.5rem))] flex-col overflow-hidden rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] shadow-[var(--forma-card-shadow)] backdrop-blur-sm sm:left-4 sm:top-4">
+      <aside className={styles.sidebar} aria-label="Components and viewer controls">
+        <div className="flex min-w-0 flex-col">
           <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--forma-border)] px-3 py-2">
             <div className="min-w-0">
-              <div className="truncate text-[11px] font-semibold tracking-tight text-[var(--forma-text-strong)]">3D CAD</div>
+              <div className="truncate text-[11px] font-semibold tracking-tight text-[var(--forma-text-strong)]">Components &amp; 3D controls</div>
               <div className="truncate text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">{dimensionLabel}</div>
             </div>
             <div className="flex shrink-0 items-center gap-1">
@@ -1252,7 +1258,7 @@ function PlacementMechanicalScene({
                 aria-pressed={isFullscreen}
                 aria-label={isFullscreen ? "Exit full screen 3D view" : "View 3D model full screen"}
                 title={isFullscreen ? "Exit full screen (Esc)" : "Full screen"}
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-strong)] hover:bg-[var(--forma-text-strong)] hover:text-[var(--forma-page)]"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-strong)] hover:bg-[var(--forma-text-strong)] hover:text-[var(--forma-page)]"
               >
                 {isFullscreen ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
               </button>
@@ -1262,7 +1268,7 @@ function PlacementMechanicalScene({
                 aria-expanded={treeOpen}
                 aria-label={treeOpen ? "Collapse assembly tree" : "Expand assembly tree"}
                 title={treeOpen ? "Collapse" : "Expand"}
-                className="flex h-7 w-7 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-strong)] hover:bg-[var(--forma-text-strong)] hover:text-[var(--forma-page)]"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-[var(--forma-border)] text-[var(--forma-text-muted)] transition hover:border-[var(--forma-text-strong)] hover:bg-[var(--forma-text-strong)] hover:text-[var(--forma-page)]"
               >
                 <ChevronDown className={`h-3.5 w-3.5 transition-transform ${treeOpen ? "" : "-rotate-90"}`} />
               </button>
@@ -1271,6 +1277,9 @@ function PlacementMechanicalScene({
 
           {treeOpen && (
             <div className="flex min-h-0 flex-1 flex-col">
+              <SystemHierarchy architecture={systemArchitecture} />
+              <h3 className="px-3 pt-3 text-xs font-semibold text-[var(--forma-text-strong)]">All parts ({hierarchy.length})</h3>
+              <p className="px-3 pt-1 text-[10px] text-[var(--forma-text-muted)]">Grouped by spatial containment. Hidden layers remain listed.</p>
               <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
                 {hierarchy.length ? (
                   hierarchy.map(({ placement, depth }) => {
@@ -1279,12 +1288,19 @@ function PlacementMechanicalScene({
                       <button
                         key={placement.refDes}
                         type="button"
-                        onClick={() => setSelectedRef(selected ? null : placement.refDes)}
+                        onClick={() => {
+                          if (!visiblePlacement(placement, toggles, electricalActive, envelopeRef)) {
+                            const layer = placementLayer(placement, envelopeRef);
+                            if (layer === "electrical") setElectricalActive?.(true);
+                            else setToggles?.({ ...toggles, [layer]: true });
+                          }
+                          setSelectedRef(selected ? null : placement.refDes);
+                        }}
                         onPointerEnter={() => setHoveredRef(placement.refDes)}
                         onPointerLeave={() => setHoveredRef((current) => (current === placement.refDes ? null : current))}
                         aria-pressed={selected}
                         title={`${placement.refDes} / ${placement.label}`}
-                        className={`flex w-full items-center gap-1.5 rounded-md px-1 py-[3px] text-left transition ${
+                        className={`flex min-h-11 w-full items-center gap-1.5 rounded-md px-1 py-2 text-left transition ${
                           selected ? "bg-[var(--forma-surface-muted)]" : "hover:bg-[var(--forma-surface-muted)]"
                         }`}
                         style={{ paddingLeft: 4 + Math.min(depth, 6) * 12 }}
@@ -1299,7 +1315,7 @@ function PlacementMechanicalScene({
                     );
                   })
                 ) : (
-                  <div className="px-2 py-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">No visible parts</div>
+                  <div className="px-2 py-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">No components available</div>
                 )}
               </div>
 
@@ -1358,14 +1374,14 @@ function PlacementMechanicalScene({
         </div>
 
         <div
-          className="absolute right-3 top-3 max-w-[min(16rem,45%)] truncate rounded-md border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.92)] px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)] sm:right-4 sm:top-4"
-          title={selectedPlacement ? envelopeLabel : undefined}
+          className="m-3 break-words rounded-md border border-[var(--forma-border)] px-2.5 py-1.5 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]"
+          title={selectedPlacement?.label}
         >
-          {selectedPlacement ? envelopeLabel : "Tap a part for more info"}
+          {selectedPlacement?.label || "Tap a part for more info"}
         </div>
 
         {activeMotion && (
-          <div className="pointer-events-auto absolute right-3 top-14 w-[min(22rem,calc(100%-1.5rem))] rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)] backdrop-blur-sm sm:right-4">
+          <div className="m-3 rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)] backdrop-blur-sm">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">Motion Preview</div>
@@ -1449,7 +1465,7 @@ function PlacementMechanicalScene({
         )}
 
         {selectedPlacement && (
-          <div className="absolute bottom-9 right-3 w-[min(21rem,calc(100%-1.5rem))] rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)] sm:bottom-10 sm:right-4">
+          <div className="m-3 rounded-xl border border-[var(--forma-border)] bg-[rgb(var(--forma-chrome-rgb)/0.94)] p-3 shadow-[var(--forma-card-shadow)]">
             <div className="flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.14em]" style={{ color: selectedPlacement.color }}>
               <span>{selectedPlacement.refDes}</span>
               <span className="text-[var(--forma-text-muted)]">/</span>
@@ -1471,9 +1487,10 @@ function PlacementMechanicalScene({
           </div>
         )}
 
-        <div className="absolute bottom-3 right-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)] sm:bottom-4 sm:right-4">
+        <div className="m-3 text-[10px] font-medium uppercase tracking-[0.14em] text-[var(--forma-text-muted)]">
           Live 3D
         </div>
+      </aside>
       </div>
     </div>
   );

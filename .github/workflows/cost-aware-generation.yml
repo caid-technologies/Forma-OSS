@@ -66,7 +66,14 @@ jobs:
           tests/projects/test_mechanical_motion.py
           tests/projects/test_mechanism_benchmarks.py
           tests/projects/test_generation_mode_requests.py
-          tests/projects/test_context_gathering.py
+          tests/api/test_progressive_visual_decision.py
+      - name: Run PDF context ingestion tests
+        env:
+          FORMA_DEV_MODE: "true"
+          DATABASE_BACKEND: "sqlite"
+        run: >-
+          python -m pytest -q
           tests/projects/test_pdf_context.py
           tests/projects/test_pdf_context_ingestion.py
-          tests/api/test_progressive_visual_decision.py
+          tests/projects/test_context_gathering.py
+          -k pdf

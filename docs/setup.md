@@ -146,6 +146,21 @@ deployments on the current monorepo source without relying on a stale PyPI
 wheel. `vercel.json` also excludes local databases, logs, frontend artifacts,
 Rust build output, examples, docs, and tests from the backend function bundle.
 
+Vercel installs the committed `apps/api/uv.lock` with frozen dependency
+resolution. When backend dependencies change, update
+`apps/api/pyproject.toml`, both requirements files, and the lockfile together:
+
+```bash
+uv lock --project apps/api
+uv lock --project apps/api --check
+uv sync --project apps/api --frozen --no-dev
+```
+
+The backend deployment smoke workflow checks that the lockfile is current,
+then imports both API entrypoints and exercises PDF extraction and rendering
+using only the frozen runtime dependencies. A successful `pip install` from
+requirements alone does not verify the dependency set used by Vercel.
+
 ### Environment variables
 Recommended: create a repo-root `.env` (see `.env.example`).
 

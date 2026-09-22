@@ -29,6 +29,7 @@ from forma_core.workspaces.projects.models import GenerateProjectRequest
 from forma_core.workspaces.context import ContextBuildExecution, ContextTurnDecision
 from forma_core.workspaces.context.agent import ContextBriefUpdater
 from forma_core.workspaces.context.models import ContextAttachment, ContextGatheringRequest
+from forma_core.workspaces.context.pdf import PdfContextResult
 from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 from forma_core.vertex_auth import (
     bind_vertex_oidc_token,
@@ -466,7 +467,7 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         conversation_id = "context-pdf-uri"
 
         with sqlite_repository(), patch(
-            "apps.api.context_gathering_api.extract_pdf_text_from_data_url",
+            "apps.api.context_gathering_api.ingest_pdf_data_url",
         ) as extract:
             response = self.client.post(
                 f"/projects/{project_id}/context/messages",
@@ -500,8 +501,15 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         pdf_data_url = "data:application/pdf;base64,JVBERi0xLjQK"
 
         with sqlite_repository(), patch(
-            "apps.api.context_gathering_api.extract_pdf_text_from_data_url",
-            return_value="The enclosure must fit within 80 mm. Use M3 fasteners.",
+            "apps.api.context_gathering_api.ingest_pdf_data_url",
+            return_value=PdfContextResult(
+                text="The enclosure must fit within 80 mm. Use M3 fasteners.",
+                visual_data_url=None,
+                visual_page_numbers=(),
+                source_digest="datasheetdigest",
+                page_count=3,
+                text_truncated=False,
+            ),
         ) as extract:
             response = self.client.post(
                 f"/projects/{project_id}/context/messages",
@@ -540,6 +548,69 @@ class ContextGatheringIntegrationTests(unittest.TestCase):
         attachment = user_message["attachments"][0]
         self.assertFalse(attachment["hasInlineData"])
         self.assertTrue(attachment["textExtracted"])
+
+    def test_pdf_attachment_adds_traceable_visual_pages_without_chat_blob(self) -> None:
+        project_id = str(uuid.uuid4())
+        conversation_id = "context-pdf-visual"
+        pdf_data_url = "data:application/pdf;base64,JVBERi0xLjQK"
+        visual_data_url = "data:image/jpeg;base64,dmlzdWFsLXBhZ2Vz"
+
+        with sqlite_repository(), patch(
+            "apps.api.context_gathering_api.ingest_pdf_data_url",
+            return_value=PdfContextResult(
+                text="[PDF page 2]\nUse the JST-XH connector shown in the drawing.",
+                visual_data_url=visual_data_url,
+                visual_page_numbers=(2, 5),
+                source_digest="visualdigest",
+                page_count=8,
+                text_truncated=False,
+            ),
+        ):
+            response = self.client.post(
+                f"/projects/{project_id}/context/messages",
+                json={
+                    "conversation_id": conversation_id,
+                    "text": "Use the attached datasheet as project context.",
+                    "attachments": [
+                        {
+                            "attachment_id": "datasheet-pdf",
+                            "kind": "document",
+                            "name": "datasheet.pdf",
+                            "media_type": "application/pdf",
+                            "data_url": pdf_data_url,
+                            "source": "upload",
+                        }
+                    ],
+                },
+            )
+            brief = database.get_latest_design_brief(project_id, OWNER)
+            chat = database.get_project_chat(conversation_id, OWNER)
+
+        self.assertEqual(201, response.status_code, response.text)
+        self.assertEqual(2, len(brief.references))
+        document_reference = next(
+            item for item in brief.references if item.reference_id == "datasheet-pdf"
+        )
+        visual_reference = next(
+            item for item in brief.references if item.reference_id == "datasheet-pdf-visual-pages"
+        )
+        self.assertEqual("uploaded_document", document_reference.kind)
+        self.assertEqual([2, 5], document_reference.metadata["pdf_visual_pages"])
+        self.assertEqual("uploaded_image", visual_reference.kind)
+        self.assertEqual([2, 5], visual_reference.metadata["pdf_page_numbers"])
+        self.assertTrue(visual_reference.metadata["derived_from_pdf"])
+        self.assertEqual(visual_data_url, visual_reference.metadata["data_url"])
+
+        user_message = next(
+            message
+            for message in chat.messages
+            if isinstance(message, dict) and message.get("role") == "user"
+        )
+        self.assertNotIn("imagePreview", user_message)
+        self.assertEqual(2, len(user_message["attachments"]))
+        self.assertFalse(user_message["attachments"][0]["hasInlineData"])
+        self.assertTrue(user_message["attachments"][1]["hasInlineData"])
+        self.assertEqual([2, 5], user_message["attachments"][1]["metadata"]["pdf_page_numbers"])
 
     def test_text_image_and_document_append_brief_versions_without_enqueuing_jobs(self) -> None:
         project_id = str(uuid.uuid4())

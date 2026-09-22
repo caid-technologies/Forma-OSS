@@ -10,6 +10,7 @@ on:
       - "forma_core/workspaces/projects/output.py"
       - "forma_core/workspaces/projects/models.py"
       - "forma_core/workspaces/context/models.py"
+      - "forma_core/workspaces/context/pdf.py"
       - "forma_core/workers/generation.py"
       - "forma_core/database.py"
       - "apps/api/a2a.py"
@@ -27,6 +28,9 @@ on:
       - "tests/projects/test_mechanical_motion.py"
       - "tests/projects/test_mechanism_benchmarks.py"
       - "tests/projects/test_generation_mode_requests.py"
+      - "tests/projects/test_context_gathering.py"
+      - "tests/projects/test_pdf_context.py"
+      - "tests/projects/test_pdf_context_ingestion.py"
       - "tests/api/test_progressive_visual_decision.py"
       - ".github/workflows/cost-aware-generation.yml"
   workflow_dispatch:
@@ -62,4 +66,7 @@ jobs:
           tests/projects/test_mechanical_motion.py
           tests/projects/test_mechanism_benchmarks.py
           tests/projects/test_generation_mode_requests.py
+          tests/projects/test_context_gathering.py
+          tests/projects/test_pdf_context.py
+          tests/projects/test_pdf_context_ingestion.py
           tests/api/test_progressive_visual_decision.py

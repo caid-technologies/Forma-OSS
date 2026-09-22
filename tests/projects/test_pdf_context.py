@@ -4,6 +4,7 @@ import base64
 from io import BytesIO
 import unittest
 
+from PIL import Image, ImageDraw
 from pypdf import PdfWriter
 
 from forma_core.workspaces.context.pdf import (
@@ -22,6 +23,17 @@ def _blank_pdf_data_url(page_count: int = 1) -> str:
         writer.add_blank_page(width=612, height=792)
     output = BytesIO()
     writer.write(output)
+    encoded = base64.b64encode(output.getvalue()).decode("ascii")
+    return f"data:application/pdf;base64,{encoded}"
+
+
+def _image_pdf_data_url() -> str:
+    image = Image.new("RGB", (640, 480), "white")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((80, 80, 560, 400), outline="black", width=8)
+    draw.line((120, 240, 520, 240), fill="black", width=6)
+    output = BytesIO()
+    image.save(output, format="PDF")
     encoded = base64.b64encode(output.getvalue()).decode("ascii")
     return f"data:application/pdf;base64,{encoded}"
 
@@ -52,7 +64,7 @@ class PdfContextTests(unittest.TestCase):
         self.assertEqual(tuple(sorted(selected)), selected)
 
     def test_image_only_pdf_is_rendered_for_multimodal_context(self) -> None:
-        result = ingest_pdf_data_url(_blank_pdf_data_url())
+        result = ingest_pdf_data_url(_image_pdf_data_url())
 
         self.assertIsNone(result.text)
         self.assertEqual((1,), result.visual_page_numbers)
@@ -64,7 +76,11 @@ class PdfContextTests(unittest.TestCase):
 
     def test_text_only_helper_still_rejects_image_only_pdf(self) -> None:
         with self.assertRaisesRegex(PdfContextError, "no extractable text"):
-            extract_pdf_text_from_data_url(_blank_pdf_data_url())
+            extract_pdf_text_from_data_url(_image_pdf_data_url())
+
+    def test_blank_pdf_does_not_create_fake_visual_context(self) -> None:
+        with self.assertRaisesRegex(PdfContextError, "no extractable text or renderable visual pages"):
+            ingest_pdf_data_url(_blank_pdf_data_url())
 
 
 if __name__ == "__main__":

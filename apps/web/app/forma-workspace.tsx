@@ -5436,6 +5436,10 @@ export function FormaWorkspace({
   const projectTitle = projectIR?.overview?.title || "Untitled Hardware Project";
   const projectDescription = projectIR?.overview?.description || "Generated hardware package";
   const currentProjectId = projectIR?.assembly_metadata?.project_id || null;
+  const currentProjectPrivate = (
+    myProjectHistory.find((project: any) => project.project_id === currentProjectId)?.visibility
+    || projectIR?.assembly_metadata?.visibility
+  ) === "private";
   const isPublicExample = projectIR?.assembly_metadata?.status === "example" && !currentProjectId;
   const currentUserOwnsProject = Boolean(projectIR && canChatWithProjectIR(projectIR) && (!authRequired || isSignedIn));
   useEffect(() => {
@@ -6471,6 +6475,7 @@ export function FormaWorkspace({
                 onOpenSidebar={() => setMobileSidebarOpen(true)}
                 projectId={currentProjectId}
                 projectTitle={projectTitle}
+                isPrivate={currentProjectPrivate}
                 owned={currentUserOwnsProject}
                 readOnly={hostedChatReadOnly || authoringMode}
                  onRenameTitle={hostedChatEnabled && !authoringMode && currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
@@ -6488,6 +6493,7 @@ export function FormaWorkspace({
                 projectId={currentProjectId}
                 chatId={currentProjectChatId}
                 projectTitle={projectTitle}
+                isPrivate={currentProjectPrivate}
                  onRenameTitle={hostedChatEnabled && !authoringMode && currentUserOwnsProject ? (title) => { void commitOwnedWorkspaceTitle(title); } : undefined}
                 messages={currentProjectChatMessages}
                 renderPipelineProgress={renderConversationPipelineProgress}
@@ -7797,6 +7803,7 @@ function ProjectDetailWorkspace({
   onOpenSidebar,
   projectId,
   projectTitle,
+  isPrivate,
   owned,
   readOnly,
   onRenameTitle,
@@ -7809,6 +7816,7 @@ function ProjectDetailWorkspace({
   onOpenSidebar: () => void;
   projectId: string | null;
   projectTitle: string;
+  isPrivate: boolean;
   owned: boolean;
   readOnly: boolean;
   onRenameTitle?: (title: string) => void;
@@ -7822,6 +7830,7 @@ function ProjectDetailWorkspace({
       <ChatProjectArtifact
         projectId={projectId}
         projectTitle={projectTitle}
+        isPrivate={isPrivate}
         canEdit={!readOnly && owned}
         onRenameTitle={onRenameTitle}
         namespaceTabs={namespaceTabs}
@@ -7840,6 +7849,7 @@ function ChatWorkspace({
   projectId,
   chatId,
   projectTitle,
+  isPrivate,
   onRenameTitle,
   messages,
   renderPipelineProgress,
@@ -7867,6 +7877,7 @@ function ChatWorkspace({
   projectId: string | null;
   chatId: string | null;
   projectTitle: string;
+  isPrivate: boolean;
   onRenameTitle?: (title: string) => void;
   messages: ChatMessage[];
   renderPipelineProgress: (message: ConversationMessage) => React.ReactNode;
@@ -7920,6 +7931,7 @@ function ChatWorkspace({
                 <ChatProjectArtifact
                   projectId={projectId}
                   projectTitle={projectTitle}
+                  isPrivate={isPrivate}
                   canEdit={chatAvailable && Boolean(onRenameTitle)}
                   onRenameTitle={chatAvailable ? onRenameTitle : undefined}
                   namespaceTabs={namespaceTabs}
@@ -8057,6 +8069,7 @@ function ChatWorkspace({
 function ChatProjectArtifact({
   projectId,
   projectTitle,
+  isPrivate = false,
   canEdit = false,
   onRenameTitle,
   namespaceTabs,
@@ -8067,6 +8080,7 @@ function ChatProjectArtifact({
 }: {
   projectId: string | null;
   projectTitle: string;
+  isPrivate?: boolean;
   canEdit?: boolean;
   onRenameTitle?: (title: string) => void;
   namespaceTabs: typeof workspaceTabs;
@@ -8080,6 +8094,9 @@ function ChatProjectArtifact({
   return (
     <ChatProjectSurface
       leading={leading}
+      projectId={projectId}
+      shareTitle={projectTitle}
+      isPrivate={isPrivate}
       title={(
         <EditableWorkspaceTitle
           value={history?.selection?.snapshot?.title || projectTitle}

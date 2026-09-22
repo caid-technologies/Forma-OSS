@@ -590,7 +590,11 @@ def gather_project_context_endpoint(
         (
             item.data_url
             for item in request.attachments
-            if item.kind == "image" and item.data_url
+            if (
+                item.kind == "image"
+                and item.data_url
+                and not bool((item.metadata or {}).get("derived_from_pdf"))
+            )
         ),
         None,
     )

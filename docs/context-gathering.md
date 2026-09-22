@@ -28,9 +28,11 @@ Inline attachment bytes are not copied into the DesignBrief. The brief stores a 
 
 ## PDF references
 
-The chat composer accepts text-based PDF references in addition to images. PDF files are sent to the context endpoint as `document` attachments with `media_type: application/pdf`. The API extracts bounded text, merges that text into the DesignBrief, and drops the raw PDF data before persisting the reference or chat history.
+The chat composer accepts PDF references in addition to images. PDF files are sent to the context endpoint as `document` attachments with `media_type: application/pdf`. The API extracts bounded page-labelled text and drops the raw PDF bytes before persisting the document reference or chat history.
 
-Current ingestion limits are 2 MB, 40 pages, and 20,000 extracted characters per PDF. Password-protected PDFs and scanned/image-only PDFs are rejected with a clear context-ingestion error; OCR is not performed yet.
+PDF ingestion is multimodal. Forma scores each page for visual content using embedded-image and vector-drawing signals plus low-text/scanned-page detection. Up to 6 relevant pages are rendered into a compact contact sheet, stored as a derived `uploaded_image` reference, and passed through the existing generation worker's image-input path. The derived image reference records its source PDF and original page numbers so the visual context remains traceable.
+
+Current ingestion limits are 2 MB, 40 pages, 20,000 extracted text characters, 6 rendered visual pages, and a 1.5 MB visual contact sheet. Password-protected PDFs are rejected. Scanned/image-only PDFs are accepted when their pages can be rendered, even when no text layer is available.
 
 ```json
 {

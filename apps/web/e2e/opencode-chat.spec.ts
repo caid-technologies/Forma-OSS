@@ -63,7 +63,7 @@ const runtimeConfig: RuntimeConfigContract = {
   },
   workflow: {
     default_id: "default",
-    options: [{ id: "default", label: "Default", description: "Local OpenCode authoring" }],
+    options: [{ id: "default", label: "Default", description: "Local FormaAgent authoring" }],
   },
   provider_setup: { required: false, llm_required: false, image_required: false },
   deployment: {

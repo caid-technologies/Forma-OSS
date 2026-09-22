@@ -3950,12 +3950,12 @@ export function FormaWorkspace({
     if (generationRunsRef.current.has(activeChatId)) return;
     if (authoringMode) {
       if (selectedImage || selectedDocument) {
-        setGenerationInputNotice("Image and PDF attachments are not available in OpenCode authoring yet.");
+        setGenerationInputNotice("Image and PDF attachments are not available in FormaAgent authoring yet.");
         return;
       }
       const text = (answer ?? prompt).trim();
       if (!text || !openCodeConnectorId) {
-        setGenerationInputNotice(openCodeConnectorId ? "Describe the hardware project you want OpenCode to author." : "OpenCode authoring is not configured for this deployment.");
+        setGenerationInputNotice(openCodeConnectorId ? "Describe the hardware project you want OpenCode to author." : "FormaAgent authoring is not configured for this deployment.");
         return;
       }
       const requestChatId = activeChatId || newBuildChatId();
@@ -4632,7 +4632,7 @@ export function FormaWorkspace({
       const handoffProjectId = currentProjectId;
       const handoffMessage = projectChatInput.trim();
       if (!handoffProjectId || !projectIR || !handoffMessage || !openCodeConnectorId) {
-        if (!openCodeConnectorId) setGenerationInputNotice("OpenCode authoring is not configured for this deployment.");
+        if (!openCodeConnectorId) setGenerationInputNotice("FormaAgent authoring is not configured for this deployment.");
         return;
       }
       const sourceChatId = currentProjectChatId || activeChatId || newBuildChatId();
@@ -5060,7 +5060,7 @@ export function FormaWorkspace({
   }) => {
     if (generationRunsRef.current.has(chatId)) return;
     if (!openCodeConnectorId) {
-      const error = "OpenCode authoring is not configured for this deployment.";
+      const error = "FormaAgent authoring is not configured for this deployment.";
       updateChatMessage(assistantMessageId, { content: error, status: "error" });
       updateThreadMessage(chatId, assistantMessageId, { content: error, status: "error" });
       setGenerationInputNotice(error);
@@ -7949,7 +7949,7 @@ function ChatWorkspace({
             <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[rgb(var(--forma-green-rgb)/0.12)] px-2 py-0.5 text-[10px] font-medium text-[rgb(var(--forma-green-rgb))]">
               {chatAvailable ? <MessageSquare className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
               {authoringActive
-                ? "OpenCode authoring"
+                ? "FormaAgent authoring"
                 : chatAvailable
                   ? "Project chat"
                   : "Project"}

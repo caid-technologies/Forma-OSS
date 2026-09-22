@@ -44,6 +44,7 @@ class ContextAttachment(BaseModel):
     uri: NonEmptyString | None = None
     data_url: NonEmptyString | None = None
     extracted_text: NonEmptyString | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
     source: Literal["upload", "clipboard", "url"] = "upload"
 
     @model_validator(mode="after")

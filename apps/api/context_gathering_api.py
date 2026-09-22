@@ -30,10 +30,12 @@ from forma_core.llm import build_llm_provider
 from forma_core.config import config
 from forma_core.user_integrations import UserIntegrationStore, resolve_user_integration_settings
 from forma_core.workspaces.context import (
+    ContextAttachment,
     ContextBuildExecution,
     ContextGatheringRequest,
     ContextGatheringResponse,
 )
+from forma_core.workspaces.context.pdf import PdfContextError, ingest_pdf_data_url
 from forma_core.workspaces.readiness import ReadinessError
 from forma_core.workspaces.workflow import ProjectWorkflowState, WorkflowActorType, WorkflowStateError
 
@@ -54,6 +56,83 @@ def _contains_project_context(text: str) -> bool:
     normalized = re.sub(r"[^a-z0-9]+", " ", str(text or "").casefold()).strip()
     return bool(normalized and not _CONTEXT_FREE_USER_TURN.fullmatch(normalized))
 
+
+def _is_pdf_attachment(attachment: ContextAttachment) -> bool:
+    media_type = str(attachment.media_type or "").strip().lower()
+    name = str(attachment.name or "").strip().lower()
+    data_url_prefix = str(attachment.data_url or "").strip()[:64].lower()
+    return (
+        attachment.kind == "document"
+        and (
+            media_type == "application/pdf"
+            or name.endswith(".pdf")
+            or data_url_prefix.startswith("data:application/pdf")
+        )
+    )
+
+
+def _ingest_pdf_attachments(request: ContextGatheringRequest) -> ContextGatheringRequest:
+    """Extract PDF text and bounded visual context without persisting raw PDF bytes."""
+
+    changed = False
+    attachments: list[ContextAttachment] = []
+    for index, attachment in enumerate(request.attachments):
+        if not _is_pdf_attachment(attachment):
+            attachments.append(attachment)
+            continue
+
+        if attachment.extracted_text and not attachment.data_url:
+            attachments.append(attachment)
+            continue
+        if not attachment.data_url:
+            # URI-only PDFs remain references; remote fetching is intentionally
+            # outside this endpoint's trust boundary.
+            attachments.append(attachment)
+            continue
+
+        result = ingest_pdf_data_url(attachment.data_url)
+        source_id = attachment.attachment_id or f"pdf-{result.source_digest}"
+        document_metadata = {
+            **dict(attachment.metadata or {}),
+            "pdf_page_count": result.page_count,
+            "pdf_text_truncated": result.text_truncated,
+            "pdf_visual_pages": list(result.visual_page_numbers),
+        }
+        attachments.append(
+            attachment.model_copy(
+                update={
+                    "attachment_id": source_id,
+                    "media_type": "application/pdf",
+                    "uri": attachment.uri or f"urn:forma:pdf:{result.source_digest}",
+                    "data_url": None,
+                    "extracted_text": result.text,
+                    "metadata": document_metadata,
+                }
+            )
+        )
+
+        if result.visual_data_url:
+            page_label = ", ".join(str(page) for page in result.visual_page_numbers)
+            attachments.append(
+                ContextAttachment(
+                    attachment_id=f"{source_id}-visual-pages",
+                    kind="image",
+                    name=f"{attachment.name or 'document.pdf'} · visual pages {page_label}",
+                    media_type="image/jpeg",
+                    data_url=result.visual_data_url,
+                    source="upload",
+                    metadata={
+                        "derived_from_pdf": True,
+                        "pdf_source_attachment_id": source_id,
+                        "pdf_source_name": attachment.name or "document.pdf",
+                        "pdf_page_numbers": list(result.visual_page_numbers),
+                        "pdf_source_digest": result.source_digest,
+                    },
+                )
+            )
+        changed = True
+
+    return request.model_copy(update={"attachments": attachments}) if changed else request
 
 def _bootstrap_context_request(
     request: ContextGatheringRequest,
@@ -128,6 +207,14 @@ def gather_project_context_endpoint(
     from forma_core.user_integrations import UserIntegrationStore
 
     require_hosted_chat_enabled(user)
+
+    try:
+        request = _ingest_pdf_attachments(request)
+    except PdfContextError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "pdf_ingest_failed", "message": str(exc)},
+        ) from exc
 
     try:
         agent = context_gathering_agent(user)
@@ -488,6 +575,8 @@ def gather_project_context_endpoint(
             "uri": item.uri,
             "source": item.source,
             "hasInlineData": bool(item.data_url),
+            "textExtracted": bool(item.extracted_text),
+            "metadata": dict(item.metadata or {}),
         }
         for item in request.attachments
     ]
@@ -502,7 +591,11 @@ def gather_project_context_endpoint(
         (
             item.data_url
             for item in request.attachments
-            if item.kind == "image" and item.data_url
+            if (
+                item.kind == "image"
+                and item.data_url
+                and not bool((item.metadata or {}).get("derived_from_pdf"))
+            )
         ),
         None,
     )

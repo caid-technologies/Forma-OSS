@@ -288,7 +288,7 @@ export default function ProjectExportsPanel({
               <div
                 role="menu"
                 aria-label="Download CAD format"
-                className="absolute right-0 top-full z-30 mt-2 w-48 overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-xl"
+                className="absolute left-0 right-auto top-full z-30 mt-2 w-48 max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-[var(--forma-border)] bg-[var(--forma-surface)] py-1 shadow-xl sm:left-auto sm:right-0"
               >
                 <button
                   type="button"

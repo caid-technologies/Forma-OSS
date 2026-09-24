@@ -12,6 +12,7 @@ import {
 } from "../../lib/chat-project-layout";
 import styles from "./chat-project-layout.module.css";
 import { revisionId } from "../../lib/project-history";
+import { sharedProjectUrl } from "../../lib/project-share";
 import {
   ProjectHistoryProvider, ProjectHistoryButton, ProjectHistoryBody, ProjectVersionLabel, useProjectHistory,
   type ProjectHistoryConfig,
@@ -238,39 +239,69 @@ export function ChatProjectSurface({ title, children, leading, projectId, shareT
   );
 }
 
+/** Share only the displayed, persisted version; never fall back to a live link. */
 function ShareProjectButton({ projectId, title, isPrivate }: { projectId: string; title: string; isPrivate: boolean }) {
+  const history = useProjectHistory();
   const [copied, setCopied] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const id = history?.selection
+    ? history.selection.snapshot?.revision_id
+    : history?.config.latestRevisionId;
 
   const share = async () => {
-    const url = new URL(`/project/${encodeURIComponent(projectId)}`, window.location.origin).href;
-    if (navigator.share) {
-      try {
-        await navigator.share({ title, url });
-        return;
-      } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") return;
-        // Browsers may reject the share sheet; offer a link instead.
-      }
-    }
+    if (!history || !id || busy) return;
+    setBusy(true);
+    setError(null);
+    setCopied(false);
     try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 2500);
-    } catch {
-      window.prompt("Copy project link", url);
+      const response = await fetch(`${history.config.apiUrl}/projects/${encodeURIComponent(projectId)}/shared/${encodeURIComponent(id)}`, {
+        method: "POST", headers: await history.config.getHeaders(), cache: "no-store",
+      });
+      if (!response.ok) throw new Error("Could not create the share link. Please try again.");
+      const result = await response.json();
+      if (result.revision_id !== id || !/^[0-9a-f]{64}$/.test(result.token)) throw new Error("The share link could not be verified.");
+      const url = sharedProjectUrl(window.location.origin, projectId, id, result.token);
+      if (navigator.share) {
+        try {
+          await navigator.share({ title, url });
+          return;
+        } catch (reason) {
+          if (reason instanceof DOMException && reason.name === "AbortError") return;
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(url);
+        setCopied(true);
+      } catch {
+        window.prompt("Copy project link", url);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "Could not create the share link.");
+    } finally {
+      setBusy(false);
     }
   };
 
-  return <button
-    type="button"
-    className={styles.button}
-    onClick={() => { void share(); }}
-    aria-label={copied ? "Project link copied" : "Share project"}
-    title={isPrivate ? "Share link (only people with access can open this private project)" : "Share project link"}
-  >
-    {copied ? <Check className={styles.icon} /> : <Share2 className={styles.icon} />}
-    <span className={styles.buttonLabel}>{copied ? "Copied" : "Share"}</span>
-  </button>;
+  useEffect(() => {
+    setCopied(false);
+    setError(null);
+  }, [projectId, id]);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = window.setTimeout(() => setCopied(false), 2500);
+    return () => window.clearTimeout(timer);
+  }, [copied]);
+
+  return <>
+    <button type="button" className={styles.button} disabled={!id || busy}
+      onClick={() => { void share(); }} aria-label={copied ? "Project link copied" : "Share project"}
+      title={!id ? "A saved version is required to share" : `Anyone with the link can view this version${isPrivate ? " of this private project" : ""}. Chat stays private.`}>
+      {copied ? <Check className={styles.icon} /> : <Share2 className={styles.icon} />}
+      <span className={styles.buttonLabel}>{busy ? "Preparing…" : copied ? "Copied" : "Share"}</span>
+    </button>
+    {error && <span role="alert" className={styles.historyError}>{error}</span>}
+  </>;
 }
 
 /** References only: never mount project/CAD content inside a message. */

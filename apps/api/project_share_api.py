@@ -2,45 +2,54 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
-from uuid import UUID
+import re
+import secrets
+from datetime import datetime, timezone
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
 from pydantic import BaseModel
 
 from apps.api.auth import UserContext, require_user_context
 from apps.api.project_history_api import RevisionSnapshot, _cad_response, _owner, _revision, _snapshot
-from forma_core.config import config
-from forma_core.database import get_project_identity
+from forma_core.database import (
+    get_active_project_share, get_project_identity, insert_project_share,
+    list_project_shares, revoke_project_share,
+)
 from forma_core.workspaces.projects.state import ProjectRevision
 
 router = APIRouter(prefix="/projects/{project_id}/shared", tags=["project-sharing"])
 
 
-class ShareLink(BaseModel):
-    """A version-scoped capability; never grants access to chat or history."""
+class ShareRecord(BaseModel):
+    """Owner-visible link metadata; never includes the stored token hash."""
 
+    id: UUID
     revision_id: UUID
+    created_at: datetime
+    revoked_at: datetime | None = None
+
+
+class ShareLink(ShareRecord):
+    """The raw token is returned only when its link is created."""
+
     token: str
 
 
-def _signature(project_id: UUID, revision_id: UUID, owner: str) -> str:
-    """Sign one owner/project/revision tuple using a stable deployment key."""
-    secret = config.optional("FORMA_PROJECT_SHARE_SECRET") or ""
-    if len(secret.encode()) < 32:
-        raise HTTPException(status_code=503, detail="Project sharing is not configured.")
-    message = f"forma-project-share:v1:{owner}:{project_id}:{revision_id}"
-    return hmac.new(secret.encode(), message.encode(), hashlib.sha256).hexdigest()
+class SharePage(BaseModel):
+    items: list[ShareRecord]
+    next_offset: int | None
 
 
 def _shared_revision(project_id: UUID, revision_id: UUID, token: str | None) -> ProjectRevision:
     """Reject missing, altered, cross-version, and deleted-project capabilities."""
     identity = get_project_identity(str(project_id))
     owner = str((identity or {}).get("owner_user_id") or "")
-    if not identity or not owner or identity.get("status", "active") != "active" or not token:
+    if (not identity or not owner or identity.get("status", "active") != "active"
+            or not token or not re.fullmatch(r"[0-9a-f]{64}", token)):
         raise HTTPException(status_code=404, detail="Shared version unavailable.")
-    expected = _signature(project_id, revision_id, owner)
-    if not hmac.compare_digest(token.encode(), expected.encode()):
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    if get_active_project_share(str(project_id), owner, str(revision_id), token_hash) is None:
         raise HTTPException(status_code=404, detail="Shared version unavailable.")
     return _revision(project_id, revision_id, owner)
 
@@ -53,8 +62,44 @@ def create_share_link(
     """Only the owner may issue a link for an existing saved revision."""
     owner = _owner(project_id, user)
     _revision(project_id, revision_id, owner)
+    token = secrets.token_hex(32)
+    record = {
+        "id": str(uuid4()), "project_id": str(project_id), "revision_id": str(revision_id),
+        "owner_user_id": owner, "token_hash": hashlib.sha256(token.encode()).hexdigest(),
+        "created_at": datetime.now(timezone.utc).isoformat(), "revoked_at": None,
+    }
+    insert_project_share(record)
     response.headers["Cache-Control"] = "private, no-store"
-    return ShareLink(revision_id=revision_id, token=_signature(project_id, revision_id, owner))
+    return ShareLink(**record, token=token)
+
+
+@router.get("/{revision_id}/links", response_model=SharePage)
+def get_share_links(
+    project_id: UUID, revision_id: UUID, response: Response,
+    limit: int = Query(50, ge=1, le=100), offset: int = Query(0, ge=0),
+    user: UserContext = Depends(require_user_context),
+) -> SharePage:
+    """Let the owner manage links for this version, without exposing tokens."""
+    owner = _owner(project_id, user)
+    _revision(project_id, revision_id, owner)
+    records = list_project_shares(str(project_id), owner, str(revision_id), limit=limit + 1, offset=offset)
+    response.headers["Cache-Control"] = "private, no-store"
+    return SharePage(
+        items=[ShareRecord.model_validate(record, from_attributes=True) for record in records[:limit]],
+        next_offset=offset + limit if len(records) > limit else None,
+    )
+
+
+@router.delete("/{revision_id}/links/{share_id}", status_code=204)
+def revoke_share_link(
+    project_id: UUID, revision_id: UUID, share_id: UUID,
+    user: UserContext = Depends(require_user_context),
+) -> Response:
+    """Idempotently revoke one owned link; all other links remain valid."""
+    owner = _owner(project_id, user)
+    _revision(project_id, revision_id, owner)
+    revoke_project_share(str(project_id), owner, str(revision_id), str(share_id), datetime.now(timezone.utc).isoformat())
+    return Response(status_code=204, headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/{revision_id}", response_model=RevisionSnapshot)

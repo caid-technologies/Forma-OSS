@@ -18,6 +18,18 @@ export default function SharedProject({ projectId }: { projectId: string }) {
   }), []);
 
   useEffect(() => {
+    // Different links for the same revision change only the fragment. Browsers
+    // keep the document mounted, so reauthorize instead of keeping a stale view.
+    const reloadLink = () => setAttempt((value) => value + 1);
+    window.addEventListener("hashchange", reloadLink);
+    window.addEventListener("popstate", reloadLink);
+    return () => {
+      window.removeEventListener("hashchange", reloadLink);
+      window.removeEventListener("popstate", reloadLink);
+    };
+  }, []);
+
+  useEffect(() => {
     const controller = new AbortController();
     setSnapshot(null);
     setError(null);

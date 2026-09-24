@@ -4,7 +4,7 @@ import {
   createContext, useCallback, useContext, useEffect, useId, useMemo, useRef, useState,
   type CSSProperties, type ReactNode,
 } from "react";
-import { ArrowUpRight, Check, Layers, Maximize2, MessageSquare, Minimize2, Share2, X } from "lucide-react";
+import { ArrowUpRight, Layers, Maximize2, MessageSquare, Minimize2, X } from "lucide-react";
 import {
   CHAT_PROJECT_SPLIT_MIN_WIDTH, MAX_CHAT_FRACTION, MIN_CHAT_FRACTION,
   clampChatFraction, completedProjectReference, initialChatProjectLayout,
@@ -12,7 +12,7 @@ import {
 } from "../../lib/chat-project-layout";
 import styles from "./chat-project-layout.module.css";
 import { revisionId } from "../../lib/project-history";
-import { sharedProjectUrl } from "../../lib/project-share";
+import { ShareProjectButton } from "./project-share-button";
 import {
   ProjectHistoryProvider, ProjectHistoryButton, ProjectHistoryBody, ProjectVersionLabel, useProjectHistory,
   type ProjectHistoryConfig,
@@ -237,71 +237,6 @@ export function ChatProjectSurface({ title, children, leading, projectId, shareT
       <ProjectHistoryBody>{children}</ProjectHistoryBody>
     </div>
   );
-}
-
-/** Share only the displayed, persisted version; never fall back to a live link. */
-function ShareProjectButton({ projectId, title, isPrivate }: { projectId: string; title: string; isPrivate: boolean }) {
-  const history = useProjectHistory();
-  const [copied, setCopied] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const id = history?.selection
-    ? history.selection.snapshot?.revision_id
-    : history?.config.latestRevisionId;
-
-  const share = async () => {
-    if (!history || !id || busy) return;
-    setBusy(true);
-    setError(null);
-    setCopied(false);
-    try {
-      const response = await fetch(`${history.config.apiUrl}/projects/${encodeURIComponent(projectId)}/shared/${encodeURIComponent(id)}`, {
-        method: "POST", headers: await history.config.getHeaders(), cache: "no-store",
-      });
-      if (!response.ok) throw new Error("Could not create the share link. Please try again.");
-      const result = await response.json();
-      if (result.revision_id !== id || !/^[0-9a-f]{64}$/.test(result.token)) throw new Error("The share link could not be verified.");
-      const url = sharedProjectUrl(window.location.origin, projectId, id, result.token);
-      if (navigator.share) {
-        try {
-          await navigator.share({ title, url });
-          return;
-        } catch (reason) {
-          if (reason instanceof DOMException && reason.name === "AbortError") return;
-        }
-      }
-      try {
-        await navigator.clipboard.writeText(url);
-        setCopied(true);
-      } catch {
-        window.prompt("Copy project link", url);
-      }
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not create the share link.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  useEffect(() => {
-    setCopied(false);
-    setError(null);
-  }, [projectId, id]);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = window.setTimeout(() => setCopied(false), 2500);
-    return () => window.clearTimeout(timer);
-  }, [copied]);
-
-  return <>
-    <button type="button" className={styles.button} disabled={!id || busy}
-      onClick={() => { void share(); }} aria-label={copied ? "Project link copied" : "Share project"}
-      title={!id ? "A saved version is required to share" : `Anyone with the link can view this version${isPrivate ? " of this private project" : ""}. Chat stays private.`}>
-      {copied ? <Check className={styles.icon} /> : <Share2 className={styles.icon} />}
-      <span className={styles.buttonLabel}>{busy ? "Preparing…" : copied ? "Copied" : "Share"}</span>
-    </button>
-    {error && <span role="alert" className={styles.historyError}>{error}</span>}
-  </>;
 }
 
 /** References only: never mount project/CAD content inside a message. */

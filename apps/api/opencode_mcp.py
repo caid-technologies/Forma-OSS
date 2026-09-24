@@ -13,6 +13,7 @@ from apps.api.auth import UserContext
 from apps.api.opencode_images import ImageToolError, generate_project_image, image_metadata_for_agent, is_image_metadata
 from forma_core.workspaces.projects.cad_generation import CadGenerationError, ensure_native_cad_model
 from forma_core.debug import new_error_correlation_id
+from forma_core.opencode.architecture import ArchitectureContinuityError, reconcile_architecture
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import (
     McpJsonRpcRequest,
@@ -69,7 +70,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
         },
         {
             "name": "forma.opencode.update_project",
-            "description": "Validate and persist a revision. Follow this schema and correct field errors before retrying. A saved draft is not a produced design; report project_readiness and validation, not HTTP success.",
+            "description": "Validate and persist a revision. Include system_architecture with stable IDs and updated interfaces for topology changes; omitted or null hierarchy preserves the saved tree. Follow this schema and correct field errors before retrying. A saved draft is not a produced design; report project_readiness and validation, not HTTP success.",
             "inputSchema": authoring_schema,
         },
         {
@@ -137,6 +138,9 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
         errors = tuple(AuthoringFieldError(path=("project_ir", *[part if isinstance(part, int) or part in fields else "<key>" for part in error["loc"]]), type=error["type"])
                        for error in exc.errors(include_input=False, include_context=False, include_url=False))
         result = AuthoringToolError(errors=errors).model_dump(mode="json")
+        return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
+    except ArchitectureContinuityError as exc:
+        result = {"code": "invalid_system_architecture", "message": str(exc)}
         return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
     except CadGenerationError:
         result = {"code": "cad_generation_failed", "message": "STEP generation or artifact storage failed. The previous saved project is unchanged. Retry the CAD compile after checking the backend CAD runtime and storage; do not report STEP files as delivered."}
@@ -218,6 +222,7 @@ def _compile(project: HardwareIR, project_id: str, user_context: UserContext) ->
         if exc.code != "project_revision_not_found":
             raise
         previous = None
+    reconcile_architecture(project, previous.state if previous else None)
     if previous is not None and isinstance(previous.state.assembly_metadata, dict):
         metadata.update({key: value for key, value in previous.state.assembly_metadata.items() if is_image_metadata(key)})
     metadata.update({"project_id": project_id, "authoring_agent": "opencode"})

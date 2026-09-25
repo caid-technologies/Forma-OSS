@@ -1,4 +1,4 @@
-# OpenClaw, NemoClaw, and OpenCode
+# OpenClaw, NemoClaw, OpenCode, and Grok
 
 Forma supports these clients through two portable surfaces:
 
@@ -131,6 +131,24 @@ Verify it with:
 
 ```bash
 opencode mcp list
+```
+
+## Grok Bot and Grok Build
+
+Install **Forma Hardware** from the Cursor Marketplace to make the shared skill
+available in Grok Bot. Grok Build can load the same plugin or use the skill from
+an enabled marketplace source. The plugin does not embed an endpoint or
+credential.
+
+Grok Bot works on a cloud computer. Run Forma on that computer for the default
+`http://127.0.0.1:8000/mcp` endpoint, or set `FORMA_MCP_URL` to a reviewed HTTPS
+deployment and provide `FORMA_AUTH_TOKEN` through a secure secret handoff. Do
+not expose a workstation loopback port through a public tunnel.
+
+When using the bundled client, attribute compilation to Grok:
+
+```bash
+python .agents/skills/forma-hardware/scripts/forma.py compile project.json --authoring-agent grok --output compiled.json --update-project
 ```
 
 ## Protected cloud deployments

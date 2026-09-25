@@ -33,7 +33,9 @@ Mechanical design and motion previews:
 - **Electronics with the details attached.** Generate a bill of materials, interactive wiring diagrams, and assembly instructions. Rule-based checks flag shorts, voltage mismatches, pin conflicts, and other electrical issues.
 - **Designs you can keep refining.** Use follow-up instructions to change geometry, dimensions, placement, and requirements within an existing project.
 - **Mechanisms you can inspect.** Play, pause, and scrub supported joint-driven motion previews, including the [two meshing gears example](docs/gear-motion-preview.md).
-- **Hardware workflows for your agents.** Use Forma through the web app, Python package, CLI, or MCP. The shared skill works with OpenCode, Claude Code, Codex, OpenClaw, and NemoClaw.
+- **Hardware workflows for your agents.** Use Forma through the web app, Python package, CLI, or MCP. The shared skill works with OpenCode, Grok Bot, Grok Build, Claude Code, Codex, OpenClaw, and NemoClaw.
+
+For Grok Bot and Grok Build marketplace setup, see the [agent client guide](docs/agent-clients.md#grok-bot-and-grok-build).
 
 Forma is an **alpha research prototype** for makers and developers. Electrical validation focuses on 3.3–5 V educational projects; CAD and motion previews still need engineering review before fabrication. See [scope and validation](docs/validation.md).
 

@@ -219,7 +219,7 @@ def build_parser() -> argparse.ArgumentParser:
     compile_parser.add_argument(
         "--authoring-agent",
         required=True,
-        choices=("openclaw", "opencode", "nemoclaw", "claude", "codex", "other"),
+        choices=("openclaw", "opencode", "nemoclaw", "grok", "claude", "codex", "other"),
     )
     compile_parser.add_argument(
         "--update-project",

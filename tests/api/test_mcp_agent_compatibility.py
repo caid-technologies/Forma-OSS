@@ -107,6 +107,7 @@ class McpAgentCompatibilityTests(unittest.IsolatedAsyncioTestCase):
         compiler = next(tool for tool in tools if tool["name"] == "forma.compile_project")
         authoring_agents = compiler["inputSchema"]["properties"]["authoring_agent"]["enum"]
         self.assertIn("nemoclaw", authoring_agents)
+        self.assertIn("grok", authoring_agents)
 
     async def test_compile_project_persists_public_project_and_returns_identity(self) -> None:
         with patch("apps.api.a2a.get_project_identity", return_value=None), patch(

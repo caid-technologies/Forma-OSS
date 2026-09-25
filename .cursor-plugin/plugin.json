@@ -1,0 +1,24 @@
+{
+  "name": "forma-hardware",
+  "displayName": "Forma Hardware",
+  "version": "0.3.5",
+  "description": "Design, compile, validate, and render safe low-voltage hardware projects with Forma.",
+  "author": {
+    "name": "CAID TECHNOLOGIES, INC.",
+    "email": "team@caid-technologies.com"
+  },
+  "homepage": "https://caid-technologies.us",
+  "repository": "https://github.com/caid-technologies/Forma-OSS",
+  "license": "MPL-2.0",
+  "keywords": [
+    "hardware",
+    "electronics",
+    "eda",
+    "cad",
+    "validation"
+  ],
+  "logo": "apps/web/app/icon.png",
+  "skills": [
+    ".agents/skills/forma-hardware"
+  ]
+}

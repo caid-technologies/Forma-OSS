@@ -1,6 +1,6 @@
 ---
 name: forma-hardware
-description: Compile, validate, inspect, or generate safe low-voltage maker-electronics projects with Forma. Use for Hardware IR, BOMs, wiring, schematics, mechanical notes, and build instructions in OpenClaw, NemoClaw, OpenCode, Claude Code, or Codex.
+description: Compile, validate, inspect, or generate safe low-voltage maker-electronics projects with Forma. Use for Hardware IR, BOMs, wiring, schematics, mechanical notes, and build instructions in OpenClaw, NemoClaw, OpenCode, Grok Bot, Grok Build, Claude Code, or Codex.
 ---
 
 # Forma Hardware
@@ -42,12 +42,13 @@ It reads `FORMA_MCP_URL`, defaulting to `http://127.0.0.1:8000/mcp`, and optiona
 1. Keep the project within safe low-voltage educational or maker scope. Decline weapons, critical medical or life-support devices, mains AC, automotive control, and unsafe high-power battery requests.
 2. Read [references/hardware-ir.md](references/hardware-ir.md), then author complete Hardware IR from the brief. Preserve stated power, dimensions, budget, environment, interfaces, and part preferences. Do not invent verified supplier availability or physical clearances.
 3. Save the IR as `$PROJECT_DIR/forma-project.json`.
-4. Call `forma.compile_project` with `project_ir` and the correct `authoring_agent` (`openclaw`, `nemoclaw`, `opencode`, `claude`, or `codex`). With the bundled client:
+4. Call `forma.compile_project` with `project_ir` and the correct `authoring_agent` (`openclaw`, `nemoclaw`, `opencode`, `grok`, `claude`, or `codex`). With the bundled client:
 
 ```bash
 python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent openclaw --output "$PROJECT_DIR/compiled-project.json" --update-project
 python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent nemoclaw --output "$PROJECT_DIR/compiled-project.json" --update-project
 python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent opencode --output "$PROJECT_DIR/compiled-project.json" --update-project
+python <skill-directory>/scripts/forma.py compile "$PROJECT_DIR/forma-project.json" --authoring-agent grok --output "$PROJECT_DIR/compiled-project.json" --update-project
 ```
 
 When using the bundled client, add `--update-project` so the canonical local

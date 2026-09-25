@@ -2030,7 +2030,7 @@ def _mcp_tools() -> List[Dict[str, Any]]:
                     },
                     "authoring_agent": {
                         "type": "string",
-                        "enum": ["openclaw", "opencode", "nemoclaw", "claude", "codex", "other"],
+                        "enum": ["openclaw", "opencode", "nemoclaw", "grok", "claude", "codex", "other"],
                         "default": "other",
                     },
                     "prompt": {

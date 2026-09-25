@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import os
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SKILL_ROOT = REPO_ROOT / ".agents" / "skills" / "forma-hardware"
+PLUGIN_MANIFEST = REPO_ROOT / ".cursor-plugin" / "plugin.json"
 
 
 class AgentSkillCompatibilityTests(unittest.TestCase):
@@ -23,6 +25,15 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
         self.assertIn("OpenClaw", content)
         self.assertIn("NemoClaw", content)
         self.assertIn("OpenCode", content)
+        self.assertIn("Grok Bot", content)
+
+    def test_cursor_marketplace_manifest_exposes_shared_skill(self) -> None:
+        manifest = json.loads(PLUGIN_MANIFEST.read_text(encoding="utf-8"))
+
+        self.assertEqual("forma-hardware", manifest["name"])
+        self.assertEqual([".agents/skills/forma-hardware"], manifest["skills"])
+        self.assertTrue((REPO_ROOT / manifest["skills"][0] / "SKILL.md").is_file())
+        self.assertTrue((REPO_ROOT / manifest["logo"]).is_file())
 
     def test_bundled_client_accepts_options_after_subcommand(self) -> None:
         script = SKILL_ROOT / "scripts" / "forma.py"
@@ -44,6 +55,11 @@ class AgentSkillCompatibilityTests(unittest.TestCase):
 
         self.assertEqual("nemoclaw", args.authoring_agent)
         self.assertEqual("compiled.json", args.output)
+
+        grok_args = module.build_parser().parse_args(
+            ["compile", "project.json", "--authoring-agent", "grok"]
+        )
+        self.assertEqual("grok", grok_args.authoring_agent)
 
     def test_project_allocator_uses_a_generated_uuid_under_the_workspace(self) -> None:
         script = SKILL_ROOT / "scripts" / "create_project.py"

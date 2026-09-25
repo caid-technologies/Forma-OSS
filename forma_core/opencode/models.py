@@ -65,6 +65,28 @@ class ProjectValidation(BaseModel):
     issues: tuple[ValidationIssue, ...] = ()
 
 
+class SanitizedFailureDiagnostic(BaseModel):
+    """Bounded mini-PC failure metadata. Raw provider/OpenCode content is forbidden."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    category: Literal[
+        "provider_authentication",
+        "model_unavailable",
+        "rate_limit",
+        "provider_timeout",
+        "opencode_request_stream_failure",
+        "connector_cloud_connectivity",
+        "cancellation",
+        "unknown",
+    ]
+    code: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
+    phase: Literal["preparing", "authoring", "compiling", "validating", "finalizing"]
+    retryable: bool
+    provider: str | None = Field(default=None, max_length=80, pattern=r"^[A-Za-z0-9_.-]+$")
+    model: str | None = Field(default=None, max_length=160, pattern=r"^[A-Za-z0-9_./:-]+$")
+
+
 class PublicError(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -90,6 +112,7 @@ class PublicEvent(BaseModel):
     artifact_ids: tuple[str, ...] = ()
     design_outcome: DesignOutcome | None = None
     error: PublicError | None = None
+    diagnostic: SanitizedFailureDiagnostic | None = None
     created_at: datetime
 
 
@@ -146,6 +169,32 @@ class ProjectHistoryResponse(BaseModel):
 
     project_id: UUID
     messages: tuple[ProjectHistoryMessage, ...]
+
+
+class OperatorFailureDiagnostic(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    timestamp: datetime
+    connector_id: str
+    session_id: str
+    command_id: str
+    correlation_id: str
+    category: str
+    code: str
+    phase: str
+    retryable: bool
+    provider: str | None = None
+    model: str | None = None
+
+
+class SessionDiagnosticsResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    connector_id: str
+    session_id: str
+    project_id: UUID
+    last_successful_poll_at: datetime | None = None
+    latest_failure: OperatorFailureDiagnostic | None = None
 
 
 class CommandResponse(BaseModel):
@@ -226,6 +275,7 @@ class ConnectorEventInput(BaseModel):
     error_code: str | None = Field(default=None, max_length=80)
     error_message: str | None = Field(default=None, max_length=300)
     correlation_id: str | None = Field(default=None, max_length=100)
+    diagnostic: SanitizedFailureDiagnostic | None = None
 
 
 class ConnectorHeartbeat(BaseModel):

@@ -369,6 +369,7 @@ Open:
 Tip: load an example directly with http://localhost:3000/?example=pocket_mp3_player (or any JSON under `apps/web/public/examples/`).
 
 ## Documentation
+- [Professional CAD export: SOLIDWORKS, Onshape, and Fusion 360](docs/professional-cad-export.md)
 - [Architecture](docs/architecture.md)
 - [DesignBrief contract](docs/design-brief.md)
 - [Worker contracts and capability registry](docs/worker-contracts.md)

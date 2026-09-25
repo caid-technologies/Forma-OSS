@@ -267,6 +267,9 @@ def build_parser() -> argparse.ArgumentParser:
     namespaces.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     namespaces.set_defaults(func=cmd_namespaces)
 
+    from forma_core.cad_export.cli import register_parser as register_cad_export
+    register_cad_export(subparsers)
+
     generate = subparsers.add_parser("generate", help="Generate a HardwareIR directly through Forma Core.")
     generate.add_argument("prompt", help="Hardware idea to generate.")
     generate.add_argument("--workflow", default="default", choices=("default", "web_research"))

@@ -10,7 +10,7 @@ This is in **alpha** and **research-based** stage focused on **low-voltage maker
 
 | Hexapod walking layout | Screw-driven arm motion | Robotic 3D printer |
 | --- | --- | --- |
-| ![Top view of a six-legged hexapod walking layout](docs/assets/hexapod-walk-top.png) | ![Animation of a screw-driven robotic arm approaching a part](docs/assets/screw-arm-drive.gif) | ![Robotic 3D printer arm positioned over a print bed](docs/assets/3d-printer-bot.png) |
+| ![Top view of a six-legged hexapod walking layout](docs/assets/hexapod-walk-top.gif) | ![Animation of a screw-driven robotic arm approaching a part](docs/assets/screw-arm-drive.gif) | ![Robotic 3D printer arm positioned over a print bed](docs/assets/print-arm-print.gif) |
 
 ## What you can do
 - Compile a hardware idea into structured **hardware plan**

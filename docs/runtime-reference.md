@@ -413,7 +413,7 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `FORMA_HOSTED_LATEST_VERSION`: Hosted package version advertised by `/forma/version` (defaults to the installed core version).
 - `FORMA_HOSTED_MINIMUM_SUPPORTED_VERSION`: Oldest package version accepted by hosted CLI requests (defaults to the installed core version).
 - `FORMA_HOSTED_PROTOCOL_VERSION`: Hosted CLI/API protocol version (default: `1`).
-- `FORMA_SUPPORTED_HARDWARE_IR_VERSIONS`: Comma-separated Hardware IR schemas accepted by hosted uploads (default: `0.2`).
+- `FORMA_SUPPORTED_HARDWARE_IR_VERSIONS`: Comma-separated Hardware Intermediate Representation schemas accepted by hosted uploads (default: `0.2`).
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `forma`.
 - `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.

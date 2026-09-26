@@ -4915,7 +4915,7 @@ export function FormaWorkspace({
       if (signal?.aborted) return false;
 
       if (!data?.project_ir || typeof data.project_ir !== "object" || !Array.isArray(data.project_ir.components)) {
-        throw new Error("OpenCode finished, but the project response contains no usable Hardware IR. Try opening the saved project again.");
+        throw new Error("OpenCode finished, but the project response contains no usable Hardware Intermediate Representation. Try opening the saved project again.");
       }
 
       const ir = withProjectResponseMetadata(data.project_ir, data);

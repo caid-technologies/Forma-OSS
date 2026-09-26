@@ -15,7 +15,7 @@ For detailed CLI commands and runtime settings, see the
 ## OpenCode local setup
 
 Forma can run entirely locally while OpenCode supplies the model and authors
-the Hardware IR. Local generation, validation, rendering, and project status do
+the Hardware Intermediate Representation. Local generation, validation, rendering, and project status do
 not require a Forma account. The account is only needed when a project is
 uploaded to Forma Cloud.
 

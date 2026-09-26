@@ -48,7 +48,7 @@ class PartDefinition(BaseModel):
     unit_price: float = Field(0.0, ge=0.0, description="Selected estimated unit price in USD")
 
 # ==========================================
-# 2. Project-Level Hardware IR (Shared State)
+# 2. Project-Level Hardware Intermediate Representation (Shared State)
 # ==========================================
 
 class ProjectOverview(BaseModel):
@@ -80,7 +80,7 @@ class ComponentInstance(BaseModel):
     configuration: Dict[str, Any] = Field(default_factory=dict, description="Instance-specific configuration only")
 
     # Transitional runtime fields. They are deliberately excluded from serialized
-    # Hardware IR; HardwareIR hydrates them from the referenced PartDefinition.
+    # Hardware Intermediate Representation; HardwareIR hydrates them from the referenced PartDefinition.
     part_number: str = Field("", exclude=True, repr=False)
     name: str = Field("", exclude=True, repr=False)
     category: str = Field("", exclude=True, repr=False)

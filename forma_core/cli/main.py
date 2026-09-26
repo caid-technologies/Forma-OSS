@@ -304,6 +304,9 @@ def build_parser() -> argparse.ArgumentParser:
     _add_runtime_selector_arguments(iterate)
     iterate.set_defaults(func=cmd_iterate)
 
+    from forma_core.cad_migrations.cli import register_parser as register_cad_migrations
+    register_cad_migrations(subparsers)
+
     return parser
 
 

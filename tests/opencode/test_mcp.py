@@ -21,7 +21,7 @@ from forma_core.opencode.models import (
     McpToolCallParams,
     McpToolsListParams,
 )
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from tests.opencode.test_outcomes import wired_project
 
 
@@ -52,7 +52,7 @@ class OpenCodeMcpModelTests(unittest.TestCase):
                 argument = schema["properties"]["project_ir"]
                 self.assertEqual("string", argument["type"])
                 guidance = json.loads(argument["description"].split("JSON Schema: ", 1)[1])
-                self.assertEqual(HardwareIR.model_json_schema(), guidance)
+                self.assertEqual(HardwareIntermediateRepresentation.model_json_schema(), guidance)
                 self.assertIn("pin_type", guidance["$defs"]["PinDefinition"]["required"])
 
                 def check(value):
@@ -416,7 +416,7 @@ class OpenCodeMcpHttpTests(unittest.TestCase):
         project_ir["system_architecture"] = {"summary": "Nested systems", "root": node}
         project_ir["assembly_metadata"] = {"custom": {"values": [None, True, 1.5, "µm"]}}
         project_ir["cad_model"] = {"custom_payload": [False, {"mesh": []}]}
-        expected = HardwareIR.model_validate(project_ir)
+        expected = HardwareIntermediateRepresentation.model_validate(project_ir)
 
         for operation in ("validate", "update", "compile"):
             with self.subTest(operation=operation), \

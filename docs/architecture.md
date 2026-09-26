@@ -21,7 +21,7 @@ Regular generation does **not** create subsystem visuals, wait on a visual appro
 
 ### Progressive (explicit opt-in)
 
-Progressive generation uses the same `HardwareIR`, `SystemArchitecture`, and agent primitives, but adds a durable cost-aware design lifecycle:
+Progressive generation uses the same `HardwareIntermediateRepresentation`, `SystemArchitecture`, and agent primitives, but adds a durable cost-aware design lifecycle:
 
 ```text
 User intent

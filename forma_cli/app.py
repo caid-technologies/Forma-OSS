@@ -1000,7 +1000,7 @@ def build_parser() -> argparse.ArgumentParser:
     build.set_defaults(func=cmd_build)
     imported = subparsers.add_parser(
         "import",
-        help="Import an existing generated HardwareIR project and its native CAD artifacts.",
+        help="Import an existing generated HardwareIntermediateRepresentation project and its native CAD artifacts.",
     )
     imported.add_argument("source", help="Existing forma-project.json or its containing directory.")
     imported.add_argument("--path", default=None, help="Destination project directory; defaults to the source directory.")

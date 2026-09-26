@@ -38,6 +38,8 @@ from forma_core.opencode.models import (
     McpJsonRpcRequest,
     ValidationSummary,
 )
+from forma_core.opencode.architecture import architecture_turn_context
+from forma_core.workspaces.projects.state import ProjectStateError
 from forma_core.opencode.public_events import project_public_event
 from forma_core.opencode.store import CommandConflictError, OpenCodeStore, StoredCommand, StoredSession
 from forma_core.database import get_project_identity, get_latest_project_revision
@@ -235,6 +237,18 @@ def poll_opencode_command(
     command = OPENCODE_STORE.claim_next(connector_id=session.connector_id, session_id=session.session_id, lease_seconds=configured_lease_seconds)
     if command is None:
         return Response(status_code=status.HTTP_204_NO_CONTENT)
+    if command.message is not None:
+        try:
+            revision = get_latest_project_revision(session.project_id, session.owner_user_id)
+        except ProjectStateError as exc:
+            if exc.code != "project_revision_not_found":
+                raise
+            revision = None
+        command = command.model_copy(update={"message": architecture_turn_context(
+            command.message,
+            revision.state if revision else None,
+            str(revision.revision_id) if revision else None,
+        )})
     return command
 
 

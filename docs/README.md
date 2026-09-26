@@ -15,7 +15,7 @@
 ## Understand the system
 
 - [Architecture](architecture.md)
-- [Hardware IR](hardware-ir.md)
+- [Hardware Intermediate Representation](hardware-ir.md)
 - [Agents](agents.md)
 - [Validation](validation.md)
 - [Database](database.md)

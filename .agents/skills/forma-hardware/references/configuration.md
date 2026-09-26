@@ -27,7 +27,7 @@ On Windows PowerShell, run the native equivalent:
 ```
 
 The launcher honors explicit environment overrides. OpenCode (or another host
-agent) supplies the model that authors Hardware IR; `forma.compile_project`
+agent) supplies the model that authors Hardware Intermediate Representation; `forma.compile_project`
 then performs deterministic validation, rendering, and persistence. The
 launcher does not set `LLM_PROVIDER` or `LLM_MODEL`. To run only the backend
 manually, set a server-only key:

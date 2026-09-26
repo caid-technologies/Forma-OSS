@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a product image from a Forma HardwareIntermediateRepresentation and show it in the terminal."""
+"""Generate a product image from a Forma Hardware Intermediate Representation and show it in the terminal."""
 
 from __future__ import annotations
 

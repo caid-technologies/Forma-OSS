@@ -624,7 +624,7 @@ DEFAULT_AGENT_PIPELINE_STEPS = [
         id="package_project",
         agent="Project Packager",
         label="Packaging project artifacts",
-        description="Building the HardwareIntermediateRepresentation, diagrams, validation summary, and saved project record.",
+        description="Building the Hardware Intermediate Representation, diagrams, validation summary, and saved project record.",
         duration_ms=3500,
     ),
 ]
@@ -713,7 +713,7 @@ WEB_RESEARCH_AGENT_PIPELINE_STEPS = [
         id="package_project",
         agent="Project Packager",
         label="Packaging project artifacts",
-        description="Building the HardwareIntermediateRepresentation, diagrams, validation summary, and saved project record.",
+        description="Building the Hardware Intermediate Representation, diagrams, validation summary, and saved project record.",
         duration_ms=3500,
     ),
 ]

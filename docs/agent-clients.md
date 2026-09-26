@@ -26,9 +26,9 @@ FORMA_AUTH_MODE=local uvicorn apps.api.main:app --port 8000
 
 ## Restricted OpenCode authoring results
 
-The session-scoped `/opencode/mcp` tools publish the actual HardwareIR input
+The session-scoped `/opencode/mcp` tools publish the actual HardwareIntermediateRepresentation input
 schema, with references resolved from `$defs` at the tool schema root. Invalid
-HardwareIR returns an MCP tool result with `isError: true` and structured code
+HardwareIntermediateRepresentation returns an MCP tool result with `isError: true` and structured code
 `hardware_ir_invalid` after capability authorization. Each diagnostic contains
 only a field `path` and error `type`, not input values or validator messages.
 For example, a missing pin type reports

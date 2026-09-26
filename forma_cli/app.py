@@ -80,7 +80,7 @@ def cmd_version(args: argparse.Namespace) -> int:
         print(f"Latest:         {payload['latest_version'] or 'unavailable'}")
         print(f"Minimum:        {payload['minimum_supported_version'] or 'unavailable'}")
         print(f"Protocol:       {payload['protocol_version'] or 'unavailable'}")
-        print(f"Hardware IR:    {payload['hardware_ir_version'] or 'unavailable'}")
+        print(f"Hardware Intermediate Representation:    {payload['hardware_ir_version'] or 'unavailable'}")
         print(f"Status:         {payload['status']}")
         if result.status == CompatibilityStatus.UPDATE_AVAILABLE:
             print(f"Upgrade:        {result.upgrade_command}")

@@ -116,6 +116,7 @@ With the local agent workflow, your host agent supplies the model and Forma perf
 | Connect my own agent | [Agent integrations](docs/agent-clients.md) · [Model and image configuration](docs/opencode-models-and-images.md) |
 | Understand the project format | [Hardware Intermediate Representation](docs/hardware-ir.md) · [Architecture](docs/architecture.md) |
 | Explore examples and motion | [Examples](docs/examples.md) · [Gear motion preview](docs/gear-motion-preview.md) |
+| Reconstruct CAD history in Onshape, NX, or Fusion | [AI-assisted CAD migrations](docs/ai-cad-migrations.md) |
 | Contribute or evaluate results | [Contributing](CONTRIBUTING.md) · [Development](docs/development.md) · [Evaluations](evals/README.md) |
 
 [All documentation](docs/README.md) · [Roadmap](docs/roadmap.md) · [Report a bug](https://github.com/caid-technologies/Forma-OSS/issues/new/choose)

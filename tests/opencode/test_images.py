@@ -13,7 +13,7 @@ from apps.api.auth import UserContext
 from forma_core.image_providers import GeneratedImage, GMIImageProvider, OpenAIImageProvider, build_image_provider
 from forma_core.opencode.capabilities import ConnectorCapability
 from forma_core.opencode.models import GenerateImageArguments, McpJsonRpcRequest
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 
 
 class ImageToolTests(unittest.TestCase):
@@ -21,8 +21,8 @@ class ImageToolTests(unittest.TestCase):
         self.project_id = str(uuid4())
         self.cap = ConnectorCapability("mini", "session", self.project_id, "owner", 2_000_000_000, "nonce", frozenset({"mcp"}))
         self.args = GenerateImageArguments(prompt="A concept render of the bracket", request_id="image-1")
-        self.source = SimpleNamespace(revision_id="before", state=HardwareIR(assembly_metadata={"source_prompt": "Build a bracket"}))
-        self.current = SimpleNamespace(revision_id="latest", state=HardwareIR(assembly_metadata={"newer_edit": "preserved", "product_visual_sequence": [{"data": "old image"}]}))
+        self.source = SimpleNamespace(revision_id="before", state=HardwareIntermediateRepresentation(assembly_metadata={"source_prompt": "Build a bracket"}))
+        self.current = SimpleNamespace(revision_id="latest", state=HardwareIntermediateRepresentation(assembly_metadata={"newer_edit": "preserved", "product_visual_sequence": [{"data": "old image"}]}))
         self.saved = None
         self.latest = self.enterContext(patch("apps.api.opencode_images.get_latest_project_revision", side_effect=lambda *_: self.source if self.latest.call_count == 1 else self.current))
         self.lookup = self.enterContext(patch("apps.api.opencode_images.get_project_revision_by_source_job", side_effect=lambda *_: self.saved))
@@ -104,7 +104,7 @@ class ImageToolTests(unittest.TestCase):
     def test_followup_ir_edit_preserves_image_without_sending_image_bytes_to_agent(self):
         generate_project_image(self.args, self.cap)
         user = UserContext(provider="test", subject="owner", owner_user_id="owner", is_authenticated=True, is_admin=False)
-        edited = HardwareIR(assembly_metadata={"product_image_model": "forged"})
+        edited = HardwareIntermediateRepresentation(assembly_metadata={"product_image_model": "forged"})
         with patch("apps.api.opencode_mcp.get_latest_project_revision", return_value=self.saved), patch("apps.api.opencode_mcp.get_project_revision_by_source_job", return_value=None), patch("apps.api.opencode_mcp.ensure_native_cad_model"), patch("apps.api.opencode_mcp._persist_mcp_compile"):
             result = _compile(edited, self.project_id, user)
         self.assertIn("product_image_data", edited.assembly_metadata)

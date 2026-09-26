@@ -163,6 +163,7 @@ class HierarchicalCadTests(unittest.TestCase):
             side_effect=fake_run(order),
         ):
             self.assertTrue(ensure_native_cad_model(ir, project_id=None, required=False))
+            self.assertTrue(Path(ir.cad_model["assembly_tree_path"]).is_file())
 
         self.assertEqual("U1.py", order[0])
         self.assertEqual("assembly.py", order[1])
@@ -170,7 +171,6 @@ class HierarchicalCadTests(unittest.TestCase):
         self.assertEqual("component-cad-then-assembly", ir.cad_model["authoring_mode"])
         self.assertEqual("product", ir.cad_model["assembly_tree"]["id"])
         self.assertEqual(1, ir.cad_model["assembly_snapshot_version"])
-        self.assertTrue(Path(ir.cad_model["assembly_tree_path"]).is_file())
         self.assertEqual(1, len(ir.cad_model["component_artifact_ids"]))
         self.assertTrue(ir.cad_model["assembly_artifact_id"])
 

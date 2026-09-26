@@ -254,7 +254,7 @@ Public APIs should use explicit input and return types.
 Example:
 
 ```python
-def validate_project(project: HardwareIR) -> list[ValidationIssue]:
+def validate_project(project: HardwareIntermediateRepresentation) -> list[ValidationIssue]:
     """Validate a hardware project and return discovered safety issues."""
 ```
 

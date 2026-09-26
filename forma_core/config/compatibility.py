@@ -65,7 +65,7 @@ class CompatibilityResult(BaseModel):
         }
 
 
-class UnsupportedHardwareIRVersion(ValueError):
+class UnsupportedHardwareIntermediateRepresentationVersion(ValueError):
     """Raised when a serialized Hardware Intermediate Representation document uses an unsupported schema."""
 
     def __init__(self, version: str) -> None:
@@ -229,7 +229,7 @@ def ensure_supported_hardware_ir_version(
     version = hardware_ir_version_from_document(document)
     supported = set(supported_versions or SUPPORTED_HARDWARE_IR_VERSIONS)
     if version is not None and version not in supported:
-        raise UnsupportedHardwareIRVersion(version)
+        raise UnsupportedHardwareIntermediateRepresentationVersion(version)
 
 
 def unavailable_result(client_version: str) -> CompatibilityResult:
@@ -267,7 +267,7 @@ __all__ = [
     "CompatibilityStatus",
     "SUPPORTED_HARDWARE_IR_VERSIONS",
     "UPGRADE_COMMAND",
-    "UnsupportedHardwareIRVersion",
+    "UnsupportedHardwareIntermediateRepresentationVersion",
     "compatibility_error_detail",
     "compare_versions",
     "ensure_supported_hardware_ir_version",

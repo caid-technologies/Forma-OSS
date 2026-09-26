@@ -25,7 +25,7 @@ from forma_core.opencode.models import (
 )
 from forma_core.database import get_latest_project_revision, get_project_revision_by_source_job
 from forma_core.validation import build_validation_summary, validate_circuit
-from forma_core.workspaces.projects.models import HardwareIR
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation
 from forma_core.workspaces.projects.outcomes import evaluate_design_outcome
 from forma_core.utils import generate_mermaid_chart, generate_svg_schematic
 
@@ -37,7 +37,7 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
     """Return only project authoring tools, never the broad Forma MCP registry."""
     # OpenCode's Vertex adapter drops $ref/$defs, leaving untyped parameters
     # that reject the entire request, even when it only needs the image tool.
-    # HardwareIR has recursive and arbitrary JSON fields, so flattening its
+    # HardwareIntermediateRepresentation has recursive and arbitrary JSON fields, so flattening its
     # schema would narrow the contract. Carry it as JSON text instead, retain
     # the full schema as authoring guidance, and validate after authorization.
     authoring_schema = {
@@ -46,10 +46,10 @@ def opencode_mcp_tools() -> list[dict[str, object]]:
             "project_ir": {
                 "type": "string",
                 "description": (
-                    "The complete HardwareIR object serialized as a JSON string, "
+                    "The complete HardwareIntermediateRepresentation object serialized as a JSON string, "
                     "without Markdown fences. The decoded object must follow "
                     "this JSON Schema: "
-                    + json.dumps(HardwareIR.model_json_schema(), separators=(",", ":"))
+                    + json.dumps(HardwareIntermediateRepresentation.model_json_schema(), separators=(",", ":"))
                 ),
             },
         },
@@ -130,7 +130,7 @@ async def _handle_request(request: McpJsonRpcRequest, capability: ConnectorCapab
         return _result(request_id, {"isError": True, "content": [{"type": "text", "text": json.dumps(result)}], "structuredContent": result})
     except ValidationError as exc:
         # Never echo inputs, validator messages, context, or arbitrary mapping keys.
-        schema = HardwareIR.model_json_schema()
+        schema = HardwareIntermediateRepresentation.model_json_schema()
         fields = {"project_ir", *schema.get("properties", {})}
         for definition in schema.get("$defs", {}).values():
             fields.update(definition.get("properties", {}))
@@ -177,7 +177,7 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
             existing = None
         if existing is not None:
             return _tool_result(existing.state, project_id, _revision_identifier(existing))
-        project = HardwareIR.model_validate({"components": [], "nets": []})
+        project = HardwareIntermediateRepresentation.model_validate({"components": [], "nets": []})
         result = await run_in_threadpool(_compile, project, project_id, user_context)
         return ProjectToolResult.model_validate(result).model_dump(mode="json")
     if name == "forma.opencode.read_project":
@@ -189,15 +189,15 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
     try:
         # Accept object arguments from older clients and existing sessions too.
         project = (
-            HardwareIR.model_validate_json(arguments.project_ir)
+            HardwareIntermediateRepresentation.model_validate_json(arguments.project_ir)
             if isinstance(arguments.project_ir, str)
-            else HardwareIR.model_validate(arguments.project_ir)
+            else HardwareIntermediateRepresentation.model_validate(arguments.project_ir)
         )
     except TypeError as exc:
         # Legacy normalization can raise TypeError before Pydantic wraps it.
-        raise ValidationError.from_exception_data("HardwareIR", [{
+        raise ValidationError.from_exception_data("HardwareIntermediateRepresentation", [{
             "type": "model_type", "loc": (), "input": None,
-            "ctx": {"class_name": "HardwareIR"},
+            "ctx": {"class_name": "HardwareIntermediateRepresentation"},
         }]) from exc
     if name == "forma.opencode.validate_project":
         return _validation_result(project)
@@ -207,7 +207,7 @@ async def _call_tool(name: str, arguments: McpToolArguments | GenerateImageArgum
     raise PermissionError("The requested tool is not part of the project-only surface.")
 
 
-def _compile(project: HardwareIR, project_id: str, user_context: UserContext) -> dict[str, object]:
+def _compile(project: HardwareIntermediateRepresentation, project_id: str, user_context: UserContext) -> dict[str, object]:
     from forma_core.workspaces.projects.state import ProjectStateError
     # Images are authored by the server tool; a subsequent IR edit cannot erase
     # them, replace their provenance or make the agent echo their base64 payloads.
@@ -250,7 +250,7 @@ def _revision_identifier(revision: object | None) -> str | None:
     return str(value) if value else None
 
 
-def _tool_result(project: HardwareIR, project_id: str, revision_id: str | None) -> dict[str, object]:
+def _tool_result(project: HardwareIntermediateRepresentation, project_id: str, revision_id: str | None) -> dict[str, object]:
     public_project = project.model_copy(deep=True)
     public_project.assembly_metadata = image_metadata_for_agent(dict(project.assembly_metadata or {}))
     return {
@@ -264,7 +264,7 @@ def _tool_result(project: HardwareIR, project_id: str, revision_id: str | None) 
     }
 
 
-def _validation_result(project: HardwareIR) -> dict[str, object]:
+def _validation_result(project: HardwareIntermediateRepresentation) -> dict[str, object]:
     issues = validate_circuit(project.components, project.nets, project.requirements)
     return {"is_valid": not any(issue.severity.upper() == "CRITICAL" for issue in issues), "issues": [issue.model_dump(mode="json") for issue in issues]}
 

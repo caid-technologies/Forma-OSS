@@ -16,7 +16,7 @@ The complete DesignBrief identity and payload must match the persisted snapshot 
 
 The `project-revision.v1` result identifies:
 
-- the complete canonical `HardwareIR` state;
+- the complete canonical `HardwareIntermediateRepresentation` state;
 - structured components and functional systems;
 - every generated artifact reference;
 - every declared or generation-time assumption;
@@ -36,7 +36,7 @@ The source worker job is an idempotency identity. Replaying a successful job ret
 
 Failures use `WorkerError` inside a failed `WorkerResult`. Invalid payloads, mismatched frozen briefs, and cross-project writes are non-retryable. Provider and transient persistence failures are marked retryable. The orchestrator persists both shapes with the execution plan and advances the terminal workflow to `awaiting_feedback`.
 
-`HardwareIRGenerationEngine` adapts the existing structured generation pipeline with its legacy direct database write disabled. The engine receives only a prompt constructed from the frozen DesignBrief; the Generation worker commits the returned state through `ProjectStateService`.
+`HardwareIntermediateRepresentationGenerationEngine` adapts the existing structured generation pipeline with its legacy direct database write disabled. The engine receives only a prompt constructed from the frozen DesignBrief; the Generation worker commits the returned state through `ProjectStateService`.
 
 `WorkerResultStatus.PARTIAL` carries both preserved artifacts and stage failure details. A named failed stage can be retried without rerunning successful upstream or independent stages; only that stage and its transitive dependents are invalidated. Attempt history remains in the stage record, and replaying the same retry job is idempotent.
 

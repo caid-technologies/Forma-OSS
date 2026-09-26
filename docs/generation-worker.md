@@ -22,7 +22,7 @@ The `project-revision.v1` result identifies:
 - every declared or generation-time assumption;
 - the exact project, revision, DesignBrief, and source job identities.
 
-Web-research generation also exposes a durable `generation_run` in Hardware IR metadata. Every artifact-producing stage records its dependencies, status, attempt, input artifact references, output, error, and timestamps. Successful stages reuse `ProjectArtifact` references with stable Forma URIs and SHA-256 checksums, which flow into worker artifacts. The project record is created before structured generation, and each successful output is checkpointed before dependent work starts.
+Web-research generation also exposes a durable `generation_run` in Hardware Intermediate Representation metadata. Every artifact-producing stage records its dependencies, status, attempt, input artifact references, output, error, and timestamps. Successful stages reuse `ProjectArtifact` references with stable Forma URIs and SHA-256 checksums, which flow into worker artifacts. The project record is created before structured generation, and each successful output is checkpointed before dependent work starts.
 
 Stage failures produce `PARTIAL` when useful artifacts remain. Required dependents become `BLOCKED`, while independent work continues; for example, mechanical generation can complete after wiring fails. Project readiness (`draft`, `partial`, `core_ready`, or `complete`) is independent from the overall job result.
 

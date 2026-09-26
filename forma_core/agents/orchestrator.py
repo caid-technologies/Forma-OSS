@@ -55,7 +55,7 @@ from forma_core.runtime import (
 )
 from forma_core.user_integrations import ResolvedIntegrationSettings
 from forma_core.workspaces.projects.models import (
-    HardwareIR, ProjectOverview, FunctionalRequirements, 
+    HardwareIntermediateRepresentation, ProjectOverview, FunctionalRequirements, 
     ComponentInstance, ConnectionNet, PinReference, AssemblyStep, 
     MechanicalNotes, MechanicalSource, MechanicalVector3, MechanicalRotation3,
     MechanicalPlacement, MechanicalSpatialRelationship, PinMappingEntry,
@@ -306,7 +306,7 @@ def get_db_component_templates() -> List[Dict[str, Any]]:
         })
     return templates
 
-# Helper utilities to enrich HardwareIR schemas dynamically
+# Helper utilities to enrich HardwareIntermediateRepresentation schemas dynamically
 def extract_power_rails(components: List[ComponentInstance], nets: List[ConnectionNet]) -> List[PowerRail]:
     rails = []
     component_lookup = {component.ref_des: component for component in components}
@@ -395,7 +395,7 @@ def _is_enclosure_component(component: ComponentInstance) -> bool:
         return False
     return any(token in text for token in ["main enclosure", "enclosure shell", "project box", "shell", "housing", "case"])
 
-def _infer_render_dimensions(ir: HardwareIR) -> MechanicalVector3:
+def _infer_render_dimensions(ir: HardwareIntermediateRepresentation) -> MechanicalVector3:
     if ir.mechanical and ir.mechanical.render_dimensions:
         return ir.mechanical.render_dimensions
 
@@ -563,7 +563,7 @@ def _offset_for_axis(source: MechanicalPlacement, target: MechanicalPlacement, a
         return target.position.y_mm - source.position.y_mm
     return target.position.z_mm - source.position.z_mm
 
-def build_mechanical_render_data(ir: HardwareIR) -> HardwareIR:
+def build_mechanical_render_data(ir: HardwareIntermediateRepresentation) -> HardwareIntermediateRepresentation:
     """Populate the live Three.js/R3F render contract when the agent output is sparse."""
     ensure_system_architecture(ir)
     if not ir.mechanical or not ir.components:
@@ -742,7 +742,7 @@ class HardwarePipelineOrchestrator:
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
         generation_metadata: Optional[Dict[str, Any]] = None,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         """Orchestrates the 7-agent hardware compilation pipeline with verification loop."""
         self.validate_configured_model()
         self._active_generation_metadata = {
@@ -777,7 +777,7 @@ class HardwarePipelineOrchestrator:
             )
             validation_summary = ValidationSummary(critical=[issue])
             
-            project_ir = HardwareIR(
+            project_ir = HardwareIntermediateRepresentation(
                 hardware_ir_version="0.1",
                 overview=overview,
                 requirements=FunctionalRequirements(
@@ -1147,8 +1147,8 @@ class HardwarePipelineOrchestrator:
                 
                 validation_summary = build_validation_summary(validation_issues)
 
-                # Compile into final HardwareIR
-                project_ir = HardwareIR(
+                # Compile into final HardwareIntermediateRepresentation
+                project_ir = HardwareIntermediateRepresentation(
                     hardware_ir_version="0.1",
                     overview=overview,
                     requirements=requirements,
@@ -1284,7 +1284,7 @@ class HardwarePipelineOrchestrator:
         model_validation: LLMProviderValidation,
         image_bytes: Optional[bytes] = None,
         image_mime_type: Optional[str] = None,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         emit_agent_pipeline_event("default", "intent_parser", "started", details={"adapter": "parti-base-v1"})
         seed, seed_error = self._request_parti_base_seed(user_prompt, image_bytes, image_mime_type)
         if _generation_fallback_disabled() and (seed_error or not seed):
@@ -1590,7 +1590,7 @@ class HardwarePipelineOrchestrator:
         validation_summary = build_validation_summary(validation_issues)
 
         emit_agent_pipeline_event("default", "package_project", "started", details={"adapter": "parti-base-v1"})
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -1653,7 +1653,7 @@ class HardwarePipelineOrchestrator:
         image_bytes: Optional[bytes],
         image_mime_type: Optional[str],
         model_validation: LLMProviderValidation,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         """Run the default workflow as durable, dependency-aware artifact stages."""
 
         metadata = self._active_generation_metadata
@@ -1796,7 +1796,7 @@ class HardwarePipelineOrchestrator:
 
     def _generate_cad_stage(
         self,
-        project: HardwareIR,
+        project: HardwareIntermediateRepresentation,
         metadata: Dict[str, Any],
     ) -> Dict[str, Any]:
         ensure_native_cad_model(
@@ -2060,7 +2060,7 @@ class HardwarePipelineOrchestrator:
         stage_run: GenerationStageRun,
         *,
         model_validation: LLMProviderValidation,
-    ) -> HardwareIR:
+    ) -> HardwareIntermediateRepresentation:
         overview = stage_run.output("intent_parser", ProjectOverview)
         requirements = stage_run.output("requirements", FunctionalRequirements)
         architecture = stage_run.output("system_architecture", SystemArchitecture)
@@ -2124,7 +2124,7 @@ class HardwarePipelineOrchestrator:
                 description=str((root_failure.error or {}).get("message") or "Generation failed."),
                 troubleshooting="Retry the failed generation stage or review the provider logs.",
             ))
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             overview=overview,
             requirements=requirements,
             system_architecture=architecture,
@@ -2217,8 +2217,8 @@ class HardwarePipelineOrchestrator:
             return "partial"
         return "draft"
 
-    def save_project_to_db(self, prompt: str, ir: HardwareIR) -> str:
-        """Saves a successfully generated HardwareIR to the configured database."""
+    def save_project_to_db(self, prompt: str, ir: HardwareIntermediateRepresentation) -> str:
+        """Saves a successfully generated HardwareIntermediateRepresentation to the configured database."""
         ensure_agent_pipeline_active()
         generation_metadata = self._active_generation_metadata or {}
         project_id = canonical_project_uuid(
@@ -2282,7 +2282,7 @@ class HardwarePipelineOrchestrator:
             logger.error(f"Failed to save project to database: {e}")
             return ""
 
-    def _generate_simulated_project(self, prompt: str, has_image: bool = False) -> HardwareIR:
+    def _generate_simulated_project(self, prompt: str, has_image: bool = False) -> HardwareIntermediateRepresentation:
         """High-fidelity, deterministic simulated generator used as fallback when live LLM generation is unavailable."""
         logger.info(f"Generating simulated project package for: '{prompt}'")
         
@@ -2298,7 +2298,7 @@ class HardwarePipelineOrchestrator:
         else:
             return self._load_simulated_smart_lock_project(prompt)
 
-    def _load_simulated_test_tube_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_test_tube_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         """Provide a safe low-voltage test-tube monitor fixture for CLI smoke tests."""
         overview = ProjectOverview(
             title="Test Tube Monitor",
@@ -2359,7 +2359,7 @@ class HardwarePipelineOrchestrator:
             render_dimensions=MechanicalVector3(x_mm=30, y_mm=30, z_mm=100),
         )
         validation_issues = validate_circuit(components, [], requirements)
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -2382,7 +2382,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _generate_failed_project(self, error: Exception) -> HardwareIR:
+    def _generate_failed_project(self, error: Exception) -> HardwareIntermediateRepresentation:
         """Return an empty, invalid project that preserves a pipeline failure for callers."""
         error_type = error.__class__.__name__
         error_message = str(error).strip() or error_type
@@ -2392,7 +2392,7 @@ class HardwarePipelineOrchestrator:
             description=error_message,
             troubleshooting="Retry generation or review the configured provider and model logs.",
         )
-        return HardwareIR(
+        return HardwareIntermediateRepresentation(
             assembly_metadata={
                 "status": "failed",
                 "generation_error": {
@@ -2405,7 +2405,7 @@ class HardwarePipelineOrchestrator:
             is_valid=False,
         )
 
-    def _load_simulated_mp3_player_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_mp3_player_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         """Reference-style Forma project used for prompt+image MP3 player examples."""
         def pin(pin_id: str, name: str, pin_type: str, voltage: Optional[float] = None) -> PinDefinition:
             return PinDefinition(pin_id=pin_id, name=name, pin_type=pin_type, voltage=voltage, description=name)
@@ -2670,7 +2670,7 @@ class HardwarePipelineOrchestrator:
         )
         validation_issues = validate_circuit(components, nets, requirements)
         validation_summary = build_validation_summary(validation_issues)
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -2707,7 +2707,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _load_simulated_watering_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_watering_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         overview = ProjectOverview(
             title="Auto-Grow Plant Moisture Monitor & Watering System",
             description=f"An automated soil-sensing irrigation and environment dashboard compiled for: '{prompt}'",
@@ -2940,7 +2940,7 @@ class HardwarePipelineOrchestrator:
         buses = extract_buses(nets)
         current_draw = estimate_current_draw(components)
 
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -2985,7 +2985,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _load_simulated_thermostat_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_thermostat_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         overview = ProjectOverview(
             title="Smart Nest-Style Environmental Thermostat Controller",
             description=f"Intelligent wall-mounted environment controller with climate regulation compiled for: '{prompt}'",
@@ -3205,7 +3205,7 @@ class HardwarePipelineOrchestrator:
         buses = extract_buses(nets)
         current_draw = estimate_current_draw(components)
 
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,
@@ -3250,7 +3250,7 @@ class HardwarePipelineOrchestrator:
         self.save_project_to_db(prompt, project_ir)
         return project_ir
 
-    def _load_simulated_smart_lock_project(self, prompt: str) -> HardwareIR:
+    def _load_simulated_smart_lock_project(self, prompt: str) -> HardwareIntermediateRepresentation:
         overview = ProjectOverview(
             title="Biometric & Keyless Bluetooth Smart Deadbolt",
             description=f"A smart lock mechanism utilizing servos, status indicator LEDs, and low power bluetooth.",
@@ -3455,7 +3455,7 @@ class HardwarePipelineOrchestrator:
         buses = extract_buses(nets)
         current_draw = estimate_current_draw(components)
 
-        project_ir = HardwareIR(
+        project_ir = HardwareIntermediateRepresentation(
             hardware_ir_version="0.1",
             overview=overview,
             requirements=requirements,

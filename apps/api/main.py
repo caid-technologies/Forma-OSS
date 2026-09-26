@@ -697,7 +697,7 @@ def runtime_config_endpoint(user: UserContext = Depends(optional_user_context)):
 async def generate_project_endpoint(request: GenerateProjectRequest, user: UserContext = Depends(require_user_context)):
     """
     Submits a natural language hardware idea and optional multimodal reference image.
-    Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware IR, SVG schematic, and Mermaid diagram.
+    Runs the 7-agent compilation workflow, circuit safety auditor, and returns a verified Hardware Intermediate Representation, SVG schematic, and Mermaid diagram.
     """
     require_hosted_chat_enabled()
     owner_user_id = _require_authenticated_user(user)
@@ -2540,7 +2540,7 @@ def list_my_projects_endpoint(
 
 @app.get("/projects/{project_id}/image-summary")
 def get_project_image_summary_endpoint(project_id: str, user: UserContext = Depends(optional_user_context)):
-    """Returns gallery-safe project metadata without validating or expanding the full hardware IR."""
+    """Returns gallery-safe project metadata without validating or expanding the full hardware intermediate representation."""
     try:
         resolved = resolve_project_for_read(project_id, user.owner_user_id)
     except ProjectReadError as exc:

@@ -220,7 +220,7 @@ class ProjectManifest(BaseModel):
 
     @classmethod
     def from_document(cls, document: Mapping[str, Any]) -> "ProjectManifest":
-        """Accept both the canonical wrapper and legacy raw HardwareIntermediateRepresentation JSON."""
+        """Accept both the canonical wrapper and legacy raw Hardware Intermediate Representation JSON."""
         raw = dict(document)
         nested = raw.get("project_ir")
         if not isinstance(nested, Mapping):

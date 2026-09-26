@@ -65,7 +65,7 @@ pip install caid-forma-core
 ```python
 import forma_core
 from forma_core.generation import HardwarePipelineOrchestrator, list_workflows
-from forma_core.models import HardwareIR
+from forma_core.models import HardwareIntermediateRepresentation
 ```
 
 ## Docker
@@ -199,7 +199,7 @@ curl -X POST http://127.0.0.1:8000/projects/<project-id>/iterate -H 'Content-Typ
 
 `scripts/quality/test.sh` runs the offline unit suite with `unittest` after a Python compile check. `scripts/models/sample.py` sends the same prompt to each configured/allowed provider-model pair and saves a comparison report under `.logs/model-samples/`. `scripts/models/sample_async.py` does the same work concurrently, running one nonblocking task per selected model up to `--concurrency`. `verify-llm-providers.py` discovers the configured runtime provider/model pairs from `.env`, sends a tiny structured JSON prompt, and exits non-zero if any live provider returns invalid output. Use `--config-only` to validate selectors without spending tokens or waiting on long Runpod jobs. Use `--save` or `run-llm-smoke-tests.py` to write timestamped reports under `.logs/llm-smoke/`, plus `.logs/llm-smoke/latest.json`. The automated runner also accepts `LLM_SMOKE_LLM`, `LLM_SMOKE_CONFIG_ONLY`, `LLM_SMOKE_TIMEOUT_SECONDS`, and `LLM_SMOKE_OUTPUT_DIR` for CI or cron-style runs.
 
-Generation and project iteration logic lives in the reusable `forma_core` package, published as the `caid-forma-core` PyPI distribution. New code should import from `forma_core.generation`, `forma_core.iteration`, `forma_core.project_objects`, `forma_core.models`, `forma_core.validation`, `forma_core.llm`, `forma_core.images`, `forma_core.runtime`, and `forma_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIR` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIR`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. A `product.mech` chat or CLI iteration can change shape, dimensions, placement, materials, and fabrication details while preserving the BOM and electrical connectivity. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
+Generation and project iteration logic lives in the reusable `forma_core` package, published as the `caid-forma-core` PyPI distribution. New code should import from `forma_core.generation`, `forma_core.iteration`, `forma_core.project_objects`, `forma_core.models`, `forma_core.validation`, `forma_core.llm`, `forma_core.images`, `forma_core.runtime`, and `forma_core.selectors`; the old backend modules are compatibility wrappers. Projects are represented as `FormaProjectObject` values with an object version plus versioned namespaces such as `product.mech`, `product.electrical`, `product.validation`, `product.assembly`, `project.docs`, and `project.history`. `ProjectIterator.iterate_project(...)` takes an existing `HardwareIntermediateRepresentation` plus a natural-language instruction, can target a namespace, returns a full revised `HardwareIntermediateRepresentation`, normalizes revision/history/object metadata, redacts bulky data URLs from LLM context, and reruns circuit validation before returning. A `product.mech` chat or CLI iteration can change shape, dimensions, placement, materials, and fabrication details while preserving the BOM and electrical connectivity. `ProjectSelfCorrectionAgent` builds validation-driven repair instructions and applies them through the same namespace-aware iterator.
 
 Performance benchmarks live under `evals/performance/` and save JSON reports under `.logs/benchmarks/`. See [`evals/README.md`](../evals/README.md) for the performance/quality distinction, shared datasets, reports, and extension guidance.
 ```bash
@@ -413,7 +413,7 @@ Use the shared `LLM_API_KEY`, `LLM_MODEL`, and `LLM_BASE_URL` variables with `LL
 - `FORMA_HOSTED_LATEST_VERSION`: Hosted package version advertised by `/forma/version` (defaults to the installed core version).
 - `FORMA_HOSTED_MINIMUM_SUPPORTED_VERSION`: Oldest package version accepted by hosted CLI requests (defaults to the installed core version).
 - `FORMA_HOSTED_PROTOCOL_VERSION`: Hosted CLI/API protocol version (default: `1`).
-- `FORMA_SUPPORTED_HARDWARE_IR_VERSIONS`: Comma-separated Hardware IR schemas accepted by hosted uploads (default: `0.2`).
+- `FORMA_SUPPORTED_HARDWARE_IR_VERSIONS`: Comma-separated Hardware Intermediate Representation schemas accepted by hosted uploads (default: `0.2`).
 - `HF_ARTIFACT_REPO_ID` / `HUGGINGFACE_ARTIFACT_REPO_ID` / `HF_DATASET_REPO_ID`: Optional Hugging Face dataset repo for uploaded benchmark, output, and eval artifacts.
 - `HF_ARTIFACT_PATH_PREFIX`: Optional path prefix inside the artifact repo. Defaults to `forma`.
 - `EXTERNAL_SOURCE_PROVIDER`: External web/source provider for `workflow=web_research`. Firecrawl is the only active provider for now; legacy `auto` or `tavily` values are normalized to `firecrawl`.

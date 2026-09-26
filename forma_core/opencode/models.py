@@ -9,7 +9,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, ValidationInfo, field_validator
 
-from forma_core.workspaces.projects.models import HardwareIR, ValidationIssue
+from forma_core.workspaces.projects.models import HardwareIntermediateRepresentation, ValidationIssue
 from forma_core.workspaces.projects.outcomes import DesignOutcome
 
 
@@ -375,7 +375,7 @@ class ProjectToolResult(BaseModel):
 
     project_id: UUID
     revision_id: str | None = None
-    project_ir: HardwareIR
+    project_ir: HardwareIntermediateRepresentation
     validation: ProjectValidation
     mermaid_code: str
     svg_schematic: str

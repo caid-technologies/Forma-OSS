@@ -227,7 +227,7 @@ export default function ProjectExportsPanel({
               <FileJson className="h-5 w-5 shrink-0 text-[rgb(var(--forma-cyan-rgb))]" />
               <span className="min-w-0">
                 <span className="block text-xs font-semibold text-[var(--forma-text-strong)]">Project JSON</span>
-                <span className="mt-1 block text-[10px] text-[var(--forma-text-muted)]">Full Hardware IR and project metadata (.json)</span>
+                <span className="mt-1 block text-[10px] text-[var(--forma-text-muted)]">Full Hardware Intermediate Representation and project metadata (.json)</span>
               </span>
             </span>
             <Download className="h-4 w-4 shrink-0 text-[var(--forma-text-muted)]" />

@@ -381,7 +381,7 @@ const defaultAgentPipelineSteps: AgentPipelineStep[] = [
     id: "package_project",
     agent: "Project Packager",
     label: "Packaging project artifacts",
-    description: "Building the HardwareIR, diagrams, validation summary, and saved record.",
+    description: "Building the Hardware Intermediate Representation, diagrams, validation summary, and saved record.",
     duration_ms: 3500,
   },
 ];
@@ -390,7 +390,7 @@ const optionalImagePipelineStep: AgentPipelineStep = {
   id: "image_generation",
   agent: "Product Image Agent",
   label: "Generating product visuals",
-  description: "Creating optional concept images from the completed HardwareIR visual spec.",
+  description: "Creating optional concept images from the completed Hardware Intermediate Representation visual spec.",
   duration_ms: 8000,
   optional: true,
 };
@@ -4915,7 +4915,7 @@ export function FormaWorkspace({
       if (signal?.aborted) return false;
 
       if (!data?.project_ir || typeof data.project_ir !== "object" || !Array.isArray(data.project_ir.components)) {
-        throw new Error("OpenCode finished, but the project response contains no usable Hardware IR. Try opening the saved project again.");
+        throw new Error("OpenCode finished, but the project response contains no usable Hardware Intermediate Representation. Try opening the saved project again.");
       }
 
       const ir = withProjectResponseMetadata(data.project_ir, data);

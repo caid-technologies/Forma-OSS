@@ -634,7 +634,7 @@ for (const resultMode of ["unpublished", "published", "draft", "wired", "forbidd
         await expect.poll(() => projectProbes.length).toBeGreaterThan(0);
         await page.clock.runFor(6_000);
         await expect(stop).toHaveCount(0);
-        await expect(page.getByRole("main").getByText(/OpenCode.*(?:project could not be loaded|no usable Hardware IR|project is not available)/).first()).toBeVisible();
+        await expect(page.getByRole("main").getByText(/OpenCode.*(?:project could not be loaded|no usable Hardware Intermediate Representation|project is not available)/).first()).toBeVisible();
         await expect(page.getByRole("main").getByText(/Hello from OpenCode/).first()).toBeVisible();
         await expect(projectOutput).toHaveCount(0);
         await expect(page).toHaveURL(originalChatUrl);

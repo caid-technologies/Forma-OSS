@@ -103,7 +103,7 @@ See the [CLI and runtime reference](docs/runtime-reference.md) for generation, i
 ## How it works
 
 1. **Describe the project.** Start with requirements and optional reference images; refine the design through conversation.
-2. **Author a structured design.** An agent produces [Hardware IR](docs/hardware-ir.md), Forma's typed, versioned representation of components, connections, geometry, and project history.
+2. **Author a structured design.** An agent produces [Hardware Intermediate Representation](docs/hardware-ir.md), Forma's typed, versioned representation of components, connections, geometry, and project history.
 3. **Compile and inspect.** Forma validates the design and produces schematics, previews, and supported CAD artifacts. Iterate on the saved project as your requirements change.
 
 With the local agent workflow, your host agent supplies the model and Forma performs deterministic compilation. The reusable `forma_core` package also supports server-side generation. See [architecture](docs/architecture.md) and [agent integrations](docs/agent-clients.md).
@@ -114,7 +114,7 @@ With the local agent workflow, your host agent supplies the model and Forma perf
 | --- | --- |
 | Install or self-host Forma | [Setup](docs/setup.md) · [CLI and runtime reference](docs/runtime-reference.md) |
 | Connect my own agent | [Agent integrations](docs/agent-clients.md) · [Model and image configuration](docs/opencode-models-and-images.md) |
-| Understand the project format | [Hardware IR](docs/hardware-ir.md) · [Architecture](docs/architecture.md) |
+| Understand the project format | [Hardware Intermediate Representation](docs/hardware-ir.md) · [Architecture](docs/architecture.md) |
 | Explore examples and motion | [Examples](docs/examples.md) · [Gear motion preview](docs/gear-motion-preview.md) |
 | Contribute or evaluate results | [Contributing](CONTRIBUTING.md) · [Development](docs/development.md) · [Evaluations](evals/README.md) |
 

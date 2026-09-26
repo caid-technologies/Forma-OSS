@@ -178,8 +178,8 @@ def build_iteration_prompt(
             f"{json.dumps(namespace_payload(current_ir, normalized_namespace), indent=2, sort_keys=True)}\n"
         )
     return (
-        "You are Forma's project iteration engine. Revise an existing HardwareIntermediateRepresentation project.\n"
-        "Return one complete HardwareIntermediateRepresentation JSON document, not a patch and not markdown.\n"
+        "You are Forma's project iteration engine. Revise an existing Hardware Intermediate Representation project.\n"
+        "Return one complete Hardware Intermediate Representation JSON document, not a patch and not markdown.\n"
         "Preserve every part of the project that the instruction does not explicitly change.\n"
         "Keep the existing project_id, reference designators, and stable net IDs unless a requested change requires updates.\n"
         "If you add, remove, or replace components, update components, nets, buses, pin_mappings, power_rails, "

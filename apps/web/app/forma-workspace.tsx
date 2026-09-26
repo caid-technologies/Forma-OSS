@@ -5499,6 +5499,7 @@ export function FormaWorkspace({
     identityKey: authIdentityKey,
     enabled: currentUserOwnsProject,
     apiUrl: API_URL,
+    latestRevisionId: revisionFromProject(projectIR).revisionId,
     latestRevision: revisionNumber(projectIR?.assembly_metadata?.project_revision) || revisionNumber(projectIR?.assembly_metadata?.revision),
     getHeaders: generationRequestHeaders,
     loadLatest: (signal) => loadOldProject(currentProjectId, {

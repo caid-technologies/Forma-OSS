@@ -89,7 +89,7 @@ def coerce_hardware_ir(value: HardwareIR | Dict[str, Any]) -> HardwareIR:
         return value.model_copy(deep=True)
     if isinstance(value, dict):
         return HardwareIR.model_validate(value)
-    raise TypeError("current project must be a HardwareIR or hardware IR dictionary.")
+    raise TypeError("current project must be a HardwareIR or hardware intermediate representation dictionary.")
 
 
 def normalize_iteration_instruction(value: str) -> str:

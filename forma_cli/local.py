@@ -206,7 +206,7 @@ def import_project(
     assembly_step: str | Path | None = None,
     preview_stl: str | Path | None = None,
 ) -> ProjectManifest:
-    """Import a generated HardwareIntermediateRepresentation project and make its CAD renderable locally."""
+    """Import a generated Hardware Intermediate Representation project and make its CAD renderable locally."""
     source_path = Path(source).expanduser().resolve()
     if source_path.is_dir():
         source_path = source_path / PROJECT_FILENAME
